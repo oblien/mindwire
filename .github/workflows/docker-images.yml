@@ -71,7 +71,7 @@ jobs:
 
       - name: Image labels
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/mindwire-console
 
@@ -132,7 +132,7 @@ jobs:
       # Manual dispatch → the input tag (or short SHA), and NEVER :latest.
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/mindwire-console
           tags: |
