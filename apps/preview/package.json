@@ -37,7 +37,7 @@
     "tailwind-merge": "^2.6.0"
   },
   "optionalDependencies": {
-    "dockerode": "^4.0.0",
+    "dockerode": "^5.0.1",
     "ssh2": "^1.16.0"
   },
   "devDependencies": {
