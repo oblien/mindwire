@@ -79,7 +79,7 @@ jobs:
       # leaves nothing referenced in the registry.
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/preview/Dockerfile
