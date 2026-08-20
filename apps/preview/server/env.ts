@@ -1,0 +1,142 @@
+// Server configuration, read once at boot. Secrets (auth-signing key, daemon token, Oblien
+// fallback creds, OAuth client secrets) live here and never leave the process — the browser only ever
+// sees `SessionStatus` and the secret-free `PublicConfig`.
+import { fileURLToPath } from "node:url";
+
+import type { ConsoleMode } from "../shared/api";
+
+function str(name: string, fallback: string): string {
+  const v = process.env[name];
+  return v && v.length > 0 ? v : fallback;
+}
+
+function optional(name: string): string | undefined {
+  const v = process.env[name];
+  return v && v.length > 0 ? v : undefined;
+}
+
+/** Parse a comma/space-separated env list into trimmed non-empty entries. */
+function list(name: string): string[] {
+  return (process.env[name] ?? "")
+    .split(/[,\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Parse a boolean env var (`1/true/yes/on`), falling back when unset. */
+function bool(name: string, fallback: boolean): boolean {
+  const v = process.env[name];
+  if (v === undefined || v.length === 0) return fallback;
+  return /^(1|true|yes|on)$/i.test(v.trim());
+}
+
+/**
+ * OAuth app credentials for a social provider, or `undefined` when the operator hasn't configured one.
+ * BOTH the id and the secret must be present — a half-configured provider is treated as absent so the
+ * login screen never offers a button that can't complete. e.g. `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`.
+ */
+function socialCreds(prefix: string): { clientId: string; clientSecret: string } | undefined {
+  const clientId = optional(`${prefix}_CLIENT_ID`);
+  const clientSecret = optional(`${prefix}_CLIENT_SECRET`);
+  return clientId && clientSecret ? { clientId, clientSecret } : undefined;
+}
+
+const isProd = process.env.NODE_ENV === "production";
+
+/**
+ * Deployment mode. `cloud` = the hosted MindWire SaaS (social sign-in is offered when OAuth apps are
+ * configured); anything else = `self-hosted` (email/password only). Defaults to self-hosted so a fresh
+ * clone or single-tenant Docker deploy is locked down unless it explicitly opts into cloud behavior.
+ */
+const mode: ConsoleMode =
+  str("CONSOLE_MODE", "self-hosted").toLowerCase() === "cloud" ? "cloud" : "self-hosted";
+
+export const env = {
+  isProd,
+  mode,
+  port: Number(str("PORT", "8787")),
+
+  // ---- branding / external links (surfaced to the login gate via PublicConfig) ----
+  /** Product name shown in the login + top-nav chrome. */
+  appName: str("APP_NAME", "MindWire"),
+  /** External docs URL (the "Docs" links, in-app and on the login screen). */
+  docsUrl: str("DOCS_URL", "https://mindwire.sh/docs"),
+  /** Public source repository URL (a login footer link, and the GitHub social button's home). */
+  githubUrl: str("GITHUB_URL", "https://github.com/oblien/mindwire"),
+
+  /** Default daemon the session connects to when the user hasn't picked their own. */
+  daemonUrl: str("DAEMON_URL", "http://127.0.0.1:8790"),
+  daemonToken: optional("DAEMON_TOKEN"),
+
+  /**
+   * Seed a brand-new session's fleet with the deployment's default daemon (`daemonUrl`). A single-tenant
+   * self-host wants this ON so a fresh sign-in can chat immediately against the machine's own daemon. A
+   * multi-tenant cloud/SaaS deploy wants it OFF: each user starts with an EMPTY fleet and wires their own
+   * runtime — the console never assumes a shared or local daemon on the user's behalf. Defaults to on for
+   * self-hosted, off for cloud; override with `SEED_DEFAULT_DAEMON`.
+   */
+  seedDefaultDaemon: bool("SEED_DEFAULT_DAEMON", mode !== "cloud"),
+
+  /** Harness selected for the session (the daemon's AGENT_TYPE). */
+  defaultAgent: str("MINDWIRE_AGENT", "claude-code"),
+
+  /**
+   * Allow the "control the current host" runtime — an embedded daemon on the machine the console runs
+   * on. OFF in production by default: a multi-tenant SaaS deploy must never let a signed-up user run
+   * agents directly on its host. A self-host (incl. single-tenant Docker) opts in with
+   * `ALLOW_LOCAL_RUNTIME=true` to manage its own machine. Dev enables it for convenience.
+   */
+  allowLocal: bool("ALLOW_LOCAL_RUNTIME", !isProd),
+
+  // ---- multi-user auth (Better Auth) ----
+  // The console is session-protected: every user signs in (email/password), gets an isolated fleet, and
+  // sets their own API keys inside the daemon. The only server-side credential is this signing key.
+
+  /** Origin the app is served from — Better Auth uses it for cookies and origin (CSRF) checks. */
+  baseUrl: str("BASE_URL", `http://127.0.0.1:${Number(str("PORT", "8787"))}`),
+
+  /** Better Auth signing secret. MUST be ≥32 chars and overridden in any real deployment. */
+  authSecret: str(
+    "AUTH_SECRET",
+    optional("SESSION_SECRET") ?? "mindwire-preview-dev-secret-change-me-please-32+",
+  ),
+
+  /**
+   * Social (OAuth) sign-in apps, honored ONLY in cloud mode (see `mode`). Each provider is offered on
+   * the login screen only when both its id and secret are set. The OAuth callback URL to register with
+   * the provider is `${baseUrl}/api/account/callback/{github|google}`. Secrets stay server-side.
+   */
+  social: {
+    github: socialCreds("GITHUB"),
+    google: socialCreds("GOOGLE"),
+  },
+
+  /**
+   * SQLite file backing the user/session tables. Self-host (incl. Docker) should point this at a
+   * persistent volume so accounts survive restarts. Defaults next to the app.
+   */
+  authDbPath: str("AUTH_DB_PATH", fileURLToPath(new URL("../.data/auth.db", import.meta.url))),
+
+  /**
+   * Extra browser origins allowed to call the auth endpoints (CSRF allowlist). `baseUrl` is always
+   * trusted; in dev we also trust the Vite dev server so the split-origin proxy works.
+   */
+  trustedOrigins: (() => {
+    const configured = list("TRUSTED_ORIGINS");
+    const devDefaults = isProd
+      ? []
+      : ["http://127.0.0.1:5174", "http://localhost:5174"];
+    return [...new Set([...configured, ...devDefaults])];
+  })(),
+
+  /** Optional Oblien API base override (else the `oblien` SDK default, api.oblien.com). */
+  oblienBaseUrl: optional("OBLIEN_BASE_URL"),
+
+  /**
+   * Built SPA directory, served statically in prod. The server runs from `dist-server/index.js`, so
+   * the Vite build sits one level up in `dist/`. Unused in dev (Vite serves the client).
+   */
+  clientDist: fileURLToPath(new URL("../dist", import.meta.url)),
+} as const;
+
+export type Env = typeof env;

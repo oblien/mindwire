@@ -1,0 +1,73 @@
+# ---- Node / TypeScript ----
+node_modules/
+dist/
+build/
+out/
+*.tsbuildinfo
+.turbo/
+coverage/
+.eslintcache
+
+# Package manager artifacts (keep ONE lockfile per repo; see below)
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+next-env.d.ts
+.next/
+
+# ---- Go ----
+# Compiled binaries / build output
+/daemon/dist/
+/daemon/bin/
+*.exe
+*.test
+*.out
+# Go workspace file (local, machine-specific)
+go.work
+go.work.sum
+
+# ---- Fumadocs generated content ----
+# The .source cache and the four generated reference trees are rebuilt by `bun run gen:reference`
+# + the fumadocs-mdx step. Ignore ONLY the generated artifacts so the hand-authored pages in the same
+# reference/ folder (meta.json, agents/meta.json, agents/{claude,codex}.mdx) stay tracked.
+/apps/web/.source/
+/apps/web/content/docs/reference/rest/
+/apps/web/content/docs/reference/sdk-ts/
+/apps/web/content/docs/reference/sdk-go/
+/apps/web/content/docs/reference/agents/index.mdx
+
+# ---- Daemon runtime state ----
+agent-state.json
+.mindwire-state.json
+*.log
+
+# ---- Prebuilt daemon packages + local dev binary (from packages/sdk/scripts/build-daemon.mjs) ----
+/packages/sdk/npm/
+/packages/sdk/bin/
+
+# ---- Env / secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Editors / IDEs ----
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.swp
+*~
+
+# ---- Logs / temp ----
+*.tmp
+tmp/
+.cache/
+
+# Preview/console local state — Better Auth SQLite (real accounts + password hashes). Never commit.
+apps/preview/.data/

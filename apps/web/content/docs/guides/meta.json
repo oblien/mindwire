@@ -1,0 +1,21 @@
+{
+  "title": "Guides",
+  "pages": [
+    "quickstart",
+    "streaming",
+    "tool-events",
+    "interaction",
+    "steering",
+    "sessions",
+    "resolve",
+    "configuration",
+    "compaction",
+    "prompts-and-memory",
+    "mcp",
+    "attachments",
+    "agents",
+    "setup",
+    "authentication",
+    "destinations"
+  ]
+}

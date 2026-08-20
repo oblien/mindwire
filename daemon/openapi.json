@@ -1,0 +1,4593 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Mindwire daemon API",
+    "version": "0.4.0",
+    "description": "One protocol over every coding-agent harness. The daemon hosts every registered adapter; a request selects one with `?agent=<type>` (falling back to the default). `GET /healthz` is public; everything else sits behind a bearer token (empty token = no auth, for dev/trusted networks). Turns/runs/chats are shared (keyed by chatId); auth, config, and creds are isolated per agent type."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8790",
+      "description": "Local daemon (default bind)"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Liveness and catalog."
+    },
+    {
+      "name": "Agent",
+      "description": "Per-agent capabilities, settings, toolchain, and doctor."
+    },
+    {
+      "name": "Auth",
+      "description": "Step-flow authentication, per agent type."
+    },
+    {
+      "name": "Turns & runs",
+      "description": "Start a turn and stream its unified event feed."
+    },
+    {
+      "name": "Chats",
+      "description": "Chat list and transcripts."
+    },
+    {
+      "name": "Notifications",
+      "description": "Provider-agnostic notification webhook + local SSE."
+    },
+    {
+      "name": "MCP",
+      "description": "Persistent MCP-server config the agent loads on every run."
+    },
+    {
+      "name": "Providers",
+      "description": "Custom OpenAI-compatible LLM providers the agent can register and route runs to."
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Set `DAEMON_TOKEN` on the daemon; empty = no auth."
+      }
+    },
+    "parameters": {
+      "agent": {
+        "name": "agent",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Agent type to target (e.g. `claude-code`). Falls back to the daemon default."
+      },
+      "id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "dir": {
+        "name": "dir",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Project directory for project-scope memory/prompt operations. Defaults to the daemon's own working directory."
+      },
+      "scope": {
+        "name": "scope",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/MemoryScope"
+        },
+        "description": "Which single-template scope to target. Defaults to `user`."
+      },
+      "name": {
+        "name": "name",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Prompt template name (bare, without a `.md` suffix or path separators)."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "agent": {
+            "type": "string",
+            "description": "The daemon's default agent type."
+          },
+          "version": {
+            "type": "string",
+            "description": "agent.Version \u2014 the definitions/protocol version."
+          }
+        },
+        "required": [
+          "ok",
+          "agent",
+          "version"
+        ]
+      },
+      "Stats": {
+        "type": "object",
+        "description": "The daemon process's resource snapshot (GET /stats).",
+        "properties": {
+          "os": {
+            "type": "string",
+            "description": "GOOS the daemon runs on."
+          },
+          "arch": {
+            "type": "string",
+            "description": "GOARCH the daemon runs on."
+          },
+          "goVersion": {
+            "type": "string",
+            "description": "Go runtime version."
+          },
+          "numCpu": {
+            "type": "integer",
+            "description": "Logical CPU cores visible to the daemon."
+          },
+          "numGoroutine": {
+            "type": "integer",
+            "description": "Live goroutines \u2014 a rough concurrency gauge."
+          },
+          "memAllocBytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Heap objects currently in use (runtime HeapAlloc), bytes."
+          },
+          "memSysBytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total memory reserved from the OS (runtime Sys), bytes."
+          },
+          "numGc": {
+            "type": "integer",
+            "description": "Completed GC cycles since boot."
+          },
+          "uptimeSeconds": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Seconds since the daemon started."
+          }
+        },
+        "required": [
+          "os",
+          "arch",
+          "goVersion",
+          "numCpu",
+          "numGoroutine",
+          "memAllocBytes",
+          "memSysBytes",
+          "numGc",
+          "uptimeSeconds"
+        ]
+      },
+      "ProcessSample": {
+        "type": "object",
+        "description": "One running turn's live resource use at a single sampling tick. Labels and numbers only — never a secret. A turn runs in its own process group; the figures are summed over that whole group (bash → node → the agent).",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "description": "Agent type this turn belongs to."
+          },
+          "chatId": {
+            "type": "string",
+            "description": "Chat/session the turn is running for."
+          },
+          "runId": {
+            "type": "string",
+            "description": "Run id of the turn (the sampling key)."
+          },
+          "pid": {
+            "type": "integer",
+            "description": "Group-leader pid — the whole turn's process tree."
+          },
+          "cpuPercent": {
+            "type": "number",
+            "format": "double",
+            "description": "CPU% over the last sampling window (delta of cumulative CPU seconds ÷ wall-clock). 0 on the first tick a group is seen."
+          },
+          "rssBytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Resident set size (physical memory) summed over the process group, bytes."
+          }
+        },
+        "required": [
+          "agent",
+          "chatId",
+          "runId",
+          "pid",
+          "cpuPercent",
+          "rssBytes"
+        ]
+      },
+      "ProcessFrame": {
+        "type": "object",
+        "description": "One sampling tick of the on-demand resource stream: every currently-tracked turn that had a live process this tick. An empty samples array (no running turns) is a valid keep-alive frame.",
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 timestamp of the tick."
+          },
+          "samples": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessSample"
+            }
+          }
+        },
+        "required": [
+          "at",
+          "samples"
+        ]
+      },
+      "TurnRequest": {
+        "type": "object",
+        "properties": {
+          "chatId": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Project dir the turn runs in (optional override)."
+          },
+          "options": {
+            "$ref": "#/components/schemas/TurnOptions"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "turn",
+              "resolve"
+            ],
+            "description": "Run shape. Absent or \"turn\" (default) = one ordinary turn that ends at the CLI's terminal result. \"resolve\" = a global-resolve run: the daemon holds the run open and auto-continues the agent's own multi-step work until the task is globally complete, returning a parent Run whose per-iteration turns are its children (GET /runs/{id}/children)."
+          },
+          "resolve": {
+            "$ref": "#/components/schemas/ResolveOptions",
+            "description": "Optional bounds for a resolve-mode run (ignored unless mode is \"resolve\")."
+          }
+        },
+        "required": [
+          "chatId",
+          "message"
+        ]
+      },
+      "ResolveOptions": {
+        "type": "object",
+        "description": "Optional per-request bounds on a global-resolve run. A zero/absent field falls back to the daemon default (max iterations / overall deadline).",
+        "properties": {
+          "maxIterations": {
+            "type": "integer",
+            "description": "Cap on auto-continued iterations before the run ends with stopReason \"capped\". 0/absent = daemon default."
+          },
+          "deadlineSeconds": {
+            "type": "integer",
+            "description": "Overall wall-clock budget for the whole resolve, in seconds. 0/absent = daemon default."
+          }
+        }
+      },
+      "TurnOptions": {
+        "type": "object",
+        "description": "Per-turn parameters distinct from the agent's sticky settings. All optional.",
+        "properties": {
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Per-turn setting overrides addressed by canonical key (see Field.canon). Resolved canon\u2192the selected agent's key and filtered to declared non-secret keys server-side; overrides win over the sticky config."
+          },
+          "systemPrompt": {
+            "type": "string",
+            "description": "Fully REPLACES the agent's default system prompt for this turn (distinct from the sticky appendSystemPrompt)."
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Pin an explicit session id for this turn."
+          },
+          "continueLatest": {
+            "type": "boolean",
+            "description": "Resume the most recent session in the cwd."
+          },
+          "forkOnResume": {
+            "type": "boolean",
+            "description": "Branch a new session id from the resumed one instead of continuing it in place."
+          },
+          "outputSchema": {
+            "description": "JSON Schema constraining structured output. Materialized to a per-turn temp file (e.g. Claude's --json-schema); cleaned up when the turn ends."
+          },
+          "mcpServers": {
+            "description": "MCP servers configuration object (the shape the agent's --mcp-config file expects). Materialized to a per-turn temp file; not persisted."
+          },
+          "subagents": {
+            "description": "Per-turn subagent definitions in the agent's native shape (Claude's --agents inline JSON: {name:{description,prompt}}). Gated by the subagents capability. Not persisted."
+          },
+          "claudeSettings": {
+            "description": "Per-turn settings/hooks bundle in the agent's native format (Claude's --settings, where hooks/permissions/env live). Materialized to a per-turn temp file; gated by the claudeSettings capability. Not persisted."
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Attachment"
+            },
+            "description": "Files made available to the turn, referenced from the message text."
+          }
+        }
+      },
+      "Attachment": {
+        "type": "object",
+        "description": "A file made available to a turn (path-reference only). Set path for a file already on disk (preferred), or data (base64) for inline bytes the daemon writes to a temp file, then references.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Display/file name shown to the agent when referenced."
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute path to a file already on disk (preferred)."
+          },
+          "mime": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string",
+            "description": "Inline bytes, base64-encoded (Go []byte); written to a temp file, then referenced."
+          }
+        }
+      },
+      "RunStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "done",
+          "error",
+          "cancelled"
+        ]
+      },
+      "Run": {
+        "type": "object",
+        "description": "A single turn's lifecycle record (the stream carries its events). A global-resolve run is a PARENT (kind=\"resolve\") whose auto-continued iterations are child runs carrying parentId; an ordinary turn leaves all resolve fields absent.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "chatId": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "error": {
+            "type": "string"
+          },
+          "replyId": {
+            "type": "string",
+            "description": "Assistant message id once recorded."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "resolve"
+            ],
+            "description": "Absent for an ordinary turn; \"resolve\" marks the parent of a global-resolve run (its children stream onto its topic)."
+          },
+          "parentId": {
+            "type": "string",
+            "description": "Set on a child iteration of a resolve run: the id of its parent resolve Run. Absent on ordinary turns and on the parent itself."
+          },
+          "stopReason": {
+            "type": "string",
+            "enum": [
+              "done",
+              "capped",
+              "error",
+              "cancelled"
+            ],
+            "description": "Parent-only: why the resolve loop ended \u2014 \"done\" (the agent signalled completion), \"capped\" (hit the iteration/deadline bound), \"error\", or \"cancelled\"."
+          },
+          "iterations": {
+            "type": "integer",
+            "description": "Parent-only: how many child turns the resolve loop ran."
+          }
+        },
+        "required": [
+          "id",
+          "chatId",
+          "agent",
+          "status",
+          "createdAt"
+        ]
+      },
+      "EventType": {
+        "type": "string",
+        "enum": [
+          "session",
+          "text",
+          "thinking",
+          "tool_use",
+          "tool_result",
+          "result",
+          "error",
+          "status",
+          "interaction",
+          "compaction",
+          "continuation"
+        ]
+      },
+      "ToolEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "input": {},
+          "output": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ToolAction",
+            "description": "Deep-normalized view of the tool call (canonical kind + structured payload). Optional; rides alongside the raw name/input/output."
+          }
+        }
+      },
+      "ResultInfo": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "costUsd": {
+            "type": "number"
+          },
+          "numTurns": {
+            "type": "integer"
+          },
+          "durationMs": {
+            "type": "integer"
+          },
+          "subtype": {
+            "type": "string",
+            "description": "The agent's own terminal-result classifier when it distinguishes one (Claude's result subtype: \"success\", \"error_max_turns\", \"error_max_budget_usd\", \u2026). Absent for agents whose terminal event is always fully settled (Codex)."
+          },
+          "incomplete": {
+            "type": "boolean",
+            "description": "Derived convenience: true when the turn stopped short on a continuable subtype (max turns / max budget) rather than genuinely finishing. The signal a global-resolve run auto-resumes on."
+          }
+        }
+      },
+      "ContinuationInfo": {
+        "type": "object",
+        "description": "Delimits one iteration of a global-resolve run on the merged parent stream. The daemon emits a continuation event before each child turn (and once at the caps boundary), so a client reading the parent topic can tell one sub-turn from the next and see WHY the loop advanced.",
+        "properties": {
+          "iteration": {
+            "type": "integer",
+            "description": "0-based iteration index this boundary opens."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "start",
+              "continue",
+              "probe",
+              "max_turns",
+              "max_budget"
+            ],
+            "description": "Why this iteration is running: \"start\" (first), \"max_turns\"/\"max_budget\" (resuming a continuable stop), or \"probe\" (a clean settle with no completion sentinel \u2014 probing for done)."
+          },
+          "childRunId": {
+            "type": "string",
+            "description": "The child Run this iteration streams under (its own record in the tree)."
+          },
+          "stopReason": {
+            "type": "string",
+            "enum": [
+              "done",
+              "capped",
+              "error"
+            ],
+            "description": "Set only on the FINAL boundary: why the loop ended."
+          }
+        },
+        "required": [
+          "iteration"
+        ]
+      },
+      "CompactionInfo": {
+        "type": "object",
+        "description": "Normalized record of a conversation compaction (auto or on-demand). Rides on a compaction event and on a Part of type=compaction so a client can show when and how a conversation's context was condensed.",
+        "properties": {
+          "trigger": {
+            "type": "string",
+            "description": "What caused the compaction, when the agent reports it: \"auto\" (context threshold reached) or \"manual\" (on-demand). Absent when the agent doesn't say."
+          },
+          "preTokens": {
+            "type": "integer",
+            "description": "Context token count before compaction; absent when the agent doesn't report it."
+          },
+          "postTokens": {
+            "type": "integer",
+            "description": "Context token count after compaction; absent when the agent doesn't report it."
+          },
+          "summary": {
+            "type": "string",
+            "description": "The compaction summary text, when the agent records one."
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "description": "One normalized event in a run's stream (same shape for every agent).",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/EventType"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "delta": {
+            "type": "boolean",
+            "description": "true = incremental text delta; false/absent = final."
+          },
+          "tokens": {
+            "type": "integer",
+            "description": "Cumulative token count for the block (e.g. thinking preview)."
+          },
+          "tool": {
+            "$ref": "#/components/schemas/ToolEvent"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ResultInfo"
+          },
+          "interaction": {
+            "$ref": "#/components/schemas/Interaction"
+          },
+          "compaction": {
+            "$ref": "#/components/schemas/CompactionInfo",
+            "description": "Present for type=compaction: the normalized compaction record."
+          },
+          "continuation": {
+            "$ref": "#/components/schemas/ContinuationInfo",
+            "description": "Present for type=continuation: the resolve-mode iteration boundary."
+          },
+          "error": {
+            "type": "string"
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "ToolPart": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "input": {},
+          "output": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ToolAction",
+            "description": "Deep-normalized view of the tool call (canonical kind + structured payload). Optional; rides alongside the raw name/input/output."
+          }
+        }
+      },
+      "ToolKind": {
+        "type": "string",
+        "description": "Canonical, agent-independent classification of a tool call.",
+        "enum": [
+          "file_edit",
+          "file_read",
+          "shell",
+          "search",
+          "web_search",
+          "web_fetch",
+          "mcp",
+          "other"
+        ]
+      },
+      "ToolAction": {
+        "type": "object",
+        "description": "Normalized view of a tool call. Only the sub-object matching `kind` is populated; the rest are absent. Rides alongside the untouched raw input/output so a client can render the diff / command / changes without knowing any one agent's private tool vocabulary.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ToolKind"
+          },
+          "title": {
+            "type": "string",
+            "description": "Short human label (e.g. the command or the path)."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileChange"
+            },
+            "description": "Present for kind=file_edit."
+          },
+          "shell": {
+            "$ref": "#/components/schemas/ShellCommand",
+            "description": "Present for kind=shell."
+          },
+          "search": {
+            "$ref": "#/components/schemas/SearchQuery",
+            "description": "Present for kind=search."
+          },
+          "web": {
+            "$ref": "#/components/schemas/WebSearch",
+            "description": "Present for kind=web_search or web_fetch."
+          },
+          "mcp": {
+            "$ref": "#/components/schemas/MCPCall",
+            "description": "Present for kind=mcp."
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "FileChange": {
+        "type": "object",
+        "description": "One file touched by a file_edit action.",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "create",
+              "edit",
+              "delete"
+            ]
+          },
+          "diff": {
+            "type": "string",
+            "description": "Best-effort unified diff; absent when the agent doesn't supply enough to compute one (e.g. Codex's live file_change reports path+op only). Empty means \"not supplied\", never \"no change\"."
+          },
+          "oldText": {
+            "type": "string",
+            "description": "Best-effort; absent when the agent doesn't supply it."
+          },
+          "newText": {
+            "type": "string",
+            "description": "Best-effort; absent when the agent doesn't supply it."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "ShellCommand": {
+        "type": "object",
+        "description": "A shell action. stdout is the combined/aggregated output as the agent gave it.",
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "stdout": {
+            "type": "string"
+          },
+          "stderr": {
+            "type": "string",
+            "description": "Best-effort; absent when the agent doesn't report it (Claude's Bash merges stderr into stdout). Absent means \"not reported\", never an empty stderr."
+          },
+          "exitCode": {
+            "type": "integer",
+            "description": "Best-effort; absent when the agent doesn't report it (Claude's Bash surfaces no exit code). Absent means \"not reported\", never exit 0."
+          }
+        }
+      },
+      "SearchQuery": {
+        "type": "object",
+        "description": "A workspace-search action (grep/glob).",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "glob": {
+            "type": "string"
+          }
+        }
+      },
+      "WebSearch": {
+        "type": "object",
+        "description": "A web search (query) or a URL fetch (url); the parent action's kind disambiguates.",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "MCPCall": {
+        "type": "object",
+        "description": "An MCP server tool invocation.",
+        "properties": {
+          "server": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          }
+        }
+      },
+      "Part": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "thinking",
+              "tool",
+              "interaction",
+              "compaction"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "durationMs": {
+            "type": "integer"
+          },
+          "tokens": {
+            "type": "integer"
+          },
+          "tool": {
+            "$ref": "#/components/schemas/ToolPart"
+          },
+          "interaction": {
+            "$ref": "#/components/schemas/Interaction"
+          },
+          "compaction": {
+            "$ref": "#/components/schemas/CompactionInfo",
+            "description": "Present for type=compaction: the normalized compaction record on a system message marking where the conversation was condensed."
+          },
+          "at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "chatId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant",
+              "system"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "chatId",
+          "role",
+          "text",
+          "createdAt"
+        ]
+      },
+      "ChatSummary": {
+        "type": "object",
+        "properties": {
+          "chatId": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "integer"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "lastStatus": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "lastRunId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chatId",
+          "agent",
+          "title",
+          "messages",
+          "updatedAt"
+        ]
+      },
+      "RenameRequest": {
+        "type": "object",
+        "description": "Rename a chat. An empty/omitted title clears any user rename, reverting to the native/derived title.",
+        "properties": {
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "ForkRequest": {
+        "type": "object",
+        "description": "Fork a chat. newChatId is optional \u2014 a random id is generated when omitted.",
+        "properties": {
+          "newChatId": {
+            "type": "string"
+          }
+        }
+      },
+      "CompactRequest": {
+        "type": "object",
+        "description": "On-demand compaction. instructions is optional \u2014 when present it focuses the continuation summary (Claude's `/compact <instructions>`); agents that don't honor focus still compact.",
+        "properties": {
+          "instructions": {
+            "type": "string"
+          }
+        }
+      },
+      "DeleteResult": {
+        "type": "object",
+        "description": "Result of a chat delete: the bookkeeping was purged, plus which agents' native transcripts were removed vs. failed to remove.",
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          },
+          "sessions": {
+            "type": "integer",
+            "description": "How many (agent, session) mappings the chat had."
+          },
+          "nativePurged": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Agent types whose native transcript was removed."
+          },
+          "nativeFailed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Agent types whose native delete errored."
+          }
+        },
+        "required": [
+          "deleted",
+          "sessions"
+        ]
+      },
+      "CatalogEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tagline": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tagline"
+        ]
+      },
+      "Catalog": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogEntry"
+            }
+          }
+        },
+        "required": [
+          "version",
+          "agents"
+        ]
+      },
+      "Capabilities": {
+        "type": "object",
+        "properties": {
+          "output": {
+            "type": "string",
+            "enum": [
+              "structured_json",
+              "terminal"
+            ]
+          },
+          "history": {
+            "$ref": "#/components/schemas/Support"
+          },
+          "sessions": {
+            "$ref": "#/components/schemas/Support"
+          },
+          "resume": {
+            "type": "boolean"
+          },
+          "toolEvents": {
+            "type": "boolean"
+          },
+          "cancel": {
+            "type": "boolean"
+          },
+          "persistent": {
+            "type": "boolean"
+          },
+          "models": {
+            "type": "boolean"
+          },
+          "imageInput": {
+            "type": "boolean",
+            "description": "Client hint: image attachments are delivered as true vision content (the model sees the image), not just a path it must open with a Read tool. Attachments themselves are ungated."
+          },
+          "respond": {
+            "type": "boolean"
+          },
+          "input": {
+            "type": "boolean"
+          },
+          "interrupt": {
+            "type": "boolean"
+          },
+          "setModel": {
+            "type": "boolean"
+          },
+          "setPermissionMode": {
+            "type": "boolean"
+          },
+          "systemPrompt": {
+            "type": "boolean"
+          },
+          "appendSystemPrompt": {
+            "type": "boolean"
+          },
+          "mcpServers": {
+            "type": "boolean"
+          },
+          "subagents": {
+            "type": "boolean"
+          },
+          "claudeSettings": {
+            "type": "boolean"
+          },
+          "memory": {
+            "type": "boolean",
+            "description": "Agent exposes persistent memory files (CLAUDE.md / AGENTS.md) via /memory."
+          },
+          "promptTemplates": {
+            "type": "boolean",
+            "description": "Agent exposes saved prompt templates (slash-commands / saved prompts) via /prompts."
+          },
+          "subagentDefs": {
+            "type": "boolean",
+            "description": "Agent exposes persistent subagent definition files (.claude/agents/*.md) via /subagents. Distinct from the per-turn `subagents` passthrough."
+          },
+          "mcpConfig": {
+            "type": "boolean",
+            "description": "Agent exposes persistent MCP-server config via /mcp (Claude .claude.json / .mcp.json, Codex config.toml). Distinct from the per-turn `mcpServers` passthrough."
+          },
+          "compactNow": {
+            "type": "boolean",
+            "description": "Agent supports on-demand conversation compaction via POST /chats/{id}/compact. The authoritative gate is the CompactModule type assertion in the daemon; an adapter that implements it sets this true."
+          },
+          "resolve": {
+            "type": "boolean",
+            "description": "Agent supports global-resolve runs (POST /turns {mode:\"resolve\"}). Unlike the other switches this is NOT gated in the daemon \u2014 resolve is pure daemon logic over the existing resume path, so every agent that can resume can be resolved; the flag is a UI hint only."
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "cli",
+              "http",
+              "persistent"
+            ]
+          }
+        }
+      },
+      "ModelInfo": {
+        "type": "object",
+        "description": "One model an agent can run: its API id and a human label, plus optional provider-aware metadata enriched from the on-disk models.dev catalog opencode maintains. Every field beyond id/label is omitted when unknown (e.g. a custom-provider model carries only id/label/provider/custom).",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Model id passed as the `model` setting."
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable display name."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider that runs the model (e.g. `anthropic`, `openai`)."
+          },
+          "contextWindow": {
+            "type": "integer",
+            "description": "Max input context in tokens (catalog `limit.context`)."
+          },
+          "maxOutput": {
+            "type": "integer",
+            "description": "Max output in tokens (catalog `limit.output`)."
+          },
+          "inputModalities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Accepted input modalities (e.g. `text`, `image`)."
+          },
+          "outputModalities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Produced output modalities."
+          },
+          "reasoning": {
+            "type": "boolean",
+            "description": "Whether the model supports reasoning."
+          },
+          "toolCall": {
+            "type": "boolean",
+            "description": "Whether the model supports tool calls."
+          },
+          "attachment": {
+            "type": "boolean",
+            "description": "Whether the model accepts attachments."
+          },
+          "cost": {
+            "$ref": "#/components/schemas/ModelCost"
+          },
+          "custom": {
+            "type": "boolean",
+            "description": "True when the model comes from a registered custom provider (see /providers) rather than the built-in catalog."
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ]
+      },
+      "ModelCost": {
+        "type": "object",
+        "description": "Per-million-token pricing for a model, from the on-disk catalog. Every field is optional.",
+        "properties": {
+          "input": {
+            "type": "number"
+          },
+          "output": {
+            "type": "number"
+          },
+          "cacheRead": {
+            "type": "number"
+          },
+          "cacheWrite": {
+            "type": "number"
+          }
+        }
+      },
+      "MemoryScope": {
+        "type": "string",
+        "enum": [
+          "project",
+          "user"
+        ],
+        "description": "Canonical location of a persistent artifact: `project` (inside a working directory) or `user` (the agent's config home)."
+      },
+      "MemoryDoc": {
+        "type": "object",
+        "description": "One persistent memory file (Claude CLAUDE.md / Codex AGENTS.md) at a canonical scope.",
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "path": {
+            "type": "string",
+            "description": "Resolved absolute path \u2014 always set, even when the file is absent."
+          },
+          "exists": {
+            "type": "boolean",
+            "description": "Whether the file exists (distinguishes empty from missing)."
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "path",
+          "exists",
+          "content"
+        ]
+      },
+      "PromptTemplate": {
+        "type": "object",
+        "description": "A saved, reusable prompt (Claude slash-command / Codex saved prompt).",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Bare template name (no directory, no `.md`)."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "description": "Omitted in list results; populated on a single read."
+          }
+        },
+        "required": [
+          "name",
+          "scope",
+          "path"
+        ]
+      },
+      "SubagentMeta": {
+        "type": "object",
+        "description": "Best-effort parsed view of a subagent definition's frontmatter. A convenience only \u2014 the raw `content` is canonical. Every field is optional; absent frontmatter yields no meta object.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "Subagent": {
+        "type": "object",
+        "description": "One persistent subagent definition file (Claude .claude/agents/<name>.md). `content` is the canonical raw body (omitted in list results, populated on a single read/write); `meta` is the parsed convenience view (absent when the file has no usable frontmatter).",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Definition identity: its frontmatter `name`, else the filename stem."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "description": "Raw file body. Omitted in list results; populated on a single read."
+          },
+          "meta": {
+            "$ref": "#/components/schemas/SubagentMeta"
+          }
+        },
+        "required": [
+          "name",
+          "scope",
+          "path"
+        ]
+      },
+      "MCPServer": {
+        "type": "object",
+        "description": "One persistent MCP-server definition, the canonical agent-agnostic shape. Two forms: stdio (command/args/env/cwd) and streamable-HTTP (url/bearerTokenEnvVar/httpHeaders). SECURITY: bearerTokenEnvVar is the NAME of an env var holding a token, never a secret value; mindwire never injects its own credentials here.",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "stdio: the server executable."
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "stdio: arguments to the command."
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "stdio: environment for the server process."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "stdio: working directory for the server process."
+          },
+          "url": {
+            "type": "string",
+            "description": "HTTP: the server endpoint."
+          },
+          "bearerTokenEnvVar": {
+            "type": "string",
+            "description": "HTTP: NAME of the env var holding the bearer token (never the value)."
+          },
+          "httpHeaders": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "HTTP: static headers sent with each request."
+          }
+        }
+      },
+      "CustomProvider": {
+        "type": "object",
+        "description": "One registered custom OpenAI-compatible LLM provider. SECURITY: the API key is NEVER part of this shape \u2014 it is supplied write-only on PUT and reported only as `hasKey`. The harness config references the key solely through an env-var placeholder; the value lives in the daemon and enters a run only via the auth env path.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Provider id (config key). Letters, digits, `-`, `_`; must start with a letter or digit."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human label; falls back to the id."
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "OpenAI-compatible base URL."
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Model ids offered by this endpoint."
+          },
+          "envVar": {
+            "type": "string",
+            "description": "NAME of the env var the key is exported/referenced as. Derived from the id when omitted."
+          },
+          "hasKey": {
+            "type": "boolean",
+            "description": "Whether a secret is stored for this provider (never echoes the key itself)."
+          }
+        },
+        "required": [
+          "id",
+          "baseUrl",
+          "models",
+          "hasKey"
+        ]
+      },
+      "CustomProviderWriteRequest": {
+        "type": "object",
+        "description": "PUT body for registering a custom provider: the CustomProvider fields plus a write-only `apiKey`. An omitted/empty apiKey leaves any previously stored key intact (metadata-only update). The key is stored in the daemon and never returned.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "envVar": {
+            "type": "string",
+            "description": "Optional explicit env-var name; derived from the id when omitted."
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "Write-only secret. Stored in the daemon, referenced in harness config only via an env-var placeholder, never returned by any GET."
+          }
+        },
+        "required": [
+          "baseUrl"
+        ]
+      },
+      "MemoryWriteRequest": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "content"
+        ]
+      },
+      "PromptWriteRequest": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "RespondRequest": {
+        "type": "object",
+        "description": "The user's answer to a mid-turn interaction (permission approval or AskUserQuestion/ExitPlanMode reply).",
+        "properties": {
+          "interactionId": {
+            "type": "string",
+            "description": "The interaction being answered (from the Interaction event)."
+          },
+          "decision": {
+            "type": "string",
+            "description": "Approval verdict for a permission/plan (e.g. allow | deny)."
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Selected option(s) for a multi-select question."
+          },
+          "text": {
+            "type": "string",
+            "description": "Free-form answer text, or the deny reason."
+          }
+        }
+      },
+      "InputRequest": {
+        "type": "object",
+        "description": "A follow-up message steered into a running turn.",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "SetModelRequest": {
+        "type": "object",
+        "description": "Switch the model of a live turn. An empty/omitted model resets the turn to the agent/CLI default.",
+        "properties": {
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "SetPermissionModeRequest": {
+        "type": "object",
+        "description": "Switch the permission mode of a live turn (required).",
+        "properties": {
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "Support": {
+        "type": "string",
+        "enum": [
+          "none",
+          "native",
+          "emulated"
+        ]
+      },
+      "Option": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "Action": {
+        "type": "object",
+        "description": "A user action surfaced with an interaction or notification (e.g. Approve / Reject).",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ]
+      },
+      "TodoItem": {
+        "type": "object",
+        "description": "One entry of a todos interaction.",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed"
+            ]
+          }
+        },
+        "required": [
+          "content",
+          "status"
+        ]
+      },
+      "Interaction": {
+        "type": "object",
+        "description": "A structured, self-describing request the agent surfaces mid-turn for the client to render generically \u2014 and, when needsResponse, for the user to answer.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "todos",
+              "approval",
+              "choice",
+              "select",
+              "input",
+              "plan"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TodoItem"
+            }
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Action"
+            }
+          },
+          "needsResponse": {
+            "type": "boolean"
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "Field": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "secret",
+              "select",
+              "toggle",
+              "multiselect"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "unified",
+              "custom"
+            ],
+            "description": "unified = a cross-agent concept addressed by canon; custom = agent-specific."
+          },
+          "canon": {
+            "type": "string",
+            "description": "Stable cross-agent key; equals key for custom fields."
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "placeholder": {
+            "type": "string"
+          },
+          "help": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            }
+          },
+          "default": {
+            "type": "string"
+          }
+        }
+      },
+      "Section": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Field"
+            }
+          }
+        }
+      },
+      "SettingsSchema": {
+        "type": "object",
+        "properties": {
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Section"
+            }
+          }
+        }
+      },
+      "AuthMethod": {
+        "type": "object",
+        "description": "One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin\u2192step\u2192status flow.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "unified",
+              "custom"
+            ],
+            "description": "unified = a cross-agent auth concept (API key, login, gateway token); custom = agent-specific (e.g. Bedrock/Vertex/Foundry), declared + typed, never open passthrough. Empty reads as unified."
+          },
+          "help": {
+            "type": "string"
+          },
+          "interactive": {
+            "type": "boolean"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Field"
+            },
+            "description": "Inputs to collect for a field-based method (reuses the settings Field shape)."
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ]
+      },
+      "AuthState": {
+        "type": "object",
+        "description": "The current step of an in-progress auth flow.",
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "needs_input",
+              "pending",
+              "complete",
+              "error"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Field"
+            },
+            "description": "Inputs the client should collect next."
+          }
+        },
+        "required": [
+          "method",
+          "status"
+        ]
+      },
+      "AuthStatus": {
+        "type": "object",
+        "description": "The resting state: is the agent authenticated, and via which method.",
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "method": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "configured"
+        ]
+      },
+      "Check": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "fail"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ]
+      },
+      "DoctorReport": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Check"
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "checks"
+        ]
+      },
+      "StepResult": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "satisfied",
+              "installed",
+              "failed"
+            ]
+          },
+          "output": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ]
+      },
+      "SetupStatus": {
+        "type": "object",
+        "properties": {
+          "running": {
+            "type": "boolean"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "started": {
+            "type": "boolean"
+          },
+          "current": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StepResult"
+            }
+          }
+        },
+        "required": [
+          "running",
+          "ok",
+          "started",
+          "steps"
+        ]
+      },
+      "AgentInfo": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "agentType": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/SettingsSchema"
+          },
+          "authMethods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthMethod"
+            }
+          },
+          "authStatus": {
+            "$ref": "#/components/schemas/AuthStatus"
+          },
+          "installedVersion": {
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "configPath": {
+            "type": "string"
+          }
+        }
+      },
+      "NotifyConfigInput": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "channel"
+        ]
+      },
+      "NotifyConfigStatus": {
+        "type": "object",
+        "description": "The token is never returned.",
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "configured",
+          "url",
+          "channel"
+        ]
+      },
+      "Notification": {
+        "type": "object",
+        "properties": {
+          "condition": {
+            "type": "string",
+            "enum": [
+              "finished",
+              "error",
+              "waiting_approval",
+              "waiting_feedback",
+              "waiting_input"
+            ]
+          },
+          "chatId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "condition"
+        ]
+      },
+      "NotifyChannelMasked": {
+        "type": "object",
+        "description": "The read-side view of a notification channel. Secrets are never returned — the URL, token, HMAC secret, and header values are all withheld; only their presence (and the URL host, as a display hint) is reported.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Server-assigned channel id."
+          },
+          "type": {
+            "type": "string",
+            "description": "Selects the outgoing payload shape.",
+            "enum": [
+              "webhook",
+              "slack",
+              "discord",
+              "telegram"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-friendly name."
+          },
+          "urlHost": {
+            "type": "string",
+            "description": "Host portion of the destination URL (display hint only; the full URL is never returned)."
+          },
+          "hasUrl": {
+            "type": "boolean",
+            "description": "Whether a destination URL is stored."
+          },
+          "headerKeys": {
+            "type": "array",
+            "description": "Names of extra request headers (values withheld).",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hasToken": {
+            "type": "boolean",
+            "description": "Whether a bearer token is stored."
+          },
+          "hasSecret": {
+            "type": "boolean",
+            "description": "Whether an HMAC signing secret is stored (webhook type only)."
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "hasUrl",
+          "hasToken",
+          "hasSecret",
+          "enabled"
+        ]
+      },
+      "NotifyChannelInput": {
+        "type": "object",
+        "description": "The write-side body for creating or updating a channel. On PUT, every field is optional and merges onto the stored channel: an omitted or blank `url`/`token`/`secret` preserves the stored value (so a round-trip of the masked read view can't wipe secrets), while `headers` is replaced only when present (send `{}` to clear).",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Outgoing payload shape. Defaults to `webhook` (raw Notification JSON) on create.",
+            "enum": [
+              "webhook",
+              "slack",
+              "discord",
+              "telegram"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "Destination URL. Required (on create). For slack/discord this is the incoming-webhook URL; for telegram the full bot `sendMessage` URL. Write-only — never returned."
+          },
+          "headers": {
+            "type": "object",
+            "description": "Extra request headers sent with each delivery. Values are secret (write-only).",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "token": {
+            "type": "string",
+            "description": "Bearer token, sent as `Authorization: Bearer <token>`. Write-only."
+          },
+          "secret": {
+            "type": "string",
+            "description": "HMAC-SHA256 signing key (webhook type only). When set, each delivery carries `X-Mindwire-Signature: sha256=<hex>` over the raw body. Write-only."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Defaults to true on create."
+          }
+        }
+      },
+      "NotifyChannelTestResult": {
+        "type": "object",
+        "description": "Outcome of a synthetic delivery to one channel. The send result is DATA — a failed delivery still returns HTTP 200 with `ok:false` and an `error` message.",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string",
+            "description": "Present only when `ok` is false."
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "NotifyRule": {
+        "type": "object",
+        "description": "A routing rule. On every emitted notification the daemon evaluates all enabled rules, unions the channels of those that match (by scope + condition), and delivers to each. Rules carry no secrets.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Server-assigned rule id. Omit on create."
+          },
+          "scope": {
+            "type": "string",
+            "description": "`global` matches every notification; `agent` matches when the emitting adapter type equals `agent`; `session` matches when the chatId equals `session`.",
+            "enum": [
+              "global",
+              "agent",
+              "session"
+            ]
+          },
+          "agent": {
+            "type": "string",
+            "description": "Required when scope is `agent`: the adapter type to match (e.g. `claude-code`)."
+          },
+          "session": {
+            "type": "string",
+            "description": "Required when scope is `session`: the chatId to match."
+          },
+          "conditions": {
+            "type": "array",
+            "description": "Notification conditions this rule fires on. Empty means all conditions.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "finished",
+                "error",
+                "waiting_approval",
+                "waiting_feedback",
+                "waiting_input"
+              ]
+            }
+          },
+          "channelIds": {
+            "type": "array",
+            "description": "Ids of the channels to deliver to when this rule matches.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scope",
+          "channelIds",
+          "enabled"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Liveness check",
+        "security": [],
+        "description": "Public (no auth). Resolves when the daemon is up.",
+        "responses": {
+          "200": {
+            "description": "Up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/catalog": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "List supported agents",
+        "responses": {
+          "200": {
+            "description": "Agents this binary supports",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Catalog"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Agent capabilities, settings, auth, version",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Selected agent info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/models": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "List the models the agent can run",
+        "description": "Enumerates the models available to the configured account (Claude reads the Anthropic Models API). An empty array is valid (no credentials yet / offline). 400 if the agent can't enumerate models (the model field is free text for that agent).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Available models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModelInfo"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Agent does not support model listing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/doctor": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Daemon + agent health checks",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Health report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoctorReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stats": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Daemon process resource snapshot",
+        "description": "The daemon PROCESS's own runtime stats (heap in use, memory reserved from the OS, goroutines, GC cycles) plus host facts (cores, platform, uptime). Cheap and on-demand \u2014 a single runtime.ReadMemStats, no background sampling. Not the whole machine's RAM/CPU.",
+        "responses": {
+          "200": {
+            "description": "Snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stats"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/processes/stream": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Stream live per-turn CPU/memory (SSE)",
+        "description": "Server-Sent Events of live resource use for currently-running turns, grouped by agent. On-demand and refcounted: the daemon starts sampling only while at least one client is connected and stops the instant the last one disconnects — zero background work when nothing is watching. Each turn runs in its own process group; a sample is the whole group's summed RSS and its CPU% over the sampling window. Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream; one ProcessFrame per frame. Optional `?agent=` filters each frame's samples to one agent. Payload carries labels and numbers only — no secrets.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Process resource stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessFrame"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Too many concurrent resource watchers"
+          }
+        }
+      }
+    },
+    "/setup": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Install the agent toolchain (async)",
+        "description": "Kicks off the install on a detached context and returns immediately. Poll `GET /setup` for progress.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Install started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatus"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Poll toolchain install progress",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current install state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/update": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Force-reinstall the agent toolchain (async)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reinstall started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Read non-secret settings",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Key/value settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Merge non-secret settings",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Merged"
+          }
+        }
+      }
+    },
+    "/memory": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Read persistent memory files",
+        "description": "Returns one memory doc per supported scope (CLAUDE.md / AGENTS.md). 400 if the agent has no memory module.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Memory docs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MemoryDoc"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Agent does not support memory files",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Write a persistent memory file",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The written doc",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryDoc"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported agent/scope or missing project directory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Delete a persistent memory file",
+        "description": "Removes one scope's memory file (?scope=, default user) and returns the resulting doc (exists:false). Idempotent \u2014 deleting an absent file still succeeds.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The resulting doc (exists:false)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryDoc"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported scope or agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/prompts": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "List saved prompt templates",
+        "description": "Returns every template across supported scopes (content omitted). A missing prompt directory yields an empty list. 400 if the agent has no prompts module.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Templates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PromptTemplate"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Agent does not support prompt templates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/prompts/{name}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Read a prompt template",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/name"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The template with content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptTemplate"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such template",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Write a prompt template",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/name"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The written template",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptTemplate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid name or unsupported scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Delete a prompt template",
+        "description": "Removes one template by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent template still succeeds.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/name"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "deleted"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported scope or agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subagents": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "List persistent subagent definitions",
+        "description": "Returns every subagent definition across supported scopes (raw content omitted, parsed meta kept). A missing definitions directory yields an empty list. 400 if the agent has no subagent-definition module (Claude-only today).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Definitions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Subagent"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Agent does not support subagent definitions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subagents/{name}": {
+      "get": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Read a subagent definition",
+        "description": "Returns one definition's full raw content plus parsed meta.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/name"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The definition with content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Subagent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such definition",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Write a subagent definition",
+        "description": "Writes the definition verbatim (raw content is canonical). Returns it with parsed meta.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/name"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The written definition",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Subagent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid name or unsupported scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Prompts"
+        ],
+        "summary": "Delete a subagent definition",
+        "description": "Removes one definition by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent definition still succeeds.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/name"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "deleted"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported scope or agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp": {
+      "get": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "List persistent MCP servers",
+        "description": "Returns the agent's persistent MCP-server config across every supported scope, keyed scope\u2192name\u2192server. A missing config file yields an empty object for that scope. 400 if the agent has no persistent MCP-config module. Carries only an env-var NAME for HTTP auth (bearerTokenEnvVar), never a secret value; on Claude only the mcpServers subtree of the config is ever read.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Servers keyed by scope then name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/MCPServer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Agent does not support persistent MCP config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp/{name}": {
+      "get": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Read a persistent MCP server",
+        "description": "Returns one MCP server by name at a scope (?scope=, default user). 404 if it isn't configured.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/name"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServer"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Write a persistent MCP server",
+        "description": "Writes one MCP server at a scope (?scope=, default user), preserving every other server and all sibling config. HTTP auth carries an env-var NAME (bearerTokenEnvVar), never a secret value.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/name"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPServer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The written server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid name or unsupported scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Delete a persistent MCP server",
+        "description": "Removes one MCP server by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent server still succeeds.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/name"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "deleted"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported scope or agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/providers": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "List custom LLM providers",
+        "description": "Returns the agent's registered custom LLM providers across every supported scope, keyed scope\u2192id\u2192provider. A missing config file yields an empty object for that scope. 400 if the agent has no custom-provider module. `hasKey` reports whether a secret is stored; the key is never returned.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Providers keyed by scope then id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/CustomProvider"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Agent does not support custom providers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/providers/{id}": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Read a custom LLM provider",
+        "description": "Returns one custom provider by id at a scope (?scope=, default user). 404 if it isn't configured. The key is never returned (only hasKey).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomProvider"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Register a custom LLM provider",
+        "description": "Registers one custom provider at a scope (?scope=, default user), writing the harness's native custom-endpoint config and preserving all sibling config. The write-only apiKey (when supplied) is stored in the daemon and referenced only via an env-var placeholder \u2014 never written literally. Echoes the stored provider back (hasKey reflects whether a key is stored; the key itself is never returned).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomProviderWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The registered provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomProvider"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id/base URL or unsupported scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Delete a custom LLM provider",
+        "description": "Removes one custom provider by id at a scope (?scope=, default user) and clears its stored key. Idempotent \u2014 deleting an absent provider still succeeds.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/scope"
+          },
+          {
+            "$ref": "#/components/parameters/dir"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "deleted"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported scope or agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/methods": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "List auth methods",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Options to present",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuthMethod"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/begin": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Begin an auth method",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "method"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Auth state (may carry a login url/code)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthState"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/step": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Advance an auth method",
+        "description": "Submit field values, or poll an interactive login to completion.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated auth state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthState"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/status": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Is the agent authenticated",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Auth status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/turns": {
+      "post": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Start a turn",
+        "description": "Records the user message, starts the turn in the background, and returns a Run immediately. One in-flight turn per chat (409 otherwise). Stream events via `GET /runs/{id}/stream`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurnRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Run created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A turn is already running for this chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}": {
+      "get": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Get a run",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}/children": {
+      "get": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "List a resolve run's child iterations",
+        "description": "Returns the child runs of a global-resolve parent, oldest\u2192newest \u2014 the per-iteration turns of a resolve run (each streams onto the parent's topic). An ordinary turn (or a parent with no iterations yet) returns an empty list.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Child runs (possibly empty)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Run"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Cancel an in-flight turn",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Cancel requested"
+          },
+          "400": {
+            "description": "Agent does not support cancel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}/respond": {
+      "post": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Answer a mid-turn interaction",
+        "description": "Feed the user's answer to a waiting interaction (a permission approval, or an AskUserQuestion/ExitPlanMode reply) back into the running turn. `interactionId` ties the answer to the interaction the turn paused on. Requires the agent's `respond` capability.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RespondRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Response delivered"
+          },
+          "400": {
+            "description": "Agent does not support responding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run or no turn accepting input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}/input": {
+      "post": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Send follow-up input to a running turn",
+        "description": "Queue a follow-up user message into the running turn without cancelling it (steer/append). Requires the agent's `input` capability.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InputRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Input queued"
+          },
+          "400": {
+            "description": "Agent does not support input, or text missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run or no turn accepting input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}/interrupt": {
+      "post": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Soft-stop a running turn",
+        "description": "Ask the agent to halt its current work WITHOUT the hard context kill `/cancel` does \u2014 the turn stays active for a follow-up over `/input`. Requires the agent's `interrupt` capability.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Interrupt requested"
+          },
+          "400": {
+            "description": "Agent does not support interrupts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run or no turn accepting input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}/set-model": {
+      "post": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Switch the model of a live turn",
+        "description": "Change the model a running turn uses, over the control channel. An empty/omitted `model` resets the turn to the agent/CLI default. Only meaningful on a persistent (non-bypass) turn; on a one-shot turn the call is a best-effort no-op (still `202`). Requires the agent's `setModel` capability.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Model switch requested"
+          },
+          "400": {
+            "description": "Agent does not support switching the model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run or no turn accepting input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}/set-permission-mode": {
+      "post": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Switch the permission mode of a live turn",
+        "description": "Change the permission mode a running turn uses, over the control channel. `mode` is required. Only meaningful on a persistent (non-bypass) turn; on a one-shot turn the call is a best-effort no-op (still `202`). Requires the agent's `setPermissionMode` capability.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPermissionModeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Permission-mode switch requested"
+          },
+          "400": {
+            "description": "Agent does not support switching the permission mode, or mode missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run or no turn accepting input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}/stream": {
+      "get": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Stream unified events (SSE)",
+        "description": "Server-Sent Events. Each event is `data: <json>\\n\\n` (no `event:`/`id:` lines \u2014 the type is in the payload). On open, a sentinel `{\"type\":\"status\",\"meta\":{\"stream\":\"open\"}}` is sent, then the replay buffer, then live events. A `: ping` comment heartbeat is sent every 25s. The payload schema is one Event per frame.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chats": {
+      "get": {
+        "tags": [
+          "Chats"
+        ],
+        "summary": "List chats (newest first)",
+        "responses": {
+          "200": {
+            "description": "Chats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChatSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chats/{id}": {
+      "put": {
+        "tags": [
+          "Chats"
+        ],
+        "summary": "Rename a chat",
+        "description": "Sets a user-chosen title that wins over the agent's native auto-title in every listing. An empty title clears the rename (reverting to the native/derived title).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated chat summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSummary"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Chats"
+        ],
+        "summary": "Delete a chat (irreversible)",
+        "description": "Purges all of the chat's mindwire bookkeeping and, for every session the chat mapped to, removes that agent's native transcript (the source of truth). 409 if a turn is live. Native deletion is best-effort per agent; the response reports what was purged vs. failed.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Delete result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A turn is running for this chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chats/{id}/fork": {
+      "post": {
+        "tags": [
+          "Chats"
+        ],
+        "summary": "Fork a chat",
+        "description": "Clones a chat into a new id (generated if omitted). The fork shares the source's native session until its first turn, which branches it (natively on Claude via --fork-session; a fresh session on agents without native fork). 409 if the source has a live turn; 404 if the source is unknown; 400 if the target id is already in use.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "New chat summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Target chat id already in use",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Source chat not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A turn is running for this chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chats/{id}/compact": {
+      "post": {
+        "tags": [
+          "Chats"
+        ],
+        "summary": "Compact a chat's conversation",
+        "description": "Runs an on-demand conversation compaction as a first-class run: the agent folds prior context into a summary it carries forward, streaming and recording the compaction boundary exactly like an auto-compaction (an EventCompaction on the stream, a `compaction` transcript part in history). Optional `instructions` focus the summary (Claude's `/compact <instructions>`; agents that ignore focus still compact). Gated on the selected agent implementing compaction (`compactNow` capability) and on the chat having a session to compact. Returns a Run immediately; stream events via `GET /runs/{id}/stream`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompactRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Compaction run created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Agent does not support compaction, or the chat has no conversation to compact yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A turn is already running for this chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chats/{id}/messages": {
+      "get": {
+        "tags": [
+          "Chats"
+        ],
+        "summary": "Chat transcript",
+        "description": "Native transcript when the agent supports it, else the recorded fallback.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Cap to the newest N."
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Page older history (cursor)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Message"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chats/{id}/run": {
+      "get": {
+        "tags": [
+          "Chats"
+        ],
+        "summary": "Latest run for a chat (reattach anchor)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No runs yet"
+          }
+        }
+      }
+    },
+    "/notify/config": {
+      "put": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Set the notification webhook",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotifyConfigInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Stored"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Inspect the notification webhook",
+        "responses": {
+          "200": {
+            "description": "Config (token never returned)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotifyConfigStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notify/stream": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Stream notifications (SSE)",
+        "description": "Server-Sent Events of the daemon's notifications (replay buffer, then live). Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream. One Notification per frame.",
+        "responses": {
+          "200": {
+            "description": "Notification stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/Notification"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notify/channels": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "List notification channels",
+        "description": "Returns every configured channel, masked. Secrets (URL, token, HMAC secret, header values) are never returned — only their presence and the URL host.",
+        "responses": {
+          "200": {
+            "description": "Channels (masked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotifyChannelMasked"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Create a notification channel",
+        "description": "Mints a channel with a server-assigned id. `type` defaults to `webhook` and `enabled` to true. `url` is required. Returns the masked channel.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotifyChannelInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The created channel (masked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotifyChannelMasked"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid type or missing url",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notify/channels/{id}": {
+      "put": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Update a notification channel",
+        "description": "Merges the body onto the stored channel. An omitted or blank `url`/`token`/`secret` preserves the stored value; `headers` is replaced only when present. Returns the masked channel. 404 if the id is unknown.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotifyChannelInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated channel (masked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotifyChannelMasked"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid type or missing url",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such channel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Delete a notification channel",
+        "description": "Removes a channel by id. Idempotent — deleting an absent channel still succeeds.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notify/channels/{id}/test": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Test a notification channel",
+        "description": "Delivers a synthetic notification to one channel and reports the outcome. A failed delivery still returns HTTP 200 with `ok:false` and an `error`. 404 only when the id is unknown.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Delivery outcome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotifyChannelTestResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such channel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notify/rules": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "List routing rules",
+        "description": "Returns every routing rule. Rules carry no secrets.",
+        "responses": {
+          "200": {
+            "description": "Rules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotifyRule"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Create a routing rule",
+        "description": "Mints a rule with a server-assigned id. Returns the stored rule.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotifyRule"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The created rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotifyRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid scope, missing agent/session, or no channelIds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notify/rules/{id}": {
+      "put": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Update a routing rule",
+        "description": "Replaces a rule by id. Returns the stored rule. 404 if the id is unknown.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotifyRule"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotifyRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid scope, missing agent/session, or no channelIds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Delete a routing rule",
+        "description": "Removes a rule by id. Idempotent — deleting an absent rule still succeeds.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "@mindwire/preview",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Session-based product preview for mindwire — a Vite + shadcn SPA over a Hono/Node server that drives the mindwire SDK. Oblien-native: sign in with Oblien, connect a daemon or spin up a sandbox, and chat.",
+  "scripts": {
+    "dev": "node dev.mjs",
+    "dev:client": "vite",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "vite build && tsup",
+    "start": "node dist-server/index.js",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@radix-ui/react-label": "^2.1.2",
+    "@radix-ui/react-scroll-area": "^1.2.3",
+    "@radix-ui/react-select": "^2.1.6",
+    "@radix-ui/react-separator": "^1.1.2",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-switch": "^1.1.3",
+    "@radix-ui/react-tabs": "^1.1.3",
+    "@radix-ui/react-tooltip": "^1.1.8",
+    "better-auth": "^1.7.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "hono": "^4.13.0",
+    "lucide-react": "^1.30.0",
+    "mindwire": "workspace:*",
+    "oblien": "^2.2.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.1.1",
+    "sonner": "^1.7.4",
+    "tailwind-merge": "^2.6.0"
+  },
+  "optionalDependencies": {
+    "dockerode": "^4.0.0",
+    "ssh2": "^1.16.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

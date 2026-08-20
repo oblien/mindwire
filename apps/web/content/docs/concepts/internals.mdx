@@ -1,0 +1,234 @@
+---
+title: Daemon internals
+description: The daemon core — capabilities switch, drivers, the unified event protocol, and the turn lifecycle.
+---
+
+`mindwired` runs on a host, over SSH, or in a container/sandbox and is the one thing every client
+talks to (the SDK embeds and auto-spawns it by default; it also runs standalone). It owns the agent CLI processes,
+drives turns, and relays a **unified structured event stream** to the client. **One daemon hosts
+every registered adapter**; a request selects one with `?agent=<type>` (default otherwise).
+Turns/runs/chats are shared (keyed by `chatId`); auth, config, creds, and CLI session ids are
+isolated per agent type.
+
+Design goal: **ultra-light, ultra-flexible.** The client speaks one protocol; the daemon's
+**orchestrator** (a supervisor) dispatches each request to a per-agent **adapter** and supervises
+turn execution (one per chat, cancel, timeout, panic isolation). Adding Codex/Copilot/anything =
+one new adapter, with zero changes to the client or the daemon core.
+
+## Three core contracts
+
+### 1. Capabilities (the hybrid switch)
+
+Each adapter declares what its agent natively supports; the core fills the gaps. The rule:
+
+> For any feature: if `cap == native` → use the agent; else → the core emulates it.
+
+```go
+type Capabilities struct {
+    Protocol   Protocol   // how the daemon drives the agent: cli | http | persistent
+    Output     OutputMode // StructuredJSON | Terminal(→converter)
+    History    Support    // Native: read agent's transcript · Emulated: serve our recorded log
+    Sessions   Support    // Native: --resume/session-id · Emulated: daemon maps + replays
+    Resume, ToolEvents, Cancel, Persistent, Models bool
+    Respond, Input, Interrupt bool       // user-in-loop ingress — each gates its own route
+    SetModel, SetPermissionMode bool     // runtime control of a live turn — each gates its own route
+}
+type Support = "none" | "native" | "emulated"
+```
+
+Two audiences read it. The **core switches** on a few fields — `History` (native transcript vs
+recorded log), `Cancel` (gates `/cancel`), the user-in-loop trio `Respond`/`Input`/`Interrupt`, and
+the runtime-control pair `SetModel`/`SetPermissionMode` (each gates its own route exactly as `Cancel`
+does). Everything else is a **client hint** to shape
+the UI. The daemon only persists what the agent can't give it, so it stays thin. **The agent owns its
+data** (sessions, transcripts); the daemon orchestrates, watches, and streams. A lightweight
+message log is kept as a universal fallback; for `History: Native` agents the daemon prefers the
+agent's own transcript on read.
+
+### 2. Dynamic interface (nothing hardcoded client-side)
+
+Settings **and** auth are declared by the adapter and rendered generically by the client.
+
+- **Settings** — a `SettingsSchema` (sections of text/secret/select/multiselect/toggle fields).
+  Option values (models, tools, enum choices) are discovered from the CLI, not hardcoded. Each field
+  carries a **taxonomy**: `scope` (`unified` — a concept every agent has some form of, addressed
+  cross-agent by a stable `canon` key; or `custom` — agent-specific, where `canon == key`). The
+  client addresses a unified field (e.g. `reasoningEffort`) by its canon regardless of which agent
+  is selected.
+- **Auth = its own module per agent.** The client gets an options list and walks a generic
+  `begin → step → status` flow; the adapter handles each method's specifics and persists creds.
+
+```go
+type AuthModule interface {
+    Methods() []AuthMethod                    // the options list shown to the client
+    Begin(ctx, methodID) (AuthState, error)   // start one method (may return {url, code, pending})
+    Step(ctx, input) (AuthState, error)       // advance (submit a field / poll a login)
+    Status(ctx) AuthStatus                    // configured? which method active?
+    EnvForRun() map[string]string             // env to export when running a turn
+}
+```
+
+`AuthState.Status ∈ {needs_input, pending, complete, error}` carries `url`/`code`/`fields`, so an
+interactive login (e.g. `claude setup-token`) surfaces a URL and is polled to completion.
+
+### 3. Adapters (one module per agent)
+
+```go
+type Adapter interface {
+    ID() / Meta()                             // catalog identity (list = registry)
+    Capabilities() Capabilities
+    Settings() SettingsSchema
+    InstallSteps() []Step / VersionCommand()  // toolchain + verify
+    ConfigPath() string                       // user-editable config file
+    Auth(store CredStore) AuthModule
+    RunStream(ctx, TurnInput, emit Emit) (TurnResult, error)  // native output → unified events
+    History(HistoryQuery) ([]Message, error)  // used when Capabilities.History == Native
+    Notifications() NotificationSpec          // conditions produced + their UX
+    Doctor(ctx) []Check                       // agent-specific health checks
+}
+```
+
+Adapters self-register (`agent.Register`) via `init()`; `cmd/daemon` blank-imports each one. The
+orchestrator binds each adapter to a **namespaced `CredStore`** (key prefix `<agentType>:`) so
+settings/creds never collide, and passes only the agent's own non-secret settings into a turn.
+
+## Drivers — how the daemon drives an agent
+
+How the daemon drives an agent is per-adapter, keyed by `Capabilities.Protocol` — the control
+channel, orthogonal to `Output` (the result format). `RunStream` composes the matching `Driver`:
+
+- **`cli`** — spawn the agent's command line per turn (the universal fallback; Claude uses it:
+  `claude -p … stream-json`). The adapter supplies the command + a stdout parser; the driver owns
+  process/stderr/error plumbing.
+- **`http`** — an agent with a native REST/SSE API implements `Driver` directly (call its API → events).
+- **`persistent`** — a long-lived process spoken to over a protocol implements `Driver` directly.
+
+The core never branches on `Protocol`; it only ever sees unified `Event`s via `emit`. A new
+protocol-native agent = one new `Driver` impl + `Protocol` declaration — no core or client change.
+
+## Unified event protocol
+
+Every agent's output is normalized to one shape so the client renders one stream regardless of agent:
+
+```go
+type Event struct {
+    Type        "session"|"text"|"thinking"|"tool_use"|"tool_result"|"result"|"error"|"status"|"interaction"
+    SessionID   string
+    Text        string;  Delta bool          // text deltas (live typing) vs final
+    Tool        *ToolEvent                    // {id,name,input} / {output,isError}
+    Result      *ResultInfo                   // {text,isError,sessionId,costUsd,numTurns,durationMs}
+    Interaction *Interaction                  // structured prompt/feedback (todos, approval, choice, plan)
+    Error       string;  Meta map[string]any; At string
+}
+```
+
+An `interaction` event carries a self-describing request (`Kind: todos|approval|choice|select|
+input|plan`); when `NeedsResponse` it pauses the turn until the client answers via the ingress
+routes below.
+
+Claude's `stream-json` maps directly: `stream_event.text_delta` → `text(delta)`,
+`assistant.tool_use` → `tool_use`, `user.tool_result` → `tool_result`, `result` → `result`,
+`system/init` → `session`. A terminal→structured converter produces the same events for CLIs
+without JSON.
+
+## HTTP surface
+
+Public: `GET /healthz`. Everything else sits behind the bearer-token middleware. Every
+agent-specific route accepts `?agent=<type>` (default when omitted); turns/runs/chats are shared,
+auth/config are per type.
+
+| Method · Path | Purpose |
+|---|---|
+| `GET /catalog` | agents this binary supports |
+| `GET /agent` | capabilities + settings schema + auth methods/status + version + configPath |
+| `GET /doctor` | daemon-level health + the selected agent's own checks |
+| `POST /setup` · `POST /update` · `GET /setup` | run/refresh the install toolchain (async → poll `GET /setup`) |
+| `GET /auth/methods` · `POST /auth/begin` · `POST /auth/step` · `GET /auth/status` | step-flow auth |
+| `GET /config` · `PUT /config` | read / merge non-secret settings |
+| `POST /turns` `{chatId,message,cwd?,options?}` | start a turn (async, returns a Run); `options` carries per-turn settings/systemPrompt/session controls/outputSchema/mcpServers/attachments |
+| `GET /runs/{id}` · `POST /runs/{id}/cancel` | run status (poll) / cancel an in-flight turn (hard ctx kill) |
+| `POST /runs/{id}/respond` `{interactionId?,decision?,options?,text?}` | answer the interaction the turn paused on (allow/deny a permission or plan, reply to a question) |
+| `POST /runs/{id}/input` `{text}` | inject a follow-up message mid-turn |
+| `POST /runs/{id}/interrupt` | soft-stop, keeping the turn open (vs `/cancel`'s hard kill) |
+| `POST /runs/{id}/set-model` `{model?}` | switch the live turn's model (empty ⇒ reset to default; persistent turns) |
+| `POST /runs/{id}/set-permission-mode` `{mode}` | switch the live turn's permission mode (persistent turns) |
+| **`GET /runs/{id}/stream`** | **SSE of unified events** (replay buffer + live; heartbeat) |
+| `GET /chats` · `GET /chats/{id}/messages` | chat list / history — native transcript or recorded fallback |
+| `GET /chats/{id}/run` | the latest run for a chat (reattach anchor); `204` when none yet |
+| `PUT /notify/config` · `GET /notify/config` · `GET /notify/stream` | set / inspect the notification webhook / local SSE of notifications |
+| `GET /stats` | the daemon process's own whole-runtime snapshot (heap, goroutines, cores, uptime) |
+| **`GET /processes/stream`** | **SSE of live per-turn CPU/memory**, on-demand + refcounted; `?agent=` filters (see below) |
+
+## Turn lifecycle
+
+`POST /turns` records the user message, creates a `running` Run, returns immediately, and runs the
+agent in a background goroutine on the daemon's own context (survives client disconnect). The
+adapter's `RunStream` drives the agent, maps native output → `Event`s via `emit`, which the runner
+**publishes to the SSE hub**. On completion the daemon records the assistant message and emits a
+notification. Turns run one-shot with `--resume <session_id>` for continuity. A turn that needs
+**user-in-loop** (a non-bypass permission mode, so the agent pauses for approval) instead runs over
+a **persistent** transport: the driver opens the process's stdin and a pump goroutine relays the
+client's `respond`/`input`/`interrupt` ingress — plus the runtime-control `set-model`/
+`set-permission-mode` — into the live process while the same parser streams its output. It is still
+one process per turn — a paused turn stays `active`; a follow-up after completion is a new (resumed)
+turn. (The runtime-control routes reach only a persistent turn; on a one-shot bypass turn they return
+`202` as a documented no-op.)
+
+## Live resource monitoring
+
+Every turn runs as `bash -lc <cmd>` in its **own process group** (`Setpgid` — the same mechanism that
+lets a cancel kill the whole tree, not just the shell). The group-leader PID *is* the entire turn:
+bash → node → the agent CLI. And every adapter is **per-turn ephemeral** — Claude (`cli` /
+`persistent`), Codex (app-server), and opencode (server) each spawn a fresh group per turn and tear it
+down at the end. So when an agent is idle **there is no process to measure**; "per-agent resources"
+means precisely *the live resource use of the turns currently running*, each labelled `(agent, chatId,
+runId)`.
+
+`GET /processes/stream` serves that as SSE — one `ProcessFrame` per tick (~1.5 s), each carrying a
+`ProcessSample` per running turn: summed **RSS** and a **CPU%** (the delta of cumulative CPU-seconds
+over the wall-clock window) for the whole process group. The payload is labels and numbers only — no
+secrets. An optional `?agent=` filters a frame to one agent.
+
+Two properties make it safe to leave wired in:
+
+- **On-demand, refcounted.** The sampler goroutine starts on the **first** subscriber and stops on the
+  **last** disconnect. An idle daemon that nobody is watching does *zero* background work — no
+  goroutine, no `/proc` scans. Opening the console's Agent page starts it; closing the page (the SSE
+  aborts) stops it. A subscriber cap and a ≥1.5 s floor bound it further.
+- **Portable sampling.** On Linux it reads `/proc/<pid>/stat` **directly** — the kernel interface,
+  identical on Alpine/BusyBox and Debian/coreutils because it doesn't depend on any `ps` userland. On
+  macOS (dev only) it shells out to `ps`; other platforms are a no-op stub. Pure stdlib, no cgo.
+
+This is complementary to `GET /stats`, which is the daemon **process's own** whole-runtime snapshot
+(heap, goroutines, uptime) — a cheap one-shot read, not per turn. Mirrored in both SDKs
+(`Client.Processes` / `mw.processes()`).
+
+## Notifications
+
+On a condition worth surfacing — `finished`, `error`, `waiting_approval`, `waiting_feedback`,
+`waiting_input` — the daemon is a **provider-agnostic emitter**: it POSTs the notification to a
+webhook URL the client set via `PUT /notify/config` (a push gateway, Slack/ntfy, or your own
+backend). It holds no device tokens or push keys; shaping and fan-out are the receiver's job. With
+no webhook configured it is a silent no-op. Each adapter declares which conditions it produces and
+their UX via `Notifications() NotificationSpec`.
+
+## Packages
+
+```
+cmd/daemon            entry; env config; blank-imports adapters; builds the orchestrator; graceful shutdown
+internal/agent        CORE: Adapter, Capabilities, Event, AuthModule, schema, registry, CredStore
+internal/agent/claude Claude adapter: capabilities, settings, install, RunStream, stream-json parse, auth, history
+internal/orchestrator SUPERVISOR: hosts every adapter, resolves ?agent=, per-agent CredView, turn lifecycle
+internal/driver       how the daemon DRIVES an agent per protocol: cli (spawn+stream) · http · persistent
+internal/runner       drives a turn: TurnInput (namespaced settings + auth env) → adapter.RunStream → hub
+internal/stream       SSE Hub: per-run publish / subscribe / replay buffer, reaped after completion
+internal/procmon      on-demand, refcounted per-turn CPU/mem sampler (idle until a client subscribes)
+internal/session      shared JSON state: sessions, per-chat cwd, runs, namespaced config/creds, notify channel
+internal/setup        expands + runs an adapter's install toolchain (topo-sorted)
+internal/notify       POSTs notifications to a configured webhook + local SSE broadcaster
+internal/api          the unified HTTP surface — thin glue over the orchestrator
+```
+
+Adding an agent: implement `agent.Adapter` (+ its `AuthModule`) in `internal/agent/<name>`, declare
+its `Capabilities`, and blank-import it in `cmd/daemon`. Nothing else changes — the orchestrator
+hosts it, namespaces its creds/config, and routes `?agent=<id>` to it automatically.

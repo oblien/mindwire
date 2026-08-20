@@ -1,0 +1,228 @@
+---
+title: Compaction
+description: Configure auto-compaction and see when a conversation's context was condensed — the same way for every agent.
+---
+
+Long conversations eventually outgrow the model's context window. Every agent handles this by
+**compacting** — summarizing the older turns into a compact form so the conversation can continue.
+MindWire lets you configure *when* that happens and surfaces a normalized marker *when* it does, so a
+client works the same way across agents.
+
+## Configure auto-compaction
+
+`autoCompactTokens` is a [canonical key](/docs/guides/configuration#canonical-keys) like any other, so
+it works on both the sticky (`setConfig`/`PUT /config`) and per-turn (`options.settings`) layers. The
+runner maps it to whichever knob the selected agent exposes:
+
+| Agent | Maps to | Notes |
+| --- | --- | --- |
+| Claude Code | `--autocompact <auto\|tokens>` launch flag | `auto` lets Claude decide; a token count (100k–1M) sets the window. Requires Claude Code ≥ 2.1.221. |
+| Codex | `-c model_auto_compact_token_limit=<tokens>` | Integer only — a non-numeric value like `auto` is ignored. Codex hard-caps the effective limit at ~90% of the model's context window. |
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+// Sticky: auto-compact this chat's agent once the context reaches ~200k tokens.
+await mw.setConfig({ autoCompactTokens: "200000" });
+
+// Or per-turn, for one turn only:
+const run = await mw.turn({
+  chatId: "demo",
+  message: "Keep going.",
+  options: { settings: { autoCompactTokens: "200000" } },
+});
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+// Sticky
+if err := client.SetConfig(ctx, map[string]string{"autoCompactTokens": "200000"}); err != nil {
+	log.Fatal(err)
+}
+
+// Or per-turn
+run, err := client.Turn(ctx, mindwire.TurnRequest{
+	ChatID:  "demo",
+	Message: "Keep going.",
+	Options: mindwire.TurnOptions{Settings: map[string]string{"autoCompactTokens": "200000"}},
+})
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# Sticky
+curl -XPUT 'http://127.0.0.1:8790/config?agent=claude-code' \
+  -d '{"autoCompactTokens":"200000"}'
+
+# Or per-turn
+curl -XPOST 'http://127.0.0.1:8790/turns?agent=claude-code' -d '{
+  "chatId": "demo",
+  "message": "Keep going.",
+  "options": { "settings": { "autoCompactTokens": "200000" } }
+}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+<Callout>
+Leave `autoCompactTokens` unset to use the agent's own default behavior. The exact accepted values and
+the agent's declared field live in its settings schema — read it via `GET /agent`.
+</Callout>
+
+## See when a conversation was compacted
+
+When an agent compacts — automatically at the threshold above, or on its own — MindWire surfaces a
+normalized **compaction** marker in two places, so you never have to parse an agent's private transcript
+format:
+
+- **Live:** a `compaction` [event](/docs/guides/streaming) in the turn's SSE stream.
+- **In history:** a message with `role: "system"` whose single part has `type: "compaction"`.
+
+Both carry a `CompactionInfo` object:
+
+| Field | Meaning |
+| --- | --- |
+| `trigger` | `"auto"` or `"manual"`, when the agent reports it. |
+| `preTokens` / `postTokens` | Context token counts before and after, when reported. |
+| `summary` | The compaction summary text, when the agent records one. |
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+// Live: watch for the boundary as it happens.
+for await (const ev of mw.stream(run.id)) {
+  if (ev.type === "compaction") {
+    console.log("compacted", ev.compaction?.trigger, ev.compaction?.postTokens);
+  }
+}
+
+// In history: the boundary is a system message with a compaction part.
+const messages = await mw.messages("demo");
+for (const m of messages) {
+  if (m.role === "system") {
+    const part = m.parts?.find((p) => p.type === "compaction");
+    if (part) console.log("history boundary:", part.compaction?.summary);
+  }
+}
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+for ev := range stream {
+	if ev.Type == mindwire.EventCompaction && ev.Compaction != nil {
+		fmt.Println("compacted", ev.Compaction.Trigger, ev.Compaction.PostTokens)
+	}
+}
+
+messages, _ := client.Messages("demo", mindwire.MessagesOptions{})
+for _, m := range messages {
+	if m.Role == "system" {
+		for _, p := range m.Parts {
+			if p.Type == "compaction" && p.Compaction != nil {
+				fmt.Println("history boundary:", p.Compaction.Summary)
+			}
+		}
+	}
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# The SSE stream emits an event with type "compaction":
+# event: message
+# data: {"type":"compaction","compaction":{"trigger":"auto","postTokens":42000}}
+
+# In history, a compacted conversation carries a system message with a compaction part:
+curl -s "http://127.0.0.1:8790/chats/demo/messages" \
+  | jq '.[] | select(.role=="system") | .parts[] | select(.type=="compaction") | .compaction'
+```
+
+</Tab>
+
+</ApiTabs>
+
+<Callout>
+Fields are best-effort: an agent that doesn't report token counts or a trigger simply omits them, and
+an auto-compaction often has no `summary`. The marker's presence is always the reliable signal that the
+conversation was condensed at that point.
+</Callout>
+
+## Compact on demand
+
+Sometimes you want to compact *now* — before hitting the auto-compact threshold, ahead of a large task,
+or to free context deliberately. `compact` runs a one-shot compaction as its own run: it streams and
+records the same normalized `compaction` marker described above, so an on-demand compaction looks exactly
+like an auto-compaction to every client.
+
+The optional `instructions` string focuses the summary (e.g. *"keep the API decisions, drop the debugging
+tangents"*). Agents that don't accept a focus still compact; the instructions are ignored.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const run = await mw.compact("demo", {
+  instructions: "Keep the API decisions; drop the debugging tangents.",
+});
+
+// It's a normal run — stream it and watch for the boundary.
+for await (const ev of mw.stream(run.id)) {
+  if (ev.type === "compaction") console.log("done:", ev.compaction?.summary);
+}
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run, err := client.Compact(ctx, mindwire.CompactRequest{
+	ChatID:       "demo",
+	Instructions: "Keep the API decisions; drop the debugging tangents.",
+})
+if err != nil {
+	log.Fatal(err)
+}
+_ = run // stream run.ID like any other turn
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# 202 Accepted with the Run; `instructions` is optional.
+curl -XPOST 'http://127.0.0.1:8790/chats/demo/compact?agent=claude-code' \
+  -d '{"instructions":"Keep the API decisions; drop the debugging tangents."}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+<Callout>
+Compact-now is gated on the agent's `compactNow` capability (read it via `GET /agent`) — both Claude Code
+and Codex support it. A chat must have had at least one turn (so there's a session to compact); calling
+`compact` on a fresh chat is a `400`, and calling it while a turn is already running is a `409`. Under the
+hood Claude Code sends a `/compact` message on its resume path and Codex issues an app-server
+`thread/compact/start` request — MindWire normalizes both to the same run + `compaction` marker.
+</Callout>

@@ -1,0 +1,116 @@
+---
+title: Architecture
+description: How mindwire fits together — the daemon, the SDK's targets (where the daemon runs), and the release flow.
+---
+
+Coding-agent harnesses (Claude Code, Codex, Copilot CLI, opencode) each ship their own CLI,
+flags, output format, auth, and session model. mindwire puts **one protocol** in front of all of
+them: one request shape, one streaming event union, one capabilities matrix, one step-flow auth.
+Your code talks to mindwire; mindwire talks to whichever harness you selected with `?agent=<type>`.
+
+> Model-provider catalog, but for agent harnesses — swap the harness like you swap a model.
+
+The **daemon** (`mindwired`, Go) is where all the normalization lives. Everything else — the SDK,
+REST callers, the web app — is a client of its HTTP + SSE surface. That surface is the single wire
+contract; there is exactly one way agents are driven, and it lives in one place.
+
+## Components
+
+| Component | What it is |
+| --- | --- |
+| **daemon** | The Go core (`mindwired`). Hosts every agent adapter, owns the agent processes, drives turns, and serves the unified HTTP + SSE API. |
+| **SDK** (`mindwire`) | The TypeScript client. Local (embedded) by default; pass a `target` to run the daemon over HTTP, SSH, in a container, or a sandbox. |
+| **web** (`@mindwire/web`) | This site + docs (Next.js, static export). |
+
+```
+   your code ── SDK / REST / curl ──▶  mindwire daemon (Go)  ──▶  claude-code / codex / …
+                  one protocol             orchestrator → adapter        (cli / http / persistent)
+                  ?agent=<type>            unified Event stream (SSE)
+```
+
+## Monorepo layout
+
+Bun workspaces (`packages/*`, `apps/*`); the Go daemon is a sibling module.
+
+```
+mindwire/
+├── daemon/                 Go core → binary `mindwired`  (module github.com/oblien/mindwire/daemon)
+│   ├── cmd/daemon/         entry point; blank-imports each adapter; boots the orchestrator
+│   └── internal/
+│       ├── agent/          CORE contracts: Adapter, Capabilities, Event, AuthModule, schema, registry
+│       │   ├── claude/     the Claude Code adapter (reference implementation)
+│       │   └── codex/      the Codex CLI adapter (exec hot path + app-server mid-turn control)
+│       ├── orchestrator/   supervisor: resolves ?agent=, runs turns (one/chat, cancel, timeout, isolation)
+│       ├── driver/         how an agent is driven per protocol: cli (spawn) · http · persistent
+│       ├── runner/ · stream/ · session/ · setup/ · notify/ · api/ · ui/
+│
+├── packages/sdk/           `mindwire` — the TypeScript client
+│   ├── src/                client.ts · http.ts · embedded.ts · run.ts · sse.ts · types.ts
+│   ├── scripts/build-daemon.mjs   cross-compiles mindwired → per-platform npm packages
+│   └── npm/                generated mindwire-daemon-<os>-<arch> packages (gitignored)
+│
+└── apps/web/               `@mindwire/web` — this site + docs (output: "export")
+```
+
+## The daemon core
+
+One daemon binary **hosts every registered adapter**. A request selects one with `?agent=<type>`
+(falling back to the default). The design is three contracts — the deep dive, with the Go
+interfaces, is on the [Daemon internals](/docs/concepts/internals) page:
+
+1. **Capabilities — the hybrid switch.** Each adapter declares what its agent does natively
+   (history, sessions, cancel, tool events, user-in-loop ingress, …). If a capability is `native`,
+   the daemon uses the agent; otherwise the core emulates it, so the daemon stays thin.
+2. **Dynamic interface.** Settings and auth are declared by the adapter and rendered generically
+   by the client — no hardcoded agent knowledge on the client side.
+3. **Adapters.** One folder per agent. Adding an agent is a drop-in folder with **zero core or
+   client changes**.
+
+Every agent's output is normalized to one `Event` union — `session` · `text` · `thinking` ·
+`tool_use` · `tool_result` · `result` · `error` · `status` · `interaction` — streamed over SSE
+with a replay buffer, so a client can reattach mid-turn. Turns run in the background on the
+daemon's own context, so a turn **survives client disconnect**.
+
+## SDK: one `target`, one wire contract
+
+The `mindwire` package has a single axis for *where the daemon runs and how the SDK reaches it* —
+the **`target`** option — with the same HTTP + SSE contract across every one. **One `new Mindwire`
+= one daemon = one environment;** to isolate agents, create a second instance with its own target.
+
+- **`local()` (default).** On a server runtime (Node/Bun/Deno), `new Mindwire({ agent })` auto-spawns
+  the bundled `mindwired` on a loopback port and talks to it locally — no server to run, no URL to
+  configure. Memoized by config, killed on host exit.
+- **`remote(url)`.** Connects to a self-hosted or shared daemon over HTTP. This is also the **only**
+  option in the browser / edge, which can't spawn a process.
+- **`ssh()` / `docker()` / `oblien()`.** Provision the daemon on a bare box, in a container, or in a
+  sandbox — the SDK ensures it (upload → launch → health-poll), streams `EnsureEvent` logs, and
+  reaches it over that backend's transport. See [Destinations](/docs/guides/destinations).
+
+Local-embedded is a deliberate choice, not FFI: an in-process cgo binding was prototyped and abandoned
+because it segfaults on Bun (Go runtime × JavaScriptCore). Auto-spawn gives the same "just works"
+DX and is reliable across every server runtime.
+
+### Binary distribution
+
+The daemon binary ships as **per-platform optional dependencies** (the esbuild/swc pattern):
+
+- `scripts/build-daemon.mjs` cross-compiles `mindwired` (`CGO_ENABLED=0`, stripped, ~7 MB) for 5
+  targets into `packages/sdk/npm/mindwire-daemon-<os>-<arch>/` packages, each with `os`/`cpu`
+  filters, and syncs the main package's `optionalDependencies`.
+- `npm i mindwire` therefore downloads only the one binary matching the host.
+- Discovery order: `bin` option → `$MINDWIRE_DAEMON` → the optional-dep package → a binary next
+  to the SDK → `mindwired` on `PATH`.
+
+**Release order:** publish the `mindwire-daemon-*` packages first, then `mindwire` (its optional
+dependencies must already exist on the registry at the same version).
+
+## Extending: add an agent
+
+1. Create `daemon/internal/agent/<name>/` implementing the `Adapter` interface (+ its `AuthModule`).
+2. Declare its capabilities (protocol + what's native vs emulated) and a `RunStream` that maps the
+   agent's output to unified events.
+3. Blank-import it in `daemon/cmd/daemon`. Nothing else changes — the orchestrator hosts it,
+   namespaces its creds/config, and routes `?agent=<id>` to it automatically.
+
+See [CONTRIBUTING](https://github.com/oblien/mindwire/blob/main/CONTRIBUTING.md) for the full
+walkthrough, and [Daemon internals](/docs/concepts/internals) for the interfaces and turn lifecycle.

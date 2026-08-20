@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a problem with the daemon or the SDK.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the report! Please do not report security issues here — see [SECURITY.md](../blob/main/SECURITY.md).
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - daemon (Go)
+        - "mindwire (TypeScript)"
+        - docs
+        - other / not sure
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent
+      description: Which agent adapter, if relevant (e.g. claude-code)?
+      placeholder: claude-code
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, commands, or code to reproduce.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, daemon version (`GET /healthz`), SDK version, Go/Bun/Node versions.
+      placeholder: |
+        OS: macOS 15
+        daemon version: 0.1.25
+        mindwire: 0.1.0
+        Go: 1.26  · Bun: 1.3
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output
+      render: shell

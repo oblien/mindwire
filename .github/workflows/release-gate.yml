@@ -1,0 +1,98 @@
+name: Release gate
+
+# The checks that must pass before anything ships: the Go daemon suite, the SDK's mocked unit
+# tests, and the REAL end-to-end suite (embedded spawn + provisioning against a real Docker daemon).
+# If any goes red, the release does not publish.
+#
+# Why a reusable workflow and not a trigger: `release.yml` and `CI` both fire on the same `v*.*.*`
+# tag push, and GitHub does not order workflows against one another — so a gate that merely ran in
+# parallel would let a publish complete regardless of the tests' result. Listing a job in `needs:`
+# is the only way one workflow blocks on another, and `needs:` only reaches jobs of a workflow you
+# `uses:`. So the gate is `workflow_call`, invoked from release.yml's `gate` job. `workflow_dispatch`
+# is kept so the whole gate can be run on demand from the Actions tab.
+#
+# These jobs intentionally DUPLICATE CI's `daemon`/`sdk`/`e2e`: CI runs them for the record on every
+# push/PR; the gate runs them again as a release-blocking dependency. Same coverage, different purpose.
+
+on:
+  workflow_call: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  daemon:
+    name: daemon (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: daemon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.mod
+      - name: Verify formatting
+        run: |
+          fmt=$(gofmt -l .)
+          if [ -n "$fmt" ]; then echo "gofmt needed on:"; echo "$fmt"; exit 1; fi
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: go build ./...
+      - name: Test
+        run: go test -race ./...
+      - name: Catalog is fresh
+        run: |
+          go run ./cmd/daemon --print-catalog > /tmp/catalog.json
+          if ! diff -u catalog.json /tmp/catalog.json; then
+            echo "catalog.json is stale — run ./build.sh (or go run ./cmd/daemon --print-catalog > catalog.json)"; exit 1
+          fi
+
+  sdk-unit:
+    name: mindwire (TypeScript, unit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun --filter='mindwire' run typecheck
+      - name: Build
+        run: bun --filter='mindwire' run build
+      - name: Test (mocked)
+        run: bun --filter='mindwire' run test
+
+  e2e:
+    name: E2E (embedded + real Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.mod
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install
+        run: bun install --frozen-lockfile
+      # Cross-compile the daemon: the host binary (linux-x64) the embedded smoke discovers on disk,
+      # and the npm/mindwire-daemon-linux-x64 package the container test deploys via `daemonBin`.
+      - name: Build daemon binaries
+        run: bun --filter='mindwire' run build:daemon
+      # The container layer's image contract (curl + procps on top of debian): the fixture the
+      # real-Docker E2E provisions. Tagged mindwire-e2e:base, matching the test.
+      - name: Build E2E fixture image
+        run: docker build -t mindwire-e2e:base packages/sdk/test/e2e/fixtures
+      # Fail here, not inside the test, if the runner lost Docker — "no daemon" ≠ "assertion broke".
+      - name: Check the Docker daemon
+        run: docker info
+      - name: Run real end-to-end tests
+        run: bun --filter='mindwire' run test:e2e

@@ -1,0 +1,155 @@
+---
+title: Configuration
+description: Sticky settings vs. per-turn options — both addressed by agent-agnostic canonical keys.
+---
+
+MindWire has two layers of settings, both keyed by **canonical** names so the same knob works
+regardless of which agent runs it:
+
+- **Sticky config** — persisted settings that apply to every turn until you change them
+  (`getConfig` / `setConfig`).
+- **Per-turn options** — one-shot overrides passed with a single `turn`, winning over the sticky
+  config (`options.settings`).
+
+Both are filtered server-side to the agent's **declared, non-secret** keys — an unknown key is
+ignored, and a setting can never introduce a credential. Discover what a given agent declares with
+`GET /agent` (`mw.agent()` / `client.Agent(ctx)`).
+
+## Sticky config
+
+Read and merge persisted settings. `setConfig` merges recognized keys; unknown keys are dropped.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const current = await mw.getConfig();
+await mw.setConfig({ reasoningEffort: "high", permissionMode: "acceptEdits" });
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+current, err := client.GetConfig()
+if err != nil {
+	log.Fatal(err)
+}
+err = client.SetConfig(map[string]string{
+	"reasoningEffort": "high",
+	"permissionMode":  "acceptEdits",
+})
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/config?agent=claude-code"
+curl -XPUT "http://127.0.0.1:8790/config?agent=claude-code" \
+  -d '{"reasoningEffort":"high","permissionMode":"acceptEdits"}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Per-turn options
+
+Pass overrides with a single turn — distinct from the sticky config, and higher precedence. Beyond
+`settings`, the options object carries a full `systemPrompt` replacement, session controls
+(`continueLatest`, `sessionId`, `forkOnResume`), a JSON-Schema `outputSchema`, agent-native passthroughs
+(`mcpServers`, `subagents`), and [`attachments`](/docs/guides/attachments) (files/images for the turn).
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const run = await mw.turn({
+  chatId: "demo",
+  message: "refactor this module",
+  options: {
+    settings: { reasoningEffort: "high", permissionMode: "acceptEdits" }, // canonical keys
+    systemPrompt: "You are a terse senior engineer.",                     // full override, this turn
+    continueLatest: true,                                                 // resume the cwd's session
+    outputSchema: { type: "object", properties: { summary: { type: "string" } } },
+  },
+});
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run, err := client.Turn(ctx, mindwire.TurnRequest{
+	ChatID:  "demo",
+	Message: "refactor this module",
+	Options: mindwire.TurnOptions{
+		Settings:       map[string]string{"reasoningEffort": "high", "permissionMode": "acceptEdits"},
+		SystemPrompt:   "You are a terse senior engineer.",
+		ContinueLatest: true,
+		OutputSchema:   json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string"}}}`),
+	},
+})
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPOST 'http://127.0.0.1:8790/turns?agent=claude-code' -d '{
+  "chatId": "demo",
+  "message": "refactor this module",
+  "options": {
+    "settings": { "reasoningEffort": "high", "permissionMode": "acceptEdits" },
+    "systemPrompt": "You are a terse senior engineer.",
+    "continueLatest": true,
+    "outputSchema": { "type": "object", "properties": { "summary": { "type": "string" } } }
+  }
+}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Sticky system prompt
+
+`systemPrompt` is a canonical key like any other, so setting it in the sticky config makes it apply to
+every turn — not just the one you pass it with. It now behaves identically across agents: Claude maps
+it to `--system-prompt`, and Codex threads it through the same `model_instructions_file` overlay its
+per-turn prompt uses. A per-turn `options.systemPrompt` still wins for that one turn.
+
+```ts
+await mw.setConfig({ systemPrompt: "You are a terse senior engineer." });
+```
+
+<Callout type="warn">
+**Codex approval mode.** Codex only carries a system prompt on its autonomous `exec` transport. With
+any `permissionMode` other than `never`, a turn carrying a system prompt (sticky or per-turn) is
+rejected with a `400` rather than silently dropped — the interactive-approval (app-server) transport
+can't take the overlay. Claude has no such constraint.
+</Callout>
+
+The sticky system prompt is one of the three persistent layers beneath a turn; the full picture —
+memory files (`CLAUDE.md` / `AGENTS.md`) and saved prompt templates — is in
+[Prompts & memory](/docs/guides/prompts-and-memory).
+
+## Canonical keys
+
+A canonical key is the agent-agnostic name for a setting (`reasoningEffort`, `permissionMode`,
+`model`, …). The runner — the single security choke point — maps each canonical key to the selected
+agent's own field, and rejects a per-turn option the agent can't honor with a `400` rather than
+dropping it silently. The full set an agent declares (with its allowed values) lives in its settings
+schema, read via `GET /agent`.
+
+Canonical keys work the same on **both** layers: `setConfig`/`PUT /config` resolves a canonical key
+(e.g. `reasoningEffort`) to the agent's raw field and persists it there, exactly as a per-turn
+`options.settings` key resolves — so one form works whether you're setting a sticky default or a
+one-turn override. The agent's own raw key is still accepted directly for back-compat.

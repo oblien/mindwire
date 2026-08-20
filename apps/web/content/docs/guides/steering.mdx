@@ -1,0 +1,149 @@
+---
+title: Steering a live turn
+description: Inject a follow-up, soft-stop, switch model or permission mode, or hard-cancel — mid-turn.
+---
+
+A running turn isn't a black box. On the live run you can inject a follow-up message, soft-stop the
+current action, switch the model or permission mode, or hard-cancel — each gated by the agent's
+matching capability, so an agent that can't do one rejects it with a `400` rather than dropping it
+silently.
+
+## Inject a follow-up — `sendInput`
+
+Steer a message into the running turn without cancelling it (requires the `input` capability).
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+await run.sendInput("also add a test for the empty case");
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run.SendInput("also add a test for the empty case")
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPOST "http://127.0.0.1:8790/runs/$RUN/input" -d '{"text":"also add a test for the empty case"}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Soft-stop — `interrupt`
+
+Ask the agent to halt the current action while keeping the turn **open** for a follow-up (softer than
+`cancel`'s hard process kill; requires `interrupt`).
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+await run.interrupt();
+// the turn stays open — steer it with sendInput, or let it settle
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run.Interrupt()
+// the turn stays open — steer it with SendInput, or let it settle
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPOST "http://127.0.0.1:8790/runs/$RUN/interrupt"
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Switch model / permission mode — `setModel`, `setPermissionMode`
+
+Change the live turn's model or its permission mode. These only bite on a **persistent** (non-bypass)
+turn; on a one-shot bypass turn they're accepted as a best-effort no-op. Gated by `setModel` /
+`setPermissionMode`.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+await run.setModel("opus");           // omit / "" ⇒ reset to the agent default
+await run.setPermissionMode("plan");  // canonical mode
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run.SetModel("opus")           // "" ⇒ reset to the agent default
+run.SetPermissionMode("plan")  // canonical mode
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPOST "http://127.0.0.1:8790/runs/$RUN/set-model"           -d '{"model":"opus"}'
+curl -XPOST "http://127.0.0.1:8790/runs/$RUN/set-permission-mode" -d '{"mode":"plan"}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Hard-cancel — `cancel`
+
+Stop the turn and kill the underlying agent process (requires `cancel`). This is different from
+cancelling your *stream* (which only stops reading — see [Streaming](/docs/guides/streaming)).
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+await run.cancel();
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run.Cancel()
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPOST "http://127.0.0.1:8790/runs/$RUN/cancel"
+```
+
+</Tab>
+
+</ApiTabs>
+
+Each control returns a `404` if no turn is currently accepting input for that run id, and a `400` if
+the agent lacks the capability — discover support with `GET /agent`.

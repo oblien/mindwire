@@ -1,0 +1,247 @@
+---
+title: Resolve a whole task
+description: Global-resolve mode — hold one request open while the daemon auto-continues the agent's multi-step work until the task is done, then return one aggregated result.
+---
+
+An ordinary [turn](/docs/guides/streaming) ends the instant the agent's CLI settles — even if the model
+stopped because it hit its turn budget mid-task. Driving a long task to completion then means *you* watch
+for that stop and [resume](/docs/guides/sessions#resume-a-session) it, turn after turn.
+
+**Resolve mode** hands that loop to the daemon. You describe the whole task once; the daemon holds the
+request open, auto-continues the agent across as many turns as it takes (resuming on a continuable stop,
+probing for completion otherwise), and returns **one aggregated result** when the work is globally done.
+It's opt-in per request — plain turns are completely unchanged.
+
+<Callout>
+Resolve is daemon logic over the resume path every agent already has — no new per-agent feature. On Codex,
+where a turn is always fully settled when it ends, a resolve typically completes in a single iteration; on
+Claude Code it drives the `error_max_turns` → resume loop. Every agent that can resume reports the
+`resolve` capability (read it via `GET /agent`).
+</Callout>
+
+## Start a resolve run
+
+`resolve` takes the same input as a turn plus optional [caps](#caps-and-stopreason). It returns the
+**parent** run of a run tree — its `kind` is `"resolve"`. Await it like any turn: `wait()` resolves once,
+with the aggregated result for the whole task.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const run = await mw.resolve({
+  chatId: "demo",
+  message: "Migrate the whole test suite to vitest and make every test pass.",
+  resolve: { maxIterations: 30, deadlineSeconds: 3600 },
+});
+
+// One aggregate result for the whole task — not one per sub-turn.
+const { run: record, result } = await run.wait();
+console.log(record.stopReason, record.iterations, result?.text);
+```
+
+`mw.resolve(...)` is sugar for `mw.turn({ ..., mode: "resolve" })`.
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run, err := client.Resolve(ctx, mindwire.ResolveRequest{
+	ChatID:        "demo",
+	Message:       "Migrate the whole test suite to vitest and make every test pass.",
+	MaxIterations: 30,
+	Deadline:      time.Hour,
+})
+if err != nil {
+	log.Fatal(err)
+}
+
+// Wait drains the merged parent stream and returns the aggregate result.
+res, err := run.Wait(ctx)
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(res.Run.StopReason, res.Run.Iterations, res.Result.Text)
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# 202 Accepted with the parent Run (kind:"resolve"). `resolve` caps are optional.
+curl -XPOST 'http://127.0.0.1:8790/turns?agent=claude-code' -d '{
+  "chatId": "demo",
+  "message": "Migrate the whole test suite to vitest and make every test pass.",
+  "mode": "resolve",
+  "resolve": { "maxIterations": 30, "deadlineSeconds": 3600 }
+}'
+```
+
+`mode` is `"turn"` (default) or `"resolve"`; any other value is a `400`.
+
+</Tab>
+
+</ApiTabs>
+
+## The run tree
+
+Each auto-continued iteration is its own child run, linked to the parent by `parentId`. The parent
+aggregates them; `children()` returns the per-iteration runs oldest→newest, so you can inspect exactly
+what happened at each step.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const kids = await run.children(); // [] for an ordinary turn or a single-iteration resolve
+for (const k of kids) console.log(k.id, k.status, k.value.subtype);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+kids, err := run.Children()
+if err != nil {
+	log.Fatal(err)
+}
+for _, k := range kids {
+	fmt.Println(k.ID(), k.Status())
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# The child iterations of a resolve parent. An ordinary run → 200 with []; unknown id → 404.
+curl -s "http://127.0.0.1:8790/runs/$RUN/children" | jq '.[] | {id, status, parentId}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Read the merged stream
+
+You don't have to wait for the end. The parent's [event stream](/docs/guides/streaming) is one continuous
+**merged stream**: every child iteration's events (`text`, `tool_use`, `result`, …) flow onto the parent
+topic, delimited by a `continuation` event that opens each iteration. Reading it live shows the task
+progressing turn by turn.
+
+| `ContinuationInfo` field | Meaning |
+| --- | --- |
+| `iteration` | 0-based index of the iteration this boundary opens. |
+| `reason` | Why it's running: `start` (first), `max_turns` / `max_budget` (resuming a continuable stop), or `probe` (a clean settle with no completion sentinel — checking for done). |
+| `childRunId` | The child run this iteration streams under. |
+| `stopReason` | Set only on the **final** boundary: `done` / `capped` / `error`. |
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+for await (const ev of run) {
+  switch (ev.type) {
+    case "continuation":
+      // A new iteration is opening — or, with a stopReason, the loop just ended.
+      console.log(
+        `\n— iteration ${ev.continuation?.iteration} ` +
+          `(${ev.continuation?.stopReason ?? ev.continuation?.reason})`,
+      );
+      break;
+    case "text":
+      process.stdout.write(ev.text ?? "");
+      break;
+    // Each sub-turn emits a `result`; the daemon publishes the aggregate `result` LAST,
+    // so `wait()` returns the whole-task summary rather than a single iteration's.
+  }
+}
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+for ev := range run.Stream(ctx) {
+	switch ev.Type {
+	case mindwire.EventContinuation:
+		if ev.Continuation != nil {
+			fmt.Printf("\n— iteration %d (%s)\n", ev.Continuation.Iteration, ev.Continuation.Reason)
+		}
+	case mindwire.EventText:
+		fmt.Print(ev.Text)
+	}
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -N "http://127.0.0.1:8790/runs/$RUN/stream"
+# … each iteration opens with a continuation boundary:
+# event: message
+# data: {"type":"continuation","continuation":{"iteration":1,"reason":"max_turns","childRunId":"r_…"}}
+# … and the run ends with the aggregate result, then a final continuation carrying stopReason.
+```
+
+</Tab>
+
+</ApiTabs>
+
+## How the daemon decides "done"
+
+There's no run-until-done flag in any CLI, so resolve embeds a **completion contract** in the driving
+message: the agent is asked to end its reply with the exact line `<<RESOLVE_DONE>>` once the task is fully
+complete, and to proceed with its best judgment rather than stopping to ask. After each iteration the
+daemon decides:
+
+- final text contains `<<RESOLVE_DONE>>` → **done** (the sentinel is stripped from the aggregate text);
+- otherwise a continuable stop (max turns / max budget) → **resume** and continue;
+- a genuine error → **stop** with `stopReason: "error"`;
+- a clean settle with no sentinel → **probe** once more, up to the cap.
+
+<Callout type="warn">
+**Resolve runs unattended.** So the loop can't stall waiting on a human, resolve turns bypass mid-turn
+approvals — the agent is told to proceed past any decision point rather than pausing for a permission or an
+[interaction](/docs/guides/interaction) reply. That removes the human checkpoint a normal turn gives you,
+which is why resolve is opt-in per request: choose it deliberately for a task you're comfortable letting
+the agent drive end to end, and scope it with the caps below.
+</Callout>
+
+## Caps and stopReason
+
+Resolve is always bounded, so a task that never signals completion can't loop forever:
+
+- `maxIterations` — the most auto-continued turns to run (daemon default ≈20). Hitting it ends the run
+  with `stopReason: "capped"`.
+- `deadlineSeconds` (Go: `Deadline`) — an overall wall-clock budget for the whole resolve (default ≈2h).
+- each child turn still carries the normal per-turn timeout.
+
+The parent's `stopReason` always says how the loop ended — `done` (sentinel seen), `capped` (a cap was
+hit), or `error` — and `iterations` reports how many child turns ran, so the cost is visible and a
+capped resolve is never mistaken for a finished one. You can also stop a resolve yourself at any time with
+`run.cancel()`.
+
+<Callout>
+The completion sentinel is a **soft** signal: an agent might not emit `<<RESOLVE_DONE>>` verbatim, in which
+case the probe path carries the loop to the cap. That's the deliberate trade-off of driving an agent that
+has no hard "finished" flag — the caps and `stopReason` keep it bounded and honest.
+</Callout>
+
+<Callout type="warn">
+**What resolve cannot watch.** Some agents can spin up truly isolated background work (Claude Code's
+dynamic sub-workflows, for instance). That work runs in its own environment and is **not observable** on
+the headless stream — the stream only shows that it *started*. Resolve therefore drives the part that
+actually is drivable: the continuable-stop → resume loop plus the completion probe. It does not, and can
+not, literally watch an isolated background workflow to completion.
+</Callout>

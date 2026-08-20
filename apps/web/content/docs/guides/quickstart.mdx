@@ -1,0 +1,183 @@
+---
+title: Quickstart
+description: Install, authenticate, and stream your first turn — in TypeScript, Go, or plain REST.
+---
+
+MindWire drives any coding agent through one surface. Pick how you want to talk to it — the
+**TypeScript SDK**, the **Go SDK**, or the **REST + SSE** API — and the shape is the same: start a
+turn, stream a unified event stream, swap the agent like a model.
+
+Both SDKs run the daemon **in-process for you** — nothing to deploy. The TypeScript SDK spawns the
+bundled `mindwired` binary and talks to it locally; the Go SDK *is* the daemon's own engine, imported
+as a library. For REST you run `mindwired` yourself and call it over HTTP.
+
+## 1. Install
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```bash
+npm i mindwire
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```bash
+go get github.com/oblien/mindwire/daemon
+```
+
+The Go SDK is `github.com/oblien/mindwire/daemon/sdk` (package `mindwire`) — the daemon's own core,
+in-process. No HTTP hop, no subprocess.
+
+</Tab>
+
+<Tab value="REST">
+
+Run the daemon standalone — it's bundled with the npm package, or build it from source:
+
+```bash
+go build -o mindwired ./daemon/cmd/daemon && ./mindwired
+# listening on http://127.0.0.1:8790
+```
+
+</Tab>
+
+</ApiTabs>
+
+## 2. Authenticate the agent
+
+Each agent needs its own credentials once — an API key or a sign-in. Drive the step-flow:
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+import { Mindwire } from "mindwire";
+
+const mw = new Mindwire({ agent: "claude-code" });
+
+await mw.auth.begin("apiKey");
+await mw.auth.step({ apiKey: "sk-ant-..." });
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+client, _ := mindwire.New(mindwire.Options{Agent: "claude-code"})
+defer client.Close()
+
+client.Auth.Begin(ctx, "apiKey")
+client.Auth.Step(ctx, map[string]string{"apiKey": "sk-ant-..."})
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPOST 'http://127.0.0.1:8790/auth/begin?agent=claude-code' -d '{"method":"apiKey"}'
+curl -XPOST 'http://127.0.0.1:8790/auth/step?agent=claude-code'  -d '{"apiKey":"sk-ant-..."}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+Some methods (like a browser sign-in) return a `url` to open and are completed by polling `step` —
+see [Authentication](/docs/guides/authentication) for the full flow.
+
+## 3. Run your first turn
+
+Start a turn and consume its event stream. `text` events carry the model's output; the final
+`result` event carries the cost and outcome.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+import { Mindwire } from "mindwire";
+
+const mw = new Mindwire({ agent: "claude-code" });
+
+const run = await mw.turn({ chatId: "demo", message: "add a /healthz endpoint" });
+
+for await (const ev of run) {
+  if (ev.type === "text") process.stdout.write(ev.text ?? "");
+  if (ev.type === "result") console.log("\n✓", ev.result?.costUsd);
+}
+```
+
+Prefer to await the whole turn instead of streaming? `const { result } = await run.wait();`
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	mindwire "github.com/oblien/mindwire/daemon/sdk"
+)
+
+func main() {
+	ctx := context.Background()
+
+	client, err := mindwire.New(mindwire.Options{Agent: "claude-code"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer client.Close()
+
+	run, err := client.Turn(ctx, mindwire.TurnRequest{ChatID: "demo", Message: "add a /healthz endpoint"})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for ev := range run.Stream(ctx) {
+		switch ev.Type {
+		case mindwire.EventText:
+			fmt.Print(ev.Text)
+		case mindwire.EventResult:
+			fmt.Printf("\n✓ $%.4f\n", ev.Result.CostUSD)
+		}
+	}
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# Start a turn — returns the durable Run record (grab its id).
+RUN=$(curl -s -XPOST 'http://127.0.0.1:8790/turns?agent=claude-code' \
+  -d '{"chatId":"demo","message":"add a /healthz endpoint"}' | jq -r .id)
+
+# Stream its unified events over SSE (replay buffer, then live, then close).
+curl -N "http://127.0.0.1:8790/runs/$RUN/stream"
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Next
+
+- [Streaming events](/docs/guides/streaming) — the unified event stream and how to await a turn.
+- [Interaction & approvals](/docs/guides/interaction) — pause for permission, answer questions.
+- [Steering a live turn](/docs/guides/steering) — inject input, interrupt, switch model mid-turn.
+- [Sessions & history](/docs/guides/sessions) — chats, transcripts, and reattaching to a run.
+- [Configuration](/docs/guides/configuration) — sticky settings and per-turn options by canonical key.
+- [Destinations](/docs/guides/destinations) — run the daemon elsewhere: `remote`, SSH, Docker, or a sandbox.

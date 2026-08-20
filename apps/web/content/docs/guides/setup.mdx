@@ -1,0 +1,229 @@
+---
+title: Setup & health
+description: The install-and-health-check lifecycle — list the catalog, install an agent, watch setup progress, diagnose with doctor, and probe liveness.
+---
+
+Before an agent can run a turn, its CLI has to be installed and authenticated. MindWire exposes that
+whole lifecycle over the same API: discover what's available, install it, watch the steps, and diagnose
+what's wrong — no shelling out to each agent's installer.
+
+The arc is: **catalog** (what agents exist) → **agent** (is this one installed and configured?) →
+**setup** (install it) → **setupStatus** (watch progress) → **doctor** (diagnose) → **health** (is the
+daemon live?).
+
+## List the catalog
+
+`catalog()` returns every agent this daemon build ships, independent of whether it's installed.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const { version, agents } = await mw.catalog();
+for (const a of agents) console.log(a.id, "—", a.tagline);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+cat := client.Catalog()
+for _, a := range cat.Agents {
+	fmt.Println(a.ID, "—", a.Tagline)
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/catalog" | jq '.agents[] | {id, tagline}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+Each `CatalogEntry` is `{ id, name, tagline }`. To learn whether a specific agent is installed and
+configured, call [`agent()`](/docs/guides/agents#discover-an-agent) — its `installedVersion` and
+`configured` fields answer exactly that.
+
+## Install an agent
+
+`setup()` runs the agent's install steps (fetching Node, the CLI, etc.). It's **idempotent** — a step
+already satisfied is skipped, so calling it on a healthy agent is a no-op that just reports "satisfied."
+`update()` is the same flow aimed at upgrading an already-installed agent.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const status = await mw.setup();          // install the current agent
+// const status = await mw.update();      // or upgrade it
+console.log(status.ok, status.running);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+status, err := client.Setup(ctx)          // install the current agent
+// status, err := client.Update(ctx)      // or upgrade it
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(status.OK, status.Running)
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPOST "http://127.0.0.1:8790/setup?agent=codex"   # or POST /update
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Watch setup progress
+
+Setup runs asynchronously; `setupStatus()` reports where it is. `SetupStatus` carries `running`, `ok`,
+`started`, the `current` step, and a `steps` list — each `StepResult` is
+`{ name, status: "satisfied" | "installed" | "failed", output? }`. Poll it until `running` is false.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+let s = await mw.setupStatus();
+while (s.running) {
+  console.log("…", s.current);
+  await new Promise((r) => setTimeout(r, 1000));
+  s = await mw.setupStatus();
+}
+for (const step of s.steps) console.log(step.status, step.name);
+console.log(s.ok ? "ready" : "setup failed");
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+s, _ := client.SetupStatus(ctx)
+for s.Running {
+	fmt.Println("…", s.Current)
+	time.Sleep(time.Second)
+	s, _ = client.SetupStatus(ctx)
+}
+for _, step := range s.Steps {
+	fmt.Println(step.Status, step.Name)
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/setup?agent=codex" | jq '{running, ok, current, steps}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Diagnose with doctor
+
+`doctor()` runs the agent's health checks and returns a `DoctorReport` — `{ ok, checks }`, where each
+`Check` is `{ name, status: "ok" | "warn" | "fail", detail? }`. This is the "why won't it run?" call:
+missing CLI, missing auth, wrong version.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const report = await mw.doctor();
+for (const c of report.checks) {
+  if (c.status !== "ok") console.warn(c.status, c.name, "—", c.detail);
+}
+if (!report.ok) throw new Error("agent not ready");
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+report, err := client.Doctor(ctx)
+if err != nil {
+	log.Fatal(err)
+}
+for _, c := range report.Checks {
+	if c.Status != "ok" {
+		fmt.Printf("%s %s — %s\n", c.Status, c.Name, c.Detail)
+	}
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/doctor?agent=claude-code" | jq '{ok, checks}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Probe liveness
+
+`health()` is the cheap, agent-agnostic liveness probe — `{ ok, agent, version }`. It's the one route
+that needs no `?agent=` and no auth (`GET /healthz`), so it's what a load balancer or a boot script hits.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const h = await mw.health();
+console.log(h.ok, h.agent, h.version);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+h := client.Health()
+fmt.Println(h.OK, h.Agent, h.Version)
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/healthz" | jq
+```
+
+</Tab>
+
+</ApiTabs>
+
+Once `doctor` is green and the agent is `configured`, you're ready to
+[stream your first turn](/docs/guides/quickstart). To set credentials, see
+[Authentication](/docs/guides/authentication). To run this whole lifecycle somewhere other than your
+host — a remote daemon, an SSH box, a container, or a sandbox — see
+[Destinations](/docs/guides/destinations).

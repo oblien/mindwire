@@ -1,0 +1,337 @@
+---
+title: Agents & settings
+description: Discover an agent at runtime — its capabilities, its settings schema, its auth methods — then switch agents and switch settings, all through one shape.
+---
+
+MindWire drives more than one agent, and they don't all do the same things. Rather than hardcode what
+Claude Code or Codex supports, you **ask the agent at runtime**: one call returns its capabilities, its
+settings schema, and its auth state. Branch on that, then swap the agent like you swap a model — same
+request shape, same event stream.
+
+## Discover an agent
+
+`agent()` returns everything the daemon knows about the selected agent, served live.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const info = await mw.agent();
+console.log(info.name, info.installedVersion, info.configured);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+info, err := client.Agent(ctx)
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(info.Name, info.InstalledVersion, info.Configured)
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/agent?agent=claude-code" | jq '{name, installedVersion, configured}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+`AgentInfo` carries:
+
+| Field | Meaning |
+| --- | --- |
+| `agentType` / `name` | The agent's id (`claude-code`) and display name. |
+| `version` | The adapter's definition version. |
+| `installedVersion` | The agent CLI version detected on the host (empty if not installed). |
+| `capabilities` | What this agent can do — see below. |
+| `schema` | The settings schema (sections → fields). |
+| `authMethods` / `authStatus` | How to authenticate and whether it's configured. |
+| `configured` / `configPath` | Whether creds are set, and where the agent's own config lives. |
+
+## Read the capabilities
+
+`capabilities` is how you branch **before** you send an option an agent can't honor. Every turn-option
+flag is a core switch: when it's `false`, sending that option returns an honest `400` rather than
+silently dropping it — so reading capabilities first is how you avoid the `400`.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const { capabilities: caps } = await mw.agent();
+
+if (caps.setModel) {
+  // safe to live-switch the model mid-turn on this agent
+}
+const message = caps.subagents
+  ? "spin up a reviewer subagent and refactor"
+  : "refactor"; // Codex has no subagents — don't send the option
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+info, _ := client.Agent(ctx)
+if info.Capabilities.SetModel {
+	// safe to live-switch the model mid-turn on this agent
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/agent?agent=codex" | jq '.capabilities | {setModel, subagents, mcpServers}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+The full set: `protocol`, `output`, `history`, `sessions`, `resume`, `toolEvents`, `cancel`,
+`persistent`, `models`, `respond`, `input`, `interrupt`, `setModel`, `setPermissionMode`, `systemPrompt`,
+`appendSystemPrompt`, `mcpServers`, `mcpConfig`, `subagents`, `subagentDefs`, `claudeSettings`, `memory`,
+`promptTemplates`. `history`/`sessions` are `none | native | emulated`; the rest of the list are booleans.
+`memory` and `promptTemplates` gate the [prompts & memory](/docs/guides/prompts-and-memory) surface;
+`subagentDefs` gates the on-disk [subagent definitions](/docs/guides/prompts-and-memory#subagent-definitions)
+and `mcpConfig` gates the persistent [MCP server config](/docs/guides/mcp). Both are distinct from the
+per-turn `subagents` / `mcpServers` passthroughs — those pass a definition for a single turn, while
+`subagentDefs` / `mcpConfig` read and write the definitions the agent loads from disk on every turn.
+
+## List models
+
+`models` is the first-class version of the `model` field buried in the settings schema. When an agent's
+`capabilities.models` is set, `GET /models` returns the model ids and labels the configured account can
+run — the same list the agent's own picker shows. An agent that treats the model as free text (Codex)
+has no module and returns a `400`; read `capabilities.models` first. The list needs auth to fetch, so
+an empty array from an unauthenticated agent is a valid `200`, not an error.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+if ((await mw.agent()).capabilities.models) {
+  const models = await mw.models();
+  for (const m of models) console.log(m.id, m.label);
+}
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+models, err := client.Models() // *APIError with Status 400 on an agent without a model list
+if err != nil {
+	log.Fatal(err)
+}
+for _, m := range models {
+	fmt.Println(m.ID, m.Label)
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/models?agent=claude-code" | jq '.[] | {id, label}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Walk the settings schema
+
+The `schema` describes what settings an agent exposes, so a UI can render a settings form it has never
+seen. It's a list of `sections`, each with `fields`. A field has a `key`, a `label`, a `type`
+(`text | secret | select | multiselect | toggle`), optional `options` (for selects), and two keys that
+make it cross-agent:
+
+- **`canon`** — the agent-agnostic [canonical key](/docs/guides/configuration#canonical-keys). Two
+  different agents both expose "reasoning effort" under the same `canon: "reasoningEffort"`, so you write
+  one settings form that works for every agent.
+- **`scope`** — `unified` (this field maps to a shared canonical knob) or `custom` (agent-specific, e.g.
+  Codex's `sandbox` axis, where `canon === key`).
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const { schema } = await mw.agent();
+
+for (const section of schema.sections ?? []) {
+  console.log(`# ${section.title}`);
+  for (const f of section.fields ?? []) {
+    const values = f.options?.map((o) => o.value).join(" | ") ?? f.type;
+    const tag = f.scope === "unified" ? `canon:${f.canon}` : "custom";
+    console.log(`  ${f.key} (${values})  [${tag}]`);
+  }
+}
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+info, _ := client.Agent(ctx)
+for _, section := range info.Schema.Sections {
+	fmt.Printf("# %s\n", section.Title)
+	for _, f := range section.Fields {
+		tag := "custom"
+		if f.Scope == "unified" {
+			tag = "canon:" + f.Canon
+		}
+		fmt.Printf("  %s (%s)  [%s]\n", f.Key, f.Type, tag)
+	}
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/agent?agent=claude-code" \
+  | jq '.schema.sections[].fields[] | {key, type, scope, canon}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Switch agents
+
+Pick an agent per client, or per call. Both resolve to the `?agent=` selector on the wire — the request
+shape is otherwise identical, which is the whole point.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+import { Mindwire } from "mindwire";
+
+const mw = new Mindwire({ agent: "claude-code" }); // default agent for this client
+const codex = mw.withAgent("codex");               // a clone scoped to Codex
+
+await mw.turn({ chatId: "demo", message: "…" });    // → claude-code
+await codex.turn({ chatId: "demo", message: "…" }); // → codex
+
+// Or scope a single call without a clone:
+await mw.agent({ agent: "codex" });
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+client, _ := mindwire.New(mindwire.Options{Agent: "claude-code"}) // default agent
+codex := client.WithAgent("codex")                                // a view scoped to Codex
+
+client.Turn(ctx, mindwire.TurnRequest{ChatID: "demo", Message: "…"}) // → claude-code
+codex.Turn(ctx, mindwire.TurnRequest{ChatID: "demo", Message: "…"})  // → codex
+
+// Or scope a single call:
+info, _ := client.Agent(ctx, mindwire.ForAgent("codex"))
+_ = info
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# The agent is a query param on every agent-scoped route.
+curl -s "http://127.0.0.1:8790/agent?agent=claude-code"
+curl -s "http://127.0.0.1:8790/agent?agent=codex"
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Switch settings
+
+Once you know an agent's schema, change its sticky settings with `setConfig` (persisted) or override them
+for one turn with `options.settings` — both keyed by the canonical names from the schema. That's covered
+in full in [Configuration](/docs/guides/configuration); the short version:
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+await mw.setConfig({ reasoningEffort: "high", permissionMode: "acceptEdits" });
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+err := client.SetConfig(map[string]string{
+	"reasoningEffort": "high",
+	"permissionMode":  "acceptEdits",
+})
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPUT "http://127.0.0.1:8790/config?agent=claude-code" \
+  -d '{"reasoningEffort":"high","permissionMode":"acceptEdits"}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Capability matrix
+
+The side-by-side that makes "swap the agent like a model" concrete. Read it live per agent from
+`GET /agent`; this is the current bundled state.
+
+| Capability | `claude-code` | `codex` |
+| --- | --- | --- |
+| `protocol` | `cli` | `cli` |
+| `history` / `sessions` | `native` | `native` |
+| `resume`, `toolEvents`, `cancel` | ✓ | ✓ |
+| `respond`, `input`, `interrupt` | ✓ | ✓ |
+| `models` | ✓ (`GET /models`) | ✕ (model is free text) |
+| `setModel`, `setPermissionMode` | ✓ | ✕ |
+| `systemPrompt` | ✓ | ✓ |
+| `appendSystemPrompt` | ✓ | ✕ |
+| `mcpServers` (per turn) | ✓ | ✓ |
+| `mcpConfig` (persistent) | ✓ (project + user) | ✓ (user only) |
+| `subagents` (per turn), `claudeSettings` | ✓ | ✕ (Claude-native) |
+| `subagentDefs` (persistent) | ✓ (project + user) | ✕ (Claude-only) |
+| `memory` | ✓ (project + user) | ✓ (project + user) |
+| `promptTemplates` | ✓ (project + user) | ✓ (user only) |
+| `imageInput` | ✓ | ✓ |
+| `compactNow` | ✓ | ✓ |
+| `resolve` | ✓ | ✓ |
+
+A `✕` means sending that option returns a `400` for that agent — never a silent drop. For the mapping
+behind each column, see the [Claude Code](/docs/reference/agents/claude/) and
+[Codex](/docs/reference/agents/codex/) adapter references.

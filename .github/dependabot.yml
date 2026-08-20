@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Go daemon
+  - package-ecosystem: gomod
+    directory: /daemon
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "go"]
+
+  # TypeScript SDK + workspace root
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "javascript"]
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "ci"]

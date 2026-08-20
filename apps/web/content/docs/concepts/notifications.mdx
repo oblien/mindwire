@@ -1,0 +1,280 @@
+---
+title: Notifications
+description: How the daemon fans one notification out to N delivery channels — a self-registering registry, the built-in webhook, and local file/exec hooks.
+---
+
+A turn can outlive the client that started it — it runs on the daemon's own context and survives
+disconnect. Notifications are how the daemon reaches back out when something happens while nobody is
+watching: a turn finished, a turn needs an approval, a turn failed. The daemon is a **provider-agnostic
+emitter** — it produces one unified [`Notification`](/docs/reference/sdk-ts/interfaces/Notification/) and
+hands it to whatever channels are enabled, with no per-channel knowledge in the send path.
+
+## One notification, N channels
+
+Delivery is a **pluggable registry with N-way fan-out**, built on the exact self-registration pattern
+the [agent adapters](/docs/concepts/architecture#the-daemon-core) use. Adding a delivery channel is one
+new file plus (for a sub-package) one blank import — **zero changes** to the orchestrator or the send
+path.
+
+```
+  turn event ──▶ orchestrator ──▶ notify.Fanout ──┬──▶ webhook   (POST to your URL)
+                                   (one Notifier)  ├──▶ file      (append JSON line)
+                                                   ├──▶ exec      (run a local hook)
+                                                   └──▶ router    (rules ─▶ N channels,
+                                                                   per agent / per session)
+```
+
+- A **channel** is a `Factory func(Store) (Notifier, bool)` registered from its package's `init()`.
+  `ok=false` means "not configured — skip," so a disabled channel never fans out to a no-op.
+- `notify.All(store)` instantiates every *enabled* channel in registration order (webhook first, then
+  blank-import order — deterministic across restarts).
+- `notify.Fanout` composes them behind the single `notify.Notifier` the orchestrator already calls. It
+  delivers to **every** channel — one channel's failure never blocks the others — and joins their errors.
+  An empty fan-out is a silent no-op, so a daemon with nothing configured never fails a turn on delivery.
+
+The orchestrator calls `notifier.Notify(...)` once. It has no idea how many channels exist or what they
+are — that is the whole point.
+
+## The built-in channel: webhook
+
+The webhook is the core channel and is always registered. It POSTs the unified notification as JSON to a
+URL you configure — the receiver maps it onto whatever it actually delivers (a push alert, a Slack
+message, an email):
+
+- **Target** is runtime-configurable via [`PUT /notify/config`](/docs/reference/rest/notifications/put-notify-config/)
+  (read *live* on each send, so you can point it somewhere new without a restart), or seeded from the
+  `NOTIFY_URL` environment variable for dev / self-host.
+- The request body **is** the notification — `condition`, `title`, `body`, `agent`, `chatId`, `runId`,
+  `actions`.
+- An optional `token` becomes an `Authorization: Bearer …` header; an optional `channel` (`NOTIFY_CHANNEL`)
+  becomes an `X-Mindwire-Channel` routing hint. A non-2xx response is treated as a failed send (not a
+  silent success).
+
+## Local channels: file & exec
+
+Two more channels ship as sub-packages that **self-register when blank-imported** and enable themselves
+from their *own* environment — the proof that "add a channel = one file + one import." They deliberately
+read `os.Getenv` rather than the API-mutable store, keeping local hooks **out of** anything an API client
+can change:
+
+| Channel | Enabled by | Delivery |
+| --- | --- | --- |
+| `notify/file` | `NOTIFY_FILE=<path>` | Appends each notification as one JSON line (JSONL) to the file. Zero security surface. |
+| `notify/exec` | `NOTIFY_EXEC=<command>` | Runs the command with the notification JSON on **stdin**, under a bounded timeout. |
+
+### The exec trust boundary
+
+`NOTIFY_EXEC` runs a shell command on the daemon host. That command comes from the **daemon's own
+environment** — never from any API request, turn config, or notification content. It is the same trust
+level as choosing which daemon binary to run: a local-operator decision, not a client-reachable one. The
+hook is opt-in (unset by default), bounded by a timeout so a hung hook can't wedge delivery, and receives
+the payload on stdin rather than as interpolated arguments. Do not point it at a command whose behavior
+depends on attacker-controlled input.
+
+## Channels & rules: many destinations, routed per agent / per session
+
+The single built-in webhook has one target and receives *everything*. For fleets that need **several**
+destinations — a Slack room for one team, a Discord channel for another, a Telegram bot for on-call, a
+generic webhook into your own system — and want each to hear only the events it cares about, the daemon
+adds a **channel + rule** layer. It is **daemon-driven**: the daemon owns the destinations and the
+routing, evaluates them itself on every emitted notification, and persists them to disk in its own state
+file (no database). It is also **purely additive** — the legacy webhook and the file/exec/stream channels
+keep firing exactly as before.
+
+The whole layer rides in as **one more registered channel** (the *router*) in the same fan-out — so, as
+with every other channel, the orchestrator and the send path are untouched.
+
+### Channels
+
+A **channel** is a named delivery target: `{ id, type, label, url, headers?, token?, secret?, enabled }`.
+`type` selects **only the outgoing payload shape** — the daemon still sends the same unified notification,
+just wrapped for the destination:
+
+| `type` | Body POSTed | Typical `url` |
+| --- | --- | --- |
+| `webhook` | The raw `Notification` JSON (same as the built-in webhook). | Your own receiver. |
+| `slack` | `{ "text": "<title>\n<body>" }` | A Slack **incoming webhook** URL. |
+| `discord` | `{ "content": "<title>\n<body>" }` | A Discord **webhook** URL. |
+| `telegram` | `{ "text": "<title>\n<body>" }` | A bot **`sendMessage`** URL (bot token + `chat_id` live in the URL). |
+
+Every channel also supports:
+
+- **`headers`** — extra request headers merged onto each delivery (values are secret).
+- **`token`** — sent as `Authorization: Bearer <token>`.
+- **`secret`** — **webhook type only**: an HMAC-SHA256 signing key. When set, each delivery carries
+  `X-Mindwire-Signature: sha256=<hex>` computed over the exact request body, so your receiver can verify
+  authenticity.
+
+### Rules
+
+A **rule** decides *which* channels a given notification reaches:
+`{ id, scope, agent?, session?, conditions?, channelIds[], enabled }`. A rule fires when it is `enabled`,
+its `conditions` list (empty = **all** conditions) contains the notification's `condition`, and its
+`scope` matches:
+
+| `scope` | Matches when | Requires |
+| --- | --- | --- |
+| `global` | Always. | — |
+| `agent` | The emitting adapter type equals `agent` (e.g. `claude-code`). | `agent` |
+| `session` | The `chatId` equals `session`. | `session` |
+
+On **every** emitted notification the router evaluates all enabled rules, **unions** the `channelIds` of
+those that match (deduping, so a channel targeted by two rules is delivered once), and POSTs to each
+matched enabled channel **concurrently** — one slow or failing channel never blocks the others. Zero
+matching rules means the router is a silent no-op for that notification (the legacy webhook/file/exec/
+stream still fire independently).
+
+### Secrets are write-only
+
+Channel secrets never leave the daemon. Reads return a **masked** view — `urlHost`, `hasUrl`,
+`headerKeys` (names only), `hasToken`, `hasSecret` — and never the full URL, the `token`, the `secret`,
+or any header value. Writes are merge-preserving: a `PUT` that omits (or blanks) `url` / `token` /
+`secret` keeps whatever is stored, so round-tripping the masked read view can't silently wipe a secret.
+Send `headers: {}` to explicitly clear headers. This mirrors how [custom providers](/docs/concepts/providers)
+hide their API key.
+
+### From code
+
+```ts
+// Create a Slack channel and a global rule that routes finished/error turns to it.
+const slack = await mw.notify.createChannel({
+  type: "slack",
+  label: "eng-alerts",
+  url: "https://hooks.slack.com/services/T000/B000/xxxx",
+});
+
+await mw.notify.createRule({
+  scope: "global",
+  conditions: ["finished", "error"],
+  channelIds: [slack.id],
+  enabled: true,
+});
+
+// Route only one agent's approvals to a webhook (HMAC-signed).
+const hook = await mw.notify.createChannel({
+  type: "webhook",
+  label: "approvals",
+  url: "https://example.com/hook",
+  secret: "signing-key",
+});
+await mw.notify.createRule({
+  scope: "agent",
+  agent: "claude-code",
+  conditions: ["waiting_approval"],
+  channelIds: [hook.id],
+  enabled: true,
+});
+
+await mw.notify.testChannel(slack.id);      // { ok } | { ok:false, error }
+await mw.notify.channels();                  // masked: urlHost / hasToken / hasSecret …
+```
+
+```go
+// Go SDK — same surface, in-process against the daemon store.
+slack, _ := client.SetNotifyChannel(mindwire.NotifyChannel{
+    Type: mindwire.ChannelSlack, Label: "eng-alerts",
+    URL: "https://hooks.slack.com/services/T000/B000/xxxx", Enabled: true,
+})
+client.SetNotifyRule(mindwire.NotifyRule{
+    Scope: mindwire.ScopeGlobal, Conditions: []mindwire.Condition{mindwire.Finished, mindwire.Errored},
+    ChannelIDs: []string{slack.ID}, Enabled: true,
+})
+client.TestNotifyChannel(ctx, slack.ID)
+```
+
+```bash
+# REST
+curl -XPOST "http://127.0.0.1:8790/notify/channels" \
+  -d '{"type":"slack","label":"eng-alerts","url":"https://hooks.slack.com/services/T000/B000/xxxx"}'
+curl -s "http://127.0.0.1:8790/notify/channels" | jq   # masked — no url/token/secret values
+curl -XPOST "http://127.0.0.1:8790/notify/channels/<id>/test"
+curl -XPOST "http://127.0.0.1:8790/notify/rules" \
+  -d '{"scope":"global","conditions":["finished","error"],"channelIds":["<id>"],"enabled":true}'
+```
+
+## Live stream (SSE)
+
+Separately from delivery channels, the daemon exposes
+[`GET /notify/stream`](/docs/reference/rest/notifications/get-notify-stream/) — a Server-Sent Events feed of the same
+notifications with a replay buffer, so a reconnecting client catches up and then follows live. It uses the
+same `data: <json>\n\n` framing and `: ping` heartbeat as the [run stream](/docs/concepts/architecture).
+The SSE stream is fanned alongside the delivery channels, not through them: it has a `Subscribe` API the
+one-shot notifiers don't, so it stays its own path.
+
+## From code
+
+The SDKs expose the webhook target and the live stream directly, so you don't have to hand-roll SSE or
+`PUT` calls. Point the webhook somewhere with `setNotifyConfig`, read the current target with
+`getNotifyConfig` (the `token` is never returned), and consume the same notifications as a stream with
+`notifications()`.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+// Point the webhook at your receiver (read live on each send — no restart).
+await mw.setNotifyConfig({ url: "https://example.com/hook", channel: "push", token: "secret" });
+
+const status = await mw.getNotifyConfig();
+console.log(status.configured, status.url, status.channel); // token is never echoed back
+
+// Follow the live feed: replay buffer first, then live, across reconnects.
+for await (const n of mw.notifications()) {
+  console.log(n.condition, n.title, n.chatId);
+  if (n.condition === "waiting_approval") {
+    // n.actions carries the choices you can POST back via respond()
+  }
+}
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+// Point the webhook at your receiver.
+err := client.SetNotifyConfig(mindwire.NotifyConfigInput{
+	URL: "https://example.com/hook", Channel: "push", Token: "secret",
+})
+
+status := client.GetNotifyConfig()
+fmt.Println(status.Configured, status.URL, status.Channel) // Token is never echoed back
+
+// Follow the live feed as an iterator.
+for n := range client.Notifications(ctx) {
+	fmt.Println(n.Condition, n.Title, n.ChatID)
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPUT "http://127.0.0.1:8790/notify/config" \
+  -d '{"url":"https://example.com/hook","channel":"push","token":"secret"}'
+curl -s "http://127.0.0.1:8790/notify/config" | jq   # {configured, url, channel} — no token
+curl -N "http://127.0.0.1:8790/notify/stream"         # SSE: replay buffer, then live
+```
+
+</Tab>
+
+</ApiTabs>
+
+Each `Notification` carries a `condition` — one of `finished`, `error`, `waiting_approval`,
+`waiting_feedback`, `waiting_input` — plus `title`, `body`, and the `agent` / `chatId` / `runId` it
+refers to. The `waiting_*` conditions arrive with `actions` (the choices), which you answer through the
+[interaction flow](/docs/guides/interaction).
+
+## Configuration summary
+
+| Variable | Channel | Effect |
+| --- | --- | --- |
+| `NOTIFY_URL` | webhook | Seeds the webhook target if none is set (otherwise use `PUT /notify/config`). |
+| `NOTIFY_CHANNEL` | webhook | Optional `X-Mindwire-Channel` routing hint. |
+| `NOTIFY_TOKEN` | webhook | Optional bearer token for the webhook `Authorization` header. |
+| `NOTIFY_FILE` | file | Path to append notifications to as JSONL. |
+| `NOTIFY_EXEC` | exec | Local command run with the notification JSON on stdin (trusted, daemon-owner config). |
+
+Set none and notifications are a no-op. Set several and each notification fans out to all of them at once.

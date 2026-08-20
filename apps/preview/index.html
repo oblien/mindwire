@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <!-- Set the theme class before first paint so there's no flash. Dark is the default (the console's
+         signature look); the toggle in the nav persists the choice to localStorage under "mw-theme". -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("mw-theme");
+          if (t !== "light" && t !== "dark") t = "dark";
+          document.documentElement.classList.toggle("dark", t === "dark");
+          document.documentElement.style.colorScheme = t;
+        } catch (e) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+    <title>MindWire console</title>
+    <meta
+      name="description"
+      content="The control plane for the agents that power your product. Wire in the best, swap them like a model, run them at scale — the MindWire console."
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

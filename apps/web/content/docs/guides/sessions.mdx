@@ -1,0 +1,317 @@
+---
+title: Sessions & history
+description: List chats, read a transcript, reattach to a running turn, and resume a session.
+---
+
+MindWire records every turn against a **chat** — a durable conversation shared across agents. From a
+chat you can list history, read the transcript, reattach to whatever run is in flight, and resume the
+underlying agent session on the next turn.
+
+## List chats
+
+Recorded chats, newest first.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const chats = await mw.chats();
+for (const c of chats) console.log(c.chatId, c.title);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+for _, c := range client.Chats() {
+	fmt.Println(c.ChatID, c.Title)
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/chats" | jq '.[] | {id, title}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Read a transcript
+
+A chat's messages — native when the agent supports history, else MindWire's recorded fallback.
+`limit` caps to the newest N; `before` pages further back.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const messages = await mw.messages("demo", { limit: 50 });
+for (const m of messages) console.log(m.role, m.text);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+messages, err := client.Messages("demo", mindwire.MessagesOptions{Limit: 50})
+if err != nil {
+	log.Fatal(err)
+}
+for _, m := range messages {
+	fmt.Println(m.Role, m.Text)
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/chats/demo/messages?limit=50" | jq '.[] | {role, text}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+<Callout>
+Native transcripts are stored **per working directory** — the CLIs write each session's history under
+the directory the turn ran in (Claude keys it by the symlink-resolved path; Codex keys it by session id).
+MindWire anchors a chat to its **first** turn's resolved directory, so history, title, and delete keep
+finding the right transcript even if a later turn runs elsewhere or the original path is a symlink. An
+explicit per-turn `cwd` still controls where that turn *runs* — only the history anchor is pinned.
+</Callout>
+
+## Reattach to a running turn
+
+Because turns are durable, a fresh client can pick up a chat's latest run and stream it — the stream
+replays what was missed, then goes live.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const run = await mw.latestRun("demo"); // null if the chat has no run yet
+if (run && run.status === "running") {
+  for await (const ev of run) process.stdout.write(ev.type === "text" ? (ev.text ?? "") : "");
+}
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run, err := client.LatestRun("demo") // nil if the chat has no run yet
+if err != nil {
+	log.Fatal(err)
+}
+if run != nil && run.Status() == "running" {
+	for ev := range run.Stream(ctx) {
+		if ev.Type == mindwire.EventText {
+			fmt.Print(ev.Text)
+		}
+	}
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# The chat's latest run (reattach anchor), then stream it.
+RUN=$(curl -s "http://127.0.0.1:8790/chats/demo/run" | jq -r .id)
+curl -N "http://127.0.0.1:8790/runs/$RUN/stream"
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Resume a session
+
+The next turn can continue the agent's most recent session in the working directory instead of
+starting cold — set `continueLatest`. Pin a specific `sessionId`, or `forkOnResume` to branch a new
+session from the resumed one rather than continuing in place.
+
+<Callout>
+To drive a long task to completion without resuming it turn by turn yourself, hand the loop to the daemon
+with [resolve mode](/docs/guides/resolve) — it auto-continues the agent until the whole task is done.
+</Callout>
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+await mw.turn({
+  chatId: "demo",
+  message: "now wire it into the router",
+  options: { continueLatest: true },
+});
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+client.Turn(ctx, mindwire.TurnRequest{
+	ChatID:  "demo",
+	Message: "now wire it into the router",
+	Options: mindwire.TurnOptions{ContinueLatest: true},
+})
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPOST 'http://127.0.0.1:8790/turns?agent=claude-code' \
+  -d '{"chatId":"demo","message":"now wire it into the router","options":{"continueLatest":true}}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Rename a chat
+
+A chat starts with the agent's native auto-title (Claude and Codex both summarize the first turn). Set
+your own title to override it — the user title now **wins** over the native one in every listing, and an
+empty title clears the rename back to the native fallback. Rename is allowed even while a turn is live.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const summary = await mw.renameChat("demo", "Router refactor");
+console.log(summary.title); // "Router refactor"
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+summary, err := client.RenameChat("demo", "Router refactor")
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(summary.Title)
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPUT "http://127.0.0.1:8790/chats/demo" -d '{"title":"Router refactor"}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Fork a chat
+
+Clone a chat into a new `chatId` to branch an exploration without touching the original. Omit
+`newChatId` to have the daemon generate one. The fork **shares the source's native session** until its
+first turn — so it transparently shows the same history — and that first turn branches it: natively on
+Claude (`--fork-session`), or a fresh session on an agent without native fork (Codex). The source
+chat's transcript is never modified. A fork `409`s if the source has a turn in flight.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const forked = await mw.forkChat("demo");                 // daemon generates the id
+const named = await mw.forkChat("demo", { newChatId: "demo-alt" });
+await mw.turn({ chatId: named.chatId, message: "try the other approach" }); // branches here
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+forked, err := client.ForkChat("demo", "") // "" → daemon generates the id
+if err != nil {
+	log.Fatal(err)
+}
+_ = forked
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# Empty body → the daemon generates the new id; {"newChatId":"…"} pins it.
+curl -XPOST "http://127.0.0.1:8790/chats/demo/fork" -d '{"newChatId":"demo-alt"}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Delete a chat
+
+<Callout type="warn">
+**Irreversible, and it removes the agent's own transcript.** Deleting a chat is a true delete: it purges
+all of MindWire's bookkeeping (session mapping, cwd, title, recorded messages, run records) **and**, for
+every session the chat mapped to, removes that agent's **native transcript file** — the source of truth.
+There is no undo. A delete `409`s if a turn is running for the chat.
+</Callout>
+
+Native removal is best-effort per agent: an agent that keeps no deletable transcript, or one whose file
+can't be removed, still leaves the bookkeeping purged. The result reports which agents' transcripts were
+purged (`nativePurged`) versus failed (`nativeFailed`), and `sessions` counts how many the chat mapped
+to.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const res = await mw.deleteChat("demo");
+console.log(res.deleted, res.sessions, res.nativePurged, res.nativeFailed);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+res, err := client.DeleteChat("demo")
+if err != nil {
+	log.Fatal(err) // a live turn is an *APIError with Status 409
+}
+fmt.Println(res.Deleted, res.Sessions, res.NativePurged, res.NativeFailed)
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XDELETE "http://127.0.0.1:8790/chats/demo"
+# → {"deleted":true,"sessions":1,"nativePurged":["claude-code"],"nativeFailed":[]}
+```
+
+</Tab>
+
+</ApiTabs>

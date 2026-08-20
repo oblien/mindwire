@@ -1,0 +1,316 @@
+---
+title: Prompts & memory
+description: The four layers of instruction beneath a turn — per-turn prompt, sticky system prompt, persistent memory files, and saved prompt templates — fetched and set through one agent-agnostic surface.
+---
+
+Every turn an agent runs sits on a stack of instructions. Some live for exactly one message; some
+persist on disk until you change them. MindWire exposes all four layers through one shape, so the same
+call fetches and sets Claude's `CLAUDE.md` or Codex's `AGENTS.md`, a sticky system prompt, or a saved
+slash-command — regardless of which agent runs.
+
+| Layer | Lifetime | Where it lives | Surface |
+| --- | --- | --- | --- |
+| **Per-turn prompt** | one turn | the request | `options.systemPrompt` — see [Configuration](/docs/guides/configuration#per-turn-options) |
+| **Sticky system prompt** | until changed | agent config | `systemPrompt` canonical key via `getConfig` / `setConfig` |
+| **Memory file** | until changed | `CLAUDE.md` / `AGENTS.md` | `GET` / `PUT /memory` — `mw.prompts.memory` |
+| **Prompt templates** | until changed | slash-commands / saved prompts | `GET` / `PUT /prompts` — `mw.prompts.list` / `.get` / `.set` |
+
+Precedence runs top to bottom: a per-turn `systemPrompt` wins over the sticky one, which the agent
+loads alongside its memory file. Templates are yours to recall by name — they don't auto-apply.
+
+The memory file and templates are exposed **only** by agents whose `Capabilities.memory` /
+`Capabilities.promptTemplates` is set. Read that from [`GET /agent`](/docs/guides/agents#read-the-capabilities)
+first; a call against an agent that doesn't support the layer returns an honest `400`, never a silent
+drop.
+
+## Sticky system prompt
+
+The per-turn `systemPrompt` covered in [Configuration](/docs/guides/configuration) applies to a single
+turn. To make it stick across every turn, set the **`systemPrompt` canonical key** in the agent's
+sticky config. It's now uniform across agents: Claude maps it to `--system-prompt`, and Codex threads
+it through the same `model_instructions_file` overlay its per-turn prompt uses.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+// Persist a system prompt for every turn on this agent.
+await mw.setConfig({ systemPrompt: "You are a terse senior engineer." });
+
+// A per-turn options.systemPrompt still overrides it for that one turn.
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+err := client.SetConfig(map[string]string{
+	"systemPrompt": "You are a terse senior engineer.",
+})
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPUT "http://127.0.0.1:8790/config?agent=codex" \
+  -d '{"systemPrompt":"You are a terse senior engineer."}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+<Callout type="warn">
+**Codex approval mode.** Codex only carries a system prompt on its autonomous `exec` transport. With
+any approval policy other than `never`, a turn that carries a system prompt (sticky or per-turn) is
+**rejected** with a `400` rather than silently dropped — the interactive-approval (app-server)
+transport can't take the overlay. Keep `permissionMode` at `never` when you rely on a sticky Codex
+system prompt. Claude has no such constraint.
+</Callout>
+
+## Memory files
+
+The "entire memory" a turn loads: Claude's `CLAUDE.md` and Codex's `AGENTS.md`. Both agents expose it
+at two **scopes**:
+
+- **`project`** — the file in a working directory (`<dir>/CLAUDE.md`). The directory defaults to the
+  daemon's cwd; override it per call with `dir`.
+- **`user`** — the file in the agent's home config dir (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`),
+  applied to every project.
+
+`memory` returns every supported scope in one call. Each entry carries the resolved `path` and an
+`exists` flag; `content` is `""` for a file that isn't there yet.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+// Read both scopes at once (project dir defaults to the daemon cwd).
+const docs = await mw.prompts.memory();
+for (const d of docs) {
+  console.log(d.scope, d.path, d.exists ? `${d.content.length} bytes` : "(absent)");
+}
+
+// Write the project-scope memory file. Returns the resulting doc (path + exists:true).
+await mw.prompts.setMemory(
+  { scope: "project", content: "# Project notes\nUse tabs, not spaces.\n" },
+  { dir: "/abs/path/to/project" }, // optional; omit to use the daemon cwd
+);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+docs, err := client.Prompts.Memory("") // "" → the daemon cwd
+if err != nil {
+	log.Fatal(err)
+}
+for _, d := range docs {
+	fmt.Println(d.Scope, d.Path, d.Exists)
+}
+
+_, err = client.Prompts.SetMemory(
+	mindwire.MemoryProject,
+	"/abs/path/to/project", // "" → the daemon cwd
+	"# Project notes\nUse tabs, not spaces.\n",
+)
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# Read every scope; ?dir= picks the project-scope directory (defaults to the daemon cwd).
+curl -s "http://127.0.0.1:8790/memory?agent=claude-code&dir=/abs/path/to/project"
+
+# Write one scope.
+curl -XPUT "http://127.0.0.1:8790/memory?agent=claude-code&dir=/abs/path/to/project" \
+  -d '{"scope":"project","content":"# Project notes\nUse tabs, not spaces.\n"}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+A `user`-scope write auto-creates the agent's config home; a `project`-scope write requires the
+directory to already exist (a memory file never conjures a project tree) and 400s if it doesn't.
+
+## Prompt templates
+
+Reusable, named prompts you recall on demand: Claude's custom slash-commands
+(`.claude/commands/<name>.md`) and Codex's saved prompts (`~/.codex/prompts/<name>.md`).
+
+Scopes differ by agent — read them live from `GET /agent`, but the bundled state is:
+
+- **Claude** — `project` (`<dir>/.claude/commands/`) **and** `user` (`~/.claude/commands/`).
+- **Codex** — **`user` only** (`~/.codex/prompts/`); a project-scope prompt op returns a `400`.
+
+`list` enumerates templates across every supported scope with `content` omitted; `get` fetches one
+body; `set` creates or overwrites one. A name is a bare identifier — no slashes, no `.md` (the
+extension is appended for you); scope defaults to `user` when omitted.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+// List (content omitted) across every supported scope.
+const templates = await mw.prompts.list();
+
+// Create or overwrite a project-scope template.
+await mw.prompts.set("review-pr", "Review this diff for correctness and tests.", {
+  scope: "project",
+  dir: "/abs/path/to/project",
+});
+
+// Fetch one body (throws a 404 ApiError if absent).
+const tpl = await mw.prompts.get("review-pr", { scope: "project", dir: "/abs/path/to/project" });
+console.log(tpl.content);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+templates, err := client.Prompts.List("")
+if err != nil {
+	log.Fatal(err)
+}
+
+_, err = client.Prompts.Set(
+	mindwire.MemoryProject, "/abs/path/to/project",
+	"review-pr", "Review this diff for correctness and tests.",
+)
+
+tpl, err := client.Prompts.Get(mindwire.MemoryProject, "/abs/path/to/project", "review-pr")
+if err != nil {
+	log.Fatal(err) // a missing template is an *APIError with Status 404
+}
+fmt.Println(tpl.Content)
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# List (content omitted); ?dir= applies to the project scope.
+curl -s "http://127.0.0.1:8790/prompts?agent=claude-code&dir=/abs/path/to/project"
+
+# Write one; scope defaults to user when omitted.
+curl -XPUT "http://127.0.0.1:8790/prompts/review-pr?agent=claude-code&scope=project&dir=/abs/path/to/project" \
+  -d '{"content":"Review this diff for correctness and tests."}'
+
+# Read one body — a missing template is a 404.
+curl -s "http://127.0.0.1:8790/prompts/review-pr?agent=claude-code&scope=project&dir=/abs/path/to/project"
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Subagent definitions
+
+Claude reads persistent **subagent definitions** from `.claude/agents/*.md` — a specialized agent per
+file, defined by a frontmatter header plus a system prompt. This surface lists, reads, and writes those
+definition files. It's distinct from a turn's per-turn [`subagents`](/docs/guides/configuration)
+passthrough (which supplies a definition for one turn); this is the on-disk store the agent loads on
+every run. Claude-only: an agent whose `capabilities.subagentDefs` is unset returns a `400`. Scopes match
+prompt templates — Claude exposes `project` (`<dir>/.claude/agents/`) and `user` (`~/.claude/agents/`).
+
+The raw `.md` `content` is the canonical, lossless read/write unit. Each definition also carries a
+best-effort parsed `meta` view (`name`, `description`, `tools`, `model`) split from the frontmatter — a
+convenience for rendering, `null` when there's no parseable header. `subagents` lists across every scope
+with `content` omitted (fetch a body with `subagent`); definitions are matched by their frontmatter
+`name` if present, else the filename stem, but a write always lands at `<scope>/<name>.md`.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+// List across every scope (content omitted; meta is the parsed view).
+const defs = await mw.prompts.subagents();
+for (const d of defs) console.log(d.scope, d.name, d.meta?.description);
+
+// Create or overwrite a project-scope definition (raw markdown is canonical).
+await mw.prompts.setSubagent(
+  "reviewer",
+  "---\nname: reviewer\ndescription: Reviews diffs\ntools: Read, Grep\n---\nReview the diff for correctness and tests.\n",
+  { scope: "project", dir: "/abs/path/to/project" },
+);
+
+// Fetch one definition's full body + parsed meta (404 ApiError if absent).
+const def = await mw.prompts.subagent("reviewer", { scope: "project", dir: "/abs/path/to/project" });
+console.log(def.content, def.meta?.tools);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+defs, err := client.Prompts.Subagents("") // "" → the daemon cwd
+if err != nil {
+	log.Fatal(err) // an agent without the module is an *APIError with Status 400
+}
+for _, d := range defs {
+	fmt.Println(d.Scope, d.Name)
+}
+
+_, err = client.Prompts.SetSubagent(
+	mindwire.MemoryProject, "/abs/path/to/project",
+	"reviewer", "---\nname: reviewer\ndescription: Reviews diffs\n---\nReview the diff.\n",
+)
+
+def, err := client.Prompts.Subagent(mindwire.MemoryProject, "/abs/path/to/project", "reviewer")
+if err != nil {
+	log.Fatal(err) // a missing definition is an *APIError with Status 404
+}
+fmt.Println(def.Content)
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# List (content omitted) across every scope; ?dir= applies to the project scope.
+curl -s "http://127.0.0.1:8790/subagents?agent=claude-code&dir=/abs/path/to/project"
+
+# Write one (raw markdown body is canonical).
+curl -XPUT "http://127.0.0.1:8790/subagents/reviewer?agent=claude-code&scope=project&dir=/abs/path/to/project" \
+  -d '{"content":"---\nname: reviewer\ndescription: Reviews diffs\n---\nReview the diff.\n"}'
+
+# Read one body + parsed meta — a missing definition is a 404.
+curl -s "http://127.0.0.1:8790/subagents/reviewer?agent=claude-code&scope=project&dir=/abs/path/to/project"
+```
+
+</Tab>
+
+</ApiTabs>
+
+Persistent MCP-server config — the tool servers an agent loads on every run — lives on its own
+[MCP servers](/docs/guides/mcp) surface.
+
+## Notes
+
+- **`dir` default.** The project scope resolves `dir` → the daemon's cwd → the process working
+  directory, the same way [chats and turns](/docs/guides/sessions) pick a working directory. Pass an
+  explicit `dir` to target another project; it's ignored by `user`-scope calls.
+- **Body cap.** Memory and template writes go through the shared request decoder, which caps a body at
+  **1 MiB**. A larger write is rejected — memory files are context, not blob storage.
+- **Reads are forgiving, writes are strict.** An absent memory file reads back as `exists:false`, and a
+  missing prompt directory lists as empty — neither is an error. Only a *write* into a non-existent
+  project directory, a bad scope, or an invalid template name returns a `400`.
+- **No secrets here.** Memory files, templates, and the sticky system prompt are all non-secret.
+  Credentials never travel this surface — they flow only through [authentication](/docs/guides/authentication).

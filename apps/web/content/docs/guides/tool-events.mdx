@@ -1,0 +1,230 @@
+---
+title: Tool events
+description: The normalized action on every tool call — a canonical kind plus structured file edits, shell output, and search/web/mcp payloads — the same shape across every agent.
+---
+
+Every agent invents its own tool vocabulary. Claude Code edits a file with `Edit` and runs a command
+with `Bash`; Codex edits with `apply_patch` and runs with `shell`. The [event stream](/docs/guides/streaming)
+already agrees on the tool **envelope** — a `tool_use` / `tool_result` pair carrying `{ id, name, output,
+isError }` — but the envelope alone doesn't tell you *what the tool did*: which file, what diff, which
+command, what exit code.
+
+MindWire adds a normalized **`action`** to every tool event: a canonical `kind` plus a structured
+payload for that kind. It rides **alongside** the untouched raw `name` / `input` / `output`, so you can
+render "the diff / the command / the changes" without knowing any single agent's private tool names.
+
+## The `kind` taxonomy
+
+`action.kind` is the agent-independent classification. Switch on it instead of on `tool.name`:
+
+| `kind` | Payload | Meaning |
+| --- | --- | --- |
+| `file_edit` | `files[]` | Create / edit / delete one or more files. |
+| `file_read` | `title` | Read a file (path in `title`). |
+| `shell` | `shell` | Run a shell command. |
+| `search` | `search` | Search the workspace (grep / glob). |
+| `web_search` | `web` | Search the web. |
+| `web_fetch` | `web` | Fetch a URL. |
+| `mcp` | `mcp` | An MCP server tool call. |
+| `other` | `title` | Not yet classified — fall back to the raw `name`/`input`. |
+
+Only the sub-object matching `kind` is populated; the rest are absent. `title` is a short human label
+(the command, the path) present on every kind.
+
+## The payloads
+
+```ts
+interface ToolAction {
+  kind: "file_edit" | "file_read" | "shell" | "search" | "web_search" | "web_fetch" | "mcp" | "other";
+  title?: string;
+  files?: FileChange[];   // kind: file_edit
+  shell?: ShellCommand;   // kind: shell
+  search?: SearchQuery;   // kind: search
+  web?: WebSearch;        // kind: web_search | web_fetch
+  mcp?: MCPCall;          // kind: mcp
+}
+
+interface FileChange {
+  path: string;
+  op?: "create" | "edit" | "delete";
+  diff?: string;      // best-effort unified diff
+  oldText?: string;   // best-effort
+  newText?: string;   // best-effort
+}
+
+interface ShellCommand {
+  command?: string;
+  cwd?: string;
+  stdout?: string;    // combined/aggregated output
+  stderr?: string;    // best-effort; absent ⇒ not reported (≠ "")
+  exitCode?: number;  // best-effort; absent ⇒ not reported (≠ 0)
+}
+
+interface SearchQuery { query?: string; path?: string; glob?: string }
+interface WebSearch   { query?: string; url?: string }
+interface MCPCall     { server?: string; tool?: string }
+```
+
+## Best-effort fields are absent, not zero
+
+This is the one trap. Several fields are **best-effort**: an agent supplies them only when it can, and
+**absent means "the agent didn't tell us" — never `0`, `""`, or "no change."**
+
+- **`shell.exitCode` / `shell.stderr`** are absent when the agent doesn't report them. Claude Code's
+  `Bash` tool merges stderr into stdout and surfaces **no** exit code, so both stay absent on a Claude
+  shell action. Codex's `shell` **does** report an exit code, so it's present there. Do not render a
+  missing `exitCode` as a green "exit 0" — render it as "not reported."
+- **`file.diff` / `file.oldText` / `file.newText`** are absent when the agent supplies only a path and an
+  op. Codex's *live* `file_change` reports `path`+`op` only (no diff); Claude's `Edit`/`Write` carry the
+  fragments, so MindWire synthesizes a unified `diff` from them. Don't render an empty `diff` as an empty
+  file.
+
+The wire encodes this faithfully: absent fields are omitted from JSON entirely (they never appear as
+`null` or `0`).
+
+## The same action across agents
+
+The point of normalization: a Claude `Edit` and a Codex `apply_patch` on the same file surface the
+**same** `action`. A client renders one file-edit card for both — no agent-specific branch.
+
+<Tabs items={["Claude (Edit)", "Codex (apply_patch)"]}>
+
+<Tab value="Claude (Edit)">
+
+Raw tool: `name: "Edit"`, input `{ file_path, old_string, new_string }`. Normalized:
+
+```json
+{
+  "kind": "file_edit",
+  "title": "foo.go",
+  "files": [{
+    "path": "foo.go",
+    "op": "edit",
+    "oldText": "old",
+    "newText": "new",
+    "diff": "--- a/foo.go\n+++ b/foo.go\n@@ -1 +1 @@\n-old\n+new\n"
+  }]
+}
+```
+
+</Tab>
+
+<Tab value="Codex (apply_patch)">
+
+Raw tool: `name: "apply_patch"`, input is a raw patch body. Normalized:
+
+```json
+{
+  "kind": "file_edit",
+  "title": "foo.go",
+  "files": [{
+    "path": "foo.go",
+    "op": "edit",
+    "diff": "@@\n-old\n+new"
+  }]
+}
+```
+
+</Tab>
+
+</Tabs>
+
+Both are `kind: "file_edit"` with `files[0].path === "foo.go"` and `op === "edit"`. Claude also fills
+`oldText`/`newText` (and a git-style synthesized `diff`); Codex's diff comes straight from the patch body.
+The shape is identical; only the best-effort richness differs — exactly what the absence rules above let a
+client handle uniformly.
+
+## Reading the action
+
+Switch on `action.kind`, and fall back to the raw envelope for `other` (or a null action from an older
+daemon).
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+for await (const ev of run) {
+  if (ev.type !== "tool_use") continue;
+  const a = ev.tool?.action;
+  switch (a?.kind) {
+    case "file_edit":
+      for (const f of a.files ?? []) console.log(`${f.op} ${f.path}\n${f.diff ?? "(no diff)"}`);
+      break;
+    case "shell":
+      console.log(`$ ${a.shell?.command}`);
+      // exitCode is optional: absent ⇒ the agent didn't report one.
+      if (a.shell?.exitCode !== undefined) console.log(`exit ${a.shell.exitCode}`);
+      break;
+    case "search":
+      console.log(`search ${a.search?.query} in ${a.search?.glob ?? a.search?.path ?? "."}`);
+      break;
+    default:
+      console.log(ev.tool?.name); // other / unknown → raw name
+  }
+}
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+for ev := range run.Stream(ctx) {
+	if ev.Type != mindwire.EventToolUse || ev.Tool == nil || ev.Tool.Action == nil {
+		continue
+	}
+	a := ev.Tool.Action
+	switch a.Kind {
+	case mindwire.KindFileEdit:
+		for _, f := range a.Files {
+			fmt.Printf("%s %s\n%s\n", f.Op, f.Path, f.Diff)
+		}
+	case mindwire.KindShell:
+		fmt.Printf("$ %s\n", a.Shell.Command)
+		if a.Shell.ExitCode != nil { // nil ⇒ not reported, not "exit 0"
+			fmt.Printf("exit %d\n", *a.Shell.ExitCode)
+		}
+	default:
+		fmt.Println(ev.Tool.Name) // other / unknown → raw name
+	}
+}
+```
+
+Note `ShellCommand.ExitCode` is a `*int` and `Stderr` is checked for `""` at the pointer — a nil pointer
+is "not reported," distinct from exit `0`.
+
+</Tab>
+
+<Tab value="REST">
+
+Each `tool_use` / `tool_result` SSE frame carries `tool.action`:
+
+```bash
+curl -N "http://127.0.0.1:8790/runs/$RUN/stream" \
+  | sed -n 's/^data: //p' \
+  | jq -c 'select(.type=="tool_use") | .tool.action | {kind, title, files, shell}'
+```
+
+`action` is also persisted on each transcript `ToolPart`, so
+[`GET /chats/{id}/messages`](/docs/reference/rest/chats/get-chats-id-messages/) returns the same
+normalized shape for a completed turn.
+
+</Tab>
+
+</ApiTabs>
+
+## Live vs. completed
+
+`action` attaches to **both** the streaming `tool_use` and its `tool_result`, and to the persisted
+`ToolPart`. The `tool_use` action is built from the tool **input** (command, path, patch) — so a shell
+action has its `command` but no `stdout` yet. When the tool returns, the `tool_result` action carries the
+completed shape (stdout folded in, exit code if reported). The transcript's `ToolPart.action` is the
+completed one.
+
+## Support
+
+`action` is populated for both bundled adapters (Claude Code and Codex). It is **additive and optional**:
+a tool MindWire doesn't recognize yet surfaces `kind: "other"` with the raw `name` in `title`, and an
+older daemon simply omits `action` — in both cases the raw `name` / `input` / `output` are always present,
+so a consumer that reads only the envelope keeps working.

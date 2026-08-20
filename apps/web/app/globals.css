@@ -1,0 +1,299 @@
+@import "tailwindcss";
+/* Fumadocs theme: the `neutral` preset is already pure-monochrome (0%-saturation HSL, grayscale
+   primary, no accent), so it matches the locked design out of the box — the overrides below only
+   square the corners and align the dark surfaces to the site's exact near-blacks. */
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+@import "fumadocs-openapi/css/preset.css";
+@import "./fonts.css";
+@source "../node_modules/fumadocs-ui/dist/**/*.js";
+@source "../node_modules/fumadocs-openapi/dist/**/*.js";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Gellix", var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Square everywhere: zero every rounded-* scale token so the Fumadocs chrome (sidebar, cards,
+     search, code blocks) inherits the zero-radius design. rounded-full (pills, the live-dot) reads a
+     different token and stays round. */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+}
+
+/* Align Fumadocs' neutral surfaces to the site's exact ones so /docs and the marketing pages share
+   one background. Placed after the preset import so these win the cascade — and :root before .dark,
+   since equal specificity means source order decides.
+
+   Both themes are ONE flat surface: Fumadocs ships several off-shades (light: background 96% / card
+   94.7% / secondary 93.1%; dark: card/popover/secondary/muted all lighter than the background) which
+   read as gray boxes next to the true page color. We collapse every surface — background, card,
+   popover, secondary AND muted — onto the single site color per theme, so code blocks, cards, dialogs
+   and inline-code chips are the SAME black (#08080b) / white (#fff) as the page. Structure comes only
+   from the hairline borders, never from a surface tint. */
+:root {
+  --color-fd-background: #fff;
+  --color-fd-card: #fff;
+  --color-fd-popover: #fff;
+  --color-fd-secondary: #fff;
+  --color-fd-muted: #fff;
+}
+
+.dark {
+  --color-fd-background: #08080b;
+  --color-fd-card: #08080b;
+  --color-fd-popover: #08080b;
+  --color-fd-secondary: #08080b;
+  --color-fd-muted: #08080b;
+}
+
+/* Inline code (Fumadocs' prose rule) hardcodes border-radius:5px — not a radius token, so the
+   --radius-*:0 reset above can't reach it. Square it explicitly; its fill is now the flat surface
+   above, so a hairline border (fd-border) is what defines the chip — consistent with the bento look. */
+.prose :not(pre) > code {
+  border-radius: 0;
+}
+
+/* The docs shell sits below the shared sticky <Nav> (h-16 = 4rem). Fumadocs' own navbar is disabled
+   (baseOptions), so we hand its grid the Nav's height as the top "banner" row: Fumadocs derives
+   --fd-docs-row-1 (the sticky top of the sidebar + TOC) from --fd-banner-height = 4rem, dropping them
+   to just under the Nav. The sidebar/TOC size themselves to calc(--fd-docs-height − --fd-docs-row-1),
+   so --fd-docs-height MUST stay the full 100dvh (default) — subtracting the Nav here too would
+   double-count it and leave a 4rem dead gap at the sidebar's foot. Instead we cap the grid's OWN
+   min-height to the viewport minus the Nav so the page doesn't overflow, while the sticky columns still
+   run edge-to-edge from just under the Nav to the viewport bottom: fixed, full-height, and clean, with
+   no site footer beneath them (Footer is hidden on /docs via HideOnDocs). */
+#nd-docs-layout {
+  --fd-banner-height: 4rem; /* → --fd-docs-row-1: sidebar/TOC sticky-top offset (below the Nav) */
+  --fd-docs-height: 100dvh; /* children height = 100dvh − 4rem → they reach the viewport bottom */
+  min-height: calc(100dvh - 4rem); /* but the grid only fills viewport-minus-Nav → no overflow */
+}
+/* Clear the sticky Nav when jumping to a #heading anchor inside the docs body. */
+#nd-docs-layout :is(h1, h2, h3, h4) {
+  scroll-margin-top: 5rem;
+}
+
+@layer base {
+  /* Tailwind v4's Preflight dropped v3's rule that forced `cursor: pointer` on buttons, so clickable
+     controls fell back to the arrow cursor. Restore the hand for enabled interactive controls (the
+     theme toggle, copy buttons, Fumadocs chrome). Text inputs keep their I-beam; disabled stays arrow. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+  html {
+    color-scheme: light;
+    @apply bg-white text-neutral-950;
+  }
+  html.dark {
+    color-scheme: dark;
+    @apply bg-[#08080b] text-neutral-100;
+  }
+  body {
+    @apply min-h-screen antialiased;
+  }
+  ::selection {
+    @apply bg-neutral-900 text-neutral-50 dark:bg-neutral-100 dark:text-neutral-950;
+  }
+}
+
+@layer components {
+  /* Bento: children are hairline-separated via a 1px gap over the container's line color. */
+  .bento {
+    @apply grid gap-px overflow-hidden border bg-neutral-200 border-neutral-200 dark:border-neutral-800 dark:bg-neutral-800;
+  }
+  /* Cells sit flat on the page: fill = the exact body color (#08080b), delineated only by the
+     bento hairline grid. No lighter fill, no lit top edge — hard dark, matching the docs surfaces. */
+  .cell {
+    @apply bg-white dark:bg-[#08080b];
+  }
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: livepulse 2.4s ease-out infinite;
+  }
+  @keyframes livepulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent);
+    }
+    70% {
+      box-shadow: 0 0 0 5px transparent;
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot {
+      animation: none;
+    }
+  }
+  .subgrid {
+    @apply grid gap-px bg-neutral-200 dark:bg-neutral-800;
+  }
+  .eyebrow {
+    @apply inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-neutral-500 dark:text-neutral-500;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium transition-colors;
+  }
+  .btn-primary {
+    @apply bg-neutral-950 text-neutral-50 hover:bg-neutral-700 dark:bg-neutral-50 dark:text-neutral-950 dark:hover:bg-white;
+  }
+  .btn-ghost {
+    @apply border border-neutral-300 text-neutral-800 hover:bg-neutral-100 dark:border-white/15 dark:text-neutral-100 dark:hover:bg-white/5;
+  }
+  .chip {
+    @apply inline-flex items-center border border-neutral-200 px-2.5 py-1 font-mono text-xs text-neutral-600 dark:border-white/10 dark:text-neutral-400;
+  }
+  /* Recolor any monochrome SVG to currentColor via alpha masking (adapts to light/dark). */
+  .logo-mask {
+    display: inline-block;
+    background-color: currentColor;
+    -webkit-mask: var(--logo) center / contain no-repeat;
+    mask: var(--logo) center / contain no-repeat;
+  }
+
+  /* docs prose */
+  .prose-doc {
+    @apply text-[15px] leading-relaxed text-neutral-700 dark:text-neutral-300;
+  }
+  .prose-doc h2,
+  .prose-doc h3,
+  .prose-doc h4 {
+    scroll-margin-top: 6rem; /* clear the sticky nav on #anchor jumps */
+  }
+  .prose-doc h2 {
+    @apply mt-10 border-t border-neutral-200 pt-8 text-2xl font-semibold tracking-tight text-neutral-950 dark:border-white/10 dark:text-white;
+  }
+  .prose-doc h3 {
+    @apply mt-6 text-lg font-semibold tracking-tight text-neutral-950 dark:text-white;
+  }
+  .prose-doc h4 {
+    @apply mt-5 text-base font-semibold tracking-tight text-neutral-950 dark:text-white;
+  }
+  .prose-doc p {
+    @apply my-4;
+  }
+  .prose-doc a {
+    @apply text-neutral-950 underline underline-offset-4 dark:text-white;
+  }
+  .prose-doc ul {
+    @apply my-4 list-disc space-y-2 pl-6 marker:text-neutral-400;
+  }
+  .prose-doc strong {
+    @apply font-semibold text-neutral-950 dark:text-white;
+  }
+  .prose-doc :not(pre) > code {
+    @apply border border-neutral-200 bg-neutral-100 px-1.5 py-0.5 font-mono text-[0.85em] dark:border-white/10 dark:bg-white/5;
+  }
+  .prose-doc pre {
+    @apply my-5 overflow-x-auto border border-neutral-200 bg-neutral-100 p-4 font-mono text-[13px] leading-relaxed dark:border-white/10 dark:bg-[#0b0b0e];
+  }
+  .prose-doc pre code {
+    @apply border-0 bg-transparent p-0;
+  }
+  .prose-doc table {
+    @apply my-5 w-full border-collapse text-sm;
+  }
+  .prose-doc th,
+  .prose-doc td {
+    @apply border border-neutral-200 px-3 py-2 text-left align-top dark:border-white/10;
+  }
+  .prose-doc th {
+    @apply bg-neutral-100 font-mono text-xs font-medium dark:bg-white/5;
+  }
+  .prose-doc blockquote {
+    @apply my-5 border-l-2 border-neutral-300 pl-4 text-neutral-500 dark:border-white/20;
+  }
+}
+
+/* Progressive-blur header backdrop ("twave"): stacked backdrop-filters with offset gradient
+   masks so content dissolves into a frosted gradient under the nav — no hard border. */
+.twave > div,
+.twave::before,
+.twave::after {
+  position: absolute;
+  inset: 0;
+}
+.twave::before {
+  content: "";
+  z-index: 1;
+  -webkit-backdrop-filter: blur(0.5px);
+  backdrop-filter: blur(0.5px);
+  -webkit-mask: linear-gradient(transparent 62.5%, #000 75%, #000 87.5%, transparent 100%);
+  mask: linear-gradient(transparent 62.5%, #000 75%, #000 87.5%, transparent 100%);
+}
+.twave > div:nth-of-type(1) {
+  z-index: 2;
+  -webkit-backdrop-filter: blur(1px);
+  backdrop-filter: blur(1px);
+  -webkit-mask: linear-gradient(transparent 50%, #000 62.5%, #000 75%, transparent 87.5%);
+  mask: linear-gradient(transparent 50%, #000 62.5%, #000 75%, transparent 87.5%);
+}
+.twave > div:nth-of-type(2) {
+  z-index: 3;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  -webkit-mask: linear-gradient(transparent 37.5%, #000 50%, #000 62.5%, transparent 75%);
+  mask: linear-gradient(transparent 37.5%, #000 50%, #000 62.5%, transparent 75%);
+}
+.twave > div:nth-of-type(3) {
+  z-index: 4;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  -webkit-mask: linear-gradient(transparent 25%, #000 37.5%, #000 50%, transparent 62.5%);
+  mask: linear-gradient(transparent 25%, #000 37.5%, #000 50%, transparent 62.5%);
+}
+.twave > div:nth-of-type(4) {
+  z-index: 5;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  -webkit-mask: linear-gradient(transparent 12.5%, #000 25%, #000 37.5%, transparent 50%);
+  mask: linear-gradient(transparent 12.5%, #000 25%, #000 37.5%, transparent 50%);
+}
+.twave > div:nth-of-type(5) {
+  z-index: 6;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  -webkit-mask: linear-gradient(transparent 0%, #000 12.5%, #000 25%, transparent 37.5%);
+  mask: linear-gradient(transparent 0%, #000 12.5%, #000 25%, transparent 37.5%);
+}
+.twave > div:nth-of-type(6) {
+  z-index: 7;
+  -webkit-backdrop-filter: blur(32px);
+  backdrop-filter: blur(32px);
+  -webkit-mask: linear-gradient(#000 0%, #000 12.5%, transparent 25%);
+  mask: linear-gradient(#000 0%, #000 12.5%, transparent 25%);
+}
+.twave::after {
+  content: "";
+  z-index: 8;
+  -webkit-backdrop-filter: blur(64px);
+  backdrop-filter: blur(64px);
+  -webkit-mask: linear-gradient(#000 0%, transparent 12.5%);
+  mask: linear-gradient(#000 0%, transparent 12.5%);
+}
+
+@layer utilities {
+  .grid-lines {
+    background-image:
+      linear-gradient(to right, rgb(0 0 0 / 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(0 0 0 / 0.05) 1px, transparent 1px);
+    background-size: 76px 76px;
+    background-position: center top;
+  }
+  .dark .grid-lines {
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "agents": [
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "tagline": "Anthropic's agentic coding CLI"
+    },
+    {
+      "id": "codex",
+      "name": "Codex CLI",
+      "tagline": "OpenAI's agentic coding CLI"
+    },
+    {
+      "id": "opencode",
+      "name": "opencode",
+      "tagline": "SST's open-source coding agent"
+    }
+  ],
+  "version": "0.6.0"
+}

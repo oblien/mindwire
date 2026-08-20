@@ -1,0 +1,61 @@
+# MindWire console — general / SaaS deployment (the CONTROL PLANE).
+#
+# This runs ONE service: the console (@mindwire/preview), a multi-user web app that drives the mindwire
+# SDK on behalf of each signed-in user. It is deliberately just the control plane:
+#
+#   - Runtimes (where agents actually execute) are chosen PER SESSION inside the console — Oblien, a
+#     remote/SSH host, or a Docker host. There is therefore NO daemon service here and NO Docker socket
+#     mounted: the control plane never runs agents on its own host in a multi-tenant deploy.
+#   - State is a single SQLite file (Better Auth users/sessions) on a named volume — no Postgres/Redis.
+#
+# Quick start:
+#   cp .env.example .env         # then set a real AUTH_SECRET (>=32 chars)
+#   docker compose up --build    # builds the image from source and starts the console
+#
+# The console listens on 127.0.0.1:8787 by default. For remote/LAN access set MINDWIRE_BIND_ADDR (and set
+# BASE_URL + TRUSTED_ORIGINS in .env, else Better Auth rejects the login as a cross-origin request).
+# Prefer a TLS-terminating reverse proxy in front of the console over binding 0.0.0.0 directly.
+#
+# To deploy the prebuilt image instead of building from source, comment out the `build:` block below —
+# `docker compose up` (or `pull`) will then use ghcr.io/oblien/mindwire-console:latest as-is.
+
+services:
+  console:
+    build:
+      context: .
+      dockerfile: apps/preview/Dockerfile
+    image: ghcr.io/oblien/mindwire-console:latest
+    restart: unless-stopped
+    env_file:
+      # Optional: a local `.env` is convenient for `docker compose up`, but not required — orchestrators
+      # (Kubernetes/Swarm/Coolify/…) inject the same variables directly, so a missing file is not an error.
+      - path: .env
+        required: false
+    environment:
+      # Compose-fixed settings — listed here so they WIN over .env and keep the container self-consistent.
+      NODE_ENV: production
+      PORT: "8787"
+      AUTH_DB_PATH: /data/auth.db
+    ports:
+      # host:container. Loopback-only by default; set MINDWIRE_BIND_ADDR=0.0.0.0 (or a specific NIC IP) to
+      # expose it, and CONSOLE_PORT to change the published host port.
+      - "${MINDWIRE_BIND_ADDR:-127.0.0.1}:${CONSOLE_PORT:-8787}:8787"
+    volumes:
+      # Persist the auth SQLite so accounts survive `down`/`up` and image upgrades.
+      - console_data:/data
+    healthcheck:
+      # Same unauthenticated liveness probe as the image (see apps/preview/server/guard.ts).
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8787/api/ping').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  console_data:
