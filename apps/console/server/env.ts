@@ -51,6 +51,13 @@ const isProd = process.env.NODE_ENV === "production";
 const mode: ConsoleMode =
   str("CONSOLE_MODE", "self-hosted").toLowerCase() === "cloud" ? "cloud" : "self-hosted";
 
+// Better Auth validates the browser Origin against this URL. The hosted deployment has a safe canonical
+// default; other production domains must set BASE_URL explicitly (and register the same OAuth callbacks).
+const baseUrl = str(
+  "BASE_URL",
+  mode === "cloud" ? "https://console.mindwire.sh" : `http://127.0.0.1:${Number(str("PORT", "8787"))}`,
+);
+
 export const env = {
   isProd,
   mode,
@@ -93,7 +100,7 @@ export const env = {
   // sets their own API keys inside the daemon. The only server-side credential is this signing key.
 
   /** Origin the app is served from — Better Auth uses it for cookies and origin (CSRF) checks. */
-  baseUrl: str("BASE_URL", `http://127.0.0.1:${Number(str("PORT", "8787"))}`),
+  baseUrl,
 
   /** Better Auth signing secret. MUST be ≥32 chars and overridden in any real deployment. */
   authSecret: str(
@@ -126,7 +133,7 @@ export const env = {
     const devDefaults = isProd
       ? []
       : ["http://127.0.0.1:5174", "http://localhost:5174"];
-    return [...new Set([...configured, ...devDefaults])];
+    return [...new Set([baseUrl, ...configured, ...devDefaults])];
   })(),
 
   /** Optional Oblien API base override (else the `oblien` SDK default, api.oblien.com). */

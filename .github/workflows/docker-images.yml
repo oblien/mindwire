@@ -47,9 +47,45 @@ jobs:
     name: Release gate
     uses: ./.github/workflows/release-gate.yml
 
+  prepare:
+    name: Resolve image tags
+    needs: gate
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.tags.outputs.tag }}
+      minor: ${{ steps.tags.outputs.minor }}
+      latest: ${{ steps.tags.outputs.latest }}
+    steps:
+      - id: tags
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.event.inputs.tag }}
+          CALLED_FROM_RELEASE: ${{ github.event_name == 'workflow_call' }}
+        run: |
+          set -euo pipefail
+          tag="${REQUESTED_TAG#v}"
+          if [ -z "$tag" ]; then
+            tag="${GITHUB_SHA::7}"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "minor=" >> "$GITHUB_OUTPUT"
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Image tag must be semver (got '$tag')."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [[ "$tag" == *-* ]]; then
+            echo "minor=" >> "$GITHUB_OUTPUT"
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "minor=$(cut -d. -f1-2 <<< "$tag")" >> "$GITHUB_OUTPUT"
+            echo "latest=$CALLED_FROM_RELEASE" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: Build ${{ matrix.image }} (${{ matrix.platform }})
-    needs: gate
+    needs: [gate, prepare]
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -75,10 +111,10 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -123,7 +159,7 @@ jobs:
     name: Publish ${{ matrix.image }} (manifest)
     # `gate` as well as `build`: this job is where the image becomes PULLABLE (the per-arch builds push by
     # digest only), so it is the point a failing test has to stop.
-    needs: [gate, build]
+    needs: [gate, prepare, build]
     runs-on: ubuntu-24.04
     strategy:
       matrix:
@@ -137,29 +173,27 @@ jobs:
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Release call → semver + :latest (auto: RCs skip :latest). Manual dispatch → explicit tag
-      # (or short SHA), never :latest.
+      # Tags are resolved in a shell step above: reusable-workflow inputs are normalized before they
+      # reach metadata-action, avoiding its empty-tag failure on a called workflow.
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           tags: |
-            type=semver,pattern={{version}},value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_call' }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_call' }}
-            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
-            type=sha,format=short,enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag == '' }}
+            type=raw,value=${{ needs.prepare.outputs.tag }}
+            type=raw,value=${{ needs.prepare.outputs.minor }},enable=${{ needs.prepare.outputs.minor != '' }}
           flavor: |
-            latest=${{ github.event_name == 'workflow_call' && 'auto' || 'false' }}
+            latest=${{ needs.prepare.outputs.latest }}
 
       - name: Create manifest list + push
         working-directory: /tmp/digests

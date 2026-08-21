@@ -31,6 +31,9 @@ services:
       PORT: "8787"
       AUTH_DB_PATH: /data/auth.db
       CONSOLE_MODE: cloud
+      # Better Auth's canonical public origin. Override BASE_URL for a custom SaaS domain; it is also
+      # the OAuth callback origin and is automatically included in the trusted-origin allowlist.
+      BASE_URL: ${BASE_URL:-https://console.mindwire.sh}
       ALLOW_LOCAL_RUNTIME: "false"
       SEED_DEFAULT_DAEMON: "false"
     ports:
