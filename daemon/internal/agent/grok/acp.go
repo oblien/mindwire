@@ -43,13 +43,15 @@ type acpClient struct {
 	pending sync.Map // map[string]chan rpcMessage
 	notify  chan rpcMessage
 	request chan rpcMessage
+	closed  chan struct{}
 }
 
 func rpcKey(id json.RawMessage) string { return string(bytes.TrimSpace(id)) }
 
 func newACPClient(in io.WriteCloser, out io.Reader) *acpClient {
-	c := &acpClient{in: in, notify: make(chan rpcMessage, 128), request: make(chan rpcMessage, 16)}
+	c := &acpClient{in: in, notify: make(chan rpcMessage, 128), request: make(chan rpcMessage, 16), closed: make(chan struct{})}
 	go func() {
+		defer close(c.closed)
 		sc := bufio.NewScanner(out)
 		sc.Buffer(make([]byte, 0, 1<<20), 16<<20)
 		for sc.Scan() {
@@ -97,14 +99,27 @@ func (c *acpClient) requestTo(ctx context.Context, method string, params any) (j
 	if err := c.write(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
 		return nil, err
 	}
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case m := <-ch:
+	decode := func(m rpcMessage) (json.RawMessage, error) {
 		if m.Error != nil {
 			return nil, fmt.Errorf("grok ACP %s: %s", method, m.Error.Message)
 		}
 		return m.Result, nil
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case m := <-ch:
+		return decode(m)
+	case <-c.closed:
+		// A response can be decoded immediately before stdout reaches EOF. Prefer
+		// that queued reply over the close signal; otherwise a fast ACP process
+		// flakes between its terminal response and process exit.
+		select {
+		case m := <-ch:
+			return decode(m)
+		default:
+			return nil, fmt.Errorf("grok ACP closed while waiting for %s", method)
+		}
 	}
 }
 
@@ -294,6 +309,8 @@ func acpRun(ctx context.Context, c *acpClient, in agent.TurnInput, emit agent.Em
 	}()
 	text := ""
 	pendingPermission := map[string]json.RawMessage{}
+	notifications := c.notify
+	requests := c.request
 	for {
 		select {
 		case <-ctx.Done():
@@ -327,15 +344,19 @@ func acpRun(ctx context.Context, c *acpClient, in agent.TurnInput, emit agent.Em
 			result := agent.TurnResult{Text: text, SessionID: sessionID}
 			emit(agent.Event{Type: agent.EventResult, SessionID: sessionID, Result: &agent.ResultInfo{Text: text, SessionID: sessionID}})
 			return result, nil
-		case n, ok := <-c.notify:
+		case n, ok := <-notifications:
 			if !ok {
-				return agent.TurnResult{SessionID: sessionID}, fmt.Errorf("grok ACP closed before prompt completed")
+				// stdout may close just after the terminal prompt reply. The reply is
+				// already queued in promptDone, so disable this case and let it win.
+				notifications = nil
+				continue
 			}
 			if n.Method == "session/update" || n.Method == "x.ai/session/update" {
 				text = handleACPUpdate(n.Params, sessionID, text, emit)
 			}
-		case req, ok := <-c.request:
+		case req, ok := <-requests:
 			if !ok {
+				requests = nil
 				continue
 			}
 			if req.Method != "session/request_permission" {
