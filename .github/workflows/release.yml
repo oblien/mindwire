@@ -132,6 +132,16 @@ jobs:
               ${PRERELEASE_FLAG} \
               "${ASSETS[@]}"
           fi
+          # A prior manual/retried release can exist as a draft. Draft release assets receive an
+          # `untagged-*` public URL and are deliberately unavailable to the SDK's canonical
+          # `/releases/download/vX.Y.Z/...` downloader. Publish it explicitly on every path.
+          release_id="$(gh release view "${TAG}" --json databaseId -q .databaseId)"
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" -f draft=false >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq '
+            if .draft then error("release is still a draft")
+            elif .tag_name != "'"${TAG}"'" then error("release tag does not match workflow tag")
+            else .html_url end
+          '
 
   verify-release-daemon:
     name: "E2E: SDK downloads released daemon"
