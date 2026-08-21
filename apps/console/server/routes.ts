@@ -87,6 +87,13 @@ import type {
   SecretMetadata,
 } from "../shared/api";
 
+// A persisted `provisioning` state survives a Console restart so a workspace can be resumed. This
+// in-memory set answers the different question: is this exact record being worked on *right now* by
+// this process? It prevents duplicate concurrent ensures without turning a restart into a permanent
+// "already provisioning" dead end.
+const activeProvisioning = new Set<string>();
+const provisionKey = (session: Session, record: DaemonRecord) => `${session.id}:${record.id}`;
+
 /** Derive credential inventory from the hydrated encrypted fleet without ever exposing any value. */
 function runtimeSecretMetadata(session: Session): SecretMetadata[] {
   return session.daemons.flatMap((record) => {
@@ -311,8 +318,9 @@ export function registerRoutes(app: Hono): void {
     return json(c, fleetView(session));
   });
 
-  // Add is transactional: a candidate is never placed into the fleet until its target has answered
-  // `ensure()` successfully. This is intentionally separate from re-provisioning an existing card.
+  // Connect-only remotes stay transactional: there is no resource to resume. Provisioned targets are
+  // recorded as `provisioning` before the first provider call so refresh/reconnect/restart can resume
+  // the same workspace instead of showing an absent card or creating a second sandbox.
   app.post("/events/daemons/add", async (c) => {
     const session = resolveSession(c);
     if (!session) return c.json({ error: "No session." }, 401);
@@ -325,6 +333,15 @@ export function registerRoutes(app: Hono): void {
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "Invalid runtime." }, 400);
     }
+    const provisioned = record.runtime.provider !== "remote" && record.runtime.provider !== "local";
+    const key = provisionKey(session, record);
+    if (record.runtime.provider !== "remote" && record.runtime.provider !== "local") {
+      record.runtime.state = "provisioning";
+      record.runtime.message = undefined;
+      commitDaemon(session, record, Boolean(body.activate));
+      await persistSessionFleet(session);
+      activeProvisioning.add(key);
+    }
 
     c.header("Cache-Control", "no-cache, no-transform");
     c.header("X-Accel-Buffering", "no");
@@ -334,13 +351,11 @@ export function registerRoutes(app: Hono): void {
         writes = writes.then(() => stream.writeSSE({ data: JSON.stringify(frame) }));
         return writes;
       };
-      if (record.runtime.provider !== "remote" && record.runtime.provider !== "local") {
-        record.runtime.state = "provisioning";
-      }
       setEnsureSink(session, record, (ev: EnsureEvent) => void send({ t: "log", ev }));
       try {
-        // `ensure` probes remote runtimes and creates/reuses provisioned targets. No fleet mutation has
-        // occurred yet, so a failed health check or failed sandbox leaves no broken runtime card behind.
+        // `ensure` probes remotes and creates/reuses provisioned targets. A provisioned target already
+        // has a durable `provisioning` record; its workspace id is checkpointed by the SDK immediately
+        // after creation, before daemon install starts.
         const client = mwForDaemon(session, record);
         await client.ensure();
         // `remote()` deliberately has no side effects, so `ensure()` only resolves its transport. A
@@ -349,13 +364,21 @@ export function registerRoutes(app: Hono): void {
         if (record.runtime.provider !== "remote" && record.runtime.provider !== "local") {
           record.runtime.state = "ready";
         }
-        commitDaemon(session, record, Boolean(body.activate));
+        if (!provisioned) commitDaemon(session, record, Boolean(body.activate));
         await persistSessionFleet(session);
         await send({ t: "done", daemon: toDaemonView(record, session.activeDaemonId) });
       } catch (err) {
-        await disposeDaemon(session.id, record.id);
-        await send({ t: "error", message: err instanceof Error ? err.message : String(err) });
+        const message = err instanceof Error ? err.message : String(err);
+        if (record.runtime.provider !== "remote" && record.runtime.provider !== "local") {
+          record.runtime.state = "error";
+          record.runtime.message = message;
+          await persistSessionFleet(session);
+        } else {
+          await disposeDaemon(session.id, record.id);
+        }
+        await send({ t: "error", message });
       } finally {
+        activeProvisioning.delete(key);
         clearEnsureSink(session.id, record.id);
         await writes;
       }
@@ -511,7 +534,7 @@ export function registerRoutes(app: Hono): void {
   });
 
   // Provision (or reuse) a docker/oblien daemon, streaming `EnsureEvent`s as they happen.
-  app.post("/events/daemons/:id/up", (c) => {
+  app.post("/events/daemons/:id/up", async (c) => {
     const session = resolveSession(c);
     if (!session) return c.json({ error: "No session." }, 401);
     const record = getDaemon(session, c.req.param("id"));
@@ -523,9 +546,16 @@ export function registerRoutes(app: Hono): void {
     if (rt.provider === "oblien" && !hasOblien(session)) {
       return c.json({ error: "Connect your Oblien account to spin this up." }, 409);
     }
-    if (rt.state === "provisioning") {
+    const key = provisionKey(session, record);
+    if (activeProvisioning.has(key)) {
       return c.json({ error: "This runtime is already provisioning." }, 409);
     }
+    // Persist this checkpoint before returning the stream. A reload now shows Provisioning, and after
+    // a server restart the absent in-memory lock lets the user resume the same captured workspace.
+    rt.state = "provisioning";
+    rt.message = undefined;
+    await persistSessionFleet(session);
+    activeProvisioning.add(key);
 
     // Prevent common reverse proxies from buffering progress until provisioning finishes.
     c.header("Cache-Control", "no-cache, no-transform");
@@ -538,8 +568,6 @@ export function registerRoutes(app: Hono): void {
         writes = writes.then(() => stream.writeSSE({ data: JSON.stringify(frame) }));
         return writes;
       };
-      rt.state = "provisioning";
-      rt.message = undefined;
       setEnsureSink(session, record, (ev: EnsureEvent) => void send({ t: "log", ev }));
       try {
         await mwForDaemon(session, record).ensure();
@@ -552,6 +580,7 @@ export function registerRoutes(app: Hono): void {
         await persistSessionFleet(session);
         await send({ t: "error", message: rt.message });
       } finally {
+        activeProvisioning.delete(key);
         clearEnsureSink(session.id, record.id);
         await writes;
       }

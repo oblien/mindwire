@@ -18,7 +18,7 @@ import type {
 
 import { env } from "./env";
 import { publicRemoteFetch } from "./public-remote";
-import type { Session, DaemonRecord, DaemonRuntime } from "./session";
+import { persistSessionFleet, type Session, type DaemonRecord, type DaemonRuntime } from "./session";
 import type { CatalogProviderSummary } from "../shared/api";
 
 interface ClientEntry {
@@ -154,11 +154,17 @@ function buildTarget(session: Session, record: DaemonRecord): Target {
     image: r.image,
     cpus: r.cpus,
     memoryMb: r.memoryMb,
+    diskMb: r.diskMb,
     mode: r.lifecycle,
     stopOnExit: r.lifecycle === "temporary",
     agent: record.agent,
     ...(env.devDaemonBin ? { daemonBin: env.devDaemonBin, forceDeploy: true } : {}),
     ...(r.workspaceId ? { workspaceId: r.workspaceId } : {}),
+    onWorkspace: async (workspaceId) => {
+      if (record.runtime.provider !== "oblien") return;
+      record.runtime.workspaceId = workspaceId;
+      await persistSessionFleet(session);
+    },
   });
   return capturing(inner, (h) => {
     if (record.runtime.provider === "oblien") {

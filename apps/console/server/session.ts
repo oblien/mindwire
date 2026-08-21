@@ -75,6 +75,7 @@ export type DaemonRuntime =
       image: string;
       cpus?: number;
       memoryMb?: number;
+      diskMb?: number;
       lifecycle: SandboxLifecycle;
       token?: string;
       state: DaemonState;
@@ -307,6 +308,9 @@ export function runtimeFromRequest(req: AddDaemonRequest): DaemonRuntime {
     image: req.image?.trim() || DEFAULT_SANDBOX_IMAGE,
     cpus: req.cpus,
     memoryMb: req.memoryMb,
+    // Oblien's platform default is intentionally tiny (128 MB). A MindWire runtime needs room for
+    // the daemon, harness CLIs, dependency caches, and the user's workspace, so make 10 GB explicit.
+    diskMb: req.diskMb ?? 10_240,
     lifecycle: req.lifecycle ?? "temporary",
     state: "off",
     workspaceId: req.workspaceId?.trim() || undefined,
@@ -394,6 +398,7 @@ function freshRuntime(rt: DaemonRuntime): DaemonRuntime {
     image: rt.image,
     cpus: rt.cpus,
     memoryMb: rt.memoryMb,
+    diskMb: rt.diskMb,
     lifecycle: rt.lifecycle,
     token: rt.token,
     state: "off",
@@ -553,8 +558,9 @@ function locationOf(rt: DaemonRuntime): DaemonLocation {
     mode: rt.lifecycle,
     cpus: rt.cpus,
     memoryMb: rt.memoryMb,
+    diskMb: rt.diskMb,
     secured: Boolean(rt.token),
-    summary: `Oblien · ${rt.image} · ${rt.lifecycle}`,
+    summary: `Oblien · ${rt.image} · ${rt.lifecycle} · ${Math.round((rt.diskMb ?? 10_240) / 1024)} GB disk`,
   };
 }
 

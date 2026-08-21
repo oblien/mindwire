@@ -176,7 +176,10 @@ export function DaemonPage() {
   }
 
   const state: DaemonState = provision.status === "provisioning" ? "provisioning" : daemon.state;
-  const busy = state === "provisioning";
+  // A persisted `provisioning` state can outlive this browser (or a Console restart). Only the stream
+  // owned by THIS page is a local busy lock; otherwise offer a safe resume check and let the server's
+  // per-runtime lock reject an actually concurrent provision.
+  const busy = provision.status === "provisioning";
   // remote/local are always on — nothing to spin up or tear down. ssh/docker/oblien provision.
   const provisionable = daemon.provider !== "remote" && daemon.provider !== "local";
   const Icon = PROVIDER_ICON[daemon.provider];
@@ -248,7 +251,7 @@ export function DaemonPage() {
             {provisionable && state !== "ready" && (
               <Button size="sm" variant="outline" onClick={() => void provision.start(id)} disabled={busy}>
                 {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
-                {state === "error" ? "Retry" : "Spin up"}
+                {busy ? "Provisioning" : state === "error" ? "Retry" : state === "provisioning" ? "Check & resume" : "Spin up"}
               </Button>
             )}
             {provisionable && state === "ready" && (

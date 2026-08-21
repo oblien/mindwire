@@ -153,6 +153,7 @@ export function AddDaemonDialog({
   const [oblienMode, setOblienMode] = useState<"new" | "existing">("new");
   const [cpus, setCpus] = useState("");
   const [memoryMb, setMemoryMb] = useState("");
+  const [diskMb, setDiskMb] = useState("10240");
   const [workspaceId, setWorkspaceId] = useState("");
   // oblien account link (only when not already linked in the session)
   const [clientId, setClientId] = useState("");
@@ -208,6 +209,7 @@ export function AddDaemonDialog({
     setOblienMode("new");
     setCpus("");
     setMemoryMb("");
+    setDiskMb("10240");
     setWorkspaceId("");
     setClientId("");
     setClientSecret("");
@@ -340,6 +342,7 @@ export function AddDaemonDialog({
       ...(oblienMode === "new" && oblienImage ? { image: oblienImage } : {}),
       ...(oblienMode === "new" && cpus ? { cpus: Number(cpus) } : {}),
       ...(oblienMode === "new" && memoryMb ? { memoryMb: Number(memoryMb) } : {}),
+      ...(oblienMode === "new" && diskMb ? { diskMb: Number(diskMb) } : {}),
       ...(oblienMode === "existing" ? { workspaceId: workspaceId.trim() } : {}),
       lifecycle,
       ...base,
@@ -389,7 +392,7 @@ export function AddDaemonDialog({
         <DialogHeader className="px-6 pb-5 pt-6 pr-14 sm:px-7 sm:pt-7">
           <DialogTitle>Add a runtime</DialogTitle>
           <DialogDescription>
-            Connect or provision it now. It joins the fleet only after it is healthy.
+            Connect or provision it now. Provisioned runtimes are saved immediately and become ready only after their health check succeeds.
           </DialogDescription>
         </DialogHeader>
 
@@ -909,6 +912,14 @@ export function AddDaemonDialog({
                         onChange={(e) =>
                           setMemoryMb(e.target.value.replace(/[^0-9]/g, ""))
                         }
+                      />
+                    </Field>
+                    <Field label="Disk (MB)" htmlFor="ob-disk" hint="10 GB default. Oblien otherwise defaults to 128 MB.">
+                      <Input
+                        id="ob-disk"
+                        inputMode="numeric"
+                        value={diskMb}
+                        onChange={(e) => setDiskMb(e.target.value.replace(/[^0-9]/g, ""))}
                       />
                     </Field>
                   </div>

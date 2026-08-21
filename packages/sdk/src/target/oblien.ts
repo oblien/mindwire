@@ -53,6 +53,8 @@ export interface OblienConfig {
   memoryMb?: number;
   /** Disk (MB) for a new workspace. */
   diskMb?: number;
+  /** Called as soon as the workspace identity is known, before daemon installation begins. */
+  onWorkspace?: (workspaceId: string) => void | Promise<void>;
   /** Lifecycle: `temporary` (auto-reaped) or `permanent`. */
   mode?: "temporary" | "permanent";
 }
@@ -227,6 +229,10 @@ export async function provisionOblien(
     const ws = await client.workspaces.create(params);
     workspaceId = ws.id;
   }
+  // Persist/capture the workspace before any install happens. If a browser disconnects or the
+  // control plane restarts mid-ensure, a later ensure can safely resume this exact workspace instead
+  // of creating an orphaned second one.
+  await config.onWorkspace?.(workspaceId);
   const handle = client.workspace(workspaceId);
 
   // 2. Start it (idempotent — tolerate an already-running workspace).

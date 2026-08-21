@@ -283,6 +283,7 @@ test("provisionOblien: a 401 from the proxy re-acquires the runtime ({ force: tr
 
 test("provisionOblien: creates a workspace with camelCase → snake_case params, then starts it", async () => {
   const { client, calls } = fakeOblien({ health: '{"version":"9.9.9"}' });
+  const workspaceIDs: string[] = [];
   await provisionOblien(client, {
     image: "node-22",
     name: "demo",
@@ -290,6 +291,7 @@ test("provisionOblien: creates a workspace with camelCase → snake_case params,
     cpus: 2,
     memoryMb: 2048,
     diskMb: 8192,
+    onWorkspace: async (workspaceId) => workspaceIDs.push(workspaceId),
   });
   expect(calls.create[0]).toEqual({
     image: "node-22",
@@ -299,6 +301,7 @@ test("provisionOblien: creates a workspace with camelCase → snake_case params,
     memory_mb: 2048,
     disk_size_mb: 8192,
   });
+  expect(workspaceIDs).toEqual(["ws-1"]); // checkpointed as soon as create returns, before ensure
   expect(calls.start).toBe(1);
 });
 

@@ -15,7 +15,10 @@ export interface ProvisionStream {
   error: string | null;
   /** Provision the daemon with the given id; resolves when the stream terminates. */
   start: (daemonId: string) => Promise<boolean>;
-  /** Validate and add a new runtime atomically; it reaches the fleet only after `ensure()` succeeds. */
+  /**
+   * Connect remote runtimes transactionally. Managed runtimes are checkpointed as
+   * provisioning before `ensure()` so a refresh or retry can safely resume them.
+   */
   add: (request: AddDaemonRequest) => Promise<boolean>;
   reset: () => void;
 }
