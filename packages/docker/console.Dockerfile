@@ -46,8 +46,7 @@ RUN bun --filter='mindwire' run build \
 FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
-    PORT=8787 \
-    AUTH_DB_PATH=/data/auth.db
+    PORT=8787
 
 # Carry the resolved workspace so the externalized deps resolve via bun's on-disk layout:
 #   - root node_modules      — hoisted transitive deps shared across the workspace

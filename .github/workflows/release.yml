@@ -207,11 +207,18 @@ jobs:
           docker pull "$GHCR_IMAGE"
           cid="$(docker run -d -p 127.0.0.1::8790 "$GHCR_IMAGE")"
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          health=""
           for i in $(seq 1 40); do
             health="$(curl -fsS http://127.0.0.1:8790/healthz || true)"
             [ -n "$health" ] && break
             sleep 0.25
           done
+          if [ -z "$health" ]; then
+            echo "::error::Runtime never became healthy. Container status and logs follow:"
+            docker inspect "$cid" --format 'status={{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}' || true
+            docker logs "$cid" || true
+            exit 1
+          fi
           sdk="$(node -p "require('./packages/sdk/package.json').version")"
           test "$(printf '%s' "$health" | jq -r .version)" = "$sdk"
           docker exec "$cid" claude --version

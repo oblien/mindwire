@@ -16,13 +16,15 @@ RUN apt-get update \
  && npm install -g @anthropic-ai/claude-code @openai/codex \
  && curl -fsSL https://opencode.ai/install | bash \
  && install -m 0755 /root/.opencode/bin/opencode /usr/local/bin/opencode \
- && mkdir -p /home/node/.npm-global /usr/share/mindwire \
+ && mkdir -p /home/node/.npm-global /home/node/.mindwire /usr/share/mindwire \
  && printf '{"claudeCode":"%s","codex":"%s","opencode":"%s"}\n' "$(claude --version | head -n1 | sed 's/"/\\\\"/g')" "$(codex --version | head -n1 | sed 's/"/\\\\"/g')" "$(opencode --version | head -n1 | sed 's/"/\\\\"/g')" > /usr/share/mindwire/agents.json \
  && chown -R node:node /home/node
 ENV HOME=/home/node \
     NPM_CONFIG_PREFIX=/home/node/.npm-global \
     PATH=/home/node/.npm-global/bin:${PATH} \
-    ADDR=:8790
+    ADDR=:8790 \
+    STATE_PATH=/home/node/.mindwire/agent-state.json
+WORKDIR /home/node
 EXPOSE 8790
 USER node
 ENTRYPOINT ["/usr/local/bin/mindwired"]
