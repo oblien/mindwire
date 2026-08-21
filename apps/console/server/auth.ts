@@ -79,8 +79,24 @@ let migrated: Promise<void> | null = null;
 export function initAuth(): Promise<void> {
   if (!migrated) {
     migrated = (async () => {
-      const { runMigrations } = await getMigrations(auth.options);
-      await runMigrations();
+      // Compose waits for Postgres's healthcheck before it starts the console, but a new Docker network
+      // can still take a moment to publish its DNS entry. Retrying here makes SaaS boot deterministic
+      // without masking a permanently incorrect DATABASE_URL: after the bounded window we exit clearly.
+      const attempts = env.databaseUrl ? 30 : 1;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+          const { runMigrations } = await getMigrations(auth.options);
+          await runMigrations();
+          return;
+        } catch (error) {
+          if (attempt === attempts) throw error;
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(
+            `[console] database unavailable (${attempt}/${attempts}); retrying in 1s: ${message}`,
+          );
+          await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
+        }
+      }
     })();
   }
   return migrated;
