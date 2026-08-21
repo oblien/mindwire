@@ -63,6 +63,17 @@ COPY --from=builder /app/apps/console/node_modules ./apps/console/node_modules
 COPY --from=builder /app/apps/console/dist ./apps/console/dist
 COPY --from=builder /app/apps/console/dist-server ./apps/console/dist-server
 
+# `mindwire` resolves optional peers from packages/sdk, while Bun installs the Console's direct peers
+# beneath apps/console. Put resolver-visible links at /app/node_modules so all shipped targets work:
+# Oblien sandboxes, SSH hosts, and Docker engines. Do this after copying the Console workspace because
+# the links point at Bun's content-addressed store already copied under the root node_modules.
+RUN for pkg in oblien ssh2 dockerode; do \
+      if [ ! -e "node_modules/$pkg" ]; then \
+        target="$(readlink -f "apps/console/node_modules/$pkg")"; \
+        ln -s "${target#/app/node_modules/}" "node_modules/$pkg"; \
+      fi; \
+    done
+
 # Persist the self-host SQLite fallback outside the layer, and run unprivileged (the base image ships a
 # `node` user). SaaS supplies DATABASE_URL and uses Postgres instead.
 RUN mkdir -p /data && chown -R node:node /data

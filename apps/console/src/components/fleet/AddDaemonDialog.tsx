@@ -4,7 +4,7 @@
 // current host" vs "control a remote server" — are `local` vs `remote`/`ssh`. Fill the provider's
 // fields and it's added. SSH/Docker/Oblien daemons land `off` and are spun up from their card;
 // remote/local are live immediately. Only providers the server can actually offer are selectable.
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   Plus,
   Loader2,
@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const IMAGES = ["node-22", "node-20", "python-3.12", "ubuntu-24.04"];
 const DASHBOARD_URL = "https://oblien.com/dashboard";
@@ -73,11 +74,6 @@ export function AddDaemonDialog({
 
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  const available = useMemo<DaemonProvider[]>(() => {
-    const p = providers;
-    return PROVIDER_ORDER.filter((k) => (p ? p[k] : k === "remote"));
-  }, [providers]);
 
   const [provider, setProvider] = useState<DaemonProvider>("remote");
   const [label, setLabel] = useState("");
@@ -167,6 +163,10 @@ export function AddDaemonDialog({
       const url = daemonUrl.trim();
       if (!url) {
         toast.error("A runtime URL is required.");
+        return null;
+      }
+      if (providers?.remoteTokenRequired && !token.trim()) {
+        toast.error("A bearer token is required for a cloud remote runtime.");
         return null;
       }
       return { provider, daemonUrl: url, ...(token.trim() ? { token: token.trim() } : {}), ...base };
@@ -291,26 +291,41 @@ export function AddDaemonDialog({
             {PROVIDER_ORDER.map((k) => {
               const meta = PROVIDER_META[k];
               const Icon = meta.icon;
-              const enabled = available.includes(k);
+              const enabled = providers ? providers[k] : k === "remote";
               const selected = provider === k;
+              const selfHostOnly = !enabled && (k === "local" || k === "ssh" || k === "docker");
               return (
-                <button
-                  key={k}
-                  type="button"
-                  disabled={!enabled}
-                  onClick={() => setProvider(k)}
-                  title={enabled ? meta.hint : "Not available on this server"}
-                  className={cn(
-                    "flex flex-col items-start gap-1 border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-                    selected ? "border-ink/30 bg-accent" : "border-border hover:border-ink/25",
-                  )}
-                >
-                  <Icon className="size-4" />
-                  <span className="text-xs font-medium">{meta.label}</span>
-                </button>
+                <Tooltip key={k}>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <button
+                        type="button"
+                        disabled={!enabled}
+                        onClick={() => setProvider(k)}
+                        className={cn(
+                          "flex w-full flex-col items-start gap-1 border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                          selected ? "border-ink/30 bg-accent" : "border-border hover:border-ink/25",
+                        )}
+                      >
+                        <Icon className="size-4" />
+                        <span className="text-xs font-medium">{meta.label}</span>
+                      </button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>{enabled ? meta.hint : selfHostOnly ? "Self-host MindWire on your server to use this runtime." : "Not available on this deployment."}</TooltipContent>
+                </Tooltip>
               );
             })}
           </div>
+
+          {providers && (!providers.local || !providers.ssh || !providers.docker) && (
+            <p className="text-xs text-muted-foreground">
+              SSH, Docker, and host runtimes are disabled in SaaS to protect the shared control plane. {" "}
+              <a className="underline underline-offset-4 hover:text-foreground" href="https://github.com/oblien/mindwire/tree/main/packages/docker" target="_blank" rel="noreferrer">
+                Self-host MindWire on your server <ArrowUpRight className="inline size-3" />
+              </a>
+            </p>
+          )}
 
           {provider === "docker" && !providers?.docker && (
             <p className="text-xs text-muted-foreground">
@@ -332,7 +347,7 @@ export function AddDaemonDialog({
                   spellCheck={false}
                 />
               </Field>
-              <Field label="Bearer token (optional)" htmlFor="d-token" hint="Held server-side; never returned to the browser.">
+              <Field label={`Bearer token${providers?.remoteTokenRequired ? "" : " (optional)"}`} htmlFor="d-token" hint={providers?.remoteTokenRequired ? "Required for SaaS remote runtimes; held server-side and never returned to the browser." : "Held server-side; never returned to the browser."}>
                 <Input
                   id="d-token"
                   type="password"

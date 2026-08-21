@@ -18,6 +18,7 @@ import type {
 } from "mindwire";
 
 import { env } from "./env";
+import { assertPublicRemote } from "./public-remote";
 import { verifyOblien, OblienAuthError } from "./oblien";
 import {
   activeRecord,
@@ -205,11 +206,12 @@ export function registerRoutes(app: Hono): void {
       dockerAvailable(),
     ]);
     const availability: ProviderAvailability = {
-      remote: true,
+      remote: env.allowRemote,
+      remoteTokenRequired: env.mode === "cloud",
       local: env.allowLocal,
-      ssh,
+      ssh: env.allowSsh && ssh,
       oblien,
-      docker,
+      docker: env.allowDocker && docker,
     };
     return json(c, availability);
   });
@@ -218,13 +220,26 @@ export function registerRoutes(app: Hono): void {
     const session = resolveSession(c);
     if (!session) return c.json({ error: "No session." }, 401);
     const body = await readJson<AddDaemonRequest>(c);
+    if (body.provider === "remote" && !env.allowRemote) {
+      return c.json({ error: "Remote runtimes are disabled on this deployment." }, 409);
+    }
+    if (body.provider === "remote") {
+      if (env.mode === "cloud" && !body.token?.trim()) {
+        return c.json({ error: "A bearer token is required for cloud remote runtimes." }, 400);
+      }
+      try {
+        await assertPublicRemote(body.daemonUrl ?? "");
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : "Invalid remote runtime URL." }, 400);
+      }
+    }
     if (body.provider === "local" && !env.allowLocal) {
       return c.json({ error: "Controlling the current host is disabled on this deployment." }, 409);
     }
-    if (body.provider === "ssh" && !(await sshAvailable())) {
+    if (body.provider === "ssh" && (!env.allowSsh || !(await sshAvailable()))) {
       return c.json({ error: "SSH is not available on this server (missing the ssh2 peer)." }, 409);
     }
-    if (body.provider === "docker" && !(await dockerAvailable())) {
+    if (body.provider === "docker" && (!env.allowDocker || !(await dockerAvailable()))) {
       return c.json({ error: "Docker is not available on this server." }, 409);
     }
     if (body.provider === "oblien" && !hasOblien(session)) {
@@ -261,9 +276,7 @@ export function registerRoutes(app: Hono): void {
     if (!session) return c.json({ error: "No session." }, 401);
     const id = c.req.param("id");
     if (!getDaemon(session, id)) return c.json({ error: "No such runtime." }, 404);
-    if (!removeDaemon(session, id)) {
-      return c.json({ error: "Can't remove the last runtime in the fleet." }, 409);
-    }
+    if (!removeDaemon(session, id)) return c.json({ error: "No such runtime." }, 404);
     // Tear down its client (reaps a temporary container/workspace) after it leaves the fleet.
     await disposeDaemon(session.id, id);
     return json(c, fleetView(session));
@@ -361,9 +374,21 @@ export function registerRoutes(app: Hono): void {
     if (rt.provider === "oblien" && !hasOblien(session)) {
       return c.json({ error: "Connect your Oblien account to spin this up." }, 409);
     }
+    if (rt.state === "provisioning") {
+      return c.json({ error: "This runtime is already provisioning." }, 409);
+    }
 
+    // Prevent common reverse proxies from buffering progress until provisioning finishes.
+    c.header("Cache-Control", "no-cache, no-transform");
+    c.header("X-Accel-Buffering", "no");
     return streamSSE(c, async (stream) => {
-      const send = (frame: EnsureFrame) => stream.writeSSE({ data: JSON.stringify(frame) });
+      // Ensure events originate from callbacks, where awaiting is impossible. Queue writes so frames
+      // remain ordered and flush before the terminal result closes the stream.
+      let writes = Promise.resolve();
+      const send = (frame: EnsureFrame) => {
+        writes = writes.then(() => stream.writeSSE({ data: JSON.stringify(frame) }));
+        return writes;
+      };
       rt.state = "provisioning";
       rt.message = undefined;
       setEnsureSink(session, record, (ev: EnsureEvent) => void send({ t: "log", ev }));
@@ -377,6 +402,7 @@ export function registerRoutes(app: Hono): void {
         await send({ t: "error", message: rt.message });
       } finally {
         clearEnsureSink(session.id, record.id);
+        await writes;
       }
     });
   });

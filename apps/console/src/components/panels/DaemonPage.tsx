@@ -41,6 +41,7 @@ import type {
   DaemonInspection,
   DaemonState,
   DaemonView,
+  EnsureEvent,
   Stats,
 } from "@shared/api";
 
@@ -63,7 +64,7 @@ export function DaemonPage() {
 
   const daemon = fleet?.daemons.find((d) => d.id === id) ?? null;
   const isActive = activeDaemon?.id === id;
-  const canRemove = (fleet?.daemons.length ?? 0) > 1;
+  const canRemove = true;
 
   // After a spin-up settles, refresh the fleet and — if this is the active daemon — its live view.
   const onProvisioned = useCallback(() => {
@@ -210,6 +211,8 @@ export function DaemonPage() {
               Remove
             </Button>
           </div>
+
+          {busy && <ProvisionProgress logs={provision.logs} />}
 
           {state === "error" && (daemon.message || provision.error) && (
             <ErrorNote message={provision.error ?? daemon.message ?? "Provisioning failed."} />
@@ -372,6 +375,48 @@ export function DaemonPage() {
           )}
         </div>
       </ScrollArea>
+    </div>
+  );
+}
+
+const PROVISION_PHASES: EnsureEvent["phase"][] = [
+  "connect",
+  "install",
+  "provision",
+  "pull",
+  "probe",
+  "download",
+  "upload",
+  "launch",
+  "ready",
+];
+
+/** Real provisioning phases, not a timer-based or fabricated percentage. */
+function ProvisionProgress({ logs }: { logs: EnsureEvent[] }) {
+  const latest = logs.at(-1);
+  const index = Math.max(0, latest ? PROVISION_PHASES.indexOf(latest.phase) : 0);
+
+  return (
+    <div className="space-y-2 border border-amber-500/25 bg-amber-500/5 px-3 py-2.5" role="status" aria-live="polite">
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="flex items-center gap-2 font-medium">
+          <Loader2 className="size-3.5 animate-spin" /> Provisioning runtime
+        </span>
+        <span className="font-mono text-muted-foreground">{latest?.phase ?? "starting"}</span>
+      </div>
+      <div className="grid grid-cols-9 gap-1" aria-label="Provisioning phase progress">
+        {PROVISION_PHASES.map((phase, phaseIndex) => (
+          <span
+            key={phase}
+            title={phase}
+            className={cn(
+              "h-1.5 transition-colors",
+              phaseIndex <= index ? "bg-amber-500" : "bg-ink/10",
+            )}
+          />
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">{latest?.message ?? "Preparing the runtime…"}</p>
     </div>
   );
 }

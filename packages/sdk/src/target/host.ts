@@ -50,6 +50,7 @@ export interface EnsureDaemonConfig {
   target?: string;
   /** Receives a step {@link EnsureEvent} at each phase. A throwing callback can't abort provisioning. */
   onLog?: (e: EnsureEvent) => void;
+  token?: string;
 }
 
 /**
@@ -107,14 +108,15 @@ const LOG = `${DAEMON_DIR}/daemon.log`;
  * sandbox, deploying it if absent (or redeploying if stale and `autoUpdate` is set). Idempotent: a
  * healthy, current daemon (e.g. an image that autostarts it, or a reused sandbox) is a no-op.
  */
-export async function ensureDaemon(host: SandboxHost, cfg: EnsureDaemonConfig): Promise<void> {
+export async function ensureDaemon(host: SandboxHost, cfg: EnsureDaemonConfig): Promise<string> {
   const emit = makeEmit(cfg);
+  const token = cfg.token ?? (await import("node:crypto")).randomBytes(32).toString("hex");
   try {
     await waitHostReady(host);
     emit({ phase: "connect", message: "runtime ready" });
 
     const desired = cfg.desiredVersion ?? SDK_VERSION;
-    const health = await probeHealth(host, cfg.port);
+    const health = await probeHealth(host, cfg.port, token);
     if (health.reachable) {
       emit({
         phase: "probe",
@@ -130,13 +132,14 @@ export async function ensureDaemon(host: SandboxHost, cfg: EnsureDaemonConfig): 
           message: upToDate ? `daemon already at v${desired}` : "keeping the running daemon",
           version: health.version,
         });
-        return;
+        return token;
       }
     } else {
       emit({ phase: "probe", message: "no daemon reachable; deploying" });
     }
 
-    await deploy(host, cfg, emit);
+    await deploy(host, cfg, emit, token);
+    return token;
   } catch (err) {
     emit({ phase: "error", message: "ensure failed", error: err instanceof Error ? err.message : String(err) });
     throw err;
@@ -148,6 +151,7 @@ async function deploy(
   host: SandboxHost,
   cfg: EnsureDaemonConfig,
   emit: (e: Omit<EnsureEvent, "target">) => void,
+  token: string,
 ): Promise<void> {
   const arch = await probeArch(host);
   const desired = cfg.desiredVersion ?? SDK_VERSION;
@@ -203,9 +207,9 @@ async function deploy(
     `chmod +x ${BIN}`,
     // Detach so the daemon survives this exec's shell exiting. ADDR=":<port>" binds 0.0.0.0.
     `setsid nohup env ADDR=":${cfg.port}" AGENT_TYPE="${cfg.agent}" AGENT_CWD="${cfg.agentCwd}" ` +
-      `STATE_PATH="${STATE}" DAEMON_TOKEN="" ${BIN} > ${LOG} 2>&1 < /dev/null &`,
+      `STATE_PATH="${STATE}" DAEMON_TOKEN=${shellQuote(token)} ${BIN} > ${LOG} 2>&1 < /dev/null &`,
     // Health-poll from inside the VM (loopback) and emit a marker — exit codes are unreliable here.
-    `for i in $(seq 1 60); do curl -fsS --max-time 2 http://127.0.0.1:${cfg.port}/healthz >/dev/null 2>&1 ` +
+      `for i in $(seq 1 60); do curl -fsS --max-time 2 -H ${shellQuote(`Authorization: Bearer ${token}`)} http://127.0.0.1:${cfg.port}/healthz >/dev/null 2>&1 ` +
       `&& { echo MINDWIRE_READY; exit 0; }; sleep 0.25; done`,
     "echo MINDWIRE_FAIL",
     `tail -n 40 ${LOG} 2>/dev/null || true`,
@@ -224,9 +228,9 @@ async function deploy(
 }
 
 /** Probe `127.0.0.1:<port>/healthz` from inside the sandbox. Returns reachability + reported version. */
-async function probeHealth(host: SandboxHost, port: number): Promise<{ reachable: boolean; version?: string }> {
+async function probeHealth(host: SandboxHost, port: number, token: string): Promise<{ reachable: boolean; version?: string }> {
   const script =
-    `out=$(curl -fsS --max-time 3 http://127.0.0.1:${port}/healthz 2>/dev/null) ` +
+    `out=$(curl -fsS --max-time 3 -H ${shellQuote(`Authorization: Bearer ${token}`)} http://127.0.0.1:${port}/healthz 2>/dev/null) ` +
     `&& printf '<<MW_H>>%s<<MW_H>>' "$out" || printf '<<MW_H>><<MW_H>>'`;
   const res = await host.exec(["bash", "-lc", script], { timeoutSeconds: 15 });
   const body = ((res.stdout ?? "").match(/<<MW_H>>([\s\S]*?)<<MW_H>>/)?.[1] ?? "").trim();

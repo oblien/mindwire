@@ -13,6 +13,7 @@ services:
     environment:
       ADDR: 0.0.0.0:8790
       AGENT_TYPE: ${MINDWIRE_AGENT:-claude-code}
+      DAEMON_TOKEN: ${DAEMON_TOKEN}
     volumes:
       - daemon_home:/home/node
 
@@ -35,9 +36,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       AUTH_DB_PATH: /data/auth.db
       CONSOLE_MODE: self-hosted
+      ALLOW_LOCAL_RUNTIME: "true"
+      ALLOW_SSH_RUNTIME: "true"
+      ALLOW_DOCKER_RUNTIME: "true"
+      ALLOW_REMOTE_RUNTIME: "true"
       DAEMON_URL: http://runtime:8790
       SEED_DEFAULT_DAEMON: "true"
-      ALLOW_LOCAL_RUNTIME: "false"
     ports:
       - "${MINDWIRE_BIND_ADDR:-127.0.0.1}:${CONSOLE_PORT:-8787}:8787"
     volumes:

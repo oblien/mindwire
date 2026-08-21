@@ -241,7 +241,7 @@ export async function provisionDocker(
   }
 
   // 4. Ensure the daemon inside the container.
-  await ensureDaemon(new DockerHost(container), {
+  const token = await ensureDaemon(new DockerHost(container), {
     port,
     agent,
     agentCwd,
@@ -263,7 +263,7 @@ export async function provisionDocker(
   };
 
   // Plain direct HTTP — no proxy, no token; the client's default fetch is used.
-  return { id: container.id, baseUrl: `http://127.0.0.1:${hostPort}`, stop };
+  return { id: container.id, baseUrl: `http://127.0.0.1:${hostPort}`, token, stop };
 }
 
 /** Ensure a created-container image exists locally. Docker does not pull automatically on create. */

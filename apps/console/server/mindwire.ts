@@ -17,6 +17,7 @@ import type {
 } from "mindwire";
 
 import { env } from "./env";
+import { publicRemoteFetch } from "./public-remote";
 import type { Session, DaemonRecord, DaemonRuntime } from "./session";
 import type { CatalogProviderSummary } from "../shared/api";
 
@@ -91,7 +92,10 @@ function buildTarget(session: Session, record: DaemonRecord): Target {
   const r = record.runtime;
 
   if (r.provider === "remote") {
-    return remote(r.daemonUrl, r.token ? { token: r.token } : {});
+    return remote(r.daemonUrl, {
+      ...(r.token ? { token: r.token } : {}),
+      ...(env.mode === "cloud" ? { fetch: publicRemoteFetch } : {}),
+    });
   }
 
   // The current host: an embedded daemon on this machine (auto-spawned on connect). This is the

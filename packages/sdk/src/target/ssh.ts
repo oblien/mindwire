@@ -258,7 +258,7 @@ export async function provisionSsh(
   makeTunnel: MakeTunnel,
   cfg: SshProvisionConfig,
 ): Promise<TargetHandle> {
-  await ensureDaemon(new SshHost(client), {
+  const token = await ensureDaemon(new SshHost(client), {
     port: cfg.daemonPort,
     agent: cfg.agent,
     agentCwd: cfg.agentCwd,
@@ -286,7 +286,7 @@ export async function provisionSsh(
   };
 
   // Plain direct HTTP over the tunnel — no custom fetch; the client's default (global) fetch is used.
-  return { id: cfg.id, baseUrl: tunnel.baseUrl, stop };
+  return { id: cfg.id, baseUrl: tunnel.baseUrl, token, stop };
 }
 
 /** The resolved inputs {@link provisionSshContainer} needs — the shared daemon knobs plus `docker`. */
@@ -356,7 +356,7 @@ export async function provisionSshContainer(
     }
   };
 
-  return { id: cfg.id, baseUrl: tunnel.baseUrl, stop };
+  return { id: cfg.id, baseUrl: tunnel.baseUrl, token: container.token, stop };
 }
 
 // ---- connection + tunnel ---------------------------------------------------

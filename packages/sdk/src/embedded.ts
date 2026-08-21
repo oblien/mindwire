@@ -67,11 +67,13 @@ async function spawnDaemon(opts: EmbeddedOptions): Promise<EmbeddedDaemon> {
   const { spawn } = await import("node:child_process");
   const net = await import("node:net");
   const proc = serverRuntime().process;
+  const { randomBytes } = await import("node:crypto");
 
   const resolved = await resolveBinary(opts.bin);
   const bin = resolved.bin;
   const port = await freePort(net);
   const baseUrl = `http://127.0.0.1:${port}`;
+  const token = randomBytes(32).toString("hex");
 
   const child = spawn(bin, [], {
     env: {
@@ -79,7 +81,7 @@ async function spawnDaemon(opts: EmbeddedOptions): Promise<EmbeddedDaemon> {
       ADDR: `127.0.0.1:${port}`,
       AGENT_CWD: opts.cwd ?? proc.cwd(),
       STATE_PATH: opts.statePath ?? ".mindwire-state.json",
-      DAEMON_TOKEN: "",
+      DAEMON_TOKEN: token,
     },
     stdio: "ignore",
   });
@@ -101,8 +103,8 @@ async function spawnDaemon(opts: EmbeddedOptions): Promise<EmbeddedDaemon> {
     proc.exit?.(130);
   });
 
-  await waitHealthy(baseUrl, () => spawnError, resolved);
-  return { baseUrl, stop };
+  await waitHealthy(baseUrl, token, () => spawnError, resolved);
+  return { baseUrl, token, stop };
 }
 
 interface ResolvedBinary {
@@ -179,6 +181,7 @@ function freePort(net: typeof import("node:net")): Promise<number> {
 
 async function waitHealthy(
   baseUrl: string,
+  token: string,
   getError: () => Error | null,
   resolved: ResolvedBinary,
   timeoutMs = 15000,
@@ -190,7 +193,7 @@ async function waitHealthy(
       throw new MindwireError(daemonStartError(resolved, err), { cause: err });
     }
     try {
-      const res = await fetch(`${baseUrl}/healthz`);
+      const res = await fetch(`${baseUrl}/healthz`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) return;
     } catch {
       // not up yet

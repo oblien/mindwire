@@ -231,7 +231,7 @@ export async function provisionOblien(
 
   // 3. Ensure the daemon is running inside the VM.
   let rt = await handle.runtime();
-  await ensureDaemon(new OblienHost(rt), {
+  const token = await ensureDaemon(new OblienHost(rt), {
     port,
     agent,
     agentCwd,
@@ -246,10 +246,12 @@ export async function provisionOblien(
   const fetchImpl: FetchLike = async (url, init) => {
     const { pathname, search } = new URL(url);
     const path = pathname + search;
-    let res = await rt.proxy(port).fetch(path, init);
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    let res = await rt.proxy(port).fetch(path, { ...init, headers });
     if (res.status === 401) {
       rt = await handle.runtime({ force: true });
-      res = await rt.proxy(port).fetch(path, init);
+      res = await rt.proxy(port).fetch(path, { ...init, headers });
     }
     return res;
   };
@@ -264,7 +266,7 @@ export async function provisionOblien(
     }
   };
 
-  return { id: workspaceId, workspaceId, baseUrl: SENTINEL_BASE, fetch: fetchImpl, stop };
+  return { id: workspaceId, workspaceId, baseUrl: SENTINEL_BASE, token, fetch: fetchImpl, stop };
 }
 
 // ---- lazy import + small helpers -------------------------------------------

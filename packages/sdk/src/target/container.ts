@@ -48,6 +48,8 @@ export interface ContainerHandle {
   containerId: string;
   /** The ephemeral host port the in-container daemon is published to, on the base machine's loopback. */
   hostPort: number;
+  /** Bearer token generated for the daemon in this container. */
+  token: string;
   /** Tear down: `docker rm -f` the container if we created it and `stopOnExit` is set. Idempotent. */
   stop(): Promise<void>;
 }
@@ -80,7 +82,7 @@ export async function provisionContainer(
   const { containerId, hostPort, created } = await runContainer(host, cfg, emit);
 
   // 3. The daemon *inside* the container — the shared cycle, unchanged, over a ContainerHost.
-  await ensureDaemon(new ContainerHost(host, containerId), {
+  const token = await ensureDaemon(new ContainerHost(host, containerId), {
     port: cfg.daemonPort,
     agent: cfg.agent,
     agentCwd: cfg.agentCwd,
@@ -102,7 +104,7 @@ export async function provisionContainer(
     }
   };
 
-  return { containerId, hostPort, stop };
+  return { containerId, hostPort, token, stop };
 }
 
 // ---- SandboxHost over a container, via a base host -------------------------

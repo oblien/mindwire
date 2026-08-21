@@ -350,13 +350,12 @@ export function duplicateDaemon(session: Session, id: string): DaemonRecord | un
   return record;
 }
 
-/** Remove a daemon from the fleet, keeping `activeDaemonId` valid. Refuses to drop the last one. */
+/** Remove a daemon from the fleet, keeping `activeDaemonId` valid (an empty cloud fleet is valid). */
 export function removeDaemon(session: Session, id: string): boolean {
-  if (session.daemons.length <= 1) return false;
   const idx = session.daemons.findIndex((d) => d.id === id);
   if (idx === -1) return false;
   session.daemons.splice(idx, 1);
-  if (session.activeDaemonId === id) session.activeDaemonId = session.daemons[0]!.id;
+  if (session.activeDaemonId === id) session.activeDaemonId = session.daemons[0]?.id ?? "";
   return true;
 }
 

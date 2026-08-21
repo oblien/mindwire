@@ -47,6 +47,9 @@ func main() {
 	defaultAgent := env("AGENT_TYPE", "claude-code") // default when a request omits ?agent=
 	cwd := os.Getenv("AGENT_CWD")
 	token := os.Getenv("DAEMON_TOKEN")
+	if token == "" {
+		log.Fatal("DAEMON_TOKEN is required; generate one with: openssl rand -hex 32")
+	}
 
 	if len(agent.All()) == 0 {
 		log.Fatalf("no agent adapters registered")
@@ -79,10 +82,12 @@ func main() {
 	sup := orchestrator.New(store, hub, notifier, cwd, defaultAgent)
 
 	root := http.NewServeMux()
-	root.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	health := http.NewServeMux()
+	health.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true,"agent":"` + sup.Default() + `","version":"` + agent.Version + `"}`))
 	})
+	root.Handle("/healthz", api.Auth(token, health))
 
 	apiMux := http.NewServeMux()
 	api.New(store, hub, sup).Register(apiMux)

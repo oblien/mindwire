@@ -260,6 +260,8 @@ export interface FleetView {
 export interface ProviderAvailability {
   /** Always available. */
   remote: boolean;
+  /** Cloud remote runtimes must authenticate with a daemon bearer token. */
+  remoteTokenRequired: boolean;
   /**
    * "Control the current host" — an embedded daemon on the machine the console runs on. Off by
    * default in production (a multi-tenant deploy must not expose its host); a self-host opts in via

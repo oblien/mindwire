@@ -45,6 +45,10 @@ services:
       NODE_ENV: production
       PORT: "8787"
       CONSOLE_MODE: cloud
+      ALLOW_LOCAL_RUNTIME: "false"
+      ALLOW_SSH_RUNTIME: "false"
+      ALLOW_DOCKER_RUNTIME: "false"
+      ALLOW_REMOTE_RUNTIME: "true"
       # An explicit DATABASE_URL is supported for managed Postgres. Otherwise the console builds a safe
       # connection URL from these standard Postgres settings (including correctly escaped passwords).
       DATABASE_URL: ${DATABASE_URL:-}
@@ -56,7 +60,6 @@ services:
       # Better Auth's canonical public origin. Override BASE_URL for a custom SaaS domain; it is also
       # the OAuth callback origin and is automatically included in the trusted-origin allowlist.
       BASE_URL: ${BASE_URL:-https://console.mindwire.sh}
-      ALLOW_LOCAL_RUNTIME: "false"
       SEED_DEFAULT_DAEMON: "false"
     ports:
       - "${MINDWIRE_BIND_ADDR:-127.0.0.1}:${CONSOLE_PORT:-8787}:8787"

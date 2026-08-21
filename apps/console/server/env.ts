@@ -121,6 +121,12 @@ export const env = {
    */
   allowLocal: bool("ALLOW_LOCAL_RUNTIME", !isProd),
 
+  /** A cloud console may reach only explicitly guarded public HTTPS runtimes. */
+  allowRemote: bool("ALLOW_REMOTE_RUNTIME", true),
+  /** SSH and Docker can reach the control-plane host/network; keep them self-host-only by default. */
+  allowSsh: bool("ALLOW_SSH_RUNTIME", mode !== "cloud"),
+  allowDocker: bool("ALLOW_DOCKER_RUNTIME", mode !== "cloud"),
+
   // ---- multi-user auth (Better Auth) ----
   // The console is session-protected: every user signs in (email/password), gets an isolated fleet, and
   // sets their own API keys inside the daemon. The only server-side credential is this signing key.
