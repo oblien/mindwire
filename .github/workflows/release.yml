@@ -183,7 +183,14 @@ jobs:
           if (catalog.version !== SDK_VERSION) throw new Error(`release catalog ${catalog.version} does not match SDK ${SDK_VERSION}`);
           const daemon = await startEmbedded();
           try {
-            const health = await (await fetch(`${daemon.baseUrl}/healthz`)).json();
+            const healthRes = await fetch(`${daemon.baseUrl}/healthz`, {
+              headers: { Authorization: `Bearer ${daemon.token}` },
+            });
+            const healthText = await healthRes.text();
+            if (!healthRes.ok) {
+              throw new Error(`daemon health check failed: ${healthRes.status} ${healthText}`);
+            }
+            const health = JSON.parse(healthText);
             if (!health.ok) throw new Error(`unhealthy daemon: ${JSON.stringify(health)}`);
             if (health.version !== SDK_VERSION) throw new Error(`daemon ${health.version} does not match SDK ${SDK_VERSION}`);
             console.log(`downloaded and booted daemon v${health.version}`);
@@ -215,7 +222,8 @@ jobs:
           # metadata-action emits the canonical semver tag without the leading v.
           GHCR_IMAGE="${GHCR_IMAGE/:v/:}"
           docker pull "$GHCR_IMAGE"
-          cid="$(docker run -d -p 127.0.0.1::8790 "$GHCR_IMAGE")"
+          runtime_token="$(openssl rand -hex 32)"
+          cid="$(docker run -d -e DAEMON_TOKEN="$runtime_token" -p 127.0.0.1::8790 "$GHCR_IMAGE")"
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           # Docker chose the host port above (`::8790`). Never assume it picked 8790:
           # resolve the actual mapping before probing the published runtime.
@@ -223,7 +231,7 @@ jobs:
           test -n "$host_port" || { echo "::error::Docker did not publish runtime port 8790"; docker port "$cid" || true; exit 1; }
           health=""
           for i in $(seq 1 40); do
-            health="$(curl -fsS "http://127.0.0.1:${host_port}/healthz" || true)"
+            health="$(curl -fsS -H "Authorization: Bearer ${runtime_token}" "http://127.0.0.1:${host_port}/healthz" || true)"
             [ -n "$health" ] && break
             sleep 0.25
           done

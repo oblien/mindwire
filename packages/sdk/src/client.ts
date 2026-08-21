@@ -198,7 +198,7 @@ export class Mindwire {
 
   // ---- health & catalog ----------------------------------------------------
 
-  /** `GET /healthz` — public liveness check. Resolves with the daemon's health payload when it is up. */
+  /** `GET /healthz` — authenticated liveness check. Resolves with the daemon's health payload when it is up. */
   health(): Promise<Health> {
     return this.http.request<Health>("GET", "/healthz");
   }
