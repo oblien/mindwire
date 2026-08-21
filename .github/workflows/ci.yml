@@ -47,7 +47,7 @@ jobs:
         with:
           bun-version: 1.3.1
       - name: Install
-        run: bun install --frozen-lockfile
+        uses: ./.github/actions/bun-install
       - name: Typecheck
         run: bun --filter='mindwire' run typecheck
       - name: Build
@@ -73,7 +73,7 @@ jobs:
         with:
           bun-version: 1.3.1
       - name: Install
-        run: bun install --frozen-lockfile
+        uses: ./.github/actions/bun-install
       - name: Build daemon for E2E
         working-directory: daemon
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/mindwired" ./cmd/daemon
@@ -104,7 +104,7 @@ jobs:
           go-version-file: daemon/go.mod
           cache-dependency-path: daemon/go.mod
       - name: Install
-        run: bun install --frozen-lockfile
+        uses: ./.github/actions/bun-install
       - name: Typecheck
         run: bun --filter='@mindwire/web' run check
       - name: Build
@@ -129,7 +129,7 @@ jobs:
         with:
           bun-version: 1.3.1
       - name: Install
-        run: bun install --frozen-lockfile
+        uses: ./.github/actions/bun-install
       # The console typechecks and bundles against the SDK's built type declarations (mindwire
       # resolves to dist/index.d.ts), and the Hono server imports the SDK at runtime — so build it first.
       - name: Build SDK

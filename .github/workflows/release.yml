@@ -156,10 +156,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Install and build SDK
-        run: |
-          bun install --frozen-lockfile
-          bun --filter='mindwire' run build
+      - name: Install
+        uses: ./.github/actions/bun-install
+      - name: Build SDK
+        run: bun --filter='mindwire' run build
       # The SDK downloads the published asset, verifies checksums.txt, caches it under RUNNER_TEMP,
       # spawns it, then verifies the real daemon's health endpoint before npm publication is allowed.
       - name: Download, verify, and boot the released daemon
@@ -273,7 +273,7 @@ jobs:
           node-version: '24'
           registry-url: https://registry.npmjs.org
       - name: Install
-        run: bun install --frozen-lockfile
+        uses: ./.github/actions/bun-install
 
       # The tag IS the source of truth for the npm version — refuse a mismatch rather than publish a
       # version the tag doesn't name. Skipped on dispatch (no tag: dispatch re-publishes current version).

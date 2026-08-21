@@ -1,0 +1,23 @@
+name: Install Bun dependencies
+description: Install the locked Bun dependency graph, retrying transient registry or package-extraction failures.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        for attempt in 1 2 3; do
+          if bun install --frozen-lockfile; then
+            exit 0
+          fi
+
+          if [ "$attempt" -eq 3 ]; then
+            echo "Bun dependency installation failed after ${attempt} attempts." >&2
+            exit 1
+          fi
+
+          delay=$((attempt * 5))
+          echo "Bun install failed; retrying in ${delay}s (${attempt}/3)…" >&2
+          sleep "$delay"
+        done
