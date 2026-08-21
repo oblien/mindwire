@@ -11,6 +11,7 @@
 // unchanged.
 import { MindwireError } from "../errors.js";
 import { ensureDaemon, type SandboxHost, type EnsureEvent } from "./host.js";
+import { SDK_VERSION } from "../version.js";
 import type { Target, TargetHandle, ConnectSpec } from "./index.js";
 
 /**
@@ -50,8 +51,10 @@ export interface DockerConfig {
   docker?: DockerodeLike;
   /** How to reach the Docker engine (remote host / socket / TLS). Ignored when `docker` is passed. */
   engine?: DockerEngineOptions;
-  /** Create + own a container from this image. */
+  /** Create + own a container from this image. Defaults to the SDK-matched MindWire runtime image. */
   image?: string;
+  /** Image acquisition policy for a container MindWire creates. Defaults to pulling only when absent. */
+  pull?: "missing" | "always" | "never";
   /** Attach to an existing container (id or name) instead of creating one. */
   container?: string;
   /** Extra options merged into `createContainer` (native dockerode/Docker API fields). */
@@ -87,6 +90,7 @@ export function docker(config: DockerConfig = {}): Target {
 const DEFAULT_PORT = 8790;
 const DEFAULT_AGENT = "claude-code";
 const DEFAULT_AGENT_CWD = "/root";
+const DEFAULT_RUNTIME_IMAGE = `ghcr.io/oblien/mindwire-runtime:${SDK_VERSION}`;
 
 // ---- minimal structural view of the `dockerode` package --------------------
 // Declared locally so the SDK typechecks and builds WITHOUT `dockerode` installed (optional peer).
@@ -118,6 +122,8 @@ interface ContainerLike {
 
 export interface DockerodeLike {
   getContainer(id: string): ContainerLike;
+  getImage(name: string): { inspect(): Promise<unknown> };
+  pull(name: string): Promise<DuplexLike>;
   createContainer(opts: Record<string, unknown>): Promise<ContainerLike>;
 }
 
@@ -203,16 +209,14 @@ export async function provisionDocker(
   if (config.container !== undefined) {
     container = docker.getContainer(config.container);
   } else {
-    if (!config.image) {
-      throw new MindwireError(
-        "mindwire: the Docker adapter needs an image or a container — pass docker({ image }) to " +
-          "create one, or docker({ container }) to attach to an existing one.",
-      );
-    }
+    const image = config.image ?? DEFAULT_RUNTIME_IMAGE;
+    await ensureImage(docker, image, config.pull ?? "missing", onLog);
     const portKey = `${port}/tcp`;
     container = await docker.createContainer({
-      Image: config.image,
-      Cmd: ["sleep", "infinity"],
+      // The runtime image starts mindwired itself. Do not replace its command: doing so turns the
+      // image ENTRYPOINT into `mindwired sleep infinity` and prevents the runtime from starting.
+      Image: image,
+      Env: [`ADDR=:${port}`, `AGENT_TYPE=${agent}`, `AGENT_CWD=${agentCwd}`],
       Tty: false,
       ExposedPorts: { [portKey]: {} },
       HostConfig: { PortBindings: { [portKey]: [{ HostPort: "0" }] } },
@@ -260,6 +264,45 @@ export async function provisionDocker(
 
   // Plain direct HTTP — no proxy, no token; the client's default fetch is used.
   return { id: container.id, baseUrl: `http://127.0.0.1:${hostPort}`, stop };
+}
+
+/** Ensure a created-container image exists locally. Docker does not pull automatically on create. */
+async function ensureImage(
+  docker: DockerodeLike,
+  image: string,
+  policy: NonNullable<DockerConfig["pull"]>,
+  onLog?: (e: EnsureEvent) => void,
+): Promise<void> {
+  const emit = (message: string, error?: string) => {
+    try {
+      onLog?.({ phase: "pull", target: "docker", message, ...(error ? { error } : {}) });
+    } catch {
+      // Provisioning logs must never affect the provisioning path.
+    }
+  };
+  if (policy === "never") return;
+  if (policy === "missing") {
+    try {
+      await docker.getImage(image).inspect();
+      return;
+    } catch {
+      // Docker's 404 is expected here: pull before create rather than surfacing an opaque create error.
+    }
+  }
+  emit(`pulling runtime image ${image}`);
+  try {
+    const stream = await docker.pull(image);
+    await new Promise<void>((resolve, reject) => {
+      stream.on("end", () => resolve());
+      stream.on("close", () => resolve());
+      stream.on("error", (error: unknown) => reject(error));
+    });
+    emit(`runtime image ready: ${image}`);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    emit(`failed to pull runtime image ${image}`, detail);
+    throw new MindwireError(`mindwire: failed to pull Docker image ${image}: ${detail}`, { cause: error });
+  }
 }
 
 // ---- in-memory tar (single file) -------------------------------------------

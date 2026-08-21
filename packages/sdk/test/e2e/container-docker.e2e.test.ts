@@ -17,16 +17,13 @@ import { LocalHost } from "./local-host.js";
 const RUN = !!process.env.RUN_DOCKER_E2E;
 
 const here = dirname(fileURLToPath(import.meta.url));
-const sdkDir = join(here, "..", "..");
 const fixturesDir = join(here, "fixtures");
 const IMAGE = "mindwire-e2e:base";
 const DAEMON_PORT = 8790;
 
-// The Linux daemon to deploy. `resolveLinuxDaemon` auto-resolves only an *installed* optional-dep
-// package, which isn't installed in-repo — so pass the built binary explicitly. It must match the
-// container's architecture; Docker runs host-arch containers by default, so key off process.arch
-// (x64 on an amd64 runner, arm64 on Apple Silicon) using build-daemon.mjs's `linux-<arch>` naming.
-const daemonBin = join(sdkDir, "npm", `mindwire-daemon-linux-${process.arch}`, "mindwired");
+// CI supplies a Linux binary built from this checkout. Production targets download the exact signed
+// GitHub Release binary instead; this keeps CI independent of unpublished npm platform packages.
+const daemonBin = process.env.MINDWIRE_LINUX_DAEMON ?? process.env.MINDWIRE_DAEMON ?? "";
 
 describe.skipIf(!RUN)("e2e: daemon in a real Docker container", () => {
   const host = new LocalHost();
@@ -48,7 +45,7 @@ describe.skipIf(!RUN)("e2e: daemon in a real Docker container", () => {
     if (!existsSync(daemonBin)) {
       throw new Error(
         `E2E precondition: Linux daemon binary not found at ${daemonBin}.\n` +
-          "Run `bun run build:daemon` first (it cross-compiles all targets, incl. linux).",
+          "Build a Linux daemon binary and set MINDWIRE_LINUX_DAEMON (or MINDWIRE_DAEMON) first.",
       );
     }
   });

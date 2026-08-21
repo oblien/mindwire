@@ -61,7 +61,6 @@
   "scripts": {
     "prepack": "bun run build",
     "build": "tsup && tsc --emitDeclarationOnly",
-    "build:daemon": "node scripts/build-daemon.mjs",
     "docs:api": "node scripts/gen-sdk-docs.mjs",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",

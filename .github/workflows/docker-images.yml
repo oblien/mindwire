@@ -1,15 +1,15 @@
 name: Docker images
 
-# Publishes the MindWire console image (the control plane, packages/docker/console.Dockerfile) to GHCR:
+# Publishes the matching MindWire runtime and console images to GHCR:
+#   ghcr.io/<owner>/mindwire-runtime
 #   ghcr.io/<owner>/mindwire-console
 #
-# Deliberately SEPARATE from release.yml (which cuts the GitHub release + npm packages) so the image can
-# be built, tested, and iterated on its own cadence — a manual dispatch can prerelease-test an image
-# without cutting a release or moving :latest.
+# Release invokes this reusable workflow only after the checked daemon binaries are attached to the
+# GitHub Release. A manual dispatch can test images under an explicit tag without cutting a release.
 #
 # Triggers:
-#   • tag push v*.*.*   → real release: semver tags + :latest (RC tags like v1.2.3-rc.1 skip :latest).
-#   • workflow_dispatch → manual test: publish ONLY under the given tag (or the short SHA), never :latest.
+#   • workflow_call    → release: semver tags + :latest (RC tags skip :latest).
+#   • workflow_dispatch → manual test: explicit tag (or short SHA), never moves :latest.
 #
 # Multi-arch is built NATIVELY (amd64 on ubuntu-24.04, arm64 on ubuntu-24.04-arm) rather than under QEMU
 # emulation — the console build is bun-heavy (bun install + vite + tsup) and emulated arm64 would crawl.
@@ -17,9 +17,12 @@ name: Docker images
 # arm64 runner is ever unavailable, drop the arm64 matrix row (amd64-only) as a temporary fallback.
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
+  workflow_call:
+    inputs:
+      tag:
+        description: "Git tag (for example v0.1.2)"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -28,7 +31,7 @@ on:
         type: string
 
 concurrency:
-  group: docker-images-${{ github.ref }}
+  group: docker-images-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -45,16 +48,28 @@ jobs:
     uses: ./.github/workflows/release-gate.yml
 
   build:
-    name: Build console (${{ matrix.platform }})
+    name: Build ${{ matrix.image }} (${{ matrix.platform }})
     needs: gate
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: amd64
+          - image: mindwire-runtime
+            dockerfile: packages/docker/runtime.Dockerfile
+            platform: amd64
             runner: ubuntu-24.04
-          - platform: arm64
+          - image: mindwire-runtime
+            dockerfile: packages/docker/runtime.Dockerfile
+            platform: arm64
+            runner: ubuntu-24.04-arm
+          - image: mindwire-console
+            dockerfile: packages/docker/console.Dockerfile
+            platform: amd64
+            runner: ubuntu-24.04
+          - image: mindwire-console
+            dockerfile: packages/docker/console.Dockerfile
+            platform: arm64
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
@@ -73,7 +88,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/mindwire-console
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
 
       # Push by digest under no tag — `merge` turns these into the tagged manifest list. A failure here
       # leaves nothing referenced in the registry.
@@ -82,12 +97,12 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: packages/docker/console.Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/mindwire-console,push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=console-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=console-${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -99,22 +114,25 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v7
         with:
-          name: digests-${{ matrix.platform }}
+          name: digests-${{ matrix.image }}-${{ matrix.platform }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
   merge:
-    name: Publish console (manifest)
+    name: Publish ${{ matrix.image }} (manifest)
     # `gate` as well as `build`: this job is where the image becomes PULLABLE (the per-arch builds push by
     # digest only), so it is the point a failing test has to stop.
     needs: [gate, build]
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        image: [mindwire-runtime, mindwire-console]
     steps:
       - name: Download digests
         uses: actions/download-artifact@v8
         with:
-          pattern: digests-*
+          pattern: digests-${{ matrix.image }}-*
           path: /tmp/digests
           merge-multiple: true
 
@@ -128,26 +146,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Tag push → semver + :latest (auto: RCs like v1.2.3-rc.1 skip :latest).
-      # Manual dispatch → the input tag (or short SHA), and NEVER :latest.
+      # Release call → semver + :latest (auto: RCs skip :latest). Manual dispatch → explicit tag
+      # (or short SHA), never :latest.
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/mindwire-console
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           tags: |
-            type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' }}
+            type=semver,pattern={{version}},value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_call' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_call' }}
             type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
             type=sha,format=short,enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag == '' }}
           flavor: |
-            latest=${{ github.event_name == 'push' && 'auto' || 'false' }}
+            latest=${{ github.event_name == 'workflow_call' && 'auto' || 'false' }}
 
       - name: Create manifest list + push
         working-directory: /tmp/digests
         env:
           METADATA_JSON: ${{ steps.meta.outputs.json }}
-          SRC: ghcr.io/${{ github.repository_owner }}/mindwire-console
+          SRC: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
         run: |
           set -euo pipefail
           docker buildx imagetools create \
@@ -157,4 +175,4 @@ jobs:
       - name: Inspect
         run: |
           docker buildx imagetools inspect \
-            "ghcr.io/${{ github.repository_owner }}/mindwire-console:${{ steps.meta.outputs.version }}" || true
+            "ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}" || true

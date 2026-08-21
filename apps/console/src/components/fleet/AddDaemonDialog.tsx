@@ -217,7 +217,7 @@ export function AddDaemonDialog({
         provider,
         ...(useContainer
           ? { container: container.trim() }
-          : { image: image.trim() || IMAGES[0] }),
+          : image.trim() ? { image: image.trim() } : {}),
         ...(engineHost.trim() ? { engineHost: engineHost.trim() } : {}),
         lifecycle,
         ...base,
@@ -524,10 +524,14 @@ export function AddDaemonDialog({
                 </SegButton>
               </div>
               {dockerMode === "image" ? (
-                <Field label="Image" htmlFor="dk-image">
+                <Field
+                  label="Image (optional)"
+                  htmlFor="dk-image"
+                  hint="Leave blank to pull the MindWire Runtime matching this Console's SDK version."
+                >
                   <Input
                     id="dk-image"
-                    placeholder="mindwire/daemon:latest"
+                    placeholder="MindWire Runtime (recommended)"
                     value={image}
                     onChange={(e) => setImage(e.target.value)}
                     autoComplete="off"

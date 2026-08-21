@@ -97,10 +97,9 @@ clients share one loopback daemon (one environment), while `local({ cwd })` / `l
 isolate into their own. Because the daemon is shared, `local` `stop()` is a **no-op** — it's reaped on
 process exit, not by `mw.close()`.
 
-Binary discovery, in order: the `bin` option → `$MINDWIRE_DAEMON` → the matching prebuilt package
-(`mindwire-daemon-<platform>-<arch>`, installed automatically as an optional dependency) → a binary
-bundled next to the SDK (`bin/mindwired-<platform>-<arch>`) → `mindwired` on `PATH`. For local dev
-without the prebuilt package, set `$MINDWIRE_DAEMON` to a `go build`-produced binary.
+Binary discovery, in order: the `bin` option → `$MINDWIRE_DAEMON` → the verified SDK-matched binary
+downloaded from GitHub Releases → `mindwired` on `PATH`. For local development, set
+`$MINDWIRE_DAEMON` to a `go build`-produced binary.
 
 ### remote
 
@@ -357,10 +356,10 @@ The only per-backend difference is how bytes land (`putFile`): Oblien base64s th
 runtime files API; Docker streams an in-memory tar to `putArchive`; SSH `mkdir -p`s the parent then
 streams over SFTP. The launch and health-gate are identical.
 
-The Linux daemon binary ships with the SDK as a per-arch optional dependency
-(`mindwire-daemon-linux-{x64,arm64}`). If your host doesn't have it (e.g. you develop on macOS and never
-installed the Linux package), pass a binary explicitly with `daemonBin`, or — the clean end-state — use
-an image that bakes in `mindwired` so it autostarts and no upload is needed.
+For SSH and sandbox targets, the destination downloads and verifies the matching Linux release binary
+itself. For Docker, omit `image` to pull `ghcr.io/oblien/mindwire-runtime:<SDK_VERSION>`; it already
+contains `mindwired` and the supported agent CLIs, so no daemon upload or first-run CLI installation is
+needed. Pass `daemonBin` only for air-gapped destinations.
 
 ### Auto-update
 

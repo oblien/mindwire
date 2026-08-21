@@ -2,7 +2,7 @@
 
 # MindWire
 
-**The runtime and control plane for coding-agent harnesses.**
+**The runtime and control plane for AI harnesses.**
 
 Claude Code, Codex, and opencode already plan, edit files, use tools, and complete multi-step work.
 Mindwire lets your product run them without rebuilding an agent loop, tool runtime, streaming transport,

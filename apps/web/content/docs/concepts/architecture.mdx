@@ -46,8 +46,9 @@ mindwire/
 │
 ├── packages/sdk/           `mindwire` — the TypeScript client
 │   ├── src/                client.ts · http.ts · embedded.ts · run.ts · sse.ts · types.ts
-│   ├── scripts/build-daemon.mjs   cross-compiles mindwired → per-platform npm packages
-│   └── npm/                generated mindwire-daemon-<os>-<arch> packages (gitignored)
+│   └── (downloads the SDK-matched runtime binary from GitHub Releases when embedding)
+│
+├── packages/docker/        production runtime + console images and self-host Compose
 │
 └── apps/web/               `@mindwire/web` — this site + docs (output: "export")
 ```
@@ -82,9 +83,9 @@ the **`target`** option — with the same HTTP + SSE contract across every one. 
   configure. Memoized by config, killed on host exit.
 - **`remote(url)`.** Connects to a self-hosted or shared daemon over HTTP. This is also the **only**
   option in the browser / edge, which can't spawn a process.
-- **`ssh()` / `docker()` / `oblien()`.** Provision the daemon on a bare box, in a container, or in a
-  sandbox — the SDK ensures it (upload → launch → health-poll), streams `EnsureEvent` logs, and
-  reaches it over that backend's transport. See [Destinations](/docs/guides/destinations).
+- **`ssh()` / `docker()` / `oblien()`.** Provision the runtime on a bare box, in a container, or in a
+  sandbox. SSH and sandbox targets download a verified release binary on the destination; Docker pulls
+  the SDK-matched runtime image. Every path streams `EnsureEvent` logs and uses the same HTTP + SSE API.
 
 Local-embedded is a deliberate choice, not FFI: an in-process cgo binding was prototyped and abandoned
 because it segfaults on Bun (Go runtime × JavaScriptCore). Auto-spawn gives the same "just works"
@@ -92,17 +93,11 @@ DX and is reliable across every server runtime.
 
 ### Binary distribution
 
-The daemon binary ships as **per-platform optional dependencies** (the esbuild/swc pattern):
+The npm SDK contains TypeScript only. It downloads the matching `mindwired` binary from the GitHub
+Release, verifies its published SHA-256, then caches it outside `node_modules`. The release also
+publishes matching multi-architecture `mindwire-runtime` and `mindwire-console` images to GHCR.
 
-- `scripts/build-daemon.mjs` cross-compiles `mindwired` (`CGO_ENABLED=0`, stripped, ~7 MB) for 5
-  targets into `packages/sdk/npm/mindwire-daemon-<os>-<arch>/` packages, each with `os`/`cpu`
-  filters, and syncs the main package's `optionalDependencies`.
-- `npm i mindwire` therefore downloads only the one binary matching the host.
-- Discovery order: `bin` option → `$MINDWIRE_DAEMON` → the optional-dep package → a binary next
-  to the SDK → `mindwired` on `PATH`.
-
-**Release order:** publish the `mindwire-daemon-*` packages first, then `mindwire` (its optional
-dependencies must already exist on the registry at the same version).
+**Release order:** checked binaries → GitHub Release → runtime and console images → image smoke test → npm SDK.
 
 ## Extending: add an agent
 

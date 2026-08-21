@@ -66,7 +66,7 @@ export interface EnsureDaemonConfig {
  * `connect → install → provision → probe → (skip | upload → launch → ready)`.
  */
 export interface EnsureEvent {
-  phase: "connect" | "install" | "provision" | "probe" | "download" | "upload" | "launch" | "ready" | "skip" | "error";
+  phase: "connect" | "install" | "provision" | "pull" | "probe" | "download" | "upload" | "launch" | "ready" | "skip" | "error";
   /** Destination label, e.g. `"ssh"` / `"docker"` / `"oblien"` / `"local"` / `"remote"`. */
   target: string;
   /** Human-readable one-line status. */

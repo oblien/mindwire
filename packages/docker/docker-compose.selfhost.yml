@@ -1,13 +1,13 @@
 # Self-hosted Mindwire: one private console and one daemon on an internal network.
 #
 # cp .env.example .env
-# docker compose -f packages/docker/docker-compose.selfhost.yml up --build
+# docker compose -f packages/docker/docker-compose.selfhost.yml up -d
+#
+# Both images are published from the same MindWire release. Pin MINDWIRE_VERSION in .env for
+# deterministic upgrades; use a separate local development compose file when building from source.
 services:
-  daemon:
-    build:
-      context: ../..
-      dockerfile: packages/docker/daemon.Dockerfile
-    image: ghcr.io/oblien/mindwire-daemon:latest
+  runtime:
+    image: ghcr.io/oblien/mindwire-runtime:${MINDWIRE_VERSION:?set MINDWIRE_VERSION in .env}
     restart: unless-stopped
     environment:
       ADDR: 0.0.0.0:8790
@@ -16,10 +16,7 @@ services:
       - daemon_home:/home/node
 
   console:
-    build:
-      context: ../..
-      dockerfile: packages/docker/console.Dockerfile
-    image: ghcr.io/oblien/mindwire-console:latest
+    image: ghcr.io/oblien/mindwire-console:${MINDWIRE_VERSION:?set MINDWIRE_VERSION in .env}
     restart: unless-stopped
     env_file:
       - path: .env
@@ -29,7 +26,7 @@ services:
       PORT: "8787"
       AUTH_DB_PATH: /data/auth.db
       CONSOLE_MODE: self-hosted
-      DAEMON_URL: http://daemon:8790
+      DAEMON_URL: http://runtime:8790
       SEED_DEFAULT_DAEMON: "true"
       ALLOW_LOCAL_RUNTIME: "false"
     ports:
@@ -37,7 +34,7 @@ services:
     volumes:
       - console_data:/data
     depends_on:
-      - daemon
+      - runtime
 
 volumes:
   console_data:

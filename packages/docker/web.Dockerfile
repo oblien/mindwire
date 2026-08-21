@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 # Build context: repository root.
 FROM golang:1.26-bookworm AS builder
+ARG NEXT_PUBLIC_CONSOLE_URL=https://console.mindwire.sh
+ENV NEXT_PUBLIC_CONSOLE_URL=${NEXT_PUBLIC_CONSOLE_URL}
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates unzip \
  && rm -rf /var/lib/apt/lists/* \

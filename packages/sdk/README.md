@@ -107,11 +107,9 @@ const mw = new Mindwire({
 await mw.ensure(); // resolves once the daemon is healthy; then turns stream as usual
 ```
 
-Binary discovery for the `local` daemon, in order: the `bin` option → `$MINDWIRE_DAEMON` →
-the matching prebuilt package (`mindwire-daemon-<platform>-<arch>`, installed automatically as an
-optional dependency) → a binary bundled next to the SDK (`bin/mindwired-<platform>-<arch>`) →
-`mindwired` on `PATH`. For local dev without the prebuilt package, set `$MINDWIRE_DAEMON` to a
-`go build`-produced binary.
+Binary discovery for the `local` daemon, in order: the `bin` option → `$MINDWIRE_DAEMON` → a
+verified SDK-matched binary downloaded from the GitHub Release → `mindwired` on `PATH`. For local
+development, set `$MINDWIRE_DAEMON` to a `go build`-produced binary.
 
 `ssh` / `docker` / `oblien` require an optional peer (`ssh2` / `dockerode` / `oblien`) — install only
 the one you use. Importing `mindwire` never loads them.
@@ -180,12 +178,6 @@ bun install
 bun run build          # tsup → dist (ESM + CJS + .d.ts)
 bun run typecheck      # tsc --noEmit
 bun test               # client + SSE parser tests (mocked fetch)
-bun run build:daemon   # cross-compile mindwired → npm/mindwire-daemon-<platform>-<arch>/ (needs Go)
 ```
-
-`build:daemon` produces the per-platform daemon packages and syncs the main package's
-`optionalDependencies`. **Release order:** publish every `npm/mindwire-daemon-*` package first,
-then publish `mindwire` — its optional dependencies must already exist on the registry at the
-same version.
 
 License: Apache-2.0.

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Boxes, Repeat, Radio, HardDrive, Braces, Terminal, Server, Gauge, Layers } from "lucide-react";
 import WireDiagram from "@/components/WireDiagram";
 import Corners from "@/components/Corners";
+import { consoleUrl } from "@/lib/console-url";
 
 // Real brand marks in the brand's own colors (Claude's coral, Codex's indigo gradient) — matching the
 // console/login `AgentIcon`, shown on white tiles like the hero wire diagram. `logo` is the file under
@@ -97,9 +98,9 @@ export default function Home() {
                 your real working tree, behind one protocol you can swap agents under.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
-                <Link href="/docs" className="btn btn-primary">Start building</Link>
-                <a href="https://github.com/oblien/mindwire" rel="noopener" className="btn btn-ghost">
-                  View on GitHub
+                <a href={consoleUrl} className="btn btn-primary">Start building</a>
+                <a href={`${consoleUrl}/docs`} rel="noopener" className="btn btn-ghost">
+                  See Docs
                 </a>
               </div>
             </div>
@@ -256,7 +257,7 @@ export default function Home() {
                 while you build, on a box, a container, or a microVM when you ship.
               </p>
               <div className="mt-1 flex flex-wrap justify-center gap-3">
-                <Link href="/docs" className="btn btn-primary">Start building</Link>
+                <a href={consoleUrl} className="btn btn-primary">Start building</a>
                 <Link href="/docs" className="btn btn-ghost">Read the docs</Link>
               </div>
             </div>

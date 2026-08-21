@@ -241,9 +241,6 @@ export function runtimeFromRequest(req: AddDaemonRequest): DaemonRuntime {
   if (req.provider === "docker") {
     const image = req.image?.trim() || undefined;
     const container = req.container?.trim() || undefined;
-    if (!image && !container) {
-      throw new Error("Provide an image to create a container, or a container id to attach to.");
-    }
     return {
       provider: "docker",
       image,
@@ -272,7 +269,7 @@ function labelFor(runtime: DaemonRuntime): string {
   if (runtime.provider === "ssh") return `${runtime.username}@${runtime.host}`;
   if (runtime.provider === "docker") {
     if (runtime.image) return runtime.image;
-    return runtime.container ? `container ${short(runtime.container)}` : "Docker runtime";
+    return runtime.container ? `container ${short(runtime.container)}` : "MindWire Runtime";
   }
   return runtime.image ? `Oblien · ${runtime.image}` : "Oblien sandbox";
 }
@@ -474,7 +471,7 @@ function locationOf(rt: DaemonRuntime): DaemonLocation {
   }
   if (rt.provider === "docker") {
     const engine = rt.engineHost || "local socket";
-    const what = rt.attached ? `attach ${short(rt.container)}` : rt.image ? `image ${rt.image}` : "container";
+    const what = rt.attached ? `attach ${short(rt.container)}` : rt.image ? `image ${rt.image}` : "MindWire Runtime";
     return {
       provider: "docker",
       image: rt.image,

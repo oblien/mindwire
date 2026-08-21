@@ -144,9 +144,8 @@ async function resolveBinary(explicit?: string): Promise<ResolvedBinary> {
   return { bin: downloaded, found: true, checked: [...candidates, downloaded] };
 }
 
-// Build the daemon-couldn't-start error. When the binary was never found on disk, enumerate everywhere we
-// looked and name every remedy — including the monorepo's `bun run build:daemon` (clearly conditional, so
-// it's harmless noise for a published consumer but the exact fix for anyone running this repo's examples).
+// Build the daemon-couldn't-start error. When the binary was never found on disk, enumerate every
+// remedy, including an explicit locally built binary for monorepo development.
 function daemonStartError(resolved: ResolvedBinary, cause: Error): string {
   if (!resolved.found) {
     return [
@@ -156,7 +155,7 @@ function daemonStartError(resolved: ResolvedBinary, cause: Error): string {
       "  • check GitHub Release access so the SDK can download its matching daemon binary; or",
       "  • set MINDWIRE_DAEMON to a `mindwired` binary; or",
       "  • pass { baseUrl } to connect to a daemon you run yourself.",
-      "  • Working inside the mindwire monorepo? Run `bun run build:daemon` from the repo root to build it.",
+      "  • Working inside the mindwire monorepo? Run `go build -o /tmp/mindwired ./daemon/cmd/daemon` and set MINDWIRE_DAEMON.",
       `(underlying error: ${cause.message})`,
     ].join("\n");
   }

@@ -17,7 +17,7 @@
  *                                  # there is one code path. Non-TTY (CI/pipes) releases the current
  *                                  # version as-is.
  *
- *   bun run release docker [tag]   # publish the console image ONLY (GHCR) via the docker-images
+ *   bun run release docker [tag]   # publish runtime + console images (GHCR) via the docker-images
  *                                  # workflow. A test/prerelease image build: NO version bump, NO git
  *                                  # tag, NO GitHub release, NO npm, and it never moves :latest. Omit
  *                                  # [tag] → the image is tagged with the short SHA. `--ref=<branch>`
@@ -231,7 +231,7 @@ function usageAndExit(code = 1): never {
       "                 0.4.1-rc.2 → 0.4.1   (rc → stable promotion)",
       "  <literal>      explicit semver string",
       "",
-      "  docker [tag]   publish the console image ONLY (GHCR) via the docker-images workflow — no",
+      "  docker [tag]   publish runtime + console images (GHCR) via the docker-images workflow — no",
       "                 version bump / git tag / GitHub release / npm, and never moves :latest. Omit",
       "                 [tag] → the image is tagged with the short SHA. `--ref=<branch>` builds that",
       "                 branch (default: current). e.g.  bun run release docker 0.4.1-rc.1",
@@ -333,8 +333,8 @@ function ghOwnerRepo(): { owner: string; repo: string } | null {
 }
 
 /**
- * `bun run release docker [tag]` — trigger the docker-images workflow to publish the console image to
- * GHCR. This is the DOCKER-ONLY path: it dispatches the workflow (no version bump, no git tag, no GitHub
+ * `bun run release docker [tag]` — trigger the docker-images workflow to publish runtime + console images
+ * to GHCR. This is the DOCKER-ONLY path: it dispatches the workflow (no version bump, no git tag, no GitHub
  * release, no npm) and the dispatch run never moves `:latest`. An untracked/dirty tree is fine — it
  * builds whatever is on the pushed `--ref` branch, not your working copy. Requires the `gh` CLI (or use
  * the Actions UI → "Docker images").
@@ -347,7 +347,7 @@ function releaseDocker(): void {
   const runArgs = ["workflow", "run", "docker-images.yml", "--ref", ref];
   if (dockerTag) runArgs.push("-f", `tag=${dockerTag}`);
 
-  log(`Console image publish (GHCR-only)`);
+  log(`Runtime + console image publish (GHCR-only)`);
   log(`  workflow: docker-images.yml`);
   log(`  ref:      ${ref}`);
   log(`  tag:      ${dockerTag ?? "(short SHA)"}`);
@@ -386,8 +386,8 @@ function releaseDocker(): void {
   log(``);
   log(`Verify when green:`);
   if (or) {
+    log(`  docker manifest inspect ghcr.io/${or.owner}/mindwire-runtime:${shown}   # amd64 + arm64`);
     log(`  docker manifest inspect ghcr.io/${or.owner}/mindwire-console:${shown}   # amd64 + arm64`);
-    log(`  docker pull ghcr.io/${or.owner}/mindwire-console:${shown}`);
     log(`  Packages: https://github.com/orgs/${or.owner}/packages?repo_name=${or.repo}`);
   }
 }
@@ -647,7 +647,7 @@ async function runWizard(): Promise<string[] | null> {
 
     const mode = await pick("What do you want to release?", [
       { value: "version" as const, label: "A version", hint: "bump + tag + GitHub release + npm" },
-      { value: "docker" as const, label: "Console image only", hint: "GHCR; no tag, no release, :latest untouched" },
+      { value: "docker" as const, label: "Runtime + console images", hint: "GHCR; no tag, no release, :latest untouched" },
     ]);
     if (mode === CANCEL) return null;
 

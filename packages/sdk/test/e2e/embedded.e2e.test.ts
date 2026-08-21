@@ -1,8 +1,7 @@
 // End-to-end: the SDK's default transport spawns the REAL `mindwired` binary and talks to it.
 //
-// This is the "does the install path actually work" smoke — not a mock. It (1) asserts the
-// host-matching binary `bun run build:daemon` drops is on disk (the artifact a published consumer
-// gets from the `mindwire-daemon-<os>-<arch>` optional dependency), then (2) lets `startEmbedded()`
+// This is the "does the local runtime path actually work" smoke — not a mock. It (1) asserts the
+// CI-built daemon is supplied explicitly through MINDWIRE_DAEMON, then (2) lets `startEmbedded()`
 // discover and spawn it with no `bin`/`baseUrl` hint, and (3) hits the creds-free daemon surface:
 // `/healthz`, `/catalog`, `/config`. No provider CLI or credentials are needed for any of these.
 //
@@ -10,29 +9,19 @@
 // whole describe reports as skipped at ~0 cost. `bun run test:e2e` sets it.
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { startEmbedded, type EmbeddedDaemon } from "../../src/index.js";
 
 const RUN = !!process.env.RUN_E2E;
 
-// Where build-daemon.mjs links the host-matching binary (packages/sdk/bin/mindwired-<platform>-<arch>) —
-// the exact path embedded.ts's resolveBinary() checks after the optional-dependency lookup.
-const here = dirname(fileURLToPath(import.meta.url));
-const sdkDir = join(here, "..", "..");
-const ext = process.platform === "win32" ? ".exe" : "";
-const hostBin = join(sdkDir, "bin", `mindwired-${process.platform}-${process.arch}${ext}`);
+const hostBin = process.env.MINDWIRE_DAEMON;
 
 describe.skipIf(!RUN)("e2e: embedded daemon (real binary)", () => {
   let daemon: EmbeddedDaemon;
 
   beforeAll(async () => {
-    // Tie the smoke to the build artifact: if the host binary isn't there, this is a setup error
-    // (build:daemon wasn't run), not a daemon bug — fail loudly rather than fall back to PATH.
-    if (!existsSync(hostBin)) {
+    if (!hostBin || !existsSync(hostBin)) {
       throw new Error(
-        `E2E precondition failed: host daemon binary not found at ${hostBin}.\n` +
-          "Run `bun run build:daemon` first — it cross-compiles the host binary the SDK discovers.",
+        "E2E precondition failed: MINDWIRE_DAEMON must name a built daemon binary.",
       );
     }
     daemon = await startEmbedded();

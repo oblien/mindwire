@@ -3,20 +3,22 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { docker, provisionDocker, type DockerodeLike, type EnsureEvent } from "../src/index.js";
+import { docker, provisionDocker, SDK_VERSION, type DockerodeLike, type EnsureEvent } from "../src/index.js";
 
 // A fake dockerode: enough of the container/exec/modem surface for `provisionDocker` to run the
 // ensure-cycle end-to-end with no Docker engine. `exec` streams a scripted stdout (matched by the
 // marker each ensure phase emits) demultiplexed through a fake `modem.demuxStream`; `putArchive`
 // and lifecycle calls are captured.
 function fakeDocker(
-  opts: { hostPort?: string; health?: string; noPort?: boolean; running?: boolean } = {},
+  opts: { hostPort?: string; health?: string; noPort?: boolean; running?: boolean; imagePresent?: boolean } = {},
 ) {
   const hostPort = opts.hostPort ?? "49160";
   const health = opts.health ?? "";
   const calls = {
     create: [] as Record<string, unknown>[],
     get: [] as string[],
+    inspectImage: [] as string[],
+    pull: [] as string[],
     start: 0,
     stop: 0,
     remove: 0,
@@ -91,6 +93,19 @@ function fakeDocker(
       container.id = id;
       return container;
     },
+    getImage: (name: string) => ({
+      inspect: async () => {
+        calls.inspectImage.push(name);
+        if (opts.imagePresent === false) throw new Error("no such image");
+        return {};
+      },
+    }),
+    pull: async (name: string) => {
+      calls.pull.push(name);
+      const stream = new EventEmitter();
+      process.nextTick(() => stream.emit("end"));
+      return stream;
+    },
     createContainer: async (o: Record<string, unknown>) => {
       calls.create.push(o);
       container.id = "ctr-created";
@@ -126,6 +141,8 @@ test("provisionDocker: creates a container publishing the port, deploys the daem
   expect(calls.get.length).toBe(0);
   const create = calls.create[0]!;
   expect(create["Image"]).toBe("my/agent-image");
+  expect(create["Cmd"]).toBeUndefined();
+  expect(create["Env"]).toEqual(["ADDR=:8790", "AGENT_TYPE=claude-code", "AGENT_CWD=/root"]);
   expect(create["ExposedPorts"]).toEqual({ "8790/tcp": {} });
   expect(create["HostConfig"]).toEqual({ PortBindings: { "8790/tcp": [{ HostPort: "0" }] } });
 
@@ -170,9 +187,25 @@ test("provisionDocker: throws when the container publishes no host port for the 
   );
 });
 
-test("provisionDocker: requires an image or a container", async () => {
-  const { docker: engine } = fakeDocker({});
-  await expect(provisionDocker(engine, {})).rejects.toThrow(/needs an image or a container/);
+test("provisionDocker: defaults to the SDK-matched runtime image", async () => {
+  const { docker: engine, calls } = fakeDocker({});
+  await provisionDocker(engine, { daemonBin: tempBin() });
+  expect(calls.create[0]?.["Image"]).toBe(`ghcr.io/oblien/mindwire-runtime:${SDK_VERSION}`);
+});
+
+test("provisionDocker: pulls a missing runtime image before creating its container", async () => {
+  const { docker: engine, calls } = fakeDocker({ imagePresent: false });
+  const events: EnsureEvent[] = [];
+  await provisionDocker(engine, { daemonBin: tempBin() }, (event) => events.push(event));
+
+  const image = `ghcr.io/oblien/mindwire-runtime:${SDK_VERSION}`;
+  expect(calls.inspectImage).toEqual([image]);
+  expect(calls.pull).toEqual([image]);
+  expect(calls.create[0]?.["Image"]).toBe(image);
+  expect(events.filter((event) => event.phase === "pull").map((event) => event.message)).toEqual([
+    `pulling runtime image ${image}`,
+    `runtime image ready: ${image}`,
+  ]);
 });
 
 test("docker(): factory is inert until connect(); with no `dockerode` installed connect() fails with a targeted, remote-engine-aware error", async () => {

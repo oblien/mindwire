@@ -6,6 +6,7 @@ import { useSearchContext } from "fumadocs-ui/contexts/search";
 import { Search } from "lucide-react";
 import OblienLogo from "./OblienLogo";
 import ThemeToggle from "./ThemeToggle";
+import { consoleUrl } from "@/lib/console-url";
 
 const links = [
   { href: "/docs", label: "Docs" },
@@ -88,9 +89,9 @@ export default function Nav() {
             </svg>
           </a>
           <ThemeToggle />
-          <Link href="/docs" className="btn btn-primary ml-2 px-4 py-2 text-[13px]">
+          <a href={consoleUrl} className="btn btn-primary ml-2 px-4 py-2 text-[13px]">
             Start building
-          </Link>
+          </a>
         </nav>
       </div>
     </header>

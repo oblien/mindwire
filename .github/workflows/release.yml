@@ -3,7 +3,8 @@ name: Release
 # Tag-driven release. Push a tag `vX.Y.Z` (where X.Y.Z == packages/sdk/package.json version) and this:
 #   1. runs the release gate (Go suite + SDK unit + real E2E) — a red gate blocks everything below;
 #   2. builds the daemon for Linux, macOS, and Windows and attaches checksummed binaries to a GitHub Release;
-#   3. publishes the `mindwire` SDK to npm.
+#   3. publishes matching multi-arch runtime + console images to GHCR;
+#   4. verifies the runtime image, then publishes the `mindwire` SDK to npm.
 #
 # npm is the one IMMUTABLE artifact, so it publishes LAST and every publish is idempotent (skip a
 # version already on the registry). A partial failure can then be re-run under the SAME tag without a
@@ -12,10 +13,8 @@ name: Release
 # Prerequisite secret: NPM_TOKEN (an npm automation token with publish rights). Absent it, the build +
 # packaged-install smoke still run (a useful dry run), but the actual `npm publish` steps skip cleanly.
 #
-# Two version numbers are decoupled by design: the SDK's package.json version drives npm (and is checked
-# against the release tag); the daemon binary's agent.Version (daemon/internal/agent/agent.go) is the
-# sandbox "latest" channel's own version. Keep them aligned when the daemon changes — that's a documented
-# manual step, not enforced here.
+# The SDK, daemon, runtime image, and console image share one release version. The build job refuses a
+# mismatch before any immutable artifact is published.
 
 on:
   push:
@@ -29,6 +28,7 @@ concurrency:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   # The blocking checks. `publish-release` and `publish-npm` depend on this, so a red test stops the
@@ -182,9 +182,45 @@ jobs:
           }
           EOF
 
+  publish-images:
+    name: Publish runtime and console images
+    if: github.event_name == 'push'
+    needs: [gate, publish-release]
+    uses: ./.github/workflows/docker-images.yml
+    with:
+      tag: ${{ github.ref_name }}
+
+  verify-runtime-image:
+    name: "E2E: released runtime image"
+    if: github.event_name == 'push'
+    needs: [gate, publish-images]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify the published runtime and preinstalled agents
+        env:
+          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/mindwire-runtime:${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # metadata-action emits the canonical semver tag without the leading v.
+          GHCR_IMAGE="${GHCR_IMAGE/:v/:}"
+          docker pull "$GHCR_IMAGE"
+          cid="$(docker run -d -p 127.0.0.1::8790 "$GHCR_IMAGE")"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 40); do
+            health="$(curl -fsS http://127.0.0.1:8790/healthz || true)"
+            [ -n "$health" ] && break
+            sleep 0.25
+          done
+          sdk="$(node -p "require('./packages/sdk/package.json').version")"
+          test "$(printf '%s' "$health" | jq -r .version)" = "$sdk"
+          docker exec "$cid" claude --version
+          docker exec "$cid" codex --version
+          docker exec "$cid" opencode --version
+
   publish-npm:
     name: Publish SDK to npm
-    needs: [gate, publish-release, verify-release-daemon]
+    needs: [gate, publish-release, verify-release-daemon, publish-images, verify-runtime-image]
     # npm is immutable, so it goes LAST — only after the gate and the GitHub release succeed, so a
     # partial failure re-runs under the SAME version. `always()` keeps the manual npm-only path working:
     # on workflow_dispatch `publish-release` is skipped (push-only), and we publish anyway; on a tag push
@@ -192,7 +228,7 @@ jobs:
     if: >-
       always() &&
       needs.gate.result == 'success' &&
-      (github.event_name == 'workflow_dispatch' || (needs.publish-release.result == 'success' && needs.verify-release-daemon.result == 'success'))
+      (github.event_name == 'workflow_dispatch' || (needs.publish-release.result == 'success' && needs.verify-release-daemon.result == 'success' && needs.publish-images.result == 'success' && needs.verify-runtime-image.result == 'success'))
     runs-on: ubuntu-latest
     permissions:
       id-token: write

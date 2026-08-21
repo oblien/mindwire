@@ -7,6 +7,8 @@ services:
     build:
       context: .
       dockerfile: packages/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_CONSOLE_URL: ${NEXT_PUBLIC_CONSOLE_URL:-https://console.mindwire.sh}
     image: ghcr.io/oblien/mindwire-web:latest
     restart: unless-stopped
     environment:
