@@ -91,7 +91,9 @@ describe.skipIf(!RUN)("e2e: daemon in a real Docker container", () => {
   );
 
   test("the in-container daemon answers /healthz over the published host port", async () => {
-    const res = await fetch(`http://127.0.0.1:${handle!.hostPort}/healthz`);
+    const res = await fetch(`http://127.0.0.1:${handle!.hostPort}/healthz`, {
+      headers: { Authorization: `Bearer ${handle!.token}` },
+    });
     expect(res.ok).toBe(true);
     const body = (await res.json()) as { ok?: boolean; version?: string };
     expect(body.ok).toBe(true);
@@ -99,7 +101,9 @@ describe.skipIf(!RUN)("e2e: daemon in a real Docker container", () => {
   });
 
   test("/catalog over the tunnel lists the supported native adapters", async () => {
-    const res = await fetch(`http://127.0.0.1:${handle!.hostPort}/catalog`);
+    const res = await fetch(`http://127.0.0.1:${handle!.hostPort}/catalog`, {
+      headers: { Authorization: `Bearer ${handle!.token}` },
+    });
     expect(res.ok).toBe(true);
     const body = (await res.json()) as { agents?: Array<{ id: string }> };
     const ids = (body.agents ?? []).map((a) => a.id);

@@ -2,8 +2,9 @@
 //
 // This is the "does the local runtime path actually work" smoke — not a mock. It (1) asserts the
 // CI-built daemon is supplied explicitly through MINDWIRE_DAEMON, then (2) lets `startEmbedded()`
-// discover and spawn it with no `bin`/`baseUrl` hint, and (3) hits the creds-free daemon surface:
-// `/healthz`, `/catalog`, `/config`. No provider CLI or credentials are needed for any of these.
+// discover and spawn it with no `bin`/`baseUrl` hint, and (3) authenticates with the per-process
+// token while exercising `/healthz`, `/catalog`, and `/config`. No provider CLI credentials are
+// needed for any of these endpoints.
 //
 // Gated behind RUN_E2E so the hermetic `bun test` stays fast and offline: with the flag unset the
 // whole describe reports as skipped at ~0 cost. `bun run test:e2e` sets it.
@@ -31,8 +32,13 @@ describe.skipIf(!RUN)("e2e: embedded daemon (real binary)", () => {
     daemon?.stop();
   });
 
+  const daemonFetch = (path: string) =>
+    fetch(`${daemon.baseUrl}${path}`, {
+      headers: { Authorization: `Bearer ${daemon.token!}` },
+    });
+
   test("spawns the discovered binary and it answers /healthz", async () => {
-    const res = await fetch(`${daemon.baseUrl}/healthz`);
+    const res = await daemonFetch("/healthz");
     expect(res.ok).toBe(true);
     const body = (await res.json()) as { ok?: boolean; version?: string };
     expect(body.ok).toBe(true);
@@ -41,7 +47,7 @@ describe.skipIf(!RUN)("e2e: embedded daemon (real binary)", () => {
   });
 
   test("/catalog lists the supported native adapters", async () => {
-    const res = await fetch(`${daemon.baseUrl}/catalog`);
+    const res = await daemonFetch("/catalog");
     expect(res.ok).toBe(true);
     const body = (await res.json()) as { version?: string; agents?: Array<{ id: string }> };
     const ids = (body.agents ?? []).map((a) => a.id);
@@ -51,7 +57,7 @@ describe.skipIf(!RUN)("e2e: embedded daemon (real binary)", () => {
   });
 
   test("/config responds for the default agent", async () => {
-    const res = await fetch(`${daemon.baseUrl}/config`);
+    const res = await daemonFetch("/config");
     expect(res.ok).toBe(true);
     // Creds-free: no keys are set, so the allow-filtered map is simply an object.
     const body = (await res.json()) as Record<string, string>;
