@@ -1,5 +1,5 @@
-// Multi-user auth for the console, built on Better Auth (email/password) over a node:sqlite store. This
-// is the *identity* layer: it decides *who* the request is. Everything below it — the per-user fleet of
+// Multi-user auth for the console, built on Better Auth over Postgres (SaaS) or node:sqlite (self-host).
+// This is the *identity* layer: it decides *who* the request is. Everything below it — the per-user fleet of
 // daemons, the Oblien link, the API keys — hangs off the resolved user id and is fully isolated per user
 // (see `getOrCreateSession` in session.ts, keyed by that id).
 //
@@ -12,6 +12,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { Pool } from "pg";
 import type { Context } from "hono";
 import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
@@ -22,8 +23,10 @@ import type { PublicConfig, SocialProvider } from "../shared/api";
 /** Base path the Better Auth handler is mounted on — kept distinct from the agent-auth `/api/auth/*`. */
 export const AUTH_BASE_PATH = "/api/account";
 
-// node:sqlite won't create parent directories — ensure the data dir exists before opening the file.
-mkdirSync(dirname(env.authDbPath), { recursive: true });
+// SQLite needs a local directory; Postgres is the SaaS path and has no filesystem state in this process.
+const database = env.databaseUrl
+  ? new Pool({ connectionString: env.databaseUrl })
+  : (mkdirSync(dirname(env.authDbPath), { recursive: true }), new DatabaseSync(env.authDbPath));
 
 /**
  * OAuth providers Better Auth should enable. Federated sign-in is a CLOUD-mode feature: a self-hosted
@@ -39,7 +42,7 @@ const socialProviders =
     : {};
 
 export const auth = betterAuth({
-  database: new DatabaseSync(env.authDbPath),
+  database,
   emailAndPassword: { enabled: true, autoSignIn: true },
   socialProviders,
   secret: env.authSecret,

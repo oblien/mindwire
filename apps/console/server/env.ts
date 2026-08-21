@@ -119,10 +119,20 @@ export const env = {
   },
 
   /**
-   * SQLite file backing the user/session tables. Self-host (incl. Docker) should point this at a
-   * persistent volume so accounts survive restarts. Defaults next to the app.
+   * Postgres connection URL for a multi-replica SaaS deployment. When set, it takes precedence over
+   * SQLite so Better Auth's users, sessions, and OAuth accounts have a shared durable store.
    */
-  authDbPath: str("AUTH_DB_PATH", fileURLToPath(new URL("../.data/auth.db", import.meta.url))),
+  databaseUrl: optional("DATABASE_URL"),
+
+  /**
+   * SQLite file backing the user/session tables. Self-host (incl. Docker) should point this at a
+   * persistent volume so accounts survive restarts. Production defaults to the console image's
+   * writable /data volume; development keeps its local app-adjacent database.
+   */
+  authDbPath: str(
+    "AUTH_DB_PATH",
+    isProd ? "/data/auth.db" : fileURLToPath(new URL("../.data/auth.db", import.meta.url)),
+  ),
 
   /**
    * Extra browser origins allowed to call the auth endpoints (CSRF allowlist). `baseUrl` is always

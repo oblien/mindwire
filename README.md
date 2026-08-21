@@ -83,6 +83,22 @@ bun test
 cd daemon && go test -race ./...
 ```
 
+## Docker deployment
+
+Build the SaaS web and control-plane stack from this checkout:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Run the versioned, prebuilt self-hosted runtime and console images instead:
+
+```bash
+cp .env.example .env
+docker compose -f packages/docker/docker-compose.selfhost.yml up -d
+```
+
 For deployment, architecture, API reference, and adapter capabilities, see [mindwire.sh/docs](https://mindwire.sh/docs).
 
 ## License

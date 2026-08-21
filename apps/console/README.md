@@ -99,7 +99,8 @@ stream needs the process).
 | `SEED_DEFAULT_DAEMON` | on for self-hosted, off for cloud | Seed a new session's fleet with `DAEMON_URL`. Off ⇒ users start with an empty fleet and wire their own runtime (the multi-tenant SaaS model). |
 | `MINDWIRE_AGENT` | `claude-code` | Harness selected for the session. |
 | `AUTH_SECRET` | *(dev placeholder)* | Better Auth signing key (≥32 chars). **Must be overridden in any real deployment.** `SESSION_SECRET` is accepted as a fallback name. |
-| `AUTH_DB_PATH` | `../.data/auth.db` | SQLite file (`node:sqlite`, Node 22+) backing the user/session tables. Point at a persistent volume when self-hosting so accounts survive restarts. |
+| `DATABASE_URL` | *(empty)* | Postgres connection URL. Required for multi-user SaaS; takes precedence over SQLite. |
+| `AUTH_DB_PATH` | `/data/auth.db` in production, `../.data/auth.db` in dev | SQLite fallback (`node:sqlite`, Node 22+) for self-hosting. Point it at a persistent volume. |
 | `BASE_URL` | `http://127.0.0.1:$PORT` | Public origin — used for auth cookies, CSRF/origin checks, and the OAuth callback base. Set this to your real URL in prod. |
 | `TRUSTED_ORIGINS` | *(dev proxy in dev)* | Extra comma/space-separated browser origins allowed to call the auth endpoints. |
 | `ALLOW_LOCAL_RUNTIME` | `false` in prod / `true` in dev | Allow the "control the current host" runtime (an embedded daemon on this machine). Keep **off** for multi-tenant cloud; opt in for a single-tenant self-host. |

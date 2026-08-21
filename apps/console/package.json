@@ -30,6 +30,7 @@
     "lucide-react": "^1.30.0",
     "mindwire": "workspace:*",
     "oblien": "^2.2.0",
+    "pg": "^8.16.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.1.1",
@@ -43,6 +44,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
     "@types/node": "^22.10.5",
+    "@types/pg": "^8.15.5",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^6.0.5",

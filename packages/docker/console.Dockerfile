@@ -46,7 +46,8 @@ RUN bun --filter='mindwire' run build \
 FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
-    PORT=8787
+    PORT=8787 \
+    AUTH_DB_PATH=/data/auth.db
 
 # Carry the resolved workspace so the externalized deps resolve via bun's on-disk layout:
 #   - root node_modules      — hoisted transitive deps shared across the workspace
@@ -62,7 +63,8 @@ COPY --from=builder /app/apps/console/node_modules ./apps/console/node_modules
 COPY --from=builder /app/apps/console/dist ./apps/console/dist
 COPY --from=builder /app/apps/console/dist-server ./apps/console/dist-server
 
-# Persist the auth SQLite outside the layer, and run unprivileged (the base image ships a `node` user).
+# Persist the self-host SQLite fallback outside the layer, and run unprivileged (the base image ships a
+# `node` user). SaaS supplies DATABASE_URL and uses Postgres instead.
 RUN mkdir -p /data && chown -R node:node /data
 USER node
 VOLUME ["/data"]

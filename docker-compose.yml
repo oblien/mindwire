@@ -1,15 +1,31 @@
-# SaaS deployment: the public website and the multi-tenant console control plane.
+# SaaS deployment from this checkout: the public website and multi-tenant control plane.
+# Run `docker compose up --build`; this file deliberately builds local source and never pulls
+# MindWire application images. For versioned, prebuilt self-hosted images, use the Compose file below.
 # Agent runtimes are selected per session; this stack intentionally does not mount Docker or run a daemon.
 # For a private console plus daemon, use packages/docker/docker-compose.selfhost.yml instead.
 
 services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mindwire
+      POSTGRES_USER: mindwire
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindwire -d mindwire"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   web:
     build:
       context: .
       dockerfile: packages/docker/web.Dockerfile
       args:
         NEXT_PUBLIC_CONSOLE_URL: ${NEXT_PUBLIC_CONSOLE_URL:-https://console.mindwire.sh}
-    image: ghcr.io/oblien/mindwire-web:latest
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -21,7 +37,6 @@ services:
     build:
       context: .
       dockerfile: packages/docker/console.Dockerfile
-    image: ghcr.io/oblien/mindwire-console:latest
     restart: unless-stopped
     env_file:
       - path: .env
@@ -29,8 +44,10 @@ services:
     environment:
       NODE_ENV: production
       PORT: "8787"
-      AUTH_DB_PATH: /data/auth.db
       CONSOLE_MODE: cloud
+      # Better Auth uses Postgres for the multi-user SaaS control plane. The password must be URL-safe
+      # (or percent-encoded) because Compose interpolates it into this standard connection URL.
+      DATABASE_URL: postgresql://mindwire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/mindwire
       # Better Auth's canonical public origin. Override BASE_URL for a custom SaaS domain; it is also
       # the OAuth callback origin and is automatically included in the trusted-origin allowlist.
       BASE_URL: ${BASE_URL:-https://console.mindwire.sh}
@@ -38,8 +55,9 @@ services:
       SEED_DEFAULT_DAEMON: "false"
     ports:
       - "${MINDWIRE_BIND_ADDR:-127.0.0.1}:${CONSOLE_PORT:-8787}:8787"
-    volumes:
-      - console_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/ping').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -48,4 +66,4 @@ services:
       retries: 3
 
 volumes:
-  console_data:
+  postgres_data:

@@ -3,8 +3,9 @@
 # cp .env.example .env
 # docker compose -f packages/docker/docker-compose.selfhost.yml up -d
 #
-# Both images are published from the same MindWire release. Pin MINDWIRE_VERSION in .env for
-# deterministic upgrades; use a separate local development compose file when building from source.
+# Both images are published from the same MindWire release. This file intentionally has image references
+# only (no build contexts): pin MINDWIRE_VERSION in .env for deterministic upgrades. Use the root
+# docker-compose.yml when deploying this repository's source.
 services:
   runtime:
     image: ghcr.io/oblien/mindwire-runtime:${MINDWIRE_VERSION:?set MINDWIRE_VERSION in .env}
