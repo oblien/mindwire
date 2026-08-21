@@ -1,0 +1,28 @@
+---
+title: Grok Build
+description: Run xAI's open-source Grok Build coding agent through MindWire.
+---
+
+MindWire drives the native `grok agent … stdio` ACP server. It does not replace Grok Build with a raw model API call: Grok owns the workspace, tools, and native session.
+
+```ts
+const mw = new Mindwire({ agent: "grok" });
+```
+
+## Runtime requirements
+
+The production `mindwire-runtime` image preinstalls `@xai-official/grok`. On a host runtime, MindWire setup installs the same official package.
+
+For unattended runs, connect an xAI API key in the Console or provide `XAI_API_KEY` to the runtime. You can also authenticate the CLI with `grok login` on an interactive host.
+
+## Native behavior
+
+- Uses Grok Build's ACP transport, including native session create/load/resume/fork, text and thought chunks, tool-call lifecycle, cancellation, and permission requests.
+- Discovers account-visible xAI models through the xAI Models API and includes local `[model.<alias>]` configuration entries, including custom OpenAI-compatible model aliases.
+- Supports model, system-prompt override, extra rules, autonomous or approval-gated execution, and per-turn MCP servers on new sessions. Resumed sessions keep their native context; use persistent MCP config to change their tools.
+- Exposes Grok's native `AGENTS.md` memory files at workspace and user (`$GROK_HOME/AGENTS.md`) scope.
+- Exposes Grok-compatible user commands in `~/.agents/commands` as MindWire prompt templates.
+- Exposes the documented user-scope `grok mcp` store through MindWire's persistent MCP API. Project MCP configuration remains Grok-native until its CLI exposes scope-aware list and remove operations.
+- Uses `--always-approve` only for autonomous turns; choose **Ask before tools** to route Grok permission prompts through MindWire's interaction API.
+
+The adapter capability matrix is authoritative. Surfaces Grok Build has no stable native mapping for—such as managed plugin marketplaces, persistent prompt templates, native transcript export, or model enumeration—remain unavailable through MindWire rather than being silently emulated or dropped.

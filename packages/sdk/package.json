@@ -33,7 +33,7 @@
       "require": "./dist/index.cjs"
     }
   },
-  "description": "TypeScript SDK for the mindwire daemon — one client for every coding-agent harness (Claude Code, Codex, Copilot CLI, opencode).",
+  "description": "TypeScript SDK for the MindWire runtime — one client for every coding-agent harness (Claude Code, Codex, Grok Build, opencode).",
   "engines": {
     "node": ">=18"
   },
@@ -45,6 +45,7 @@
     "coding-agent",
     "claude-code",
     "codex",
+    "grok",
     "copilot",
     "opencode",
     "agent",

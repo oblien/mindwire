@@ -13,11 +13,11 @@ COPY --from=builder /out/mindwired /usr/local/bin/mindwired
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl git ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && npm install -g @anthropic-ai/claude-code @openai/codex \
+ && npm install -g @anthropic-ai/claude-code @openai/codex @xai-official/grok \
  && curl -fsSL https://opencode.ai/install | bash \
  && install -m 0755 /root/.opencode/bin/opencode /usr/local/bin/opencode \
  && mkdir -p /home/node/.npm-global /home/node/.mindwire /usr/share/mindwire \
- && printf '{"claudeCode":"%s","codex":"%s","opencode":"%s"}\n' "$(claude --version | head -n1 | sed 's/"/\\\\"/g')" "$(codex --version | head -n1 | sed 's/"/\\\\"/g')" "$(opencode --version | head -n1 | sed 's/"/\\\\"/g')" > /usr/share/mindwire/agents.json \
+ && printf '{"claudeCode":"%s","codex":"%s","grok":"%s","opencode":"%s"}\n' "$(claude --version | head -n1 | sed 's/"/\\\\"/g')" "$(codex --version | head -n1 | sed 's/"/\\\\"/g')" "$(grok version | head -n1 | sed 's/"/\\\\"/g')" "$(opencode --version | head -n1 | sed 's/"/\\\\"/g')" > /usr/share/mindwire/agents.json \
  && chown -R node:node /home/node
 ENV HOME=/home/node \
     NPM_CONFIG_PREFIX=/home/node/.npm-global \

@@ -40,13 +40,14 @@ describe.skipIf(!RUN)("e2e: embedded daemon (real binary)", () => {
     expect(body.version!.length).toBeGreaterThan(0);
   });
 
-  test("/catalog lists the claude-code and codex adapters", async () => {
+  test("/catalog lists the supported native adapters", async () => {
     const res = await fetch(`${daemon.baseUrl}/catalog`);
     expect(res.ok).toBe(true);
     const body = (await res.json()) as { version?: string; agents?: Array<{ id: string }> };
     const ids = (body.agents ?? []).map((a) => a.id);
     expect(ids).toContain("claude-code");
     expect(ids).toContain("codex");
+    expect(ids).toContain("grok");
   });
 
   test("/config responds for the default agent", async () => {

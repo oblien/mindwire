@@ -98,13 +98,14 @@ describe.skipIf(!RUN)("e2e: daemon in a real Docker container", () => {
     expect(typeof body.version).toBe("string");
   });
 
-  test("/catalog over the tunnel lists claude-code and codex", async () => {
+  test("/catalog over the tunnel lists the supported native adapters", async () => {
     const res = await fetch(`http://127.0.0.1:${handle!.hostPort}/catalog`);
     expect(res.ok).toBe(true);
     const body = (await res.json()) as { agents?: Array<{ id: string }> };
     const ids = (body.agents ?? []).map((a) => a.id);
     expect(ids).toContain("claude-code");
     expect(ids).toContain("codex");
+    expect(ids).toContain("grok");
   });
 
   test(

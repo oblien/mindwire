@@ -217,9 +217,13 @@ jobs:
           docker pull "$GHCR_IMAGE"
           cid="$(docker run -d -p 127.0.0.1::8790 "$GHCR_IMAGE")"
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          # Docker chose the host port above (`::8790`). Never assume it picked 8790:
+          # resolve the actual mapping before probing the published runtime.
+          host_port="$(docker port "$cid" 8790/tcp | sed -nE 's/.*:([0-9]+)$/\1/p' | head -n1)"
+          test -n "$host_port" || { echo "::error::Docker did not publish runtime port 8790"; docker port "$cid" || true; exit 1; }
           health=""
           for i in $(seq 1 40); do
-            health="$(curl -fsS http://127.0.0.1:8790/healthz || true)"
+            health="$(curl -fsS "http://127.0.0.1:${host_port}/healthz" || true)"
             [ -n "$health" ] && break
             sleep 0.25
           done
@@ -233,6 +237,7 @@ jobs:
           test "$(printf '%s' "$health" | jq -r .version)" = "$sdk"
           docker exec "$cid" claude --version
           docker exec "$cid" codex --version
+          docker exec "$cid" grok version
           docker exec "$cid" opencode --version
 
   publish-npm:

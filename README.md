@@ -4,7 +4,7 @@
 
 **The runtime and control plane for AI harnesses.**
 
-Claude Code, Codex, and opencode already plan, edit files, use tools, and complete multi-step work.
+Claude Code, Codex, Grok Build, and opencode already plan, edit files, use tools, and complete multi-step work.
 Mindwire lets your product run them without rebuilding an agent loop, tool runtime, streaming transport,
 session system, or provider integration from scratch.
 
@@ -33,7 +33,7 @@ for await (const event of run) {
 }
 ```
 
-Change `agent` to use Codex or opencode. Use `remote()`, `ssh()`, `docker()`, or `oblien()` to run the
+Change `agent` to use Codex, Grok Build, or opencode. Use `remote()`, `ssh()`, `docker()`, or `oblien()` to run the
 same integration where the work belongs.
 
 ## Included
@@ -60,7 +60,7 @@ and microVMs.
 | Claude Code | `claude-code` | Implemented |
 | OpenAI Codex CLI | `codex` | Implemented |
 | opencode | `opencode` | Implemented |
-| Grok CLI | `grok` | Planned |
+| Grok Build | `grok` | Implemented |
 | GitHub Copilot CLI | `copilot` | Planned |
 
 ## Repository

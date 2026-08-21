@@ -3,7 +3,7 @@ title: Introduction
 description: The runtime for coding agents — one protocol, one event stream, one auth flow, driven from TypeScript, Go, or plain REST.
 ---
 
-The world's most advanced coding agents — Claude Code, Codex, Copilot CLI, Grok CLI, opencode — already plan, edit code, and run real multi-step work, each behind its own CLI, flags, session model, and auth. **MindWire is the runtime that drives them**: a daemon owns the agent processes and normalizes them to one protocol. **Claude Code, Codex, and opencode ship today**; Grok CLI and Copilot CLI are next.
+The world's most advanced coding agents — Claude Code, Codex, Grok Build, Copilot CLI, opencode — already plan, edit code, and run real multi-step work, each behind its own CLI, flags, session model, and auth. **MindWire is the runtime that drives them**: a daemon owns the agent processes and normalizes them to one protocol. **Claude Code, Codex, Grok Build, and opencode ship today**; Copilot CLI is next.
 
 Pick an agent per call and drive it from wherever you work — a **TypeScript** app, a **Go** service,
 or plain **REST + SSE**. Swap the agent like you swap a model: one request shape, one auth flow, one
@@ -53,7 +53,7 @@ Run the daemon standalone for a plain **HTTP + SSE** API — any language, no SD
 | `mindwire` (TS) | The TypeScript SDK — auto-runs the bundled daemon locally. |
 | `.../daemon/sdk` (Go) | The native in-process Go SDK — the daemon's core as a library. |
 | daemon | The Go core (`mindwired`) that owns the agent processes; runs embedded, or standalone over HTTP + SSE for remote/self-host. |
-| adapters | One drop-in folder per agent. `claude-code`, `codex`, and `opencode` today; `grok`, `copilot` next. |
+| adapters | One drop-in folder per agent. `claude-code`, `codex`, `grok`, and `opencode` today; `copilot` next. |
 
 ## Why it exists
 

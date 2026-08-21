@@ -20,7 +20,7 @@ you can see where every daemon runs, spin it up / tear it down, duplicate it, an
   demand** from the Add-daemon dialog (verified and held server-side), not required to use the app.
 
 One daemon is **active** at a time (turns and the config panels target it), and within it one **agent**
-(adapter type — claude-code / codex / opencode / …) is selected. The **Fleet** surface manages the
+(adapter type — claude-code / codex / grok / opencode / …) is selected. The **Fleet** surface manages the
 daemons and shows how many agents each hosts and what it's currently doing; the **Agents** surface
 picks which adapter the chat and config panels drive. Both switchers also live in the top nav.
 

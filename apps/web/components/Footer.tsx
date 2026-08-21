@@ -20,7 +20,7 @@ const cols: { title: string; links: FooterLink[] }[] = [
     links: [
       { href: "/docs", label: "Claude Code" },
       { href: "/docs", label: "Codex" },
-      { href: "/docs", label: "Grok CLI", soon: true },
+      { href: "/docs", label: "Grok Build" },
       { href: "/docs", label: "GitHub Copilot", soon: true },
       { href: "/docs/reference/agents/opencode", label: "opencode" },
     ],

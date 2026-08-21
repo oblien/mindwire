@@ -1,7 +1,7 @@
 /**
  * mindwire — a typed TypeScript client for the mindwire daemon.
  *
- * One SDK for every coding-agent harness (Claude Code, Codex, Copilot CLI, opencode). The
+ * One SDK for every coding-agent harness (Claude Code, Codex, Grok Build, opencode). The
  * daemon normalizes each agent to a single protocol; this package is a thin, dependency-free
  * client over its REST + SSE surface.
  */

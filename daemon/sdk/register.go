@@ -12,6 +12,7 @@ package mindwire
 import (
 	_ "github.com/oblien/mindwire/daemon/internal/agent/claude"
 	_ "github.com/oblien/mindwire/daemon/internal/agent/codex"
+	_ "github.com/oblien/mindwire/daemon/internal/agent/grok"
 	_ "github.com/oblien/mindwire/daemon/internal/agent/opencode"
 	_ "github.com/oblien/mindwire/daemon/internal/notify/exec"
 	_ "github.com/oblien/mindwire/daemon/internal/notify/file"

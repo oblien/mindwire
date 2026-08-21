@@ -25,6 +25,7 @@ import (
 	// Agent adapters self-register on import. Add a blank import per agent.
 	_ "github.com/oblien/mindwire/daemon/internal/agent/claude"
 	_ "github.com/oblien/mindwire/daemon/internal/agent/codex"
+	_ "github.com/oblien/mindwire/daemon/internal/agent/grok"
 	_ "github.com/oblien/mindwire/daemon/internal/agent/opencode"
 
 	// Notification channels self-register with the notify registry on import (the webhook registers

@@ -11,7 +11,7 @@ import { consoleUrl } from "@/lib/console-url";
 const agents = [
   { name: "Claude Code", slug: "claude", logo: "claude-color" },
   { name: "Codex", slug: "codex", logo: "codex-color" },
-  { name: "Grok CLI", slug: "grok", logo: "grok", soon: true },
+  { name: "Grok Build", slug: "grok", logo: "grok" },
   { name: "GitHub Copilot", slug: "copilot", logo: "copilot", soon: true },
   { name: "opencode", slug: "opencode", logo: "opencode" },
 ];
