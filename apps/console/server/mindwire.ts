@@ -28,6 +28,12 @@ interface ClientEntry {
   sink: (e: EnsureEvent) => void;
 }
 
+/** Hooks used only while constructing a previously-uncommitted managed runtime. */
+interface DaemonClientOptions {
+  /** Oblien has confirmed a workspace exists; it is now safe to make the fleet record durable. */
+  onOblienWorkspace?: (workspaceId: string) => void;
+}
+
 /** SDK clients keyed by `${sessionId}:${daemonId}` — one per daemon in a session's fleet. */
 const clients = new Map<string, ClientEntry>();
 
@@ -55,17 +61,17 @@ function runtimeKey(r: DaemonRuntime): string {
   if (r.provider === "docker") {
     return `docker ${r.image ?? ""} ${r.container ?? ""} ${r.engineHost ?? ""} ${r.lifecycle}`;
   }
-  return `oblien ${r.image} ${r.cpus ?? ""} ${r.memoryMb ?? ""} ${r.lifecycle}`;
+  return `oblien ${r.image} ${r.cpus ?? ""} ${r.memoryMb ?? ""} ${r.diskMb ?? ""} ${r.lifecycle}`;
 }
 
 /** Wrap a target so we can observe the `TargetHandle` it produces without importing internals. */
-function capturing(inner: Target, onHandle: (h: TargetHandle) => void): Target {
+function capturing(inner: Target, onHandle: (h: TargetHandle) => void | Promise<void>): Target {
   return {
     name: inner.name,
     async connect(spec: ConnectSpec): Promise<TargetHandle> {
       const handle = await inner.connect(spec);
       try {
-        onHandle(handle);
+        await onHandle(handle);
       } catch {
         /* capturing location metadata must never break a connection */
       }
@@ -88,7 +94,7 @@ function portOf(baseUrl: string): number | undefined {
  * container id / host port / workspace id land back on the record — that's the "where does it run"
  * data the fleet UI shows. `record.runtime` is a live reference into the session, so the writes stick.
  */
-function buildTarget(session: Session, record: DaemonRecord): Target {
+function buildTarget(session: Session, record: DaemonRecord, options: DaemonClientOptions = {}): Target {
   const r = record.runtime;
 
   if (r.provider === "remote") {
@@ -155,6 +161,7 @@ function buildTarget(session: Session, record: DaemonRecord): Target {
     cpus: r.cpus,
     memoryMb: r.memoryMb,
     diskMb: r.diskMb,
+    daemonToken: r.token,
     mode: r.lifecycle,
     stopOnExit: r.lifecycle === "temporary",
     agent: record.agent,
@@ -163,19 +170,24 @@ function buildTarget(session: Session, record: DaemonRecord): Target {
     onWorkspace: async (workspaceId) => {
       if (record.runtime.provider !== "oblien") return;
       record.runtime.workspaceId = workspaceId;
+      options.onOblienWorkspace?.(workspaceId);
       await persistSessionFleet(session);
     },
   });
-  return capturing(inner, (h) => {
+  return capturing(inner, async (h) => {
     if (record.runtime.provider === "oblien") {
       record.runtime.workspaceId = h.id;
       if (h.token) record.runtime.token = h.token;
+      // A process-local SDK client can keep this token in memory, but SaaS requests may land on a
+      // fresh Console process. Persist the captured daemon token with the workspace identity so the
+      // next process probes the existing daemon instead of generating an incompatible replacement.
+      await persistSessionFleet(session);
     }
   });
 }
 
 /** Get (or build) a daemon's SDK client, rebuilding when its runtime signature changed. */
-export function mwForDaemon(session: Session, record: DaemonRecord): Mindwire {
+export function mwForDaemon(session: Session, record: DaemonRecord, options: DaemonClientOptions = {}): Mindwire {
   const id = ckey(session.id, record.id);
   const key = runtimeKey(record.runtime);
   const existing = clients.get(id);
@@ -189,7 +201,7 @@ export function mwForDaemon(session: Session, record: DaemonRecord): Mindwire {
     // attach/detach without rebuilding the client.
     mw: new Mindwire({
       agent: record.agent,
-      target: buildTarget(session, record),
+      target: buildTarget(session, record, options),
       // The Console is an interactive control plane. A runtime probe must fail promptly so its card
       // can show an actionable offline/auth error instead of leaving the UI "Inspecting" for the SDK's
       // general-purpose two-minute default. Streaming turns are intentionally unaffected.

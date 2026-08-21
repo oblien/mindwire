@@ -153,7 +153,7 @@ export function AddDaemonDialog({
   const [oblienMode, setOblienMode] = useState<"new" | "existing">("new");
   const [cpus, setCpus] = useState("");
   const [memoryMb, setMemoryMb] = useState("");
-  const [diskMb, setDiskMb] = useState("10240");
+  const [diskMb, setDiskMb] = useState("4096");
   const [workspaceId, setWorkspaceId] = useState("");
   // oblien account link (only when not already linked in the session)
   const [clientId, setClientId] = useState("");
@@ -209,7 +209,7 @@ export function AddDaemonDialog({
     setOblienMode("new");
     setCpus("");
     setMemoryMb("");
-    setDiskMb("10240");
+    setDiskMb("4096");
     setWorkspaceId("");
     setClientId("");
     setClientSecret("");
@@ -914,7 +914,7 @@ export function AddDaemonDialog({
                         }
                       />
                     </Field>
-                    <Field label="Disk (MB)" htmlFor="ob-disk" hint="10 GB default. Oblien otherwise defaults to 128 MB.">
+                    <Field label="Disk (MB)" htmlFor="ob-disk" hint="4 GB default. Oblien otherwise defaults to 128 MB.">
                       <Input
                         id="ob-disk"
                         inputMode="numeric"

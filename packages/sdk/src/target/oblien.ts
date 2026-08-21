@@ -53,6 +53,8 @@ export interface OblienConfig {
   memoryMb?: number;
   /** Disk (MB) for a new workspace. */
   diskMb?: number;
+  /** Existing MindWire daemon bearer token for this workspace. Reuse it to probe without redeploying. */
+  daemonToken?: string;
   /** Called as soon as the workspace identity is known, before daemon installation begins. */
   onWorkspace?: (workspaceId: string) => void | Promise<void>;
   /** Lifecycle: `temporary` (auto-reaped) or `permanent`. */
@@ -249,6 +251,7 @@ export async function provisionOblien(
     forceDeploy: config.forceDeploy,
     target: "oblien",
     onLog,
+    token: config.daemonToken,
   });
 
   // 4. Transport: route both unary and SSE through the runtime proxy. Oblien reserves Authorization

@@ -92,7 +92,27 @@ import type {
 // this process? It prevents duplicate concurrent ensures without turning a restart into a permanent
 // "already provisioning" dead end.
 const activeProvisioning = new Set<string>();
+// `ensure()` performs remote work and cannot always be force-aborted by a provider. Cancellation is
+// therefore a control-plane fence: close the SDK target, then ensure the old stream may never commit
+// state, resurrect a removed record, or overwrite an explicit Stop.
+const provisionRuns = new Map<string, symbol>();
 const provisionKey = (session: Session, record: DaemonRecord) => `${session.id}:${record.id}`;
+// An Oblien workspace does not have a fleet-record id until its create call succeeds. Serialize its
+// create/ensure request by workspace (or by the shared `create` key) so a double click cannot race.
+const activeOblienEnsures = new Set<string>();
+const oblienEnsureKey = (session: Session, workspaceId?: string) =>
+  `${session.id}:oblien:${workspaceId || "create"}`;
+
+function cancelProvision(session: Session, record: DaemonRecord): void {
+  const key = provisionKey(session, record);
+  activeProvisioning.delete(key);
+  provisionRuns.delete(key);
+  clearEnsureSink(session.id, record.id);
+}
+
+function isCurrentProvision(key: string, run: symbol): boolean {
+  return activeProvisioning.has(key) && provisionRuns.get(key) === run;
+}
 
 /** Derive credential inventory from the hydrated encrypted fleet without ever exposing any value. */
 function runtimeSecretMetadata(session: Session): SecretMetadata[] {
@@ -318,9 +338,9 @@ export function registerRoutes(app: Hono): void {
     return json(c, fleetView(session));
   });
 
-  // Connect-only remotes stay transactional: there is no resource to resume. Provisioned targets are
-  // recorded as `provisioning` before the first provider call so refresh/reconnect/restart can resume
-  // the same workspace instead of showing an absent card or creating a second sandbox.
+  // Connect-only remotes stay transactional: there is no resource to resume. SSH/Docker records are
+  // durable before their host-side ensure begins. Oblien is different: it is held in the stream until
+  // Oblien confirms a workspace, then checkpointed immediately before daemon installation starts.
   app.post("/events/daemons/add", async (c) => {
     const session = resolveSession(c);
     if (!session) return c.json({ error: "No session." }, 401);
@@ -333,15 +353,26 @@ export function registerRoutes(app: Hono): void {
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "Invalid runtime." }, 400);
     }
-    const provisioned = record.runtime.provider !== "remote" && record.runtime.provider !== "local";
+    const managed = record.runtime.provider !== "remote" && record.runtime.provider !== "local";
     const key = provisionKey(session, record);
-    if (record.runtime.provider !== "remote" && record.runtime.provider !== "local") {
+    const run = Symbol("provision");
+    const oblienKey = record.runtime.provider === "oblien"
+      ? oblienEnsureKey(session, record.runtime.workspaceId)
+      : undefined;
+    if (oblienKey && activeOblienEnsures.has(oblienKey)) {
+      return c.json({ error: "This Oblien runtime is already being checked or provisioned. Please wait for it to finish." }, 409);
+    }
+    if (record.runtime.provider === "ssh" || record.runtime.provider === "docker") {
       record.runtime.state = "provisioning";
       record.runtime.message = undefined;
       commitDaemon(session, record, Boolean(body.activate));
       await persistSessionFleet(session);
-      activeProvisioning.add(key);
     }
+    if (managed) {
+      activeProvisioning.add(key);
+      provisionRuns.set(key, run);
+    }
+    if (oblienKey) activeOblienEnsures.add(oblienKey);
 
     c.header("Cache-Control", "no-cache, no-transform");
     c.header("X-Accel-Buffering", "no");
@@ -351,25 +382,46 @@ export function registerRoutes(app: Hono): void {
         writes = writes.then(() => stream.writeSSE({ data: JSON.stringify(frame) }));
         return writes;
       };
-      setEnsureSink(session, record, (ev: EnsureEvent) => void send({ t: "log", ev }));
       try {
-        // `ensure` probes remotes and creates/reuses provisioned targets. A provisioned target already
-        // has a durable `provisioning` record; its workspace id is checkpointed by the SDK immediately
-        // after creation, before daemon install starts.
-        const client = mwForDaemon(session, record);
+        // A new Oblien sandbox must not leave a ghost card when its create request is rejected (for
+        // example, because the requested disk exceeds the account plan). Commit only after Oblien has
+        // returned a real workspace id; from then on it is safe and necessary to resume that workspace.
+        const client = mwForDaemon(session, record, {
+          onOblienWorkspace: () => {
+            const runtime = record.runtime;
+            if (runtime.provider !== "oblien" || getDaemon(session, record.id)) return;
+            runtime.state = "provisioning";
+            runtime.message = undefined;
+            commitDaemon(session, record, Boolean(body.activate));
+          },
+        });
+        setEnsureSink(session, record, (ev: EnsureEvent) => void send({ t: "log", ev }));
+        // `ensure` probes remotes and creates/reuses provisioned targets. An Oblien workspace is
+        // checkpointed immediately after creation, before daemon installation starts.
         await client.ensure();
+        if (managed && !isCurrentProvision(key, run)) {
+          await send({ t: "error", message: "Provisioning cancelled." });
+          return;
+        }
         // `remote()` deliberately has no side effects, so `ensure()` only resolves its transport. A
         // health request is the proof that a connect-only runtime is actually reachable and authorized.
         await client.health();
-        if (record.runtime.provider !== "remote" && record.runtime.provider !== "local") {
+        if (record.runtime.provider === "ssh" || record.runtime.provider === "docker" || record.runtime.provider === "oblien") {
           record.runtime.state = "ready";
         }
-        if (!provisioned) commitDaemon(session, record, Boolean(body.activate));
+        if (!getDaemon(session, record.id)) commitDaemon(session, record, Boolean(body.activate));
         await persistSessionFleet(session);
         await send({ t: "done", daemon: toDaemonView(record, session.activeDaemonId) });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        if (record.runtime.provider !== "remote" && record.runtime.provider !== "local") {
+        if (managed && !isCurrentProvision(key, run)) {
+          await send({ t: "error", message: "Provisioning cancelled." });
+          return;
+        }
+        if (
+          getDaemon(session, record.id) &&
+          (record.runtime.provider === "ssh" || record.runtime.provider === "docker" || record.runtime.provider === "oblien")
+        ) {
           record.runtime.state = "error";
           record.runtime.message = message;
           await persistSessionFleet(session);
@@ -378,8 +430,14 @@ export function registerRoutes(app: Hono): void {
         }
         await send({ t: "error", message });
       } finally {
-        activeProvisioning.delete(key);
-        clearEnsureSink(session.id, record.id);
+        if (isCurrentProvision(key, run)) {
+          activeProvisioning.delete(key);
+          provisionRuns.delete(key);
+          clearEnsureSink(session.id, record.id);
+        } else if (!managed) {
+          clearEnsureSink(session.id, record.id);
+        }
+        if (oblienKey) activeOblienEnsures.delete(oblienKey);
         await writes;
       }
     });
@@ -409,7 +467,9 @@ export function registerRoutes(app: Hono): void {
     const session = resolveSession(c);
     if (!session) return c.json({ error: "No session." }, 401);
     const id = c.req.param("id");
-    if (!getDaemon(session, id)) return c.json({ error: "No such runtime." }, 404);
+    const record = getDaemon(session, id);
+    if (!record) return c.json({ error: "No such runtime." }, 404);
+    cancelProvision(session, record);
     if (!removeDaemon(session, id)) return c.json({ error: "No such runtime." }, 404);
     // Tear down its client (reaps a temporary container/workspace) after it leaves the fleet.
     await disposeDaemon(session.id, id);
@@ -426,6 +486,7 @@ export function registerRoutes(app: Hono): void {
     if (rt.provider === "remote" || rt.provider === "local") {
       return c.json({ error: "This runtime is always on — nothing to tear down." }, 400);
     }
+    cancelProvision(session, record);
     // close() reaps the container/workspace/tunnel when provisioned with stopOnExit (temporary).
     await disposeDaemon(session.id, record.id);
     rt.state = "off";
@@ -548,14 +609,16 @@ export function registerRoutes(app: Hono): void {
     }
     const key = provisionKey(session, record);
     if (activeProvisioning.has(key)) {
-      return c.json({ error: "This runtime is already provisioning." }, 409);
+      return c.json({ error: "This runtime is already provisioning.", code: "PROVISIONING" }, 409);
     }
+    const run = Symbol("provision");
     // Persist this checkpoint before returning the stream. A reload now shows Provisioning, and after
     // a server restart the absent in-memory lock lets the user resume the same captured workspace.
     rt.state = "provisioning";
     rt.message = undefined;
     await persistSessionFleet(session);
     activeProvisioning.add(key);
+    provisionRuns.set(key, run);
 
     // Prevent common reverse proxies from buffering progress until provisioning finishes.
     c.header("Cache-Control", "no-cache, no-transform");
@@ -571,17 +634,28 @@ export function registerRoutes(app: Hono): void {
       setEnsureSink(session, record, (ev: EnsureEvent) => void send({ t: "log", ev }));
       try {
         await mwForDaemon(session, record).ensure();
+        if (!isCurrentProvision(key, run)) {
+          await send({ t: "error", message: "Provisioning cancelled." });
+          return;
+        }
         rt.state = "ready";
         await persistSessionFleet(session);
         await send({ t: "done", daemon: toDaemonView(record, session.activeDaemonId) });
       } catch (err) {
+        if (!isCurrentProvision(key, run)) {
+          await send({ t: "error", message: "Provisioning cancelled." });
+          return;
+        }
         rt.state = "error";
         rt.message = err instanceof Error ? err.message : String(err);
         await persistSessionFleet(session);
         await send({ t: "error", message: rt.message });
       } finally {
-        activeProvisioning.delete(key);
-        clearEnsureSink(session.id, record.id);
+        if (isCurrentProvision(key, run)) {
+          activeProvisioning.delete(key);
+          provisionRuns.delete(key);
+          clearEnsureSink(session.id, record.id);
+        }
         await writes;
       }
     });

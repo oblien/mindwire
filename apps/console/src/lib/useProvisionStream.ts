@@ -81,9 +81,18 @@ export function useProvisionStream(onSettled?: (daemon: DaemonView) => void): Pr
         if (!res.ok || !res.body) {
           const text = await res.text().catch(() => "");
           let message = "";
+          let code = "";
           try {
-            message = (JSON.parse(text) as { error?: string }).error ?? "";
+            const body = JSON.parse(text) as { error?: string; code?: string };
+            message = body.error ?? "";
+            code = body.code ?? "";
           } catch {}
+          // Another page or a prior browser request owns the live ensure. Keep the UI in its
+          // truthful provisioning state; the runtime page polls the durable fleet record to settle it.
+          if (code === "PROVISIONING") {
+            setStatus("provisioning");
+            return false;
+          }
           throw new Error(message || text || `provisioning failed (${res.status})`);
         }
         let settled = false;

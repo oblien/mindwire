@@ -355,7 +355,7 @@ export type AddDaemonRequest =
       image?: string;
       cpus?: number;
       memoryMb?: number;
-      /** Writable disk for a newly-created workspace. Defaults to 10 GB. */
+      /** Writable disk for a newly-created workspace. Defaults to 4 GB. */
       diskMb?: number;
       lifecycle?: SandboxLifecycle;
       /** Reuse an existing workspace instead of creating one. */

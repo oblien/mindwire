@@ -303,14 +303,17 @@ export function runtimeFromRequest(req: AddDaemonRequest): DaemonRuntime {
       state: "off",
     };
   }
+  if (req.diskMb !== undefined && (!Number.isSafeInteger(req.diskMb) || req.diskMb < 1)) {
+    throw new Error("Disk must be a positive whole number of MB.");
+  }
   return {
     provider: "oblien",
     image: req.image?.trim() || DEFAULT_SANDBOX_IMAGE,
     cpus: req.cpus,
     memoryMb: req.memoryMb,
-    // Oblien's platform default is intentionally tiny (128 MB). A MindWire runtime needs room for
-    // the daemon, harness CLIs, dependency caches, and the user's workspace, so make 10 GB explicit.
-    diskMb: req.diskMb ?? 10_240,
+    // Oblien's platform default is intentionally tiny (128 MB). Four GB is a practical baseline for
+    // the daemon, harness CLIs, dependency caches, and the user's workspace without exceeding common plans.
+    diskMb: req.diskMb ?? 4_096,
     lifecycle: req.lifecycle ?? "temporary",
     state: "off",
     workspaceId: req.workspaceId?.trim() || undefined,
@@ -560,7 +563,7 @@ function locationOf(rt: DaemonRuntime): DaemonLocation {
     memoryMb: rt.memoryMb,
     diskMb: rt.diskMb,
     secured: Boolean(rt.token),
-    summary: `Oblien · ${rt.image} · ${rt.lifecycle} · ${Math.round((rt.diskMb ?? 10_240) / 1024)} GB disk`,
+    summary: `Oblien · ${rt.image} · ${rt.lifecycle} · ${Math.round((rt.diskMb ?? 4_096) / 1024)} GB disk`,
   };
 }
 

@@ -256,6 +256,15 @@ test("provisionOblien: returns the sentinel base + a fetch transport; skips depl
   expect(calls.exec.some((s) => s.includes("MINDWIRE_READY"))).toBe(false); // no launch
 });
 
+test("provisionOblien: reuses the persisted daemon token when probing an existing workspace", async () => {
+  const { client, calls } = fakeOblien({ health: '{"ok":true,"agent":"claude-code","version":"9.9.9"}' });
+  const d = await provisionOblien(client, { workspaceId: "ws-1", daemonToken: "stable-runtime-token" });
+
+  expect(d.token).toBe("stable-runtime-token");
+  expect(calls.exec.some((script) => script.includes("Bearer stable-runtime-token"))).toBe(true);
+  expect(calls.write.length).toBe(0); // authenticated probe succeeds, so no replacement deploy
+});
+
 test("provisionOblien: the handle's fetch strips the sentinel host and routes pathname+search through rt.proxy(port)", async () => {
   const { client, calls } = fakeOblien({ health: '{"version":"9.9.9"}' });
   const d = await provisionOblien(client, { workspaceId: "ws-1", port: 8790 });

@@ -3,7 +3,7 @@
 // running chats), its per-agent token/cost accounting, provisioning logs, and the full lifecycle
 // controls (activate / spin up / stop / duplicate / remove). A back link returns to the Console; if the
 // daemon is removed (here or elsewhere) the page falls back to a not-found state.
-import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -87,6 +87,37 @@ export function DaemonPage() {
   }, [reloadFleet, isActive, reloadAgent, reloadHealth, reloadCatalog]);
 
   const provision = useProvisionStream(onProvisioned);
+  const provisionStatus = provision.status;
+  const startProvision = provision.start;
+  const autoResumeId = useRef<string | null>(null);
+
+  // A persisted provisioning record means a prior browser may have left while the provider call was
+  // running. Opening its card is itself the resume action: try once, or observe the in-flight request
+  // if another page still owns it. The fleet poll below settles the visual state either way.
+  useEffect(() => {
+    if (daemon?.state !== "provisioning") {
+      autoResumeId.current = null;
+      return;
+    }
+    if (autoResumeId.current === id || provisionStatus !== "idle") return;
+    autoResumeId.current = id;
+    void startProvision(id);
+  }, [daemon?.state, id, provisionStatus, startProvision]);
+
+  useEffect(() => {
+    if (daemon?.state !== "provisioning") return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      reloadFleet();
+      if (!cancelled) timer = setTimeout(() => void poll(), 1000);
+    };
+    timer = setTimeout(() => void poll(), 750);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [daemon?.state, reloadFleet]);
 
   // Live inspection: adapter types hosted + chats running. Only meaningful once ready.
   const insp = useAsync<DaemonInspection | null>(
@@ -175,11 +206,11 @@ export function DaemonPage() {
     );
   }
 
-  const state: DaemonState = provision.status === "provisioning" ? "provisioning" : daemon.state;
+  // The durable fleet state wins once an externally-owned provisioning stream has settled.
+  const state: DaemonState = daemon.state === "ready" ? "ready" : provision.status === "provisioning" ? "provisioning" : daemon.state;
   // A persisted `provisioning` state can outlive this browser (or a Console restart). Only the stream
-  // owned by THIS page is a local busy lock; otherwise offer a safe resume check and let the server's
-  // per-runtime lock reject an actually concurrent provision.
-  const busy = provision.status === "provisioning";
+  // owned by THIS page is a local busy lock; reopening the page resumes/checks automatically.
+  const busy = provision.status === "provisioning" && daemon.state !== "ready";
   // remote/local are always on — nothing to spin up or tear down. ssh/docker/oblien provision.
   const provisionable = daemon.provider !== "remote" && daemon.provider !== "local";
   const Icon = PROVIDER_ICON[daemon.provider];
@@ -248,10 +279,16 @@ export function DaemonPage() {
                 Set active
               </Button>
             )}
-            {provisionable && state !== "ready" && (
+            {provisionable && state === "provisioning" && (
+              <Button size="sm" variant="outline" onClick={() => void stop()}>
+                <Power className="size-3.5" />
+                Stop
+              </Button>
+            )}
+            {provisionable && state !== "ready" && state !== "provisioning" && (
               <Button size="sm" variant="outline" onClick={() => void provision.start(id)} disabled={busy}>
                 {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
-                {busy ? "Provisioning" : state === "error" ? "Retry" : state === "provisioning" ? "Check & resume" : "Spin up"}
+                {busy ? "Provisioning" : state === "error" ? "Retry" : "Spin up"}
               </Button>
             )}
             {provisionable && state === "ready" && (
@@ -268,7 +305,7 @@ export function DaemonPage() {
               size="sm"
               variant="ghost"
               onClick={() => void remove()}
-              disabled={busy || !canRemove}
+              disabled={!canRemove}
               title={canRemove ? undefined : "The fleet needs at least one runtime"}
               className="text-muted-foreground hover:text-destructive"
             >
