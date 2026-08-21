@@ -10,7 +10,7 @@
 import type { Hono } from "hono";
 
 import { auth, AUTH_BASE_PATH, userIdFromRequest } from "./auth";
-import { getOrCreateSession } from "./session";
+import { getOrCreateSession, hydrateSessionSecrets } from "./session";
 
 /**
  * Paths reachable without a session: the auth surface itself (how you sign in), the liveness ping, and
@@ -39,7 +39,9 @@ export function registerAuth(app: Hono): void {
 
     const userId = await userIdFromRequest(c);
     if (!userId) return c.json({ error: "Not authenticated." }, 401);
-    c.set("mwSession", getOrCreateSession(userId));
+    const session = getOrCreateSession(userId);
+    await hydrateSessionSecrets(session);
+    c.set("mwSession", session);
     return next();
   });
 

@@ -39,11 +39,14 @@ import type {
   RespondInput,
   PublicConfig,
   SocialProvider,
+  SecretMetadata,
+  OblienImage,
   NotifyChannel,
   NotifyChannelInput,
   NotifyRule,
   NotifyRuleInput,
   NotifyChannelTestResult,
+  SetupStatus,
 } from "@shared/api";
 
 export class HttpError extends Error {
@@ -190,6 +193,9 @@ export const api = {
   connectOblien: (req: ConnectRequest) => post<SessionStatus>("/api/oblien", req),
   /** Unlink the Oblien account (keeps the session and fleet). */
   disconnectOblien: () => del<SessionStatus>("/api/oblien"),
+  oblienImages: () => get<OblienImage[]>("/api/oblien/images"),
+  /** Encrypted-vault metadata only — values are intentionally never readable from the browser. */
+  secrets: () => get<SecretMetadata[]>("/api/secrets"),
   /** Server liveness (not the daemon health proxy, which lives at `/api/health`). */
   ping: () => get<{ ok: boolean }>("/api/ping"),
 
@@ -215,6 +221,16 @@ export const api = {
   daemonAgent: (id: string, agentId: string) =>
     get<AgentInfo>(
       `/api/daemons/${encodeURIComponent(id)}/agent?agent=${encodeURIComponent(agentId)}`,
+    ),
+  /** Start an adapter's daemon-owned toolchain install on one runtime. */
+  daemonAgentSetup: (id: string, agentId: string) =>
+    post<SetupStatus>(
+      `/api/daemons/${encodeURIComponent(id)}/agent/setup?agent=${encodeURIComponent(agentId)}`,
+    ),
+  /** Poll the daemon-owned install job. No install output is kept in the browser. */
+  daemonAgentSetupStatus: (id: string, agentId: string) =>
+    get<SetupStatus>(
+      `/api/daemons/${encodeURIComponent(id)}/agent/setup?agent=${encodeURIComponent(agentId)}`,
     ),
   /** Fleet-wide token accounting (cumulative per-(daemon, agent) usage from completed turns). */
   usage: () => get<UsageReport>("/api/usage"),

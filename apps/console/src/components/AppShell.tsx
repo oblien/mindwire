@@ -8,7 +8,7 @@ import { useState, type ComponentType, type ReactNode } from "react";
 import { Routes, Route, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { AppProvider, useApp } from "@/lib/app-context";
-import { visibleNav, keyForPath, navItem, navPath, type ViewKey } from "@/lib/nav";
+import { visibleNav, keyForPath, navPath, type ViewKey } from "@/lib/nav";
 import type { AuthUser } from "@/lib/api";
 import type { Capabilities, SessionStatus } from "@shared/api";
 
@@ -30,6 +30,7 @@ import { PromptsPanel } from "@/components/panels/PromptsPanel";
 import { SubagentsPanel } from "@/components/panels/SubagentsPanel";
 import { McpPanel } from "@/components/panels/McpPanel";
 import { DoctorPanel } from "@/components/panels/DoctorPanel";
+import { SecretsPanel } from "@/components/panels/SecretsPanel";
 
 // Every surface except the Console (rendered at the route root) and the per-daemon page is a prop-less
 // panel keyed by its nav slug — the same slug that is its URL path.
@@ -37,6 +38,7 @@ type PanelView = Exclude<ViewKey, "fleet">;
 
 const PANELS: Record<PanelView, ComponentType> = {
   notifications: NotificationsPanel,
+  secrets: SecretsPanel,
   capabilities: CapabilitiesPanel,
   auth: AgentAuthPanel,
   settings: SettingsPanel,
@@ -125,18 +127,12 @@ function ShellLayout({ user, onSignOut }: { user: AuthUser; onSignOut: () => voi
   // panel — on a switch, so it re-fetches. The chat sits OUTSIDE this (it's unlinked from the config agent),
   // so a live conversation is never disturbed. Plain route navigation keeps the same key (no remount).
   const scopeKey = `${activeDaemon?.id ?? "none"}:${activeAgentId ?? ""}`;
-  // The nav's runtime selector (daemon) only belongs on agent-scoped surfaces — Console, Agents, and a
-  // daemon's own page are eagle-view and transcend a single agent, so they hide it. (The agent picker
-  // lives in the sidebar's Agent-group header, present on every surface.)
-  const contextScoped = navItem(activeKey)?.agentScoped ?? false;
-
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <TopNav
         onHome={() => navigate("/")}
         chatOpen={chatOpen}
         onToggleChat={() => setChatOpen((v) => !v)}
-        contextScoped={contextScoped}
         user={user}
         onSignOut={onSignOut}
       />

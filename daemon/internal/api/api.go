@@ -177,6 +177,12 @@ func Auth(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if token != "" {
 			got := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+			// Oblien's workspace proxy consumes Authorization for its own gateway token before
+			// forwarding to the in-workspace service. X-Mindwire-Token is the explicit
+			// equivalent for that trusted proxy boundary; direct clients keep using Bearer.
+			if got == "" {
+				got = strings.TrimSpace(r.Header.Get("X-Mindwire-Token"))
+			}
 			if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return

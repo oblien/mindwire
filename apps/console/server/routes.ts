@@ -19,7 +19,15 @@ import type {
 
 import { env } from "./env";
 import { assertPublicRemote } from "./public-remote";
-import { verifyOblien, OblienAuthError } from "./oblien";
+import { listOblienImages, verifyOblien, OblienAuthError } from "./oblien";
+import {
+  deleteSecret,
+  listSecrets,
+  putSecret,
+  OBLIEN_CLIENT_ID_SECRET,
+  OBLIEN_CLIENT_SECRET_SECRET,
+  FLEET_CONFIG_SECRET,
+} from "./secrets";
 import {
   activeRecord,
   addDaemon,
@@ -37,6 +45,7 @@ import {
   stateOf,
   toDaemonView,
   usageReport,
+  persistSessionFleet,
   type DaemonRecord,
   type Session,
 } from "./session";
@@ -75,7 +84,28 @@ import type {
   ProcessFeedFrame,
   ProviderAvailability,
   RunningChat,
+  SecretMetadata,
 } from "../shared/api";
+
+/** Derive credential inventory from the hydrated encrypted fleet without ever exposing any value. */
+function runtimeSecretMetadata(session: Session): SecretMetadata[] {
+  return session.daemons.flatMap((record) => {
+    const r = record.runtime;
+    const updatedAt = record.createdAt;
+    const prefix = `runtime/${record.id}`;
+    if (r.provider === "remote") return r.token ? [{ name: `${prefix}/bearer-token`, kind: "runtime-token" as const, updatedAt }] : [];
+    if (r.provider === "ssh") return [
+      ...(r.privateKey ? [{ name: `${prefix}/ssh-private-key`, kind: "ssh-private-key" as const, updatedAt }] : []),
+      ...(r.password ? [{ name: `${prefix}/ssh-password`, kind: "ssh-password" as const, updatedAt }] : []),
+      ...(r.passphrase ? [{ name: `${prefix}/ssh-passphrase`, kind: "ssh-passphrase" as const, updatedAt }] : []),
+      ...(r.token ? [{ name: `${prefix}/runtime-token`, kind: "runtime-token" as const, updatedAt }] : []),
+    ];
+    if (r.provider === "docker" || r.provider === "oblien") {
+      return r.token ? [{ name: `${prefix}/runtime-token`, kind: "runtime-token" as const, updatedAt }] : [];
+    }
+    return [];
+  });
+}
 
 /** Validate a requested target before it is ever represented in the user's fleet. */
 async function validateRuntimeRequest(session: Session, body: AddDaemonRequest): Promise<string | undefined> {
@@ -173,6 +203,7 @@ export function registerRoutes(app: Hono): void {
     if (session) {
       await disposeSession(session.id);
       destroySession(session.id);
+      await deleteSecret(session.id, FLEET_CONFIG_SECRET);
     }
     return c.json(notReadyStatus());
   });
@@ -197,15 +228,44 @@ export function registerRoutes(app: Hono): void {
     // Link to the signed-in user's session (guaranteed present by the guard). Creds stay server-side.
     const session = resolveSession(c);
     if (!session) return c.json({ error: "Not authenticated." }, 401);
+    await Promise.all([
+      putSecret(session.id, OBLIEN_CLIENT_ID_SECRET, "oblien-client-id", clientId),
+      putSecret(session.id, OBLIEN_CLIENT_SECRET_SECRET, "oblien-client-secret", clientSecret),
+    ]);
     connectOblien(session, { clientId, clientSecret });
     return c.json(statusOf(session));
   });
 
-  app.delete("/api/oblien", (c) => {
+  app.delete("/api/oblien", async (c) => {
     const session = resolveSession(c);
     if (!session) return c.json(notReadyStatus());
     disconnectOblien(session);
+    await Promise.all([
+      deleteSecret(session.id, OBLIEN_CLIENT_ID_SECRET),
+      deleteSecret(session.id, OBLIEN_CLIENT_SECRET_SECRET),
+    ]);
     return c.json(statusOf(session));
+  });
+
+  // ---- encrypted Console vault -------------------------------------------
+  // Values are write-only: list returns metadata, and save/rotation never echoes the submitted value.
+  app.get("/api/secrets", async (c) => {
+    const session = resolveSession(c);
+    if (!session) return c.json({ error: "Not authenticated." }, 401);
+    const saved = await listSecrets(session.id);
+    // `console/fleet` is an implementation envelope; show the credentials it contains, not that
+    // opaque payload. The names identify the runtime record without revealing any secret material.
+    return json(c, [...saved.filter((secret) => secret.name !== FLEET_CONFIG_SECRET), ...runtimeSecretMetadata(session)]);
+  });
+
+  app.get("/api/oblien/images", async (c) => {
+    const session = resolveSession(c);
+    if (!session?.creds) return c.json({ error: "Connect your Oblien account first." }, 409);
+    try {
+      return json(c, await listOblienImages(session.creds));
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Could not load Oblien images." }, 502);
+    }
   });
 
   // ---- fleet ---------------------------------------------------------------
@@ -244,6 +304,7 @@ export function registerRoutes(app: Hono): void {
     if (invalid) return c.json({ error: invalid }, 409);
     try {
       addDaemon(session, body);
+      await persistSessionFleet(session);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "Invalid runtime." }, 400);
     }
@@ -289,6 +350,7 @@ export function registerRoutes(app: Hono): void {
           record.runtime.state = "ready";
         }
         commitDaemon(session, record, Boolean(body.activate));
+        await persistSessionFleet(session);
         await send({ t: "done", daemon: toDaemonView(record, session.activeDaemonId) });
       } catch (err) {
         await disposeDaemon(session.id, record.id);
@@ -300,21 +362,23 @@ export function registerRoutes(app: Hono): void {
     });
   });
 
-  app.post("/api/daemons/:id/activate", (c) => {
+  app.post("/api/daemons/:id/activate", async (c) => {
     const session = resolveSession(c);
     if (!session) return c.json({ error: "No session." }, 401);
     if (!setActiveDaemon(session, c.req.param("id"))) {
       return c.json({ error: "No such runtime." }, 404);
     }
+    await persistSessionFleet(session);
     return json(c, fleetView(session));
   });
 
-  app.post("/api/daemons/:id/duplicate", (c) => {
+  app.post("/api/daemons/:id/duplicate", async (c) => {
     const session = resolveSession(c);
     if (!session) return c.json({ error: "No session." }, 401);
     if (!duplicateDaemon(session, c.req.param("id"))) {
       return c.json({ error: "No such runtime." }, 404);
     }
+    await persistSessionFleet(session);
     return json(c, fleetView(session));
   });
 
@@ -326,6 +390,7 @@ export function registerRoutes(app: Hono): void {
     if (!removeDaemon(session, id)) return c.json({ error: "No such runtime." }, 404);
     // Tear down its client (reaps a temporary container/workspace) after it leaves the fleet.
     await disposeDaemon(session.id, id);
+    await persistSessionFleet(session);
     return json(c, fleetView(session));
   });
 
@@ -349,6 +414,7 @@ export function registerRoutes(app: Hono): void {
       rt.workspaceId = undefined;
     }
     // ssh has no captured ids to clear — the tunnel is torn down by disposeDaemon above.
+    await persistSessionFleet(session);
     return json(c, fleetView(session));
   });
 
@@ -401,6 +467,42 @@ export function registerRoutes(app: Hono): void {
     }
   });
 
+  // Daemon-owned toolchain setup for one adapter on one runtime. The install is detached and
+  // idempotent in mindwired; the Console only starts it and polls the returned status.
+  app.post("/api/daemons/:id/agent/setup", async (c) => {
+    const session = resolveSession(c);
+    if (!session) return c.json({ error: "No session." }, 401);
+    const record = getDaemon(session, c.req.param("id"));
+    if (!record) return c.json({ error: "No such runtime." }, 404);
+    if (stateOf(record.runtime) !== "ready") {
+      return c.json({ error: "Runtime is not running. Spin it up first." }, 409);
+    }
+    const agent = c.req.query("agent");
+    if (!agent) return c.json({ error: "An agent id is required." }, 400);
+    try {
+      return json(c, await mwForDaemon(session, record).setup({ agent }));
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, errorStatus(err));
+    }
+  });
+
+  app.get("/api/daemons/:id/agent/setup", async (c) => {
+    const session = resolveSession(c);
+    if (!session) return c.json({ error: "No session." }, 401);
+    const record = getDaemon(session, c.req.param("id"));
+    if (!record) return c.json({ error: "No such runtime." }, 404);
+    if (stateOf(record.runtime) !== "ready") {
+      return c.json({ error: "Runtime is not running. Spin it up first." }, 409);
+    }
+    const agent = c.req.query("agent");
+    if (!agent) return c.json({ error: "An agent id is required." }, 400);
+    try {
+      return json(c, await mwForDaemon(session, record).setupStatus({ agent }));
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, errorStatus(err));
+    }
+  });
+
   // Fleet-wide token accounting: cumulative per-(daemon, agent) usage folded from completed turns.
   app.get("/api/usage", (c) => {
     const session = resolveSession(c);
@@ -442,10 +544,12 @@ export function registerRoutes(app: Hono): void {
       try {
         await mwForDaemon(session, record).ensure();
         rt.state = "ready";
+        await persistSessionFleet(session);
         await send({ t: "done", daemon: toDaemonView(record, session.activeDaemonId) });
       } catch (err) {
         rt.state = "error";
         rt.message = err instanceof Error ? err.message : String(err);
+        await persistSessionFleet(session);
         await send({ t: "error", message: rt.message });
       } finally {
         clearEnsureSink(session.id, record.id);

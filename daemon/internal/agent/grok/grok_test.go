@@ -49,6 +49,24 @@ echo '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}'
 	}
 }
 
+func TestACPCWDIsAlwaysAbsolute(t *testing.T) {
+	cwd, err := acpCWD(agent.TurnInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(cwd) {
+		t.Fatalf("ACP cwd = %q, want absolute path", cwd)
+	}
+
+	configured, err := acpCWD(agent.TurnInput{CWD: "relative/workspace"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(configured) {
+		t.Fatalf("configured ACP cwd = %q, want absolute path", configured)
+	}
+}
+
 func TestACPSessionContextIsNeverSilentlyDroppedOnResume(t *testing.T) {
 	_, err := runACP(context.Background(), agent.TurnInput{
 		SessionID: "existing",

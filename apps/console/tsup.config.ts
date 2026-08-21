@@ -14,7 +14,7 @@ export default defineConfig({
   sourcemap: true,
   // Never bundle the SDK's optional native peers; keep the SDK itself external too.
   external: ["oblien", "dockerode", "ssh2", "mindwire"],
-  // tsup defaults this to `true`, which rewrites `node:sqlite` → a bogus bare `sqlite` import that fails
-  // at runtime. The auth store depends on the real Node 22 builtin, so keep the `node:` prefix verbatim.
+  // Keep native/runtime imports as authored; the Node server resolves external dependencies from its
+  // workspace install in the production image.
   removeNodeProtocol: false,
 });

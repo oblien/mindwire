@@ -1,8 +1,9 @@
 // The Oblien sandbox adapter — the default {@link SandboxAdapter}. The mindwire daemon runs *inside an
 // Oblien workspace* (a microVM) and the SDK reaches it through the `oblien` package's runtime proxy
 // (`rt.proxy(port).fetch`) instead of loopback — the same path pocket-agent uses to reach its in-VM
-// daemon, and it carries SSE unchanged. The `oblien` SDK owns the proxy URL and the gateway JWT
-// (mint/cache/refresh); on a `401` this adapter re-acquires the runtime (`{force:true}`) and retries
+// daemon, and it carries SSE unchanged. The `oblien` SDK owns the proxy URL and gateway JWT. Because
+// that proxy reserves `Authorization` for its own JWT, the daemon credential is forwarded separately
+// as `X-Mindwire-Token`; on a `401` this adapter re-acquires the runtime (`{force:true}`) and retries
 // once. Every existing SDK method works unchanged — only the transport swaps.
 //
 // The `oblien` package is an OPTIONAL peer dependency, lazily `import()`-ed only in `connect()` — so
@@ -32,10 +33,12 @@ export interface OblienConfig {
   agentCwd?: string;
   /** Loopback port the in-workspace daemon listens on. */
   port?: number;
-  /** Explicit path to a Linux `mindwired` to deploy (else resolved from the platform package). */
+  /** Explicit local Linux `mindwired` to deploy. `{arch}` expands to the workspace architecture. */
   daemonBin?: string;
   /** Redeploy the daemon when the running version differs from the SDK's bundled binary. Off by default. */
   autoUpdate?: boolean;
+  /** Replace even a healthy version match. Use only with a locally built development daemon. */
+  forceDeploy?: boolean;
   /** On `close()`, tear the workspace down (delete one we created / stop one we reused). */
   stopOnExit?: boolean;
   /** Image for a new workspace. Ideally one that already runs `mindwired` and ships the target agent CLI. */
@@ -237,17 +240,23 @@ export async function provisionOblien(
     agentCwd,
     daemonBin: config.daemonBin,
     autoUpdate: config.autoUpdate,
+    forceDeploy: config.forceDeploy,
     target: "oblien",
     onLog,
   });
 
-  // 4. Transport: route both unary and SSE through the runtime proxy. The `oblien` SDK attaches the
-  //    gateway JWT + proxy target; on a 401 (expired JWT) re-acquire the runtime and retry once.
+  // 4. Transport: route both unary and SSE through the runtime proxy. Oblien reserves Authorization
+  //    for its gateway JWT and strips it before forwarding, so carry the daemon's credential in the
+  //    dedicated forwarded header instead. On a 401 (expired gateway JWT) re-acquire the runtime and
+  //    retry once.
   const fetchImpl: FetchLike = async (url, init) => {
     const { pathname, search } = new URL(url);
     const path = pathname + search;
     const headers = new Headers(init?.headers);
-    headers.set("Authorization", `Bearer ${token}`);
+    headers.set("X-Mindwire-Token", token);
+    // RuntimeProxy owns Authorization and replaces it with the workspace gateway JWT. Removing the
+    // daemon token here avoids relying on a header that cannot reach mindwired.
+    headers.delete("Authorization");
     let res = await rt.proxy(port).fetch(path, { ...init, headers });
     if (res.status === 401) {
       rt = await handle.runtime({ force: true });

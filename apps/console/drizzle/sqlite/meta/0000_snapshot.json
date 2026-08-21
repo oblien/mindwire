@@ -1,0 +1,24 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "c1c48334-f97a-466a-8470-d9b18db91818",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "console_secret": {
+      "name": "console_secret",
+      "columns": {
+        "owner_id": { "name": "owner_id", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "name": { "name": "name", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "kind": { "name": "kind", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "ciphertext": { "name": "ciphertext", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "updated_at": { "name": "updated_at", "type": "integer", "primaryKey": false, "notNull": true, "autoincrement": false }
+      },
+      "indexes": {}, "foreignKeys": {},
+      "compositePrimaryKeys": { "console_secret_owner_id_name_pk": { "columns": ["owner_id", "name"], "name": "console_secret_owner_id_name_pk" } },
+      "uniqueConstraints": {}, "checkConstraints": {}
+    }
+  },
+  "views": {}, "enums": {},
+  "_meta": { "schemas": {}, "tables": {}, "columns": {} },
+  "internal": { "indexes": {} }
+}

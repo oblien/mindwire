@@ -1,4 +1,4 @@
-// Multi-user auth for the console, built on Better Auth over Postgres (SaaS) or node:sqlite (self-host).
+// Multi-user auth for the console, built on Better Auth over Postgres (SaaS) or better-sqlite3 (self-host).
 // This is the *identity* layer: it decides *who* the request is. Everything below it — the per-user fleet of
 // daemons, the Oblien link, the API keys — hangs off the resolved user id and is fully isolated per user
 // (see `getOrCreateSession` in session.ts, keyed by that id).
@@ -9,9 +9,6 @@
 //
 // SECURITY: the signing secret and the SQLite file live only on the server. The browser only ever holds
 // Better Auth's httpOnly session cookie; user API keys are never stored here — they go into the daemon.
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { Pool } from "pg";
 import type { Context } from "hono";
 import { betterAuth } from "better-auth";
@@ -19,15 +16,14 @@ import { hashPassword } from "better-auth/crypto";
 import { getMigrations } from "better-auth/db/migration";
 
 import { env } from "./env";
+import { authDatabase, migrateConsoleDatabase } from "./database";
 import type { PublicConfig, SocialProvider } from "../shared/api";
 
 /** Base path the Better Auth handler is mounted on — kept distinct from the agent-auth `/api/auth/*`. */
 export const AUTH_BASE_PATH = "/api/account";
 
 // SQLite needs a local directory; Postgres is the SaaS path and has no filesystem state in this process.
-const database = env.databaseUrl
-  ? new Pool({ connectionString: env.databaseUrl })
-  : (mkdirSync(dirname(env.authDbPath), { recursive: true }), new DatabaseSync(env.authDbPath));
+export const consoleDatabase = authDatabase;
 
 /**
  * OAuth providers Better Auth should enable. Federated sign-in is a CLOUD-mode feature: a self-hosted
@@ -44,7 +40,7 @@ const socialProviders =
 
 function makeAuth(disableSignUp: boolean) {
   return betterAuth({
-  database,
+  database: consoleDatabase,
   emailAndPassword: { enabled: true, autoSignIn: true, disableSignUp },
   socialProviders,
   secret: env.authSecret,
@@ -82,14 +78,14 @@ export function publicConfig(): PublicConfig {
 /** Make the deployment environment the source of truth for the sole self-host admin password. */
 async function syncSelfHostAdminPassword(email: string, password: string): Promise<void> {
   const hash = await hashPassword(password);
-  if (database instanceof Pool) {
-    await database.query(
+  if (consoleDatabase instanceof Pool) {
+    await consoleDatabase.query(
       `UPDATE account SET password = $1 WHERE "providerId" = 'credential' AND "userId" = (SELECT id FROM "user" WHERE email = $2)`,
       [hash, email],
     );
     return;
   }
-  database
+  consoleDatabase
     .prepare(`UPDATE account SET password = ? WHERE providerId = 'credential' AND userId = (SELECT id FROM user WHERE email = ?)`)
     .run(hash, email);
 }
@@ -108,6 +104,7 @@ export function initAuth(): Promise<void> {
         try {
           const { runMigrations } = await getMigrations(auth.options);
           await runMigrations();
+          await migrateConsoleDatabase();
           if (env.selfHostAdmin) {
             // Better Auth owns password hashing and account writes. Use a short-lived registration-capable
             // instance only to seed the deployment admin; the mounted instance permanently rejects signup.

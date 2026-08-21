@@ -1,8 +1,7 @@
 // The top chrome. The Oblien mark is the home affordance (Oblien is the parent product), then the
-// product wordmark. When the current surface is *agent-scoped* (Capabilities, Settings, Models, …), the
-// nav also hosts the runtime selector — the daemon everything below is scoped to (the agent is picked in
-// the sidebar's Agent-group header). On eagle-view surfaces (Console, Agents, a daemon's page) that
-// selector is hidden: those transcend a single agent. On the right: an external Docs link, the chat-rail
+// product wordmark. The nav always hosts the current-runtime selector: every surface is ultimately
+// scoped to a runtime, even pages that summarize the fleet. The agent picker lives in the sidebar's
+// Agent-group header. On the right: an external Docs link, the chat-rail
 // toggle, — once an Oblien account
 // is linked — its account chip with an unlink action, and finally the signed-in user with sign-out.
 // The console is multi-user and session-protected: `user` is the authenticated identity everything
@@ -12,7 +11,6 @@ import { ArrowUpRight, LogOut, Moon, PanelRightClose, PanelRightOpen, Sun } from
 import { api, type AuthUser } from "@/lib/api";
 import { useApp } from "@/lib/app-context";
 import { useTheme } from "@/lib/theme";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { OblienMark } from "@/components/OblienMark";
@@ -26,15 +24,12 @@ export function TopNav({
   onHome,
   chatOpen,
   onToggleChat,
-  contextScoped,
   user,
   onSignOut,
 }: {
   onHome: () => void;
   chatOpen: boolean;
   onToggleChat: () => void;
-  /** Show the runtime selector — true only on agent-scoped surfaces. */
-  contextScoped: boolean;
   /** The authenticated user everything below is isolated under. */
   user: AuthUser;
   /** End the Better Auth session and drop back to the login gate. */
@@ -67,17 +62,15 @@ export function TopNav({
         MindWire <span className="text-muted-foreground">console</span>
       </span>
 
-      {contextScoped && (
-        <div className="ml-auto flex items-center gap-2.5">
-          <span className="hidden text-[0.65rem] font-medium uppercase tracking-wider text-muted-foreground md:inline">
-            Runtime
-          </span>
-          <ContextSwitcher />
-        </div>
-      )}
+      <div className="ml-auto flex min-w-0 items-center gap-2.5">
+        <span className="hidden shrink-0 text-[0.65rem] font-medium uppercase tracking-wider text-muted-foreground md:inline">
+          Current runtime
+        </span>
+        <ContextSwitcher className="min-w-0" />
+      </div>
 
-      <div className={cn("flex items-center gap-1", !contextScoped && "ml-auto")}>
-        {contextScoped && <Separator orientation="vertical" className="mx-1 h-5" />}
+      <div className="flex items-center gap-1">
+        <Separator orientation="vertical" className="mx-1 h-5" />
         <a
           href={DOCS_URL}
           target="_blank"

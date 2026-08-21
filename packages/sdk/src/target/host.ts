@@ -40,10 +40,16 @@ export interface EnsureDaemonConfig {
   agent: string;
   /** `AGENT_CWD` — working directory agents run in, inside the sandbox. */
   agentCwd: string;
-  /** Explicit path to a Linux `mindwired` to deploy (else resolved from the platform package). */
+  /**
+   * Explicit path to a Linux `mindwired` to deploy (else downloaded from the matching GitHub Release).
+   * `{arch}` is expanded to the destination architecture (`amd64` or `arm64`), allowing a development
+   * launcher to build both artifacts without guessing the sandbox architecture in advance.
+   */
   daemonBin?: string;
   /** Redeploy when the running daemon's version differs from `desiredVersion`. Off by default. */
   autoUpdate?: boolean;
+  /** Redeploy even when the reported version matches. Intended only for a locally built development daemon. */
+  forceDeploy?: boolean;
   /** Version to reconcile against. Defaults to {@link SDK_VERSION} (the bundled binary's version). */
   desiredVersion?: string;
   /** Destination label carried on every {@link EnsureEvent} (e.g. `"ssh"`/`"docker"`/`"oblien"`). */
@@ -105,8 +111,9 @@ const LOG = `${DAEMON_DIR}/daemon.log`;
 
 /**
  * Make sure a healthy `mindwired` of the desired version is reachable at `127.0.0.1:<port>` inside the
- * sandbox, deploying it if absent (or redeploying if stale and `autoUpdate` is set). Idempotent: a
- * healthy, current daemon (e.g. an image that autostarts it, or a reused sandbox) is a no-op.
+ * sandbox, deploying it if absent (or redeploying if stale and `autoUpdate` is set). `forceDeploy`
+ * deliberately replaces even a version match for local source development. Otherwise a healthy,
+ * current daemon (e.g. an image that autostarts it, or a reused sandbox) is a no-op.
  */
 export async function ensureDaemon(host: SandboxHost, cfg: EnsureDaemonConfig): Promise<string> {
   const emit = makeEmit(cfg);
@@ -125,8 +132,9 @@ export async function ensureDaemon(host: SandboxHost, cfg: EnsureDaemonConfig): 
       });
       const upToDate = health.version !== undefined && health.version === desired;
       // Keep a healthy daemon that's current, or one whose version we can't/shouldn't force-replace.
-      // Only a stale-or-unknown version *with* the caller's `autoUpdate` opt-in triggers a redeploy.
-      if (upToDate || !cfg.autoUpdate) {
+      // Only a stale-or-unknown version *with* autoUpdate, or an explicit development forceDeploy,
+      // triggers a redeploy.
+      if (!cfg.forceDeploy && (upToDate || !cfg.autoUpdate)) {
         emit({
           phase: "skip",
           message: upToDate ? `daemon already at v${desired}` : "keeping the running daemon",
@@ -159,7 +167,7 @@ async function deploy(
   if (cfg.daemonBin) {
     const binPath = await resolveLinuxDaemon(cfg.daemonBin, arch);
     const bytes = await readBytes(binPath);
-    emit({ phase: "upload", message: `uploading daemon (${arch}, ${bytes.length} bytes)`, arch, bytes: bytes.length });
+    emit({ phase: "upload", message: `uploading daemon (${arch}, ${formatMiB(bytes.length)})`, arch, bytes: bytes.length });
     // An explicit local binary is the one intentional upload path (air-gapped destinations).
     await host.putFile(BIN_NEW, bytes, { mode: "0755" });
   } else {
@@ -279,10 +287,11 @@ export async function resolveLinuxDaemon(
 ): Promise<string> {
   const fs = await import("node:fs");
   if (explicit) {
-    if (!fs.existsSync(explicit)) {
-      throw new MindwireError(`mindwire: sandbox daemonBin not found at ${explicit}`);
+    const resolved = explicit.replaceAll("{arch}", arch);
+    if (!fs.existsSync(resolved)) {
+      throw new MindwireError(`mindwire: sandbox daemonBin not found at ${resolved}`);
     }
-    return explicit;
+    return resolved;
   }
   return ensureDaemonBinary({ platform: "linux", arch: arch === "arm64" ? "arm64" : "x64" });
 }
@@ -298,4 +307,8 @@ function sleep(ms: number): Promise<void> {
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function formatMiB(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

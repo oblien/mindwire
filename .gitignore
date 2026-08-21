@@ -20,6 +20,7 @@ next-env.d.ts
 # Compiled binaries / build output
 /daemon/dist/
 /daemon/bin/
+/daemon/.dev/
 *.exe
 *.test
 *.out
@@ -50,6 +51,7 @@ agent-state.json
 .env
 .env.*
 !.env.example
+.mindwire-dev-token
 
 # ---- OS ----
 .DS_Store

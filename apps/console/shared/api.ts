@@ -57,6 +57,7 @@ import type {
   NotifyChannelTestResult,
   ProcessFrame,
   ProcessSample,
+  SetupStatus,
 } from "mindwire";
 
 export type {
@@ -112,6 +113,7 @@ export type {
   NotifyChannelTestResult,
   ProcessFrame,
   ProcessSample,
+  SetupStatus,
 };
 
 // ---- session / oblien ------------------------------------------------------
@@ -123,6 +125,12 @@ export type {
 export interface ConnectRequest {
   clientId: string;
   clientSecret: string;
+}
+
+/** An Oblien catalog image: `name` is presentation only; `image` is the exact create-workspace value. */
+export interface OblienImage {
+  name: string;
+  image: string;
 }
 
 /** Non-secret view of a linked Oblien account (a masked client id, e.g. `oba_12…9f`). */
@@ -165,6 +173,13 @@ export interface SessionStatus {
   ready: boolean;
   /** The linked Oblien account, present only once keys are connected (needed for Oblien daemons). */
   oblien?: Account;
+}
+
+/** Write-only credential-vault metadata. Secret values never cross the API boundary. */
+export interface SecretMetadata {
+  name: string;
+  kind: "oblien-client-id" | "oblien-client-secret" | "runtime-token" | "ssh-private-key" | "ssh-password" | "ssh-passphrase" | "runtime-config";
+  updatedAt: number;
 }
 
 // ---- fleet: daemons --------------------------------------------------------

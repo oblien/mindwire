@@ -2,6 +2,7 @@
 // fallback creds, OAuth client secrets) live here and never leave the process — the browser only ever
 // sees `SessionStatus` and the secret-free `PublicConfig`.
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 import type { ConsoleMode } from "../shared/api";
 
@@ -49,6 +50,25 @@ function socialCreds(prefix: string): { clientId: string; clientSecret: string }
 }
 
 const isProd = process.env.NODE_ENV === "production";
+
+function encryptionKey(): Buffer {
+  const configured = optional("SECRETS_ENCRYPTION_KEY");
+  if (!configured) {
+    if (isProd) {
+      throw new Error("SECRETS_ENCRYPTION_KEY is required in production (use a random 32-byte base64url key).");
+    }
+    // Development must remain zero-config, but production never falls back to the auth signing key.
+    return createHash("sha256").update(str("AUTH_SECRET", "mindwire-dev-secret")).digest();
+  }
+  const value = configured.trim();
+  const key = /^[0-9a-f]{64}$/i.test(value)
+    ? Buffer.from(value, "hex")
+    : Buffer.from(value, "base64url");
+  if (key.length !== 32) {
+    throw new Error("SECRETS_ENCRYPTION_KEY must be exactly 32 bytes, encoded as base64url or hex.");
+  }
+  return key;
+}
 
 /**
  * Deployment mode. `cloud` = the hosted MindWire SaaS (social sign-in is offered when OAuth apps are
@@ -151,6 +171,9 @@ export const env = {
     optional("SESSION_SECRET") ?? "mindwire-preview-dev-secret-change-me-please-32+",
   ),
 
+  /** AES-256-GCM master key for the Console credential vault. Never exposed to the browser. */
+  secretsEncryptionKey: encryptionKey(),
+
   /**
    * Social (OAuth) sign-in apps, honored ONLY in cloud mode (see `mode`). Each provider is offered on
    * the login screen only when both its id and secret are set. The OAuth callback URL to register with
@@ -189,6 +212,13 @@ export const env = {
 
   /** Optional Oblien API base override (else the `oblien` SDK default, api.oblien.com). */
   oblienBaseUrl: optional("OBLIEN_BASE_URL"),
+
+  /**
+   * Development-only local Linux daemon pattern (for example `/repo/daemon/.dev/mindwired-linux-{arch}`).
+   * When supplied, Oblien provisioning uploads this checked-out source build and deliberately replaces
+   * a healthy same-version daemon. Production never sets this value and uses verified GitHub Releases.
+   */
+  devDaemonBin: isProd ? undefined : optional("MINDWIRE_DEV_DAEMON_BIN"),
 
   /**
    * Built SPA directory, served statically in prod. The server runs from `dist-server/index.js`, so

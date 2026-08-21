@@ -22,7 +22,9 @@ import { useProvisionStream } from "@/lib/useProvisionStream";
 import type {
   AddDaemonRequest,
   DaemonProvider,
+  EnsureEvent,
   FleetView,
+  OblienImage,
   ProviderAvailability,
 } from "@shared/api";
 import { Button } from "@/components/ui/button";
@@ -54,7 +56,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-const IMAGES = ["node-22", "node-20", "python-3.12", "ubuntu-24.04"];
 const DASHBOARD_URL = "https://oblien.com/dashboard";
 
 /** Provider order in the picker: from "this machine" outward to a cloud sandbox. */
@@ -141,12 +142,15 @@ export function AddDaemonDialog({
 
   // docker
   const [dockerMode, setDockerMode] = useState<"image" | "container">("image");
-  const [image, setImage] = useState(IMAGES[0]);
+  const [image, setImage] = useState("");
   const [container, setContainer] = useState("");
   const [engineHost, setEngineHost] = useState("");
 
   // oblien
-  const [oblienImage, setOblienImage] = useState(IMAGES[0]);
+  const [oblienImage, setOblienImage] = useState("");
+  const [oblienImages, setOblienImages] = useState<OblienImage[]>([]);
+  const [loadingOblienImages, setLoadingOblienImages] = useState(false);
+  const [oblienMode, setOblienMode] = useState<"new" | "existing">("new");
   const [cpus, setCpus] = useState("");
   const [memoryMb, setMemoryMb] = useState("");
   const [workspaceId, setWorkspaceId] = useState("");
@@ -166,6 +170,20 @@ export function AddDaemonDialog({
       setProvider("remote");
   }, [providers, provider]);
 
+  // Sandboxes are typically the user's durable cloud runtime; SSH/Docker defaults remain temporary.
+  useEffect(() => {
+    setLifecycle(provider === "oblien" ? "permanent" : "temporary");
+  }, [provider]);
+
+  useEffect(() => {
+    if (!open || provider !== "oblien" || !oblienLinked) return;
+    setLoadingOblienImages(true);
+    void api.oblienImages().then((images) => {
+      setOblienImages(images);
+      setOblienImage((selected) => (images.some((item) => item.image === selected) ? selected : (images[0]?.image ?? "")));
+    }).catch((err) => toast.error(err instanceof Error ? err.message : "Could not load Oblien images.")).finally(() => setLoadingOblienImages(false));
+  }, [open, provider, oblienLinked]);
+
   function reset() {
     setLabel("");
     setAgent("");
@@ -183,16 +201,17 @@ export function AddDaemonDialog({
     setSshAgentCwd("");
     setSshDockerImage("");
     setDockerMode("image");
-    setImage(IMAGES[0]);
+    setImage("");
     setContainer("");
     setEngineHost("");
-    setOblienImage(IMAGES[0]);
+    setOblienImage("");
+    setOblienMode("new");
     setCpus("");
     setMemoryMb("");
     setWorkspaceId("");
     setClientId("");
     setClientSecret("");
-    setLifecycle("temporary");
+    setLifecycle(provider === "oblien" ? "permanent" : "temporary");
   }
 
   async function unlinkOblien() {
@@ -200,6 +219,22 @@ export function AddDaemonDialog({
       setStatus(await api.disconnectOblien());
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not unlink");
+    }
+  }
+
+  async function linkOblien() {
+    if (!clientId.trim() || !clientSecret.trim()) {
+      toast.error("Enter your Oblien Client ID and Secret.");
+      return;
+    }
+    setSaving(true);
+    try {
+      setStatus(await api.connectOblien({ clientId: clientId.trim(), clientSecret: clientSecret.trim() }));
+      toast.success("Oblien account connected");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not connect Oblien.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -292,24 +327,28 @@ export function AddDaemonDialog({
         ...base,
       };
     }
+    if (oblienMode === "existing" && !workspaceId.trim()) {
+      toast.error("Enter the Oblien workspace ID to connect.");
+      return null;
+    }
+    if (oblienMode === "new" && !oblienImage) {
+      toast.error("Choose an image from your Oblien catalog.");
+      return null;
+    }
     return {
       provider,
-      image: oblienImage.trim() || IMAGES[0],
-      ...(cpus ? { cpus: Number(cpus) } : {}),
-      ...(memoryMb ? { memoryMb: Number(memoryMb) } : {}),
-      ...(workspaceId.trim() ? { workspaceId: workspaceId.trim() } : {}),
+      ...(oblienMode === "new" && oblienImage ? { image: oblienImage } : {}),
+      ...(oblienMode === "new" && cpus ? { cpus: Number(cpus) } : {}),
+      ...(oblienMode === "new" && memoryMb ? { memoryMb: Number(memoryMb) } : {}),
+      ...(oblienMode === "existing" ? { workspaceId: workspaceId.trim() } : {}),
       lifecycle,
       ...base,
     };
   }
 
   async function submit() {
-    // Linking an Oblien account is a prerequisite for an Oblien daemon — do it inline, first.
-    const needsLink = provider === "oblien" && !oblienLinked;
-    if (needsLink && (!clientId.trim() || !clientSecret.trim())) {
-      toast.error(
-        "Enter your Oblien Client ID and Secret to link your account.",
-      );
+    if (provider === "oblien" && !oblienLinked) {
+      toast.error("Connect your Oblien account before choosing a runtime.");
       return;
     }
     const req = build();
@@ -317,15 +356,6 @@ export function AddDaemonDialog({
 
     setSaving(true);
     try {
-      if (needsLink) {
-        setStatus(
-          await api.connectOblien({
-            clientId: clientId.trim(),
-            clientSecret: clientSecret.trim(),
-          }),
-        );
-        toast.success("Oblien account linked");
-      }
       const ready = await provision.add(req);
       if (!ready) return;
       toast.success("Runtime connected and ready");
@@ -443,7 +473,7 @@ export function AddDaemonDialog({
                   >
                     Cancel
                   </Button>
-                  <Button onClick={() => void submit()} disabled={saving}>
+                  <Button onClick={() => void submit()} disabled={saving || (provider === "oblien" && !oblienLinked)}>
                     {saving ? (
                       <Loader2 className="size-4 animate-spin" />
                     ) : (
@@ -452,7 +482,9 @@ export function AddDaemonDialog({
                     {provider === "remote"
                       ? "Verify & connect"
                       : provider === "oblien"
-                        ? workspaceId.trim()
+                        ? !oblienLinked
+                          ? "Connect Oblien first"
+                          : oblienMode === "existing"
                           ? "Check & ensure runtime"
                           : "Create & ensure runtime"
                         : "Ensure runtime"}
@@ -462,24 +494,6 @@ export function AddDaemonDialog({
             </aside>
 
             <section className="min-w-0 space-y-5 lg:min-h-0 lg:overflow-y-auto lg:pr-2">
-              {provision.status === "provisioning" && (
-                <div className="border border-border bg-accent/40 p-3 text-xs">
-                  <p className="flex items-center gap-2 font-medium">
-                    <Loader2 className="size-3.5 animate-spin" />
-                    {provider === "remote" ? "Verifying runtime" : "Ensuring runtime"}
-                  </p>
-                  {provision.logs.length > 0 && (
-                    <p className="mt-1 text-muted-foreground">
-                      {provision.logs.at(-1)?.message}
-                    </p>
-                  )}
-                </div>
-              )}
-              {provision.status === "error" && provision.error && (
-                <p className="border border-destructive/50 p-3 text-xs text-destructive">
-                  {provision.error}
-                </p>
-              )}
               {provider === "docker" && !providers?.docker && (
                 <p className="text-xs text-muted-foreground">
                   Docker requires the optional{" "}
@@ -819,25 +833,55 @@ export function AddDaemonDialog({
                         Get your keys at oblien.com/dashboard
                         <ArrowUpRight className="size-3.5" />
                       </a>
+                      <Button type="button" variant="outline" className="w-full" disabled={saving} onClick={() => void linkOblien()}>
+                        {saving && <Loader2 className="size-4 animate-spin" />}
+                        Connect Oblien
+                      </Button>
                     </div>
                   )}
+                  {oblienLinked && (
+                    <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <SegButton active={oblienMode === "new"} onClick={() => setOblienMode("new")}>
+                      Deploy new
+                    </SegButton>
+                    <SegButton active={oblienMode === "existing"} onClick={() => setOblienMode("existing")}>
+                      Connect existing
+                    </SegButton>
+                  </div>
+                  {oblienMode === "existing" ? (
+                    <Field
+                      label="Oblien workspace ID"
+                      htmlFor="ob-ws"
+                      hint="MindWire verifies access, checks the runtime, and only provisions it if the workspace is not already healthy."
+                    >
+                      <Input
+                        id="ob-ws"
+                        placeholder="ws_…"
+                        value={workspaceId}
+                        onChange={(e) => setWorkspaceId(e.target.value)}
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </Field>
+                  ) : (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field label="Image" htmlFor="ob-image">
-                      <Select
-                        value={oblienImage}
-                        onValueChange={setOblienImage}
-                      >
-                        <SelectTrigger id="ob-image">
-                          <SelectValue />
+                        <Select value={oblienImage} onValueChange={setOblienImage} disabled={loadingOblienImages || oblienImages.length === 0}>
+                          <SelectTrigger id="ob-image">
+                            <SelectValue placeholder={loadingOblienImages ? "Loading your Oblien images…" : "No images available"} />
                         </SelectTrigger>
                         <SelectContent>
-                          {IMAGES.map((img) => (
-                            <SelectItem key={img} value={img}>
-                              {img}
+                          {oblienImages.map((item) => (
+                            <SelectItem key={item.image} value={item.image}>
+                              {item.name}
                             </SelectItem>
                           ))}
-                        </SelectContent>
-                      </Select>
+                          </SelectContent>
+                        </Select>
+                        {!loadingOblienImages && oblienImages.length === 0 && (
+                          <p className="text-xs text-muted-foreground">No images are available to this Oblien account.</p>
+                        )}
                     </Field>
                     <div className="sm:col-span-1">
                       <LifecycleSelect
@@ -868,20 +912,9 @@ export function AddDaemonDialog({
                       />
                     </Field>
                   </div>
-                  <Field
-                    label="Reuse workspace id (optional)"
-                    htmlFor="ob-ws"
-                    hint="Attach to an existing workspace instead of creating one."
-                  >
-                    <Input
-                      id="ob-ws"
-                      placeholder="ws_…"
-                      value={workspaceId}
-                      onChange={(e) => setWorkspaceId(e.target.value)}
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                  </Field>
+                  )}
+                    </>
+                  )}
                 </div>
               )}
 
@@ -911,12 +944,82 @@ export function AddDaemonDialog({
                   />
                 </Field>
               </div>
+              {provision.status === "provisioning" && (
+                <ProvisionProgress
+                  provider={provider}
+                  phase={provision.logs.at(-1)?.phase}
+                  message={provision.logs.at(-1)?.message}
+                />
+              )}
+              {provision.status === "error" && provision.error && (
+                <div className="sticky bottom-0 z-10 -mx-1 border-t border-border bg-background/95 px-1 pt-3 backdrop-blur">
+                  <p
+                    className="border border-destructive/50 bg-destructive/5 p-3 text-xs leading-relaxed text-destructive"
+                    role="alert"
+                  >
+                    {provision.error}
+                  </p>
+                </div>
+              )}
             </section>
           </div>
         </div>
       </DialogContent>
     </Dialog>
   );
+}
+
+function ProvisionProgress({
+  provider,
+  phase,
+  message,
+}: {
+  provider: DaemonProvider;
+  phase?: EnsureEvent["phase"];
+  message?: string;
+}) {
+  const percent = progressPercent(phase);
+  return (
+    <div
+      className="sticky bottom-0 z-10 -mx-1 border-t border-border bg-background/95 px-1 pt-3 backdrop-blur"
+      aria-live="polite"
+    >
+      <div className="border border-border bg-accent/40 p-3 text-xs">
+        <p className="flex items-center gap-2 font-medium">
+          <Loader2 className="size-3.5 animate-spin" />
+          {provider === "remote" ? "Verifying runtime" : "Preparing runtime"}
+          <span className="ml-auto tabular-nums text-muted-foreground">{percent}%</span>
+        </p>
+        <div
+          className="mt-2 h-1.5 overflow-hidden bg-border"
+          role="progressbar"
+          aria-label="Runtime provisioning progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+        >
+          <div className="h-full bg-foreground transition-[width] duration-300" style={{ width: `${percent}%` }} />
+        </div>
+        <p className="mt-2 text-muted-foreground">{message ?? "Contacting runtime…"}</p>
+      </div>
+    </div>
+  );
+}
+
+function progressPercent(phase?: EnsureEvent["phase"]): number {
+  switch (phase) {
+    case "connect": return 10;
+    case "install": return 18;
+    case "provision": return 28;
+    case "pull": return 38;
+    case "probe": return 48;
+    case "download": return 62;
+    case "upload": return 74;
+    case "launch": return 88;
+    case "ready":
+    case "skip": return 100;
+    default: return 5;
+  }
 }
 
 function Field({

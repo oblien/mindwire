@@ -180,7 +180,7 @@ function fakeOblien(cfg: { health?: string; proxyStatuses?: number[] } = {}) {
     runtimeForce: [] as boolean[],
     exec: [] as string[],
     write: [] as { fullPath: string; content: string; createDirs?: boolean }[],
-    proxy: [] as { port: number; path: string }[],
+    proxy: [] as { port: number; path: string; headers: Headers }[],
   };
 
   const makeRuntime = () => ({
@@ -201,8 +201,8 @@ function fakeOblien(cfg: { health?: string; proxyStatuses?: number[] } = {}) {
       },
     },
     proxy: (port: number) => ({
-      fetch: async (path: string, _init?: RequestInit) => {
-        calls.proxy.push({ port, path });
+      fetch: async (path: string, init?: RequestInit) => {
+        calls.proxy.push({ port, path, headers: new Headers(init?.headers) });
         const status = proxyStatuses[Math.min(proxyCall, proxyStatuses.length - 1)] ?? 200;
         proxyCall += 1;
         return status === 200 ? Response.json({ ok: true }) : new Response("no", { status });
@@ -263,7 +263,12 @@ test("provisionOblien: the handle's fetch strips the sentinel host and routes pa
   const res = await d.fetch!("http://mindwire-sandbox.local/healthz?agent=claude-code", { method: "GET" });
   expect(res.ok).toBe(true);
   expect(calls.proxy.length).toBe(1);
-  expect(calls.proxy[0]).toEqual({ port: 8790, path: "/healthz?agent=claude-code" });
+  expect(calls.proxy[0]?.port).toBe(8790);
+  expect(calls.proxy[0]?.path).toBe("/healthz?agent=claude-code");
+  // Oblien's proxy replaces Authorization with its gateway JWT. The daemon token must use the
+  // dedicated forwarded header or every protected in-workspace request returns 401.
+  expect(calls.proxy[0]?.headers.get("X-Mindwire-Token")).toBe(d.token);
+  expect(calls.proxy[0]?.headers.has("Authorization")).toBe(false);
 });
 
 test("provisionOblien: a 401 from the proxy re-acquires the runtime ({ force: true }) and retries once", async () => {

@@ -12,6 +12,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-mindwire}
       POSTGRES_USER: ${POSTGRES_USER:-mindwire}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Separate 32-byte base64url/hex key for the encrypted user credential vault.
+      SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

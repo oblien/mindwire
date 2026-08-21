@@ -1,18 +1,18 @@
-// Per-user console state. This is the ONLY place Oblien credentials and daemon tokens live: held in
-// process memory keyed by the authenticated **user id** (from Better Auth — see auth.ts), so each user's
-// fleet, Oblien link, and usage are fully isolated from every other user's. Creds never serialize into
-// any client payload.
+// Per-user console state. Runtime state is cached in process memory for live SDK clients, while
+// credentials are persisted encrypted in `secrets.ts` and hydrated only on the server. Nothing below
+// serializes a credential into a client payload.
 //
 // A session owns a *fleet* of daemons, each a runtime target (remote / docker / oblien / ssh / local)
 // the SDK layer turns into one `Mindwire` client. One daemon is "active" at a time; turns and config
 // target it. Oblien is one provider among several: its keys are linked on demand (see `connectOblien`)
-// only when you add an Oblien daemon, and they're kept here for the session's life.
+// only when you add an Oblien daemon, and their encrypted source of truth is the vault.
 //
-// This module is pure state + browser-safe projections; the SDK client cache lives in mindwire.ts.
-// The user identity is durable (SQLite, via Better Auth); this fleet state is in-memory (a restart
-// re-seeds a user's default runtime). The seam is deliberate so a hosted store (Redis) can drop in.
+// This module is state + browser-safe projections; the SDK client cache lives in mindwire.ts. User
+// identity and fleet configuration are durable (the fleet is an encrypted vault record); only live
+// clients and usage counters are in-memory caches.
 import { randomUUID } from "node:crypto";
 import { env } from "./env";
+import { getSecret, putSecret, FLEET_CONFIG_SECRET, OBLIEN_CLIENT_ID_SECRET, OBLIEN_CLIENT_SECRET_SECRET } from "./secrets";
 import type {
   AddDaemonRequest,
   AgentUsage,
@@ -108,6 +108,8 @@ export interface Session {
    * browser-safe roll-up via `GET /api/usage`. Ephemeral like everything else here — cleared on restart.
    */
   usage: Map<string, AgentUsage>;
+  /** Prevents rehydrating the encrypted fleet on every authenticated request. */
+  secretsHydrated?: boolean;
 }
 
 const sessions = new Map<string, Session>();
@@ -178,6 +180,51 @@ export function getSession(id: string): Session | undefined {
 /** The signed-in user's console session, minting (and seeding) one on first access this run. */
 export function getOrCreateSession(userId: string): Session {
   return sessions.get(userId) ?? createSession(userId);
+}
+
+/** Restore the linked Oblien credential from the encrypted vault after a Console restart. */
+export async function hydrateSessionSecrets(session: Session): Promise<void> {
+  if (session.secretsHydrated) return;
+  const [clientId, clientSecret] = await Promise.all([
+    getSecret(session.id, OBLIEN_CLIENT_ID_SECRET),
+    getSecret(session.id, OBLIEN_CLIENT_SECRET_SECRET),
+  ]);
+  if (clientId && clientSecret) connectOblien(session, { clientId, clientSecret });
+  const savedFleet = await getSecret(session.id, FLEET_CONFIG_SECRET);
+  if (savedFleet) {
+    try {
+      const parsed = JSON.parse(savedFleet) as { daemons?: DaemonRecord[]; activeDaemonId?: string };
+      if (Array.isArray(parsed.daemons)) {
+        session.daemons = parsed.daemons;
+        session.activeDaemonId = typeof parsed.activeDaemonId === "string" ? parsed.activeDaemonId : parsed.daemons[0]?.id ?? "";
+      }
+    } catch {
+      // A corrupted payload is deliberately ignored rather than making a user unable to sign in.
+    }
+  }
+  // Root `bun dev` and `bun dev:console` share one private local token file. Refresh only the
+  // automatically seeded local runtime so a previously persisted development session cannot keep a
+  // stale random token; never rewrite a user-added remote runtime.
+  if (!env.isProd && env.daemonToken) {
+    for (const daemon of session.daemons) {
+      if (
+        daemon.label === "Local runtime" &&
+        daemon.runtime.provider === "remote" &&
+        daemon.runtime.daemonUrl === env.daemonUrl
+      ) {
+        daemon.runtime.token = env.daemonToken;
+      }
+    }
+  }
+  session.secretsHydrated = true;
+}
+
+/** Persist the fleet as one encrypted record. Runtime tokens and SSH credentials never reach a plaintext DB column. */
+export async function persistSessionFleet(session: Session): Promise<void> {
+  await putSecret(session.id, FLEET_CONFIG_SECRET, "runtime-config", JSON.stringify({
+    daemons: session.daemons,
+    activeDaemonId: session.activeDaemonId,
+  }));
 }
 
 export function destroySession(id: string): void {

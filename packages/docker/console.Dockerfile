@@ -4,9 +4,8 @@
 #
 # This is a Vite SPA (dist/) plus a Hono/Node server (dist-server/) that drives the mindwire SDK on behalf
 # of each signed-in user. It runs as ONE Node process (`node dist-server/index.js`) and needs:
-#   - Node >= 22            — Better Auth persists to the `node:sqlite` builtin (kept verbatim by tsup;
-#                             see apps/console/tsup.config.ts). The app's own `start` script runs flagless,
-#                             so we match it exactly.
+#   - Node >= 22            — Better Auth and Drizzle use the stable `better-sqlite3` driver for the
+#                             self-host SQLite fallback. The app's own `start` script runs flagless.
 #   - a persistent volume   — for AUTH_DB_PATH (the user/session SQLite), so accounts survive restarts.
 #   - the tsup-externalized runtime deps resolvable in node_modules: `mindwire` (the workspace SDK, linked)
 #     plus `oblien`/`dockerode`/`ssh2`. We keep bun's install layout intact so those resolve unchanged.
@@ -62,12 +61,13 @@ COPY --from=builder /app/apps/console/package.json ./apps/console/package.json
 COPY --from=builder /app/apps/console/node_modules ./apps/console/node_modules
 COPY --from=builder /app/apps/console/dist ./apps/console/dist
 COPY --from=builder /app/apps/console/dist-server ./apps/console/dist-server
+COPY --from=builder /app/apps/console/drizzle ./apps/console/drizzle
 
 # `mindwire` resolves optional peers from packages/sdk, while Bun installs the Console's direct peers
 # beneath apps/console. Put resolver-visible links at /app/node_modules so all shipped targets work:
 # Oblien sandboxes, SSH hosts, and Docker engines. Do this after copying the Console workspace because
 # the links point at Bun's content-addressed store already copied under the root node_modules.
-RUN for pkg in oblien ssh2 dockerode; do \
+RUN for pkg in oblien ssh2 dockerode better-sqlite3; do \
       if [ ! -e "node_modules/$pkg" ]; then \
         target="$(readlink -f "apps/console/node_modules/$pkg")"; \
         ln -s "${target#/app/node_modules/}" "node_modules/$pkg"; \
@@ -86,5 +86,5 @@ EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/api/ping').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# Matches the app's own `start` script exactly (flagless node — node:sqlite is available on Node 22).
+# Matches the app's own `start` script exactly.
 CMD ["node", "apps/console/dist-server/index.js"]

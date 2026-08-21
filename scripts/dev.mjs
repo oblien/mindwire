@@ -16,9 +16,10 @@
 //
 // Env overrides: ADDR=host:port (default 127.0.0.1:8790), AGENT_TYPE=<id> (default opencode — the
 // daemon's fallback agent when a request omits ?agent=; the console's picker overrides it per call).
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -29,9 +30,39 @@ if (targets.length === 0) targets.push("daemon", "console");
 
 const addr = process.env.ADDR || "127.0.0.1:8790";
 const daemonUrl = `http://${addr.replace(/^0\.0\.0\.0/, "127.0.0.1")}`;
-// One dev command owns both processes, so mint one ephemeral bearer and give each side the matching
-// name. Nothing is written to disk; production/self-host uses MINDWIRE_RUNTIME_TOKEN instead.
-const runtimeToken = process.env.MINDWIRE_RUNTIME_TOKEN || process.env.DAEMON_TOKEN || randomBytes(32).toString("hex");
+// One development checkout owns both processes. Persist a private token locally so restarting either
+// process cannot leave the Console's encrypted seeded-runtime record holding yesterday's random value.
+// Production/self-host always supplies MINDWIRE_RUNTIME_TOKEN explicitly.
+function devRuntimeToken(repoRoot) {
+  const configured = process.env.MINDWIRE_RUNTIME_TOKEN || process.env.DAEMON_TOKEN;
+  if (configured) return configured;
+  const tokenFile = join(repoRoot, ".mindwire-dev-token");
+  if (existsSync(tokenFile)) return readFileSync(tokenFile, "utf8").trim();
+  const token = randomBytes(32).toString("hex");
+  writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 });
+  return token;
+}
+const runtimeToken = devRuntimeToken(root);
+
+// A released SDK must fetch the matching, checksum-verified daemon from GitHub. Local development is
+// intentionally different: the source tree may have daemon changes without a version bump, so build
+// both Linux variants from this checkout and force-upload the matching one when an Oblien runtime is
+// provisioned. The `{arch}` placeholder is resolved only after the workspace reports its CPU.
+function buildDevDaemons() {
+  const out = join(daemonDir, ".dev");
+  mkdirSync(out, { recursive: true });
+  for (const arch of ["amd64", "arm64"]) {
+    const bin = join(out, `mindwired-linux-${arch}`);
+    console.log(`[dev] building Oblien daemon → ${bin}`);
+    execFileSync("go", ["build", "-trimpath", "-o", bin, "./cmd/daemon"], {
+      cwd: daemonDir,
+      stdio: "inherit",
+      env: { ...process.env, GOOS: "linux", GOARCH: arch, CGO_ENABLED: "0" },
+    });
+  }
+  return join(out, "mindwired-linux-{arch}");
+}
+const devDaemonBin = targets.includes("console") ? buildDevDaemons() : undefined;
 
 const procs = [];
 let shuttingDown = false;
@@ -75,7 +106,12 @@ if (targets.includes("console")) {
 	console.log(`[dev] console → http://127.0.0.1:5174   ← open this   (default runtime: the daemon at ${daemonUrl})`);
 	run("console", "bun", ["--filter=@mindwire/console", "run", "dev"], {
     cwd: root,
-    env: { ...process.env, DAEMON_URL: daemonUrl, MINDWIRE_RUNTIME_TOKEN: runtimeToken },
+    env: {
+      ...process.env,
+      DAEMON_URL: daemonUrl,
+      MINDWIRE_RUNTIME_TOKEN: runtimeToken,
+      ...(devDaemonBin ? { MINDWIRE_DEV_DAEMON_BIN: devDaemonBin } : {}),
+    },
   });
 }
 if (targets.includes("web")) {

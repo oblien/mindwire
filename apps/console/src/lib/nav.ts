@@ -7,6 +7,7 @@ import {
   Gauge,
   Bell,
   KeyRound,
+  LockKeyhole,
   Settings2,
   Cpu,
   Plug,
@@ -25,6 +26,7 @@ export type ViewKey =
   | "notifications"
   | "capabilities"
   | "auth"
+  | "secrets"
   | "settings"
   | "models"
   | "providers"
@@ -57,6 +59,7 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
   { key: "fleet", label: "Console", icon: Gauge, group: "Deployment" },
+  { key: "secrets", label: "Secrets", icon: LockKeyhole, group: "Deployment" },
   // Daemon-WIDE notification routing (channels + rules). No capability gate — it's a property of the
   // runtime, not the adapter. `agentScoped` shows the context switcher so the user sees which runtime
   // they're configuring and agent-scoped rules can default to the selected adapter.

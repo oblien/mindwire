@@ -157,6 +157,7 @@ function buildTarget(session: Session, record: DaemonRecord): Target {
     mode: r.lifecycle,
     stopOnExit: r.lifecycle === "temporary",
     agent: record.agent,
+    ...(env.devDaemonBin ? { daemonBin: env.devDaemonBin, forceDeploy: true } : {}),
     ...(r.workspaceId ? { workspaceId: r.workspaceId } : {}),
   });
   return capturing(inner, (h) => {
@@ -183,6 +184,10 @@ export function mwForDaemon(session: Session, record: DaemonRecord): Mindwire {
     mw: new Mindwire({
       agent: record.agent,
       target: buildTarget(session, record),
+      // The Console is an interactive control plane. A runtime probe must fail promptly so its card
+      // can show an actionable offline/auth error instead of leaving the UI "Inspecting" for the SDK's
+      // general-purpose two-minute default. Streaming turns are intentionally unaffected.
+      requestTimeoutMs: 12_000,
       logger: (e) => clients.get(id)?.sink(e),
     }),
   };

@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -148,6 +149,22 @@ func acpCommand(in agent.TurnInput) []string {
 	return append(args, "stdio")
 }
 
+// ACP requires an absolute workspace path. The daemon deliberately permits AGENT_CWD to be empty
+// (then a turn inherits the daemon process directory), but passing that through as "." is rejected by
+// Grok Build with `session/new: Invalid params`. Normalize once at the ACP boundary so new, loaded, and
+// resumed sessions all identify the same native workspace.
+func acpCWD(in agent.TurnInput) (string, error) {
+	cwd := strings.TrimSpace(in.CWD)
+	if cwd == "" {
+		cwd = "."
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", fmt.Errorf("resolve Grok Build workspace: %w", err)
+	}
+	return filepath.Clean(abs), nil
+}
+
 func runACP(ctx context.Context, in agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
 	if err := validateACPInput(in); err != nil {
 		return agent.TurnResult{SessionID: agent.FirstNonEmpty(in.Options.SessionID, in.SessionID), Text: err.Error(), IsError: true}, err
@@ -204,6 +221,10 @@ func acpRun(ctx context.Context, c *acpClient, in agent.TurnInput, emit agent.Em
 	if err := validateACPInput(in); err != nil {
 		return agent.TurnResult{SessionID: agent.FirstNonEmpty(in.Options.SessionID, in.SessionID)}, err
 	}
+	cwd, err := acpCWD(in)
+	if err != nil {
+		return agent.TurnResult{}, err
+	}
 	sessionID := agent.FirstNonEmpty(strings.TrimSpace(in.Options.SessionID), strings.TrimSpace(in.SessionID))
 	initRaw, err := c.requestTo(ctx, "initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{"fs": map[string]bool{"readTextFile": false, "writeTextFile": false}, "terminal": false}})
 	if err != nil {
@@ -233,7 +254,7 @@ func acpRun(ctx context.Context, c *acpClient, in agent.TurnInput, emit agent.Em
 	}
 
 	if in.Options.ContinueLatest {
-		raw, err := c.requestTo(ctx, "session/resume", map[string]any{"cwd": agent.FirstNonEmpty(in.CWD, ".")})
+		raw, err := c.requestTo(ctx, "session/resume", map[string]any{"cwd": cwd})
 		if err != nil {
 			return agent.TurnResult{}, err
 		}
@@ -246,7 +267,9 @@ func acpRun(ctx context.Context, c *acpClient, in agent.TurnInput, emit agent.Em
 			return agent.TurnResult{}, fmt.Errorf("grok ACP session/resume returned no sessionId")
 		}
 	} else if sessionID != "" {
-		if _, err := c.requestTo(ctx, "session/load", map[string]any{"sessionId": sessionID}); err != nil {
+		// Grok's ACP load request has the same workspace + MCP fields as session/new. Supplying the
+		// complete shape keeps reconnects valid on current Grok Build releases.
+		if _, err := c.requestTo(ctx, "session/load", map[string]any{"sessionId": sessionID, "cwd": cwd, "mcpServers": json.RawMessage(`[]`)}); err != nil {
 			return agent.TurnResult{SessionID: sessionID}, err
 		}
 	} else {
@@ -262,7 +285,7 @@ func acpRun(ctx context.Context, c *acpClient, in agent.TurnInput, emit agent.Em
 		} else {
 			meta["yoloMode"] = true
 		}
-		params := map[string]any{"cwd": agent.FirstNonEmpty(in.CWD, "."), "mcpServers": json.RawMessage(`[]`), "_meta": meta}
+		params := map[string]any{"cwd": cwd, "mcpServers": json.RawMessage(`[]`), "_meta": meta}
 		if len(in.Options.MCPServers) > 0 {
 			params["mcpServers"] = in.Options.MCPServers
 		}

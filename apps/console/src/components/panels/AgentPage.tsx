@@ -8,7 +8,7 @@
 // Data is path-scoped: `api.daemonAgent(id, agentId)` reads this specific (daemon, agent) pair without
 // touching the active context, so browsing agents never retargets the chat. Making it the active context
 // is an explicit action ("Use this agent"), mirroring the fleet-wide Agents roster.
-import { useCallback, useEffect, type ComponentType, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import {
   Activity,
@@ -41,7 +41,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ErrorNote, SURFACE_HEADER } from "@/components/common/Panel";
 import { toast } from "@/components/ui/sonner";
-import type { AgentInfo, Capabilities, NotifyRule } from "@shared/api";
+import type { AgentInfo, Capabilities, NotifyRule, SetupStatus } from "@shared/api";
 
 // Capability flags grouped for display — the same matrix the Capabilities panel shows, rendered inline
 // here so the per-agent view is self-contained (it doesn't depend on this agent being the active one).
@@ -112,6 +112,34 @@ export function AgentPage() {
   const isDefault = daemon?.agent === agentId;
   const isActiveContext =
     activeDaemon?.id === id && (activeAgentId ? activeAgentId === agentId : isDefault);
+  const [setup, setSetup] = useState<SetupStatus | null>(null);
+
+  // The daemon owns installation and exposes an atomic, pollable job. Keep the browser a passive
+  // observer: it gets status/step names only, never shell commands or installer credentials.
+  useEffect(() => {
+    if (daemon?.state !== "ready") return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const next = await api.daemonAgentSetupStatus(id, agentId);
+        if (cancelled) return;
+        setSetup(next);
+        if (next.running) {
+          timer = setTimeout(() => void poll(), 900);
+        } else if (next.started && next.ok) {
+          infoQ.reload();
+        }
+      } catch {
+        // The normal agent inspection reports a more useful runtime error; do not replace it here.
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [daemon?.state, id, agentId, infoQ.reload, setup?.running]);
 
   // Hooks all above this guard so the not-found fallback never changes hook order.
   if (!daemon) {
@@ -164,6 +192,15 @@ export function AgentPage() {
     }
   }
 
+  async function installAgent() {
+    try {
+      setSetup(await api.daemonAgentSetup(id, agentId));
+      toast.success(`Installing ${displayName}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not start installation");
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <AgentHeader onBack={backToRuntime} backLabel={daemon.label}>
@@ -182,6 +219,12 @@ export function AgentPage() {
           </p>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2">
+          {!info?.installedVersion && (
+            <Button size="sm" onClick={() => void installAgent()} disabled={setup?.running}>
+              {setup?.running && <Loader2 className="size-3.5 animate-spin" />}
+              {setup?.running ? "Installing" : "Install"}
+            </Button>
+          )}
           {isActiveContext ? (
             <Badge>in use</Badge>
           ) : (
@@ -223,6 +266,31 @@ export function AgentPage() {
                 : "No turns recorded for this agent yet. Numbers fill in as it runs."}
             </p>
           </Section>
+
+          {!info?.installedVersion && (
+            <Section title="Install agent" icon={Bot}>
+              <p className="text-xs text-muted-foreground">
+                {setup?.running
+                  ? `Installing ${setup.current || displayName}…`
+                  : "This harness is available on this runtime but its CLI is not installed yet."}
+              </p>
+              <div className="mt-3 h-1.5 overflow-hidden bg-border" role="progressbar" aria-label="Agent installation progress">
+                <div
+                  className="h-full bg-foreground transition-[width] duration-300"
+                  style={{ width: `${setupProgress(setup)}%` }}
+                />
+              </div>
+              {setup?.steps.length ? (
+                <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                  {setup.steps.map((step) => <p key={step.name}>{step.name} · {step.status}</p>)}
+                </div>
+              ) : null}
+              <Button className="mt-4" size="sm" onClick={() => void installAgent()} disabled={setup?.running}>
+                {setup?.running && <Loader2 className="size-3.5 animate-spin" />}
+                {setup?.running ? "Installing…" : "Install"}
+              </Button>
+            </Section>
+          )}
 
           <div className="grid gap-4 lg:grid-cols-2">
             {/* identity */}
@@ -619,6 +687,14 @@ function Reading() {
       Reading…
     </div>
   );
+}
+
+function setupProgress(status: SetupStatus | null): number {
+  if (!status?.started) return 0;
+  if (!status.running) return status.ok ? 100 : 0;
+  // Step counts are dynamic per harness. Reserve the final fifth for the in-flight command so the
+  // indicator never claims completion while npm/curl is still running.
+  return Math.min(90, 15 + status.steps.length * 25);
 }
 
 // The agent-scoped view of notification routing: the daemon's rules, filtered to those that target this

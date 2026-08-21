@@ -3,7 +3,7 @@
 // running chats), its per-agent token/cost accounting, provisioning logs, and the full lifecycle
 // controls (activate / spin up / stop / duplicate / remove). A back link returns to the Console; if the
 // daemon is removed (here or elsewhere) the page falls back to a not-found state.
-import { useCallback, type ComponentType, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -42,8 +42,18 @@ import type {
   DaemonState,
   DaemonView,
   EnsureEvent,
+  SetupStatus,
   Stats,
 } from "@shared/api";
+
+// The Console owns this presentation catalog so an installable harness is never hidden merely because
+// its CLI is absent. The daemon inspection enriches these rows with live version/auth state.
+const KNOWN_AGENTS: AgentSummary[] = [
+  { id: "claude-code", name: "Claude Code", tagline: "Anthropic's coding agent", configured: false, authConfigured: false },
+  { id: "codex", name: "Codex", tagline: "OpenAI's coding agent", configured: false, authConfigured: false },
+  { id: "grok", name: "Grok Build", tagline: "xAI's coding agent", configured: false, authConfigured: false },
+  { id: "opencode", name: "opencode", tagline: "Open-source coding agent", configured: false, authConfigured: false },
+];
 
 export function DaemonPage() {
   const navigate = useNavigate();
@@ -84,6 +94,48 @@ export function DaemonPage() {
     [id, daemon?.state],
   );
 
+  // Installation is a daemon-owned job, not a page-local button click. Read its status again whenever
+  // this runtime page mounts (for example after navigating back from an agent page), and poll only
+  // while a job is active. That keeps the roster truthful and prevents a second install request from
+  // racing an install already in progress.
+  const [setupByAgent, setSetupByAgent] = useState<Partial<Record<string, SetupStatus>>>({});
+  useEffect(() => {
+    if (daemon?.state !== "ready") {
+      setSetupByAgent({});
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      const entries = await Promise.all(
+        KNOWN_AGENTS.map(async ({ id: agentId }) => {
+          try {
+            return [agentId, await api.daemonAgentSetupStatus(id, agentId)] as const;
+          } catch {
+            // A daemon that does not expose setup for an adapter still has its inspection row. Do not
+            // let one unsupported status endpoint hide the rest of the roster.
+            return [agentId, undefined] as const;
+          }
+        }),
+      );
+      if (cancelled) return;
+      const next = Object.fromEntries(entries.filter(([, status]) => status)) as Partial<Record<string, SetupStatus>>;
+      setSetupByAgent(next);
+      if (Object.values(next).some((status) => status?.running)) {
+        timer = setTimeout(() => void poll(), 900);
+      } else if (Object.values(next).some((status) => status?.started && status.ok)) {
+        // The install just completed (or completed while this page was away). Refresh the daemon's
+        // inspection so the installed version replaces this transient status.
+        insp.reload();
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [daemon?.state, id, insp.reload]);
+
   // Resource usage auto-loads the first time the daemon page opens on a ready daemon (client-side, keyed
   // on the daemon + its state) and then only re-reads when you hit refresh — still never polled, so the
   // daemon does the work when someone's looking, not on a timer. A failure surfaces inline (e.g. a daemon
@@ -96,6 +148,16 @@ export function DaemonPage() {
   // Per-agent spend for this runtime — an agent-level fact that rides on each roster row below.
   const usageFor = (agentId: string): AgentUsage | undefined =>
     usage?.agents.find((u) => u.daemonId === id && u.agent === agentId);
+
+  async function installAgent(agentId: string) {
+    try {
+      await api.daemonAgentSetup(id, agentId);
+      navigate(`/daemons/${id}/agents/${agentId}`);
+      toast.success(`Installing ${KNOWN_AGENTS.find((a) => a.id === agentId)?.name ?? agentId}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not start installation");
+    }
+  }
 
   // Hooks are all above this guard so the not-found fallback never changes hook order.
   if (!daemon) {
@@ -301,11 +363,13 @@ export function DaemonPage() {
                 <AgentRoster
                   inspection={insp.data}
                   loading={insp.loading}
+                  setupByAgent={setupByAgent}
                   usageFor={usageFor}
                   isInUse={(agentId, isDefault) =>
                     isActive && (activeAgentId ? activeAgentId === agentId : isDefault)
                   }
                   onOpen={(agentId) => navigate(`/daemons/${id}/agents/${agentId}`)}
+                  onInstall={(agentId) => void installAgent(agentId)}
                 />
               </Section>
             )}
@@ -548,19 +612,23 @@ function LocationDetails({ daemon }: { daemon: DaemonView }) {
 
 // ---- deployed-agents roster (lives on the runtime page) --------------------
 
-/** The runtime's DEPLOYED agents — installed only, each row opens that agent and carries its spend. */
+/** Every supported harness, merged with the runtime's live installation/auth inspection. */
 function AgentRoster({
   inspection,
   loading,
+  setupByAgent,
   usageFor,
   isInUse,
   onOpen,
+  onInstall,
 }: {
   inspection: DaemonInspection | null;
   loading: boolean;
+  setupByAgent: Partial<Record<string, SetupStatus>>;
   usageFor: (agentId: string) => AgentUsage | undefined;
   isInUse: (agentId: string, isDefault: boolean) => boolean;
   onOpen: (agentId: string) => void;
+  onInstall: (agentId: string) => void;
 }) {
   if (loading && !inspection) {
     return (
@@ -577,38 +645,27 @@ function AgentRoster({
   }
 
   const reported = inspection.agents ?? [];
-  const installed = reported.filter((a) => !!a.installedVersion);
-  const hidden = reported.length - installed.length;
+  const byID = new Map(reported.map((agent) => [agent.id, agent]));
+  const agents = [
+    ...KNOWN_AGENTS.map((agent) => byID.get(agent.id) ?? agent),
+    ...reported.filter((agent) => !KNOWN_AGENTS.some((known) => known.id === agent.id)),
+  ];
   const defaultAgent = inspection.defaultAgent;
-
-  if (installed.length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        No agents deployed here yet
-        {reported.length > 0
-          ? ` — ${reported.length} adapter${reported.length === 1 ? "" : "s"} authenticated but not installed.`
-          : "."}
-      </p>
-    );
-  }
 
   return (
     <div className="-mx-4 -mb-4 divide-y divide-border border-t border-border">
-      {installed.map((agent) => (
+      {agents.map((agent) => (
         <AgentRow
           key={agent.id}
           agent={agent}
+          setup={setupByAgent[agent.id]}
           isDefault={defaultAgent === agent.id}
           active={isInUse(agent.id, defaultAgent === agent.id)}
           usage={usageFor(agent.id)}
           onOpen={() => onOpen(agent.id)}
+          onInstall={() => onInstall(agent.id)}
         />
       ))}
-      {hidden > 0 && (
-        <p className="px-4 py-2 text-[11px] text-muted-foreground">
-          {hidden} more authenticated but not installed — hidden until deployed.
-        </p>
-      )}
     </div>
   );
 }
@@ -616,25 +673,32 @@ function AgentRoster({
 /** One deployed agent — the whole row opens its overview (no context switch, no second action). */
 function AgentRow({
   agent,
+  setup,
   isDefault,
   active,
   usage,
   onOpen,
+  onInstall,
 }: {
   agent: AgentSummary;
+  setup?: SetupStatus;
   isDefault: boolean;
   active: boolean;
   usage?: AgentUsage;
   onOpen: () => void;
+  onInstall: () => void;
 }) {
   const tokens = usage ? totalTokens(usage.usage) : 0;
+  const installing = setup?.running ?? false;
+  const installFailed = !!setup?.started && !setup.running && !setup.ok;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-label={`Open ${agent.name} overview`}
-      className="group flex w-full items-center gap-4 px-4 py-3.5 text-left transition-colors hover:bg-ink/2"
-    >
+    <div className={cn("group flex w-full items-center gap-3 px-4 py-3.5 transition-colors hover:bg-ink/2", !agent.installedVersion && "bg-muted/20")}>
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Open ${agent.name} overview`}
+        className="flex min-w-0 flex-1 items-center gap-4 text-left"
+      >
       <span className="flex size-9 shrink-0 items-center justify-center border border-border">
         <AgentIcon agentId={agent.id} className="size-4" />
       </span>
@@ -645,6 +709,7 @@ function AgentRow({
           <span className="font-mono text-xs text-muted-foreground">{agent.id}</span>
           {isDefault && <Badge variant="muted">default</Badge>}
           {active && <Badge>in use</Badge>}
+          {installing && <Badge variant="muted">installing</Badge>}
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span
@@ -662,6 +727,7 @@ function AgentRow({
           </span>
           <span>{agent.configured ? "configured" : "not configured"}</span>
           {agent.installedVersion && <span className="font-mono">v{agent.installedVersion}</span>}
+          {installing && <span>{setup?.current ?? "preparing install"}</span>}
         </div>
       </div>
 
@@ -672,8 +738,15 @@ function AgentRow({
         <SpendMetric value={usd(usage?.costUsd)} label="cost" />
       </div>
 
-      <ArrowUpRight className="size-4 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-foreground" />
-    </button>
+        <ArrowUpRight className="size-4 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-foreground" />
+      </button>
+      {!agent.installedVersion && (
+        <Button size="sm" variant="outline" onClick={onInstall} disabled={installing}>
+          {installing && <Loader2 className="size-3.5 animate-spin" />}
+          {installing ? "Installing" : installFailed ? "Retry install" : "Install"}
+        </Button>
+      )}
+    </div>
   );
 }
 

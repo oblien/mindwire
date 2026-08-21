@@ -88,6 +88,13 @@ test("ensureDaemon: a stale daemon is redeployed when autoUpdate is on", async (
   expect(puts.length).toBe(1); // version drift + opt-in ⇒ redeploy
 });
 
+test("ensureDaemon: a development forceDeploy replaces a healthy version match", async () => {
+  const { host, puts } = fakeHost({ health: '{"ok":true,"version":"1.2.3"}' });
+  await ensureDaemon(host, cfg({ forceDeploy: true, daemonBin: tempBin() }));
+
+  expect(puts.length).toBe(1);
+});
+
 test("ensureDaemon: a stale daemon is left alone when autoUpdate is off", async () => {
   const { host, execs, puts } = fakeHost({ health: '{"ok":true,"version":"0.0.1"}' });
   await ensureDaemon(host, cfg({ autoUpdate: false }));
