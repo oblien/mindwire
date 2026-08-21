@@ -13,7 +13,7 @@ import (
 
 // Version identifies this daemon binary's agent definitions. The app caches the
 // fetched schema/catalog keyed by this, and refreshes when it changes.
-const Version = "0.1.2"
+const Version = "0.1.3"
 
 // TurnInput is one chat turn's parameters.
 type TurnInput struct {
