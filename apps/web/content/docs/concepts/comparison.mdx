@@ -1,0 +1,180 @@
+---
+title: Comparison
+description: Where mindwire sits next to the other ways to drive a coding agent from your product — per-CLI glue, an in-process harness library, a protocol adapter, an observability tool.
+---
+
+Driving a coding agent from your product is not one problem, and the tools that address it sit at
+different layers. This page places **mindwire** against the alternatives as precisely as we can:
+what each layer is genuinely good at, what mindwire does that it doesn't, and where you should pick
+something else. Everything asserted about another project is quoted from its own documentation.
+
+> A model provider normalizes a stateless HTTP call. A coding agent is a stateful, side-effecting
+> process with a workspace, a session, its own tools, its own auth, and its own config files.
+> mindwire normalizes *that* — and it does it as a **runtime**, not a library.
+
+## Four layers
+
+| Layer | What it is | Good at | Where it stops |
+| --- | --- | --- | --- |
+| **Model provider SDK** | One interface over LLM endpoints. | Swapping models; building an agent loop exactly your way. | You build the agent. Workspace, tools, sessions, permissions, compaction are yours. |
+| **Per-CLI glue** | Your own code spawning `claude`, `codex`, `opencode`. | Full fidelity to one agent, no abstraction tax. | Rewritten per agent and per flag change. No shared event shape, session model, or auth. |
+| **In-process harness library** | An abstraction over agent runtimes that lives inside your app process. | Fast to adopt inside one TypeScript app; renders straight into an existing chat UI. | Your process is the runtime. Durability, operation, and any management surface are yours to build. |
+| **Runtime** (mindwire) | A daemon that owns the agent processes and serves one protocol over HTTP + SSE. | Durable turns, deep normalization, three clients, an operator surface. | Fewer adapters than a protocol-level wrapper. You run a process. |
+
+The closest comparison to mindwire is the third row — most concretely the **AI SDK harness layer**
+(`HarnessAgent`, introduced with AI SDK 7 in June 2026), which shares our thesis almost word for
+word. The differences below are structural, not cosmetic.
+
+## What the runtime owns
+
+The defining choice is *where the agent process lives*. In mindwire it lives in the daemon, and the
+daemon is not your request.
+
+- A turn runs on the daemon's own context. Kill the client, lose the network, redeploy your UI —
+  the turn keeps going. Reconnect to `GET /runs/{id}/stream` and the replay buffer re-sends the run
+  so far, then continues live. See [Streaming](/docs/guides/streaming).
+- Sessions are the daemon's, not the caller's. You get an id, not an opaque blob to persist. Fork a
+  chat (branching the agent's native session where it has one), rename it, or delete it in a way
+  that purges the mapped native transcripts too. See [Sessions](/docs/guides/sessions).
+- Where the agent keeps a native transcript — Claude Code and Codex both declare `history: native` —
+  mindwire reads **the harness's own files**. A session you ran in your own terminal shows up through
+  the API.
+
+An in-process library can reach the same durability, but you assemble it: AI SDK's own guidance for
+server routes is to "use a stable `sessionId` and persist the resume state returned by
+`session.detach()` or `session.stop()`", with `@ai-sdk/workflow-harness` available if you want a
+workflow engine to hold it. That is a real answer — it is just opt-in, and it is yours to operate.
+In mindwire it is the default and there is nothing to adopt.
+
+<Callout type="warn">
+Turns survive **disconnection**, not restarts. The replay buffer is in memory and is reaped two
+minutes after a run ends; a daemon restart marks orphaned runs errored. Replay is whole-buffer with
+no `Last-Event-ID` cursor, so a reconnecting client re-receives earlier events and must be
+idempotent.
+</Callout>
+
+## Where it runs
+
+mindwire is **local-first**. `npm i mindwire` ships the daemon, and the SDK spawns it on a loopback
+port against your real working tree — no sandbox to provision, nothing to deploy. A `target` moves
+the same wire contract to a remote daemon, a box over SSH, a container, or a microVM
+([Destinations](/docs/guides/destinations)).
+
+That is the sharpest structural difference from a bridge-backed harness library. AI SDK's provider
+pages state the requirement identically for its three flagship adapters — Claude Code, Codex and
+OpenCode each "requires a network sandbox with at least one exposed port" — and its in-process
+option, `@ai-sdk/sandbox-just-bash`, "does not expose ports, so it cannot be used with features that
+require them". Its host-process adapters (Cline, Pi) *can* run against a local tree, and its sandbox
+provider interface is public, so a third party could implement one; but as shipped there are two
+first-party sandbox providers, and neither runs Claude Code or Codex on your machine.
+
+The difference is not hosted versus not — mindwire runs on a hosted microVM perfectly happily. It is
+that a sandbox is a **choice of destination** here rather than the floor you must stand on to start.
+
+## Auth
+
+mindwire's auth is a **step flow** per agent — `methods → begin → step → status` — not an API-key
+field. It covers keys, and on Claude Code it covers a real interactive **Pro/Max subscription
+sign-in**: the daemon drives `claude setup-token`, surfaces the OAuth URL for you to complete, and
+captures the long-lived token. Credentials are an architectural invariant: they reach a run only
+through the adapter's `EnvForRun`, never in argv, never written into the harness's own auth file.
+See [Authentication](/docs/guides/authentication).
+
+No harness library offers this today. The AI SDK Claude Code adapter's credential resolution is API
+keys and AI Gateway only — `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
+`AI_GATEWAY_API_KEY`, `AI_GATEWAY_BASE_URL`, `VERCEL_OIDC_TOKEN` — with no OAuth or subscription
+path in its documentation or its source. If you want your users to bring the subscription they
+already pay for, that is the difference.
+
+<Callout>
+Codex is the honest exception on our side: it takes a pasted access token, not an interactive login.
+Its ChatGPT OAuth is a `localhost:1455` loopback that is not headless-compatible, so we deliberately
+do not pretend to drive it.
+</Callout>
+
+## Depth: normalized, or escaped?
+
+Every abstraction hits output its shape can't hold. What it does then is the whole game.
+
+A harness library projects into the host SDK's part types and escapes the rest: in AI SDK's words,
+"events without a first-class AI SDK part, such as workspace file changes and compaction, are
+surfaced as dynamic provider-executed tool parts". mindwire gives those their own surfaces, because
+the surfaces are the product.
+
+| Surface | mindwire | An in-process harness library |
+| --- | --- | --- |
+| Memory files (`CLAUDE.md` / `AGENTS.md`) | `GET`/`PUT`/`DELETE /memory` | ✕ |
+| Prompt templates, slash commands | `/prompts` | ✕ |
+| Subagent definitions | `/subagents` | ✕ |
+| MCP servers | `/mcp`, persistent + per turn | Construction-time option only |
+| Custom LLM providers | `/providers` | ✕ |
+| Compaction | `POST /chats/{id}/compact` | Adapter-dependent; some declare it unsupported |
+| Notification routing | 13 routes: channels + rules by scope | ✕ |
+| Live per-turn CPU / memory | `GET /processes/stream` | ✕ |
+| Canonical cross-agent settings | Registered vocabulary, schema-validated | Per-adapter option objects |
+
+Two things make that table more than a feature list. First, mindwire reads and writes each harness's
+**own native files** — `.claude/commands`, `.claude/agents`, `config.toml`, `opencode.json` — so
+nothing you configure through the API is invisible to the CLI, or vice versa. Second, the
+capabilities matrix is declared per adapter and readable from `GET /agent`, so clients hardcode
+nothing. Per-turn prompt and config overrides are hard-gated against it: send `systemPrompt`,
+`appendSystemPrompt`, `mcpServers`, `subagents` or a Claude settings bundle to an agent that can't
+honor it and you get a `400` with the reason. See [Agents](/docs/guides/agents) for the full matrix
+and [Configuration](/docs/guides/configuration) for the canonical keys.
+
+The contrast is architectural rather than accidental. AI SDK's Pi page, for instance, notes that
+"filesystem extension discovery remains disabled, including user, project, and settings-based
+extensions" and that "themes and prompt templates also remain disabled" — the local config surfaces
+mindwire treats as first-class are ones a sandboxed in-process library has reason to switch off.
+
+## Operating it
+
+Because the runtime is a process with an API, it can be operated. `apps/console` in the repo is a
+self-hosted, multi-user console over exactly that API: a fleet of runtimes across five modes, every
+capability surface, a streaming chat, a page per runtime and a page per agent with its spend
+breakdown. Its surfaces are generated from what the runtime reports — the sidebar follows the
+adapter's capability flags, the settings form is rendered from the agent's declared schema — so there
+is no per-harness UI to maintain.
+
+The distinction worth being precise about is **observation versus control**. The LLM observability
+ecosystem is large and good at what it does, and roughly twenty providers integrate with AI SDK
+telemetry; AI SDK's own DevTools is a local inspector its docs mark "local development only. Do not
+use in production." None of them take write actions on a running agent runtime — no fleet, no
+session listing, no auth or config management. Vercel's own reference app makes the split explicit
+in its README: "the VM stays a plain execution environment instead of becoming the control plane."
+mindwire is the control plane.
+
+## Adjacent: ACP
+
+[ACP](https://agentclientprotocol.com) unifies the editor↔agent interaction schema, and its
+session-update types overlap our `Event` union closely. We deliberately did **not** build the core
+on it: ACP is editor-first and local-subprocess-oriented, its remote transport is still an unstable
+RFC, and it does not cover the runtime and control plane — durable server-side sessions, auth and
+install, notifications, or a product REST surface. It is planned as a fourth
+`Capabilities.Protocol` value, which is a drop-in at a seam that already exists.
+
+A protocol adapter is the cheapest route to breadth, and it is a real advantage for anyone who has
+one — but it trades depth for reach, which the AI SDK team says plainly of their own ACP adapter:
+"not every harness supports ACP", ACP can "limit or change how well they expose their internal
+behaviors", and a direct adapter yields a tighter integration. Their docs also note that "generic
+ACP profiles do not support structured output unless they configure an implementation-specific
+prompt metadata mapping".
+
+## When to pick something else
+
+Honest cases against mindwire:
+
+- **You want to build the agent.** Use a model provider SDK. If the loop, the tools, and the prompt
+  strategy are your product, an agent runtime is in the way.
+- **You need an agent we haven't adapted yet.** We ship `claude-code`, `codex` and `opencode`;
+  `grok` and `copilot` are next. A protocol-level wrapper covers a longer tail today.
+- **You already live in one TypeScript app and want nothing else in it.** An in-process library
+  renders straight into an existing chat UI with less to assemble. (If it is *hosting* you want to
+  avoid rather than a process, mindwire runs on a microVM target too — that is
+  [Destinations](/docs/guides/destinations), not a reason to pick a different layer.)
+- **You only need traces and spend.** That is an observability tool, and a good one will beat a
+  console built for control.
+
+What mindwire is for: you want the best coding agents driving real work inside your product, on
+infrastructure you control, with every surface those agents actually have — and you would rather
+swap the agent than rewrite the integration.

@@ -1,0 +1,39 @@
+# What NOT to send to the Docker build context. The console image (packages/docker/console.Dockerfile) builds from
+# source inside the image, so host build output and installed deps must stay out — the builder regenerates
+# them for the image's platform. Keeping this tight also makes the context upload fast.
+
+# Installed dependencies — the builder runs its own `bun install` (host node_modules would be the wrong
+# platform and would shadow the fresh install).
+**/node_modules
+
+# Build artifacts — regenerated in the builder. Covers packages/sdk/dist, apps/console/{dist,dist-server},
+# and the daemon's Go output.
+**/dist
+**/dist-server
+**/.next
+daemon/bin
+packages/sdk/npm
+
+# Local runtime state (the auth SQLite lives in a mounted volume, never in the image).
+**/.data
+
+# VCS / CI / tooling — not needed to build the app.
+.git
+.gitignore
+.github
+.claude
+.vscode
+
+# Logs and OS cruft.
+**/*.log
+**/.DS_Store
+
+# Compose files and this ignore file itself.
+docker-compose*.yml
+.dockerignore
+
+# Env / secrets never enter the image — but keep the committed example so it is easy to reference.
+# The `**/` prefix is load-bearing: it matches .env at any depth, not just the root.
+**/.env
+**/.env.*
+!**/.env.example

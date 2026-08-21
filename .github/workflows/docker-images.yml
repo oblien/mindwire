@@ -1,0 +1,160 @@
+name: Docker images
+
+# Publishes the MindWire console image (the control plane, packages/docker/console.Dockerfile) to GHCR:
+#   ghcr.io/<owner>/mindwire-console
+#
+# Deliberately SEPARATE from release.yml (which cuts the GitHub release + npm packages) so the image can
+# be built, tested, and iterated on its own cadence — a manual dispatch can prerelease-test an image
+# without cutting a release or moving :latest.
+#
+# Triggers:
+#   • tag push v*.*.*   → real release: semver tags + :latest (RC tags like v1.2.3-rc.1 skip :latest).
+#   • workflow_dispatch → manual test: publish ONLY under the given tag (or the short SHA), never :latest.
+#
+# Multi-arch is built NATIVELY (amd64 on ubuntu-24.04, arm64 on ubuntu-24.04-arm) rather than under QEMU
+# emulation — the console build is bun-heavy (bun install + vite + tsup) and emulated arm64 would crawl.
+# Each arch is pushed BY DIGEST under no tag; `merge` then assembles the tagged manifest list. If the
+# arm64 runner is ever unavailable, drop the arm64 matrix row (amd64-only) as a temporary fallback.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag for a manual test (e.g. 0.4.1-rc.1). Blank → short SHA. Never moves :latest."
+        required: false
+        type: string
+
+concurrency:
+  group: docker-images-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # The blocking checks — the SAME reusable gate release.yml uses (Go suite + SDK unit + real E2E). `merge`
+  # depends on it, so a red test can never become a pullable image tag (workflows aren't ordered; `needs:`
+  # is the only gate). Gated on the manual path too: dispatch never moves :latest, but it does publish a
+  # pullable tag, so it must clear the same bar.
+  gate:
+    name: Release gate
+    uses: ./.github/workflows/release-gate.yml
+
+  build:
+    name: Build console (${{ matrix.platform }})
+    needs: gate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: amd64
+            runner: ubuntu-24.04
+          - platform: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/mindwire-console
+
+      # Push by digest under no tag — `merge` turns these into the tagged manifest list. A failure here
+      # leaves nothing referenced in the registry.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: packages/docker/console.Dockerfile
+          platforms: linux/${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/mindwire-console,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=console-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=console-${{ matrix.platform }}
+
+      - name: Export digest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.platform }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Publish console (manifest)
+    # `gate` as well as `build`: this job is where the image becomes PULLABLE (the per-arch builds push by
+    # digest only), so it is the point a failing test has to stop.
+    needs: [gate, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          pattern: digests-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tag push → semver + :latest (auto: RCs like v1.2.3-rc.1 skip :latest).
+      # Manual dispatch → the input tag (or short SHA), and NEVER :latest.
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/mindwire-console
+          tags: |
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' }}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
+            type=sha,format=short,enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag == '' }}
+          flavor: |
+            latest=${{ github.event_name == 'push' && 'auto' || 'false' }}
+
+      - name: Create manifest list + push
+        working-directory: /tmp/digests
+        env:
+          METADATA_JSON: ${{ steps.meta.outputs.json }}
+          SRC: ghcr.io/${{ github.repository_owner }}/mindwire-console
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$METADATA_JSON") \
+            $(printf "${SRC}@sha256:%s " *)
+
+      - name: Inspect
+        run: |
+          docker buildx imagetools inspect \
+            "ghcr.io/${{ github.repository_owner }}/mindwire-console:${{ steps.meta.outputs.version }}" || true

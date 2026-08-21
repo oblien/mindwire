@@ -1,0 +1,468 @@
+---
+title: Destinations
+description: Where your daemon runs and how the SDK reaches it — one `target` option. Local by default; remote over HTTP; or provision a fresh one over SSH, in a Docker container, or an Oblien sandbox. Same SDK, every method unchanged, only the transport swaps.
+---
+
+`new Mindwire(...)` has one axis for *where the daemon runs and how the SDK reaches it*: the
+**`target`** option. Omit it and you get the zero-config embedded default; pass a factory to run the
+daemon somewhere else. Every destination is a `Target` — `local()`, `remote()`, `ssh()`, `docker()`,
+`oblien()`, or your own object implementing the interface.
+
+The point is that **only the execution point moves** — the daemon and its wire protocol are unchanged.
+Every method you already use — `turn`, `resolve`, streaming, auth, config, MCP — works byte-for-byte
+identically across targets, including live SSE.
+
+```ts
+import { Mindwire, remote, ssh, docker, oblien } from "mindwire";
+
+new Mindwire({ agent: "claude-code" });                                  // local (embedded) — the default
+new Mindwire({ target: remote("https://mindwire.yourco.com") });         // a daemon you already run
+new Mindwire({ target: ssh({ host: "box.internal", username: "root" }) }); // provision one on a bare box
+new Mindwire({ target: docker({ image: "my/agent-image" }) });           // in a container
+new Mindwire({ target: oblien({ /* creds */ }) });                       // in an Oblien sandbox
+```
+
+<Callout>
+This is a **TypeScript-SDK** feature. The Go SDK runs the daemon in-process and has no `target` seam —
+it's local-only for now. Everything below is the TS SDK plus the plain REST view of the daemon once
+it's running at a destination.
+</Callout>
+
+## One instance = one daemon = one environment
+
+This is the mental model to hold:
+
+> **One `new Mindwire` = one instance = one daemon = one environment.** Every agent that instance runs
+> — via the client `agent`, `withAgent()`, or a per-call `agent` — shares that **one daemon's
+> filesystem and state**.
+
+So agents on the same instance are *not* isolated from each other: they read and write the same working
+directory, the same chats, the same config. That's what you want when they collaborate on one workspace.
+
+To **isolate** agents, create a **second** `Mindwire` with its own `target` — a separate daemon in a
+separate environment:
+
+```ts
+// Shared: two agents, one environment (they see each other's files).
+const mw = new Mindwire({ agent: "claude-code", target: ssh({ host: "box", username: "root" }) });
+const codex = mw.withAgent("codex"); // same daemon, different default agent
+
+// Isolated: a second instance = a second daemon = a second environment.
+const other = new Mindwire({ agent: "claude-code", target: docker({ image: "my/agent-image" }) });
+```
+
+Two zero-config `local()` clients are a special case: they share one loopback daemon (see
+[local](#local)), so they're the *same* environment. Give them distinct `local({ cwd })` /
+`local({ statePath })` (or distinct targets) to split them apart.
+
+## The targets
+
+| `target` | Where the daemon runs | Transport | Optional peer |
+| --- | --- | --- | --- |
+| `local()` *(default)* | Embedded, on your loopback | Direct HTTP to `127.0.0.1` | — |
+| `remote(url)` | A daemon you already run | Direct HTTP to `url` | — |
+| `ssh({ … })` | A box you reach over SSH | Local port-forward tunnel | `ssh2` |
+| `docker({ … })` | A container (local or remote engine) | Published host port | `dockerode` |
+| `oblien({ … })` | An Oblien sandbox (microVM) | Authenticated runtime proxy | `oblien` |
+| your `Target` | anywhere | whatever `fetch`/`headers`/`token` you return | — |
+
+`ssh` / `docker` / `oblien` each need one **optional peer dependency**, loaded only when you call that
+factory's `connect()`. Importing `mindwire`, or constructing the factory, never loads them — the core
+package stays dependency-free. Install the one you use:
+
+```bash
+npm i mindwire ssh2        # ssh target
+npm i mindwire dockerode   # docker target
+npm i mindwire oblien      # oblien target
+```
+
+### local
+
+The default. On a server runtime (Node/Bun/Deno) `connect()` auto-spawns the bundled `mindwired` on a
+free loopback port and points the SDK at it — nothing to deploy.
+
+```ts
+import { Mindwire, local } from "mindwire";
+
+new Mindwire({ agent: "claude-code" });                     // zero-config
+new Mindwire({ target: local({
+  cwd: "/path/to/repo",              // where the agent runs (default: process cwd)
+  statePath: ".mindwire-state.json", // embedded daemon's local state
+  bin: "/opt/mindwired",             // explicit binary (else discovered, then PATH)
+}) });
+```
+
+Embedded daemons are **memoized by config** (`cwd` / `statePath` / `bin`): two zero-config `local()`
+clients share one loopback daemon (one environment), while `local({ cwd })` / `local({ statePath })`
+isolate into their own. Because the daemon is shared, `local` `stop()` is a **no-op** — it's reaped on
+process exit, not by `mw.close()`.
+
+Binary discovery, in order: the `bin` option → `$MINDWIRE_DAEMON` → the matching prebuilt package
+(`mindwire-daemon-<platform>-<arch>`, installed automatically as an optional dependency) → a binary
+bundled next to the SDK (`bin/mindwired-<platform>-<arch>`) → `mindwired` on `PATH`. For local dev
+without the prebuilt package, set `$MINDWIRE_DAEMON` to a `go build`-produced binary.
+
+### remote
+
+A daemon you already run, reached over plain HTTP. `connect()` returns the transport immediately with
+**no network round-trip** — there's no ensure/probe step here, so `mw.health()` is the real liveness
+check. Required in the browser / edge, where a daemon can't be spawned.
+
+```ts
+import { Mindwire, remote } from "mindwire";
+
+new Mindwire({ target: remote("https://mindwire.yourco.com", {
+  token: process.env.MINDWIRE_TOKEN, // bearer, if the daemon requires one
+  headers: { "X-Env": "prod" },      // merged into every request
+  // fetch: myFetch,                  // a custom fetch for this destination
+}) });
+```
+
+`stop()` is a no-op — mindwire doesn't own a daemon it didn't start.
+
+### ssh
+
+Turn a **bare box into a destination**. `connect()` opens an SSH connection, **ensures the daemon**
+there (upload the Linux `mindwired`, launch it detached, health-poll on the remote loopback), then
+reaches it over a **local port-forward tunnel**: a `127.0.0.1` listener whose every inbound connection
+is forwarded — over the one SSH connection — to the daemon's port on the remote. So the SDK's `baseUrl`
+is a real `http://127.0.0.1:<localPort>` and plain **global fetch** carries both unary requests and
+SSE (no custom fetch; works on Node/Bun/Deno).
+
+```ts
+import { Mindwire, ssh } from "mindwire";
+
+const mw = new Mindwire({
+  agent: "claude-code",
+  target: ssh({
+    host: "box.internal",
+    username: "root",
+    // auth (first that's set wins): privateKey → privateKeyPath → password → ssh-agent + default keys
+    privateKeyPath: "~/.ssh/id_ed25519",
+    stopOnExit: true, // close the tunnel + end the SSH connection on mw.close()
+  }),
+  logger: (e) => console.log(`[ssh:${e.phase}] ${e.message}`), // watch it provision
+});
+
+const run = await mw.turn({ chatId: "demo", message: "add a health check and run the tests" });
+for await (const ev of run) if (ev.type === "text") process.stdout.write(ev.text ?? "");
+await mw.close();
+```
+
+<Callout type="warn">
+The box needs `AllowTcpForwarding yes` (the default on most sshd) for the tunnel. If forwarding is
+disabled, `connect()` fails fast with a targeted "TCP forwarding disabled on host" error. It also needs
+the **agent CLI you target** (e.g. `claude` for `claude-code`) plus `bash`, `curl`, `base64`, and `tar`
+for the bootstrap — a bare box boots the transport but a turn then fails at the agent layer.
+</Callout>
+
+#### In a container on the remote host
+
+Pass **only server credentials** and a `docker` block, and mindwire runs the daemon **inside a Docker
+container** on that box instead of on the host itself — a clean, reproducible, isolated environment per
+instance (the host filesystem stays untouched). Over the one SSH connection it ensures Docker is
+present, spins the container, deploys `mindwired` into it, and tunnels to the container's published
+loopback port.
+
+```ts
+const mw = new Mindwire({
+  agent: "claude-code",
+  target: ssh({
+    host: "box.internal",
+    username: "root",
+    password: process.env.BOX_PASSWORD, // or privateKey / privateKeyPath / ssh-agent
+    docker: {
+      image: "my/agent-image",  // create + own a container from this image
+      // container: "my-box",   // …or attach to one you already run
+      install: "never",         // Docker-on-host policy — see below (default "never")
+      // createArgs: ["-e", "FOO=bar", "--gpus", "all"], // extra `docker run` args
+    },
+  }),
+  logger: (e) => console.log(`[ssh:${e.phase}] ${e.message}`),
+});
+```
+
+Docker itself is a privileged, mutating dependency, so mindwire **never installs it implicitly**:
+
+- **`install: "never"`** *(default)* — detect Docker; if it's missing, `connect()` fails with a clear
+  message telling you to opt in or install it yourself. A stopped daemon is started; a
+  permission-denied socket fails with a "connect as root or join the `docker` group" message.
+- **`install: "ifMissing"`** — if Docker is absent, run the official installer
+  (`curl -fsSL https://get.docker.com | sh`) and enable the service (`systemctl enable --now docker`),
+  then re-verify. You'll see it in the stream as the `install` phase.
+
+<Callout>
+This container mode is a **generic layer**, not SSH-specific: it drives Docker entirely through the
+same two `SandboxHost` primitives (`exec` + `putFile`) the ensure cycle already uses — every Docker
+operation is a `docker …` command line, files land via `docker cp`. So there's **no new dependency**
+(no `dockerode`, no engine-socket forwarding) and the exact same code composes over any exec-capable
+backend. `ssh({ docker })` is just its first consumer. The image still needs the agent CLI you target
+plus `bash` / `curl` for the in-container bootstrap.
+</Callout>
+
+### docker
+
+Run the daemon in a container — one it creates from an `image`, or one you already run (`container`).
+The container publishes the daemon port to an ephemeral host port (`-p 0:8790`), so the SDK reaches it
+at `http://127.0.0.1:<hostPort>` — no proxy, no token.
+
+```ts
+import { Mindwire, docker } from "mindwire";
+
+// Create + own a container from an image that ships your agent CLI:
+new Mindwire({ target: docker({ image: "my/agent-image", stopOnExit: true }) });
+
+// …attach to a container you already run (it must publish the daemon port):
+new Mindwire({ target: docker({ container: "my-running-box" }) });
+
+// …or point at a remote engine via `engine` (TCP or TLS — no dockerode import to construct it):
+new Mindwire({ target: docker({ image: "my/agent-image", engine: { host: "10.0.0.5", port: 2375 } }) });
+
+// …or bring your own dockerode instance:
+import Docker from "dockerode";
+new Mindwire({ target: docker({ docker: new Docker({ socketPath: "/var/run/docker.sock" }), image: "my/agent-image" }) });
+```
+
+<Callout>
+To reach a container on a **remote host over SSH**, prefer [`ssh({ docker })`](#in-a-container-on-the-remote-host):
+it needs only SSH credentials and drives Docker over the SSH exec channel — no `dockerode`, no exposing
+the Docker engine's TCP socket. Use `docker({ engine })` when you already have a Docker engine listening
+on TCP/TLS.
+</Callout>
+
+<Callout type="warn">
+The image must include the **agent CLI you target** plus `bash`, `curl`, `base64`, and `tar` for the
+bootstrap. Pick (or build) an image with your agent preinstalled — ideally one that also ships
+`mindwired` so it autostarts and nothing is uploaded.
+</Callout>
+
+### oblien
+
+Provision an [Oblien](https://oblien.com) sandbox (microVM) and route through its authenticated runtime
+proxy — the daemon's port is **never exposed publicly**, so the gateway JWT *is* the auth boundary. The
+JWT caches and refreshes automatically (on a `401` the target re-mints and retries once); a long-lived
+SSE stream opened while it's valid keeps flowing.
+
+```ts
+import { Mindwire, oblien } from "mindwire";
+
+const mw = new Mindwire({
+  agent: "claude-code",
+  target: oblien({
+    // credentials (or set MINDWIRE_SANDBOX_CLIENT_ID / _SECRET, then OBLIEN_CLIENT_ID / _SECRET)
+    clientId: process.env.MINDWIRE_SANDBOX_CLIENT_ID,
+    clientSecret: process.env.MINDWIRE_SANDBOX_CLIENT_SECRET,
+    image: "node-22",   // an image that ships your agent CLI; the daemon is deployed on top
+    stopOnExit: true,   // delete the sandbox we created on mw.close()
+  }),
+});
+```
+
+Pass `workspaceId` to attach to a sandbox you already have and skip provisioning. For one you want to
+keep warm across processes, set `mode: "permanent"`, omit `stopOnExit`, and reconnect later with the
+same `workspaceId`.
+
+### Bring your own
+
+Any object implementing `Target` can be passed as `target`. `connect()` provisions (or reuses) the
+environment, ensures a reachable daemon, and returns a `TargetHandle`: a `baseUrl`, a transport
+(`fetch`, **or** `headers` + a static `token` / rotating `getToken` if you'd rather reuse the client's
+default fetch), and an idempotent `stop()`.
+
+```ts
+import { Mindwire, ensureDaemon, type Target } from "mindwire";
+
+const myTarget: Target = {
+  name: "my-cloud",
+  async connect(spec) {
+    // 1. provision an environment and make sure a mindwired is reachable inside it, then
+    // 2. return how to reach it — a transport is just a `fetch`:
+    return {
+      id: "vm-123",
+      baseUrl: "http://mindwire-sandbox.local", // a sentinel your fetch strips; the SDK builds <baseUrl><path>
+      fetch: async (url, init) => {
+        const { pathname, search } = new URL(url);
+        return callMyRuntime(pathname + search, init); // route to your daemon (SSE passes through)
+      },
+      stop: async () => await tearDownMyVm(), // called by Mindwire.close()
+    };
+  },
+};
+
+new Mindwire({ agent: "claude-code", target: myTarget });
+```
+
+To reuse the shared ensure-daemon cycle, implement the tiny `SandboxHost` (`exec` + `putFile`) and call
+`ensureDaemon(host, cfg)` — both are exported. `connect()` also receives a `ConnectSpec` (`{ agent,
+onLog }`) so you can label the in-daemon `AGENT_TYPE` and stream provisioning events.
+
+## Ensure & logs
+
+`ssh` / `docker` / `oblien` do real work on `connect()` — upload the daemon, launch it, health-poll until
+ready. Two hooks make that visible and controllable:
+
+- **`logger`** — a client-level callback that receives an `EnsureEvent` at each provisioning phase.
+- **`await mw.ensure()`** — provision **eagerly** instead of lazily on the first request. It's idempotent
+  and memoized: it awaits the *same* work the first `turn()`/`health()` would, so `connect()` fires
+  **exactly once** whether you call `ensure()`, several requests, or both concurrently. It resolves
+  precisely when the daemon is healthy.
+
+```ts
+const mw = new Mindwire({
+  target: ssh({ host: "box.internal", username: "root" }),
+  logger: (e) => console.log(`[${e.phase}] ${e.message}` + (e.bytes ? ` (${e.bytes} bytes, ${e.arch})` : "")),
+});
+
+await mw.ensure(); // resolves once mindwired is healthy on the box; turns stream as usual after
+```
+
+A rejected first `connect()` (e.g. a box that wasn't ready) leaves the client **retryable** — a second
+`ensure()` or request tries again. A throwing `logger` can never abort provisioning.
+
+### `EnsureEvent` phases
+
+Each event carries a `phase`, the `target` name, a human `message`, and phase-specific fields.
+
+| `phase` | When | Extra fields |
+| --- | --- | --- |
+| `install` | *(container mode)* Docker on the host detected — and, opt-in, installed/started | `version` |
+| `provision` | *(container mode)* The container was created/started and its port resolved | — |
+| `connect` | The environment accepts commands (cold-start done) | — |
+| `probe` | Health-checked the daemon's `/healthz` | `version` |
+| `skip` | A healthy, current daemon is already there — nothing to deploy | `version` |
+| `upload` | Uploading the Linux `mindwired` binary | `bytes`, `arch` (`amd64` / `arm64`) |
+| `launch` | Launching the daemon detached | — |
+| `ready` | The daemon is healthy and reachable | — |
+| `error` | Provisioning threw | `error` |
+
+`local` emits a single `ready`; `remote` emits a single `skip`. The `ssh` / `docker` / `oblien` targets
+emit the full `connect → probe → (skip \| upload → launch → ready)` sequence. When a container is
+provisioned first (`ssh({ docker })`), the `install` and `provision` phases prefix it:
+`install → provision → connect → probe → …`.
+
+## How the daemon gets there
+
+Before the first request resolves, `ssh` / `docker` / `oblien` run the same backend-agnostic ensure
+cycle over a tiny `SandboxHost` (`exec` + `putFile`):
+
+1. **Wait** for the environment to accept commands (covers cold-start).
+2. **Probe** `http://127.0.0.1:<port>/healthz` from inside it, reading the daemon's reported version. If
+   the image already autostarts `mindwired`, this passes.
+3. **Reconcile** — not reachable → **deploy**. Reachable and the version matches the SDK's bundled binary
+   → **keep**. Reachable but stale → **keep**, unless `autoUpdate` is set, then **redeploy**.
+4. **Deploy** (only when needed) — probe the arch, upload a Linux `mindwired`, and launch it detached
+   (`setsid nohup env ADDR=:<port> AGENT_TYPE=… AGENT_CWD=… mindwired &`), polling `healthz` until it's up.
+
+The only per-backend difference is how bytes land (`putFile`): Oblien base64s the binary over the
+runtime files API; Docker streams an in-memory tar to `putArchive`; SSH `mkdir -p`s the parent then
+streams over SFTP. The launch and health-gate are identical.
+
+The Linux daemon binary ships with the SDK as a per-arch optional dependency
+(`mindwire-daemon-linux-{x64,arm64}`). If your host doesn't have it (e.g. you develop on macOS and never
+installed the Linux package), pass a binary explicitly with `daemonBin`, or — the clean end-state — use
+an image that bakes in `mindwired` so it autostarts and no upload is needed.
+
+### Auto-update
+
+By default a healthy daemon is left alone even if its version drifts from the SDK's bundled binary —
+forcing a redeploy under a running agent isn't mindwire's call to make. Opt in with `autoUpdate: true`
+and the cycle redeploys the current binary whenever the running daemon's `/healthz` version differs.
+
+```ts
+new Mindwire({ target: docker({ image: "my/agent-image", autoUpdate: true }) });
+```
+
+## Lifecycle
+
+`mw.close()` releases transport-owned resources — but a provisioned environment is torn down only when
+that target's `stopOnExit` is set (otherwise `close()` leaves it running so you can reattach):
+
+- **ssh** — close the tunnel; end the SSH connection (`stopOnExit` defaults to `true`).
+- **docker** — **stop + remove** a container we created; an attached `container` is left running.
+- **oblien** — **delete** a sandbox we created, or **stop** one attached by `workspaceId`.
+
+`close()` is a no-op for `local`/`remote` and safe to call before provisioning ever happened.
+`withAgent()` clones share one transport, so the environment is reaped **exactly once**.
+
+```ts
+const mw = new Mindwire({ agent: "claude-code", target: docker({ image: "my/agent-image", stopOnExit: true }) });
+const codex = mw.withAgent("codex"); // same container, different default agent
+// … use mw and codex …
+await mw.close(); // reaps the shared container once
+```
+
+## REST view
+
+There's no REST "target mode" — targets are the SDK provisioning + reaching a daemon for you. But once
+a daemon is running at a destination, it **is** the normal REST API. For `docker`/`ssh` the daemon's
+port is on a loopback host port and you hit it directly:
+
+```bash
+curl -s http://127.0.0.1:$HOST_PORT/healthz | jq
+```
+
+For `oblien` the runtime proxy fronts it — prefix routes with the proxy path and send the gateway JWT
+plus the daemon's port (the `oblien` SDK builds these headers; this is what's on the wire):
+
+```bash
+# BASE = the Oblien runtime proxy; TARGET = the in-sandbox daemon port; JWT = the gateway token.
+BASE="https://workspace.oblien.com/proxy"
+curl -s "$BASE/healthz" \
+  -H "Authorization: Bearer $SANDBOX_GATEWAY_JWT" \
+  -H "X-Oblien-Proxy-Target: 8790" | jq
+
+# Streaming works through the proxy exactly like loopback:
+curl -N "$BASE/runs/$RUN/stream" \
+  -H "Authorization: Bearer $SANDBOX_GATEWAY_JWT" \
+  -H "X-Oblien-Proxy-Target: 8790"
+```
+
+Either way every route from the other guides works unchanged — only the host (and, for Oblien, the two
+headers) differ.
+
+## Authentication
+
+Target credentials are separate from **agent** authentication. The daemon at a destination still needs
+the agent's own credentials (an Anthropic key, a sign-in) — drive that with the ordinary
+[auth flow](/docs/guides/authentication) against the client, or bake the credentials into the image.
+
+For `oblien`, two credentials are in play at different layers: the **sandbox credentials** (client id /
+secret) are your management-plane credentials — they provision and control the sandbox and never leave
+your process; the **gateway JWT** is the short-lived runtime token attached to every proxied request.
+`ssh` and `docker` have no gateway token — the transport is a plain loopback port.
+
+## Options reference
+
+Every target's config is its factory's own argument. Fields shared by the provisioning targets
+(`ssh` / `docker` / `oblien`):
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `agent` / `agentType` | the client's `agent`, then `claude-code` | `AGENT_TYPE` for the daemon at the destination. |
+| `agentCwd` | `"/root"` | Working directory agents run in, at the destination. |
+| `port` / `daemonPort` | `8790` | Port the daemon binds (loopback for oblien/ssh; published for docker). |
+| `daemonBin` | resolved from the platform package | Explicit path to a Linux `mindwired` to deploy. |
+| `autoUpdate` | `false` | Redeploy when the running daemon's version differs from the SDK's bundled binary. |
+| `stopOnExit` | `true` for `ssh`, `false` for `docker`/`oblien` | On `close()`, tear the environment down. |
+
+**`local({ … })`** — `cwd`, `statePath`, `bin` (see [local](#local)).
+
+**`remote(url, { … })`** — `token`, `headers`, `fetch`.
+
+**`ssh({ … })`** — `host`, `port` (22), `username`, and auth: `privateKey` / `privateKeyPath` /
+`passphrase` / `password` / `agent` (ssh-agent socket, default `$SSH_AUTH_SOCK`); `readyTimeoutMs`
+(20000); `docker` (`image` **or** `container`; `name`; `install` `"never"` / `"ifMissing"`;
+`createArgs`) to run the daemon in a container on the remote host.
+
+**`docker({ … })`** — `image` **or** `container`; `engine` (remote host / socket / TLS / SSH) or a
+`docker` (dockerode) instance; `createOptions` (merged into `createContainer`).
+
+**`oblien({ … })`** — `clientId` / `clientSecret` (env fallbacks above); `baseUrl` (management API);
+`image` (`node-22`), `name`, `workspaceId`, `cpus` / `memoryMb` / `diskMb`, `mode`
+(`temporary` / `permanent`).
+
+## What's next
+
+Daemon-level and Go-SDK targets — per-turn agent isolation, a target registry at the driver's exec
+boundary, and more built-in backends — are planned. The TS `target` seam is the first step: the same
+mindwire API, running wherever you point it.

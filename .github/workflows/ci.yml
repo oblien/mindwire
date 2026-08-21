@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  daemon:
+    name: daemon (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: daemon
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.mod
+      - name: Verify formatting
+        run: |
+          fmt=$(gofmt -l .)
+          if [ -n "$fmt" ]; then echo "gofmt needed on:"; echo "$fmt"; exit 1; fi
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: go build ./...
+      - name: Test
+        run: go test -race ./...
+      # openapi.json route parity is enforced by internal/api (TestOpenAPIRouteParity) above.
+
+  sdk:
+    name: "mindwire (TypeScript)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun --filter='mindwire' run typecheck
+      - name: Build
+        run: bun --filter='mindwire' run build
+      - name: Test
+        run: bun --filter='mindwire' run test
+
+  # Real end-to-end coverage on every push/PR: the SDK spawns the actual `mindwired` binary (embedded
+  # install smoke) and provisions the daemon inside a real Docker container (the container layer, no
+  # mocks). Same job the release gate runs — CI runs it for the record, the gate runs it to block a
+  # release. Docker is preinstalled on ubuntu-latest.
+  e2e:
+    name: "e2e (embedded + real Docker)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.mod
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+      - name: Install
+        run: bun install --frozen-lockfile
+      # Cross-compile the daemon: the host binary (linux-x64) the embedded smoke discovers on disk, and
+      # the npm/mindwire-daemon-linux-x64 package the container test deploys via `daemonBin`.
+      - name: Build daemon binaries
+        run: bun --filter='mindwire' run build:daemon
+      - name: Build E2E fixture image
+        run: docker build -t mindwire-e2e:base packages/sdk/test/e2e/fixtures
+      - name: Check the Docker daemon
+        run: docker info
+      - name: Run real end-to-end tests
+        run: bun --filter='mindwire' run test:e2e
+
+  web:
+    name: "web (Next.js)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+      # The docs build's gen:reference step generates the Go SDK reference with gomarkdoc
+      # (scripts/gen-go-docs.mjs), which needs a Go toolchain. The REST reference reads daemon/openapi.json;
+      # the agents reference generates directly from daemon source. There is no static-export or Pagefind
+      # step anymore — the docs are a Node-server `next build`.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.mod
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun --filter='@mindwire/web' run check
+      - name: Build
+        run: bun --filter='@mindwire/web' run build
+      # Guard against a generator silently skipping: all four reference trees must be present after the
+      # build (gen-go-docs fails loud when Go is present; this catches a missing openapi.json or a TypeDoc
+      # regression before incomplete docs ship).
+      - name: Reference docs are complete
+        run: |
+          for tree in sdk-ts sdk-go rest agents; do
+            if [ ! -d "apps/web/content/docs/reference/$tree" ]; then
+              echo "missing generated reference tree: reference/$tree"; exit 1
+            fi
+          done
+
+  console:
+    name: "console (Vite + Hono)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+      - name: Install
+        run: bun install --frozen-lockfile
+      # The console typechecks and bundles against the SDK's built type declarations (mindwire
+      # resolves to dist/index.d.ts), and the Hono server imports the SDK at runtime — so build it first.
+      - name: Build SDK
+        run: bun --filter='mindwire' run build
+      - name: Typecheck
+        run: bun --filter='@mindwire/console' run check
+      - name: Build
+        run: bun --filter='@mindwire/console' run build

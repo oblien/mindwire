@@ -1,0 +1,90 @@
+---
+title: Interaction & approvals
+description: Pause a turn for a permission decision, a question, or a plan — and answer it live.
+---
+
+By default a turn runs to completion. Choose a non-bypass **permission mode** and the agent
+**pauses** at decision points, surfacing an `interaction` event with `needsResponse: true`. Your app
+answers on the live run, and the turn continues.
+
+## The interaction event
+
+An `interaction` event carries a `kind` (`approval`, `question`, `select`, `plan`, `todos`, …), a
+human-readable `title`/`detail`, and — when it's waiting on you — `needsResponse: true`. Approval and
+choice kinds also carry `options`. Answer with the interaction's `id`.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const run = await mw.turn({
+  chatId: "demo",
+  message: "delete the dead code in src/legacy",
+  options: { settings: { permissionMode: "default" } }, // pause for approvals
+});
+
+for await (const ev of run) {
+  if (ev.type === "interaction" && ev.interaction?.needsResponse) {
+    await run.respond({ interactionId: ev.interaction.id, decision: "allow" });
+  }
+}
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run, err := client.Turn(ctx, mindwire.TurnRequest{
+	ChatID:  "demo",
+	Message: "delete the dead code in src/legacy",
+	Options: mindwire.TurnOptions{Settings: map[string]string{"permissionMode": "default"}},
+})
+if err != nil {
+	log.Fatal(err)
+}
+
+for ev := range run.Stream(ctx) {
+	if ev.Type == mindwire.EventInteraction && ev.Interaction.NeedsResponse {
+		run.Respond(mindwire.RespondInput{InteractionID: ev.Interaction.ID, Decision: "allow"})
+	}
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# In one shell, stream the run and watch for an interaction with "needsResponse": true.
+curl -N "http://127.0.0.1:8790/runs/$RUN/stream"
+
+# In another, answer it by id.
+curl -XPOST "http://127.0.0.1:8790/runs/$RUN/respond" \
+  -d '{"interactionId":"<id>","decision":"allow"}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Answering the other kinds
+
+`respond` is the single door for every waiting interaction — the fields you send depend on the
+`kind`:
+
+- **approval** — `decision: "allow"` / `"deny"` (an edit, a command, a tool call).
+- **question / select** — `options: ["…"]` to pick one or more offered choices, or `text` for a
+  free-form answer.
+- **plan** — approve or reject a proposed plan the same way as an approval.
+
+The `respond` capability is required; an agent that takes no interaction responses rejects the call
+(a `400`). Discover what an agent supports with `GET /agent` (`mw.agent()` / `client.Agent(ctx)`).
+
+## Which modes pause
+
+Permission modes are agent-agnostic **canonical** values (`default`, `acceptEdits`, `plan`,
+`bypassPermissions`). `bypassPermissions` runs straight through; the others pause at their respective
+decision points. Set the mode per turn under `options.settings.permissionMode`, or switch it on a
+live turn — see [Steering a live turn](/docs/guides/steering).

@@ -1,0 +1,44 @@
+# Self-hosted Mindwire: one private console and one daemon on an internal network.
+#
+# cp .env.example .env
+# docker compose -f packages/docker/docker-compose.selfhost.yml up --build
+services:
+  daemon:
+    build:
+      context: ../..
+      dockerfile: packages/docker/daemon.Dockerfile
+    image: ghcr.io/oblien/mindwire-daemon:latest
+    restart: unless-stopped
+    environment:
+      ADDR: 0.0.0.0:8790
+      AGENT_TYPE: ${MINDWIRE_AGENT:-claude-code}
+    volumes:
+      - daemon_home:/home/node
+
+  console:
+    build:
+      context: ../..
+      dockerfile: packages/docker/console.Dockerfile
+    image: ghcr.io/oblien/mindwire-console:latest
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: "8787"
+      AUTH_DB_PATH: /data/auth.db
+      CONSOLE_MODE: self-hosted
+      DAEMON_URL: http://daemon:8790
+      SEED_DEFAULT_DAEMON: "true"
+      ALLOW_LOCAL_RUNTIME: "false"
+    ports:
+      - "${MINDWIRE_BIND_ADDR:-127.0.0.1}:${CONSOLE_PORT:-8787}:8787"
+    volumes:
+      - console_data:/data
+    depends_on:
+      - daemon
+
+volumes:
+  console_data:
+  daemon_home:

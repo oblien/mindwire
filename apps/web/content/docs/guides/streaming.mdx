@@ -1,0 +1,162 @@
+---
+title: Streaming events
+description: The unified event stream — one shape across every agent — and how to await a turn.
+---
+
+Every turn produces one **unified event stream**: the same event shapes regardless of which agent
+ran. The stream always **replays** what already happened, then goes **live**, then closes when the
+turn reaches a terminal state. That's what makes a turn durable — a disconnected client reattaches by
+streaming the same run again.
+
+## Event types
+
+| `type` | Meaning |
+| --- | --- |
+| `session` | The turn's session started; `meta` carries model/tools. |
+| `text` | Assistant output. Live tokens arrive with `delta: true`. |
+| `thinking` | Extended-thinking text (when the agent emits it). |
+| `tool_use` | The agent invoked a tool (`tool` has the call, incl. a normalized `action`). |
+| `tool_result` | A tool returned (`tool.action` carries the completed shape). |
+| `interaction` | A structured prompt/feedback — todos, an approval, a question, a plan. |
+| `compaction` | The conversation was [compacted](/docs/guides/compaction); `compaction` has the trigger and token counts. |
+| `continuation` | A [resolve](/docs/guides/resolve) run advanced to its next iteration; `continuation` has the iteration index and reason. |
+| `result` | The turn finished; `result` has the final summary (cost, duration). |
+| `error` | The turn failed; `error` has the message. |
+| `status` | Generic status (retry, queued, …) in `meta`. |
+
+## Consume the stream
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const run = await mw.turn({ chatId: "demo", message: "refactor the auth module" });
+
+for await (const ev of run) {
+  switch (ev.type) {
+    case "text":
+      process.stdout.write(ev.text ?? "");
+      break;
+    case "tool_use":
+      // `action` is the normalized view — a canonical kind + structured payload.
+      console.log("\n→", ev.tool?.action?.kind ?? ev.tool?.name, ev.tool?.action?.title ?? "");
+      break;
+    case "result":
+      console.log("\n✓", ev.result?.costUsd, "USD");
+      break;
+  }
+}
+```
+
+`for await (const ev of run)` is sugar for `run.stream()`. Pass options explicitly when you need them:
+`run.stream({ signal, includeOpenSentinel })`.
+
+Reading `action` instead of `name` is what makes this loop agent-agnostic — a Claude `Edit` and a Codex
+`apply_patch` both arrive as `kind: "file_edit"`. See [Tool events](/docs/guides/tool-events) for the full
+`action` shape and the best-effort field rules.
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run, err := client.Turn(ctx, mindwire.TurnRequest{ChatID: "demo", Message: "refactor the auth module"})
+if err != nil {
+	log.Fatal(err)
+}
+
+for ev := range run.Stream(ctx) {
+	switch ev.Type {
+	case mindwire.EventText:
+		fmt.Print(ev.Text)
+	case mindwire.EventToolUse:
+		// ev.Tool.Action is the normalized view — a canonical Kind + structured payload.
+		if ev.Tool.Action != nil {
+			fmt.Printf("\n→ %s %s\n", ev.Tool.Action.Kind, ev.Tool.Action.Title)
+		} else {
+			fmt.Printf("\n→ %s\n", ev.Tool.Name)
+		}
+	case mindwire.EventResult:
+		fmt.Printf("\n✓ %.4f USD\n", ev.Result.CostUSD)
+	}
+}
+```
+
+`Stream` returns an `iter.Seq[Event]`; the subscription is released for you when the `range` loop
+ends (including on an early `break`). For `select`-multiplexing, drop to the low-level `Subscribe()`.
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -N "http://127.0.0.1:8790/runs/$RUN/stream"
+```
+
+Server-Sent Events — each line is `data: {"type":"text","text":"…"}`. The stream replays the run's
+buffered events first, then streams live ones, then ends when the turn is terminal.
+
+</Tab>
+
+</ApiTabs>
+
+## Await the whole turn
+
+When you don't need incremental output, drain the stream to completion and take the final result.
+This throws (SDKs) / returns the terminal record (REST) on a failed turn.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const run = await mw.turn({ chatId: "demo", message: "run the test suite" });
+
+const { run: record, result } = await run.wait();
+console.log(record.status, result?.costUsd);
+```
+
+`wait()` throws a `RunFailedError` on an `error`/`cancelled` outcome. Pass `{ throwOnError: false }`
+to inspect the terminal record instead.
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run, err := client.Turn(ctx, mindwire.TurnRequest{ChatID: "demo", Message: "run the test suite"})
+if err != nil {
+	log.Fatal(err)
+}
+
+res, err := run.Wait(ctx)
+if err != nil {
+	log.Fatal(err) // *RunFailedError on a non-done terminal state
+}
+fmt.Println(res.Run.Status, res.Result.CostUSD)
+```
+
+`Wait` drains the stream, refreshes the record, and returns a `*RunFailedError` on a non-`done`
+terminal state — pass `mindwire.NoErrorOnFailure()` to get the record without the error.
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# Stream to end, then read the final durable record.
+curl -N "http://127.0.0.1:8790/runs/$RUN/stream" >/dev/null
+curl -s "http://127.0.0.1:8790/runs/$RUN" | jq '{status, error}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Cancelling the read vs. the turn
+
+A turn runs on the supervisor's own detached context (a long timeout), **not** on your stream's
+context. Cancelling the stream (an `AbortSignal` / a cancelled `ctx` / closing the SSE connection)
+stops *reading* — the turn keeps running, and you can reattach later. To actually stop the turn, call
+`cancel` (see [Steering a live turn](/docs/guides/steering)).

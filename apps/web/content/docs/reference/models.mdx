@@ -1,0 +1,121 @@
+---
+title: Models & providers
+description: The provider-aware model catalog and the custom-LLM-provider control plane — one enriched ModelInfo shape across every agent, native and no-network, plus how to register a custom OpenAI-compatible endpoint.
+---
+
+Every agent answers [`GET /models`](/docs/reference/rest/agent/get-models/) with the same shape —
+[`ModelInfo`](/docs/reference/sdk-ts/interfaces/ModelInfo/) — so a client reasons about *what* a model is and
+*which* provider runs it the same way regardless of harness. Two things make the catalog
+"dynamic and expanded" without adding a network dependency: it is **enriched** from an on-disk catalog,
+and it is **extensible** through a custom-provider control plane. This page is the cross-agent reference
+for both; each adapter page documents its own specifics.
+
+## The enriched `ModelInfo` shape
+
+The old catalog was `{id, label}` — enough to name a model, not enough to reason about one. `ModelInfo`
+now carries provider-aware metadata, every field beyond `id`/`label` **`omitempty`** so the wire stays
+byte-compatible with older clients (an adapter that can't enrich a model still emits exactly
+`{id, label}`):
+
+| Field | JSON | Meaning |
+| --- | --- | --- |
+| ID | `id` | The API id you pass as the `model` setting. |
+| Label | `label` | Human label (catalog `name` when known, else the id). |
+| Provider | `provider` | The catalog provider that runs this model (`anthropic`, `openai`, …). Makes provider-binding explicit. |
+| Context window | `contextWindow` | Max input tokens (`limit.context`). |
+| Max output | `maxOutput` | Max output tokens (`limit.output`). |
+| Input / output modalities | `inputModalities` / `outputModalities` | Accepted input and produced output kinds (`text`, `image`, …). |
+| Reasoning / tool-call / attachment | `reasoning` / `toolCall` / `attachment` | Capability flags. |
+| Cost | `cost` | Per-million-token pricing in USD (`input`, `output`, `cacheRead`, `cacheWrite`) — omitted entirely when unknown. |
+| Custom | `custom` | `true` when the model came from a client-registered [custom provider](#custom-llm-providers) rather than the built-in catalog. |
+
+## Where the metadata comes from — native, no network
+
+mindwire does **not** fetch a model catalog over the network. The enrichment source is the full
+[models.dev](https://models.dev) catalog that **opencode already maintains on disk** — a plain file
+mindwire reads best-effort:
+
+```
+$XDG_CACHE_HOME/opencode/models.json   (else ~/.cache/opencode/models.json)
+```
+
+A shared reader parses that provider→models tree once (mtime + TTL memoized) and hands every adapter a
+`Lookup(provider, model)`. Each adapter keeps its own list of *which* models it offers and enriches each
+entry through that lookup:
+
+- **A missing or corrupt file is never an error.** The catalog degrades to empty and models come back with
+  `id`/`label` only — exactly today's behavior. Nothing fetches, nothing blocks a turn.
+- The coupling is deliberate and honest: it is *"the on-disk models.dev catalog opencode maintains,"* a
+  best-effort enrichment, not a hard dependency. An agent that has never run opencode still lists its own
+  models; they simply arrive un-enriched.
+
+## Provider-binding — which agent runs which provider
+
+The catalog is **agent-scoped**, not one flat global list, because each harness is bound to a different
+provider surface:
+
+| Agent | Source of *which* models | Provider | Selectable |
+| --- | --- | --- | --- |
+| [`claude-code`](/docs/reference/agents/claude/) | Anthropic `/v1/models` account list (no new network) | `anthropic` | live list + live switch |
+| [`codex`](/docs/reference/agents/codex/) | OpenAI-compatible set from the on-disk catalog | `openai` | select, **degrades to free text** when the catalog is absent |
+| [`opencode`](/docs/reference/agents/opencode/) | `opencode models` (its own aggregated list) | provider per id (`provider/model`) | select, degrades to free text |
+
+Every list degrades gracefully: if the source can't enumerate anything, the `model` setting falls back to
+free text so a run can always name any model — including one from a custom provider.
+
+## Custom LLM providers
+
+Some harnesses can point a run at a **custom OpenAI-compatible endpoint** — a self-hosted gateway, a
+private router, a preview endpoint the on-disk catalog has never heard of. The `/providers` control plane
+registers those persistently, and the registered models then appear in `GET /models` with `custom: true`.
+
+It is an **optional, capability-gated** surface (`capabilities.customProviders`): the API type-asserts the
+provider module as the authoritative gate, so an agent that doesn't support it answers an honest `400`
+rather than silently dropping the request.
+
+### The `CustomProvider` shape
+
+```ts
+interface CustomProvider {
+  id: string;        // provider id, e.g. "my-llm"
+  name?: string;     // human label; falls back to id
+  baseUrl: string;   // OpenAI-compatible base URL
+  models: string[];  // model ids this endpoint offers
+  envVar?: string;   // env var the key is exported as; derived from id when blank (my-llm → MY_LLM_API_KEY)
+  hasKey: boolean;   // whether a secret is stored — NEVER the key itself
+}
+```
+
+### Routes (mirror `/mcp`)
+
+| Route | Effect |
+| --- | --- |
+| [`GET /providers`](/docs/reference/rest/providers/get-providers/) | List registered providers for the scope. |
+| [`GET /providers/{id}`](/docs/reference/rest/providers/get-providers-id/) | One provider (listed and indexed; `404` if absent). |
+| [`PUT /providers/{id}`](/docs/reference/rest/providers/put-providers-id/) | Register/replace. `apiKey` is accepted in the body, never returned. |
+| [`DELETE /providers/{id}`](/docs/reference/rest/providers/delete-providers-id/) | Remove that provider and clear its stored key. Idempotent. |
+
+### The secret never touches the config file
+
+The env-only credential invariant holds end-to-end. `PUT` accepts an `apiKey`, but:
+
+1. The key is written to the daemon's **credential store**, namespaced per provider — never into the
+   harness config file.
+2. The config file references it only through the harness's own **placeholder** — `{env:VAR}` for
+   opencode, `env_key = "VAR"` for codex.
+3. At turn time the adapter's `EnvForRun` exports the stored key under `VAR` — the sole seam credentials
+   enter a run.
+4. `GET` reports `hasKey`; it never echoes the key. An empty `apiKey` on `PUT` is a metadata-only update
+   that leaves any previously stored key intact.
+
+Every write is **subtree-preserving**: only the provider's own block (`provider.<id>` in `opencode.json`,
+`[model_providers.<id>]` in codex `config.toml`) is read or written; every sibling key is left
+byte-for-byte intact, the same discipline as the MCP-config writers.
+
+### Per-agent support
+
+| Agent | `customProviders` | How |
+| --- | --- | --- |
+| [`opencode`](/docs/reference/agents/opencode/#custom-llm-providers) | `true` | `provider.<id>` block in `opencode.json` (`@ai-sdk/openai-compatible`); registered models surface in `GET /models` with `custom: true`. User scope. |
+| [`codex`](/docs/reference/agents/codex/#custom-llm-providers) | `true` | `[model_providers.<id>]` table in `config.toml` (`base_url` + `env_key` + `wire_api = "chat"`); pick it per run with `model_provider`. User scope. |
+| [`claude-code`](/docs/reference/agents/claude/) | `false` | No provider registry. Claude's "custom endpoint" is the **gateway auth lane** — `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` (see the adapter's [Auth](/docs/reference/agents/claude/#auth)) — so `/providers` honestly `400`s. |

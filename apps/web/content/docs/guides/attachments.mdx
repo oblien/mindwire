@@ -1,0 +1,110 @@
+---
+title: Attachments
+description: Attach files and images to a turn — by path or inline base64 — through one unified options field.
+---
+
+A turn can carry **attachments**: files or images the agent should see alongside your message. You pass
+them the same way for every agent; the adapter maps them to whatever that agent's CLI expects.
+
+**Images are true vision input.** When an attachment is an image, the model actually *sees* the pixels —
+it doesn't just receive a file path it has to open with a Read tool. Codex feeds images to
+`codex exec -i <file>` natively; Claude delivers them as base64 image content blocks over a stream-json
+turn. Non-image files are referenced by path instead (the model opens them with its own tools). The
+`imageInput` [capability](/docs/guides/agents) flag reports whether an agent sees images natively — both
+Claude and Codex do.
+
+Each attachment is either a **path** on the daemon host or **inline base64 data** — you supply one or the
+other:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `path` | string | A path readable by the daemon. Use when the file already lives where the daemon runs. |
+| `data` | base64 string / `[]byte` | Inline bytes. Use when the client and daemon aren't on the same host. |
+| `mime` | string | Optional MIME type (e.g. `image/png`); helps the agent classify the bytes. |
+| `name` | string | Optional display name. |
+
+Attachments ride on `options.attachments` — one array on the same `turn` call you already make.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+import { readFileSync } from "node:fs";
+
+const run = await mw.turn({
+  chatId: "demo",
+  message: "What's wrong in this screenshot?",
+  options: {
+    attachments: [
+      // By path — the daemon reads it from disk:
+      { path: "/abs/path/diagram.png", mime: "image/png", name: "diagram" },
+      // Or inline, base64-encoded — when the daemon can't see your filesystem:
+      { data: readFileSync("./shot.png").toString("base64"), mime: "image/png" },
+    ],
+  },
+});
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+import "os"
+
+img, err := os.ReadFile("./shot.png")
+if err != nil {
+	log.Fatal(err)
+}
+
+run, err := client.Turn(ctx, mindwire.TurnRequest{
+	ChatID:  "demo",
+	Message: "What's wrong in this screenshot?",
+	Options: mindwire.TurnOptions{
+		Attachments: []mindwire.Attachment{
+			{Path: "/abs/path/diagram.png", Mime: "image/png", Name: "diagram"},
+			{Data: img, Mime: "image/png"}, // Data is []byte; the wire encodes it as base64
+		},
+	},
+})
+```
+
+`Attachment.Data` is a `[]byte`; `encoding/json` marshals it to base64 automatically, so it matches the
+`data` string the REST and TypeScript surfaces send.
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# `data` is base64; use `path` instead to reference a file the daemon can read.
+curl -XPOST 'http://127.0.0.1:8790/turns?agent=claude-code' -d '{
+  "chatId": "demo",
+  "message": "What'\''s wrong in this screenshot?",
+  "options": {
+    "attachments": [
+      { "path": "/abs/path/diagram.png", "mime": "image/png", "name": "diagram" },
+      { "data": "'"$(base64 -i ./shot.png)"'", "mime": "image/png" }
+    ]
+  }
+}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Notes
+
+- **Path vs. data.** `path` avoids copying bytes through the API but requires the file to be readable by
+  the daemon process (fine for an embedded local daemon; not for a remote one). `data` works anywhere at
+  the cost of the base64 payload. Prefer `path` for a local daemon, `data` for a remote one.
+- **Agent support.** Attachments map to each agent's native mechanism. Codex routes images to `-i` on the
+  exec transport; Claude sends base64 image blocks over a stream-json turn. Check an agent's
+  [capabilities](/docs/guides/agents) (`imageInput`) for whether images are seen natively.
+- **Inline size.** Inline `data` for a Claude image is base64-encoded and delivered over the CLI's
+  stdin, which caps a single message at roughly **10 MB**. For larger images prefer `path` (the daemon
+  reads the file directly) or downscale before attaching. Codex reads from disk, so it isn't affected.
+- Attachments are one of the per-turn [`options`](/docs/guides/configuration#per-turn-options) — they
+  apply to that single turn only.

@@ -1,0 +1,184 @@
+---
+title: Codex adapter
+description: Driving OpenAI's Codex CLI through mindwire — the two transports, the settings mapping, auth, and the documented gaps.
+---
+
+[Codex CLI](https://github.com/openai/codex) is mindwire's second agent adapter (`?agent=codex`),
+after Claude Code. It proves the architecture's promise: a new harness is one drop-in adapter with
+**zero core or client changes** — the same request shape, the same [`Event`](/docs/reference/sdk-ts/interfaces/Event/) stream,
+the same [auth](/docs/reference/rest/auth/post-auth-begin/) and [settings](/docs/reference/rest/agent/get-agent/) surface you already use.
+
+Everything below is served **live** at runtime by [`GET /agent?agent=codex`](/docs/reference/rest/agent/get-agent/)
+(capabilities, the settings schema, the auth methods). This page explains the mapping and the design
+choices behind it.
+
+## Two transports, one turn
+
+Codex ships two runtimes, and the adapter uses both — picking per turn, transparently to the client:
+
+- **`codex exec --json` (default, the hot path).** A one-shot process per turn: full turns, native
+  session resume, native rollout-file history, env-only auth. Fire-and-forget — it cannot pause for
+  an approval. This runs whenever the approval policy is **Never** (the autonomous default).
+- **`codex app-server` (mid-turn control).** An experimental JSON-RPC transport over stdio, used only
+  when a turn must **pause for you** — i.e. the approval policy is *not* Never **and** the run has an
+  inbound channel (any of respond / input / interrupt). It lets Codex match Claude's user-in-loop:
+  answer an approval, steer mid-turn, or interrupt.
+
+The selection mirrors Claude's one-shot-vs-persistent switch. In practice:
+
+```
+approval policy = Never (default)     → codex exec --json      (autonomous, one-shot)
+approval policy = on-request/untrusted → codex app-server       (pauses for approvals)
+```
+
+You never choose a transport directly — you choose an **approval policy**, and the adapter routes the
+turn to whichever runtime can honor it.
+
+## Settings
+
+Codex has **two orthogonal permission axes** — *when to ask a human* (approval policy) and *what a
+command may touch* (sandbox) — where the unified model folds "when to ask" into one canon. mindwire
+keeps both: the approval policy maps to the cross-agent `permission-mode`, and the sandbox is exposed
+as a custom second-axis field.
+
+| Setting (mindwire) | Canon | Codex `exec` | Codex `app-server` | Notes |
+|---|---|---|---|---|
+| Model | `model` | `-m MODEL` | `turn/start.model` | A select over the OpenAI-compatible set from the on-disk catalog ([Models & providers](/docs/reference/models/)); **degrades to free text** when the catalog is absent. |
+| Reasoning effort | `reasoning-effort` | `-c model_reasoning_effort=<v>` | `turn/start.effort` | e.g. `minimal\|low\|medium\|high\|xhigh`. |
+| Approval policy | `permission-mode` | `-c approval_policy=<v>` | `approvalPolicy` | Values discovered from `codex --help` (`untrusted\|on-request\|never`). **Default `never`** → the autonomous exec path. |
+| Sandbox | `sandbox` (custom) | `-s <v>` | `sandbox` | Second axis: filesystem/network isolation. Values discovered from `codex exec --help` (`read-only\|workspace-write\|danger-full-access`). Default `workspace-write`. |
+| Working directory | `working-dir` (custom) | `-C DIR` | thread `cwd` | Fresh sessions only; a resumed session keeps its recorded root. |
+| Extra directory | `add-dir` | `--add-dir DIR` | thread writable roots | Additional writable directory. |
+| Images | `images` (custom) | `-i FILE` (repeatable) | *(exec only)* | From `TurnOptions.attachments`. |
+
+Select fields (approval policy, sandbox) discover their option **values from the CLI's own `--help`
+output** and degrade to free text if a CLI version stops enumerating them — nothing is hardcoded, so a
+Codex upgrade is picked up without a mindwire release.
+
+The **model** field is likewise a select rather than free text: Codex has no scriptable model list of its
+own, so mindwire sources the OpenAI-compatible set from the on-disk models.dev catalog opencode maintains
+and enriches each entry with provider/context/cost metadata ([Models & providers](/docs/reference/models/)).
+It **degrades to free text** when that catalog is absent — so a run can always name any model, including
+one from a [custom provider](#custom-llm-providers).
+
+### Fresh vs. resumed turns
+
+Codex accepts different flags for the same concept depending on whether a session is fresh or resumed
+(`codex exec resume` rejects `-s`, `-C`, and `--add-dir`). The adapter handles this transparently: on
+resume, sandbox becomes a `-c sandbox_mode=…` override, the extra directory becomes a
+`writable_roots` override, and the working directory is dropped (a resumed session keeps its original
+root).
+
+## System prompt & MCP servers
+
+`TurnOptions.systemPrompt` and `TurnOptions.mcpServers` are honored on the **autonomous exec transport**
+through a per-run **profile overlay** (`codex exec -p <profile>`): the adapter writes a throwaway
+overlay into `$CODEX_HOME` for the turn and removes it afterwards.
+
+- **`systemPrompt`** is a full replacement, written to a temp file referenced by
+  `model_instructions_file` (a documented clean replace, verified on Codex `0.146.0`) — the prompt text
+  never goes on the command line.
+- **`mcpServers`** takes the Codex-native shape (`{ name: { command, args, env } }`) and is transcoded
+  to `[mcp_servers.NAME]` tables in the overlay. It carries **no secrets** — credentials still flow only
+  through the run's environment, never a config file.
+
+Because `-p` is rejected by the `app-server` runtime, a turn that would need to **pause for approvals**
+(a non-`never` approval policy with an inbound channel) *and* also sets `systemPrompt`/`mcpServers`
+returns an explicit error pointing at the exec path — rather than silently dropping the overlay. Set the
+approval policy to **Never** to combine a system-prompt/MCP override with an autonomous run.
+
+## Streaming & tokens
+
+Assistant text and reasoning are emitted as `Delta=true` events — incrementally as Codex sends
+`item.updated` frames, otherwise as a single whole-block delta at `item.completed` — matching Claude's
+streaming discipline, so a client's accumulated text equals the final answer either way. Token counts
+(Codex reports tokens, not USD) ride the result event's `meta`; over the app-server transport,
+`thread/tokenUsage` also surfaces live token telemetry as `status` events mid-turn.
+
+## Capabilities
+
+`GET /agent?agent=codex` reports:
+
+| Capability | Value | Meaning |
+|---|---|---|
+| `protocol` | `cli` | Primary transport is `codex exec`; app-server upgrades a single turn. |
+| `history` / `sessions` | `native` | Rollout JSONL under `$CODEX_HOME/sessions/**`; `codex exec resume`. |
+| `resume`, `toolEvents`, `cancel` | `true` | |
+| `respond`, `input`, `interrupt` | `true` | User-in-loop over the app-server transport. |
+| `models` | `true` | Catalog-sourced OpenAI-compatible list ([Models & providers](/docs/reference/models/)); degrades to free text when the on-disk catalog is absent. |
+| `setModel`, `setPermissionMode` | `false` | Codex has no live-switch control; those routes return `400` for this agent. |
+| `systemPrompt` | `true` | Full system-prompt replacement, via the exec profile overlay (see below). |
+| `mcpServers` | `true` | Per-turn MCP servers, via the exec profile overlay (see below). |
+| `customProviders` | `true` | Register custom OpenAI-compatible providers as `config.toml` `[model_providers.<id>]` tables (see [Custom LLM providers](#custom-llm-providers)). |
+| `appendSystemPrompt` | `false` | No clean append-style mechanism; `POST /turn` returns an honest `400`. |
+| `subagents`, `claudeSettings` | `false` | Claude-native shapes with no Codex equivalent; those options `400`. |
+
+Every turn-option support bool is a **core switch**: when it's `false`, sending that option to
+[`POST /turns`](/docs/reference/rest/turns-runs/post-turns/) returns a `400` rather than silently dropping it —
+so a client always knows whether an option was honored.
+
+## Auth
+
+Codex authenticates a headless run **entirely from the process environment** — mindwire never writes a
+config file. Secrets enter a run through exactly one path (the daemon's credential store → the run's
+env), never through request config or the shell string. Two non-interactive methods:
+
+- **API key** — an OpenAI/Codex API key (platform.openai.com), exported as `CODEX_API_KEY` (and
+  `OPENAI_API_KEY` for older CLI builds). Optional `OPENAI_BASE_URL` / `OPENAI_ORGANIZATION` /
+  `OPENAI_PROJECT` companions.
+- **Access token** — a ChatGPT / personal access token, exported as `CODEX_ACCESS_TOKEN`.
+
+The interactive ChatGPT sign-in (the `localhost:1455` OAuth loopback) is **deliberately not offered** —
+it can't complete against a headless daemon. Auth status is presence-based (env-only creds never appear
+in `codex login status`), so the daemon-stored credential is the source of truth.
+
+Set credentials via the [auth flow](/docs/reference/rest/auth/post-auth-begin/) (`POST /auth/begin` → `POST /auth/step`)
+just like any other agent.
+
+## Custom LLM providers
+
+Codex can route a run to any OpenAI-compatible endpoint via a `[model_providers.<id>]` table in
+`config.toml` (selected per run with `model_provider = "<id>"`), and mindwire registers those tables
+through the [`/providers`](/docs/reference/rest/providers/get-providers/) control plane
+(`capabilities.customProviders = true`, user scope only). See [Models & providers](/docs/reference/models/)
+for the cross-agent shape.
+
+- **Write.** `PUT /providers/{id}` writes `[model_providers.<id>]` with `name` / `base_url` /
+  `env_key = "VAR"` / `wire_api = "chat"`, using the same section-preserving TOML discipline as the
+  MCP-config writer — every other table in `config.toml` is left byte-for-byte intact.
+- **Secret path.** The table carries `env_key` (the **name** of the env var Codex reads the key from),
+  never the secret. The `apiKey` you send is stored in the daemon and exported under that name by
+  `EnvForRun` at turn time. `GET` reports `hasKey`, never the key.
+- **Models.** Codex's TOML has no per-provider model-list field, so the registered model ids are stored
+  alongside the credential and echoed back by `GET /providers` for round-trip fidelity. Codex's
+  [`GET /models`](/docs/reference/rest/agent/get-models/) stays the OpenAI catalog — a custom provider's
+  model is chosen by naming it in the `model` setting.
+- **Delete.** `DELETE /providers/{id}` removes only that table and clears the stored key/models.
+  Idempotent.
+
+## Documented gaps
+
+These unified fields have **no clean Codex equivalent** and are intentionally not faked (they are
+surfaced as unsupported rather than silently mapped to something else):
+
+- `fallbackModel`, `maxSpendUsd`, `maxTurns` — Codex has token budgets only, no USD or turn caps.
+- Global `allowedTools` / `allowRules` / `denyRules` — Codex scopes these per-MCP-server and via
+  execpolicy `.rules` files, not globally.
+- `appendSystemPrompt` — Codex has only the append-style `developer_instructions` (out of scope); the
+  full-replacement `systemPrompt` *is* supported (see above), but the sticky append variant is not.
+- `subagents` (`--agents`) and `claudeSettings` (`--settings`) — Claude-native shapes; Codex has no
+  equivalent, so these options return `400` rather than being faked.
+- **`app-server` resume via "continue latest"** — the app-server transport needs a real thread id, and
+  Codex assigns ids server-side with no `--last` equivalent, so "continue latest" over the app-server
+  path starts a fresh thread. (The `exec` path supports `--last` normally.)
+
+## Install
+
+The CLI ships via npm and requires Node:
+
+```
+npm i -g @openai/codex
+```
+
+The daemon's setup flow installs Node then the Codex CLI automatically; `codex --version` is the
+health check. Config lives at `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`).

@@ -1,0 +1,198 @@
+---
+title: Authentication
+description: Drive the agent-agnostic auth step-flow — list methods, begin, step, and check status.
+---
+
+Each agent authenticates once with its own credentials, but MindWire normalizes the flow to four
+calls: **list methods → begin → step → status**. A method is either non-interactive (collect fields
+like an API key, then `step`) or interactive (open a `url`, then `step` polls to completion).
+
+## The state machine
+
+`begin` and `step` both return an `AuthState` whose `status` drives what you do next:
+
+| `status` | What it means | Next |
+| --- | --- | --- |
+| `needs_input` | The method wants fields (see `fields`). | `step` with the values. |
+| `pending` | Interactive login in progress (`url`/`code` set). | `step` again to poll. |
+| `complete` | Authenticated. | Done. |
+| `error` | Failed (`message` explains). | Restart with `begin`. |
+
+## List the methods
+
+Present the options the agent offers.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const methods = await mw.auth.methods();
+for (const m of methods) console.log(m.id, m.label, m.interactive ? "(interactive)" : "");
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+methods, err := client.Auth.Methods()
+if err != nil {
+	log.Fatal(err)
+}
+for _, m := range methods {
+	fmt.Println(m.ID, m.Label, m.Interactive)
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/auth/methods?agent=claude-code" | jq '.[] | {id, label, interactive}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Non-interactive: API key
+
+Begin the method, then submit the fields it asked for.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+await mw.auth.begin("apiKey");                    // → { status: "needs_input", fields: [...] }
+const state = await mw.auth.step({ apiKey: "sk-ant-..." });
+console.log(state.status);                        // "complete"
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+client.Auth.Begin(ctx, "apiKey")                  // → status "needs_input"
+state, err := client.Auth.Step(ctx, map[string]string{"apiKey": "sk-ant-..."})
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(state.Status)                          // "complete"
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPOST 'http://127.0.0.1:8790/auth/begin?agent=claude-code' -d '{"method":"apiKey"}'
+curl -XPOST 'http://127.0.0.1:8790/auth/step?agent=claude-code'  -d '{"apiKey":"sk-ant-..."}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Interactive: browser sign-in
+
+`begin` returns a `url` (and sometimes a `code`) to show the user; then `step` **polls** until the
+login completes.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+let state = await mw.auth.begin("login");
+console.log("Open:", state.url);                  // show the user this URL
+
+while (state.status === "pending") {
+  await new Promise((r) => setTimeout(r, 1500));
+  state = await mw.auth.step({});                 // poll
+}
+console.log(state.status);                         // "complete"
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+state, err := client.Auth.Begin(ctx, "login")
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println("Open:", state.URL)
+
+for state.Status == "pending" {
+	time.Sleep(1500 * time.Millisecond)
+	if state, err = client.Auth.Step(ctx, map[string]string{}); err != nil {
+		log.Fatal(err)
+	}
+}
+fmt.Println(state.Status) // "complete"
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# begin returns {"status":"pending","url":"https://…"}; poll step until "complete".
+curl -XPOST 'http://127.0.0.1:8790/auth/begin?agent=claude-code' -d '{"method":"login"}'
+curl -XPOST 'http://127.0.0.1:8790/auth/step?agent=claude-code'  -d '{}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Check status
+
+Whether the agent is authenticated, and via which method.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const { configured, method } = await mw.auth.status();
+if (!configured) console.log("run the auth flow first");
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+status, err := client.Auth.Status(ctx)
+if err != nil {
+	log.Fatal(err)
+}
+if !status.Configured {
+	fmt.Println("run the auth flow first")
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/auth/status?agent=claude-code" | jq '{configured, method}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+> Credentials only ever flow through the auth module and are injected into the agent process at run
+> time — they're never returned by the API, never stored in config, and never travel on a turn.
+
+This flow authenticates the **agent**. It's distinct from the transport-level credentials used to reach
+a daemon at a non-local [destination](/docs/guides/destinations) — e.g. the Oblien sandbox credentials
+(client id/secret) and the short-lived gateway JWT — which the SDK manages for you.

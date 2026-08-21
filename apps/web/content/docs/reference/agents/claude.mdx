@@ -1,0 +1,100 @@
+---
+title: Claude Code adapter
+description: Driving Anthropic's Claude Code CLI through mindwire — the reference adapter, its two transports, per-turn power options (subagents, settings/hooks, MCP, system prompt), and auth.
+---
+
+[Claude Code](https://github.com/anthropics/claude-code) is mindwire's **reference adapter**
+(`?agent=claude-code`) — the first harness normalized, and the one whose behavior defines "the default."
+Everything the unified protocol can express, Claude Code can do; other adapters declare where they fall
+short of it via the [capability matrix](/docs/reference/sdk-ts/interfaces/Capabilities/). This page covers what's distinctive
+about driving it, with emphasis on the per-turn power options.
+
+Everything below is served **live** by [`GET /agent?agent=claude-code`](/docs/reference/rest/agent/get-agent/)
+(capabilities, the settings schema, the auth methods). This page explains the mapping behind it.
+
+## Two transports, one turn
+
+Claude Code is driven through the `claude` CLI, and the adapter picks the transport per turn — you never
+choose one directly:
+
+- **One-shot (default, bypass mode).** A single `claude` process per turn emitting stream-json. Fast,
+  fire-and-forget; it does not read stdin, so it cannot pause mid-turn. This is the autonomous hot path.
+- **Persistent (stdin control).** When a turn must **pause for you** — answer a permission ask, take
+  follow-up input, interrupt — the adapter upgrades that turn to the persistent stream-json transport and
+  pumps your ingress over Claude's control protocol.
+
+The switch mirrors Codex's `exec`-vs-`app-server` split: you choose a permission posture, the adapter
+routes the turn to whichever transport can honor it.
+
+## Per-turn power options
+
+Claude Code honors the full set of per-turn [`TurnOptions`](/docs/reference/sdk-ts/interfaces/TurnOptions/) — several of
+which no other adapter can yet match. Each is a **core switch**: when a capability is `false` for an
+agent, sending that option to [`POST /turns`](/docs/reference/rest/turns-runs/post-turns/) returns an honest `400`
+rather than silently dropping it.
+
+| Option | Capability | Claude flag | Shape |
+| --- | --- | --- | --- |
+| `systemPrompt` | `systemPrompt` | `--system-prompt` | Full replacement of the default system prompt. |
+| `appendSystemPrompt` | `appendSystemPrompt` | `--append-system-prompt` | Appended to the default prompt (a canon setting). |
+| `mcpServers` | `mcpServers` | `--mcp-config <file>` | Per-turn MCP servers (materialized to a temp file). |
+| `subagents` | `subagents` | `--agents <json>` | Per-turn subagents as **inline JSON**. |
+| `claudeSettings` | `claudeSettings` | `--settings <file>` | Settings/hooks/permissions bundle (temp file). |
+| `outputSchema` | — | `--json-schema <file>` | Structured-output JSON Schema (temp file). |
+
+### Subagents — `--agents`
+
+`TurnOptions.subagents` defines per-turn subagents in Claude's native shape —
+`{ name: { description, prompt, … } }`. Verified on `claude-cli 2.1.220`, `--agents` takes the object as
+**inline JSON on the command line** (a file path is *not* loaded), so the adapter passes the raw object
+through directly. This lets a single turn spin up scoped helper agents without any persistent config.
+
+### Settings & hooks — `--settings`
+
+`TurnOptions.claudeSettings` is a per-turn settings bundle in Claude's native format — the same JSON where
+**hooks, permissions, and env** live. The adapter materializes it to a temp file and passes
+`--settings <file>` (a file, over the inline form, keeps a potentially large bundle off argv; `--settings`
+accepts either). This is how you attach hooks to one turn without touching `~/.claude/settings.json`.
+
+Both `subagents` and `claudeSettings` are opaque, Claude-native passthroughs — the daemon does not
+reshape them. Adapters that have no equivalent (e.g. Codex) declare these capabilities `false`, so the
+same request returns a `400` there rather than a faked mapping.
+
+## Capabilities
+
+`GET /agent?agent=claude-code` reports (abridged):
+
+| Capability | Value | Meaning |
+| --- | --- | --- |
+| `protocol` | `cli` | Driven via the `claude` CLI (one-shot or persistent). |
+| `output` | `structured-json` | Claude emits stream-json. |
+| `history` / `sessions` | `native` | Transcript JSONL under `~/.claude/projects/**`; `--session-id` / `--resume`. |
+| `resume`, `toolEvents`, `cancel` | `true` | |
+| `models`, `setModel`, `setPermissionMode` | `true` | Live model list (Anthropic Models API), enriched with provider-aware metadata from the on-disk catalog ([Models & providers](/docs/reference/models/)); plus live-switch control on a persistent turn. |
+| `respond`, `input`, `interrupt` | `true` | User-in-loop over the persistent stream-json control protocol. |
+| `systemPrompt`, `appendSystemPrompt`, `mcpServers` | `true` | Full/append prompt override and per-turn MCP servers. |
+| `subagents`, `claudeSettings` | `true` | Per-turn `--agents` and `--settings` (see above). |
+| `customProviders` | `false` | Claude is bound to Anthropic; a "custom provider" is instead the **gateway auth lane** (bearer token + base URL, see [Auth](#auth)), so [`/providers`](/docs/reference/models/) honestly `400`s. |
+
+## Auth
+
+Claude Code offers three non-interactive-friendly methods; secrets enter a run through exactly one path
+(the daemon's credential store → the run's env via `EnvForRun`), never through request config or the shell
+string:
+
+- **API key** — an Anthropic API key (console.anthropic.com), exported as `ANTHROPIC_API_KEY`
+  (pay-per-token).
+- **Sign in with Claude** — an interactive flow that runs `claude setup-token` to use a Claude Pro/Max
+  subscription.
+- **Bearer token (gateway)** — a token for a custom Anthropic-compatible gateway/proxy, sent as
+  `ANTHROPIC_AUTH_TOKEN` (`Authorization: Bearer`) alongside the gateway's base URL.
+
+Set credentials via the [auth flow](/docs/reference/rest/auth/post-auth-begin/) (`POST /auth/begin` → `POST /auth/step`).
+
+## Config & history
+
+Config lives under `CLAUDE_CONFIG_DIR` if set, else `~/.claude` — `claude --version` is the health check.
+History is native: session transcripts are JSONL under `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`,
+which the adapter reads directly for [chat history](/docs/reference/rest/chats/get-chats-id-messages/) and resume. Claude also
+owns its chat titles (an `ai-title` record in the transcript), which mindwire prefers over its derived
+first-message snippet.

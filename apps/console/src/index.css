@@ -1,0 +1,164 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Oblien's brand typeface (Gellix), the same family the oblien.com landing uses — loaded from the
+   Oblien CDN so the console reads as a first-party Oblien surface. `font-display: swap` means text
+   paints immediately in the system fallback and reflows to Gellix once it arrives; if the CDN is
+   unreachable the UI simply stays on the fallback. */
+@font-face {
+  font-family: "Gellix";
+  src: url("https://cdn.oblien.com/fonts/Gellix-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Gellix";
+  src: url("https://cdn.oblien.com/fonts/Gellix-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Gellix";
+  src: url("https://cdn.oblien.com/fonts/Gellix-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Map shadcn's semantic token names onto the CSS variables defined per-theme below, so every
+   generated component (Button, Card, Input, …) reads the same monochrome palette. Radius is zeroed
+   to match the site's squared bento look; rounded-full (dots, avatars) still reads its own token. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* The theme's "ink" — the tone every translucent film is made of. White in dark, black in light,
+     so a component can write `bg-ink/6`, `border-ink/25`, `bg-ink/40` (an accent bar) and the film
+     flips with the theme instead of being a hardcoded `white/…` that vanishes on a white canvas. */
+  --color-ink: var(--ink);
+
+  --font-sans:
+    "Gellix", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+}
+
+/* No gray anywhere. Every non-background tone is pure black/white driven to the exact shade with an
+   alpha channel — muted text, hairlines, surfaces, and focus rings are all translucent ink over the
+   canvas, never a chromatic zinc token. Structure comes from those translucent films + hairline
+   borders, not from tinted fills.
+
+   Light theme (secondary — dormant; the app ships `.dark`). Ink is black-at-opacity on white. */
+:root {
+  --ink: #000000;
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #ffffff;
+  --card-foreground: #000000;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  --primary: #000000;
+  --primary-foreground: #ffffff;
+  --secondary: rgb(0 0 0 / 0.05);
+  --secondary-foreground: #000000;
+  --muted: rgb(0 0 0 / 0.04);
+  --muted-foreground: rgb(0 0 0 / 0.56);
+  --accent: rgb(0 0 0 / 0.06);
+  --accent-foreground: #000000;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: rgb(0 0 0 / 0.12);
+  --input: rgb(0 0 0 / 0.16);
+  --ring: rgb(0 0 0 / 0.40);
+}
+
+/* Dark theme (primary — index.html ships `class="dark"`). The canvas is pure black `#000`; every
+   elevated surface is a translucent WHITE FILM over it (`--card` = white/0.03), never a hand-picked
+   near-black hex (those carry a cool tint that reads as gray). Structure = films + white/opacity
+   hairlines. The only solid surface is `--popover` — dropdowns/tooltips/toasts overlay arbitrary
+   content, so they must be opaque; on a black page, pure black + a hairline reads as a crisp panel. */
+.dark {
+  --ink: #ffffff;
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: rgb(255 255 255 / 0.045);
+  --card-foreground: #ffffff;
+  --popover: #000000;
+  --popover-foreground: #ffffff;
+  --primary: #ffffff;
+  --primary-foreground: #000000;
+  --secondary: rgb(255 255 255 / 0.09);
+  --secondary-foreground: #ffffff;
+  --muted: rgb(255 255 255 / 0.06);
+  --muted-foreground: rgb(255 255 255 / 0.66);
+  --accent: rgb(255 255 255 / 0.10);
+  --accent-foreground: #ffffff;
+  --destructive: #ff5f57;
+  --destructive-foreground: #000000;
+  --border: rgb(255 255 255 / 0.14);
+  --input: rgb(255 255 255 / 0.20);
+  --ring: rgb(255 255 255 / 0.45);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
+  }
+  /* Tailwind v4's Preflight dropped v3's rule that forced `cursor: pointer` on buttons, so every
+     clickable control fell back to the arrow cursor. Restore the hand for enabled interactive
+     controls — the app's clickable rows, tiles, and toggles are all <button>/role="button", and
+     Radix Select/Switch/Tabs render as buttons too, so this one rule covers them. Text inputs keep
+     their I-beam (deliberately not listed); disabled controls keep the arrow. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* Thin, monochrome scrollbars so long transcripts/panels stay in the design language. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+}

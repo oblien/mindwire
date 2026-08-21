@@ -1,0 +1,260 @@
+name: Release
+
+# Tag-driven release. Push a tag `vX.Y.Z` (where X.Y.Z == packages/sdk/package.json version) and this:
+#   1. runs the release gate (Go suite + SDK unit + real E2E) — a red gate blocks everything below;
+#   2. builds the daemon for Linux, macOS, and Windows and attaches checksummed binaries to a GitHub Release;
+#   3. publishes the `mindwire` SDK to npm.
+#
+# npm is the one IMMUTABLE artifact, so it publishes LAST and every publish is idempotent (skip a
+# version already on the registry). A partial failure can then be re-run under the SAME tag without a
+# version bump. `workflow_dispatch` re-publishes npm for the current version only (no GitHub release).
+#
+# Prerequisite secret: NPM_TOKEN (an npm automation token with publish rights). Absent it, the build +
+# packaged-install smoke still run (a useful dry run), but the actual `npm publish` steps skip cleanly.
+#
+# Two version numbers are decoupled by design: the SDK's package.json version drives npm (and is checked
+# against the release tag); the daemon binary's agent.Version (daemon/internal/agent/agent.go) is the
+# sandbox "latest" channel's own version. Keep them aligned when the daemon changes — that's a documented
+# manual step, not enforced here.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  # The blocking checks. `publish-release` and `publish-npm` depend on this, so a red test stops the
+  # release rather than publishing alongside it (workflows aren't ordered — `needs:` is the only gate).
+  gate:
+    name: Release gate
+    uses: ./.github/workflows/release-gate.yml
+
+  build-daemon:
+    name: Build daemon binaries
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.mod
+      - name: Verify daemon version matches SDK version
+        run: |
+          set -euo pipefail
+          sdk="$(node -p "require('./packages/sdk/package.json').version")"
+          daemon="$(sed -nE 's/^const Version = "([^"]+)"/\1/p' daemon/internal/agent/agent.go)"
+          test "$sdk" = "$daemon" || { echo "::error::SDK version $sdk does not match daemon version $daemon"; exit 1; }
+      # CGO-free Go binaries cross-compile on this Linux runner. The SDK downloads exactly one asset for
+      # its own version/platform/architecture during ensure(), verified against checksums.txt.
+      - name: Build
+        working-directory: daemon
+        run: PLATFORMS="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" ./build.sh
+      - name: Stage + checksum release assets
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
+            source="daemon/dist/latest/mindwired-${target}"
+            suffix=""
+            if [[ "$target" == windows-* ]]; then suffix=".exe"; fi
+            cp "$source" "dist/mindwired-${TAG}-${target}${suffix}"
+          done
+          cp daemon/dist/latest/catalog.json "dist/catalog-${TAG}.json"
+          cd dist
+          : > checksums.txt
+          for f in mindwired-${TAG}-* "catalog-${TAG}.json"; do
+            sha256sum "$f" >> checksums.txt
+            sha256sum "$f" > "$f.sha256"
+          done
+          echo "staged:"; ls -lh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: daemon-release
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-release:
+    name: Publish GitHub release
+    if: github.event_name == 'push'
+    needs: [gate, build-daemon]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          name: daemon-release
+          path: dist
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          PRERELEASE_FLAG=""
+          if [[ "${TAG}" == *-* ]]; then PRERELEASE_FLAG="--prerelease"; fi
+          ASSETS=(
+            "dist/mindwired-${TAG}-linux-amd64"
+            "dist/mindwired-${TAG}-linux-amd64.sha256"
+            "dist/mindwired-${TAG}-linux-arm64"
+            "dist/mindwired-${TAG}-linux-arm64.sha256"
+            "dist/mindwired-${TAG}-darwin-amd64"
+            "dist/mindwired-${TAG}-darwin-amd64.sha256"
+            "dist/mindwired-${TAG}-darwin-arm64"
+            "dist/mindwired-${TAG}-darwin-arm64.sha256"
+            "dist/mindwired-${TAG}-windows-amd64.exe"
+            "dist/mindwired-${TAG}-windows-amd64.exe.sha256"
+            "dist/catalog-${TAG}.json"
+            "dist/catalog-${TAG}.json.sha256"
+            "dist/checksums.txt"
+          )
+          # Idempotent: on a re-run the release exists and `gh release create` would fail — re-upload
+          # with --clobber instead, so a partial failure can be re-published for the SAME tag.
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "::notice::Release ${TAG} exists — re-uploading assets (--clobber)."
+            gh release upload "${TAG}" "${ASSETS[@]}" --clobber
+          else
+            gh release create "${TAG}" \
+              --title "mindwire ${TAG}" \
+              --notes-from-tag \
+              ${PRERELEASE_FLAG} \
+              "${ASSETS[@]}"
+          fi
+
+  verify-release-daemon:
+    name: "E2E: SDK downloads released daemon"
+    if: github.event_name == 'push'
+    needs: [gate, publish-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Install and build SDK
+        run: |
+          bun install --frozen-lockfile
+          bun --filter='mindwire' run build
+      # The SDK downloads the published asset, verifies checksums.txt, caches it under RUNNER_TEMP,
+      # spawns it, then verifies the real daemon's health endpoint before npm publication is allowed.
+      - name: Download, verify, and boot the released daemon
+        env:
+          XDG_CACHE_HOME: ${{ runner.temp }}/mindwire-cache
+        run: |
+          node --input-type=module <<'EOF'
+          import { createHash } from "node:crypto";
+          import { SDK_VERSION, startEmbedded } from "./packages/sdk/dist/index.js";
+          const tag = `v${SDK_VERSION}`;
+          const base = `https://github.com/oblien/mindwire/releases/download/${tag}`;
+          const name = `catalog-${tag}.json`;
+          const [catalogRes, checksumsRes] = await Promise.all([fetch(`${base}/${name}`), fetch(`${base}/checksums.txt`)]);
+          if (!catalogRes.ok) throw new Error(`release catalog unavailable: ${catalogRes.status}`);
+          if (!checksumsRes.ok) throw new Error(`release checksums unavailable: ${checksumsRes.status}`);
+          const bytes = Buffer.from(await catalogRes.arrayBuffer());
+          const expected = (await checksumsRes.text()).split("\n").find((line) => line.trim().endsWith(name))?.trim().split(/\s+/)[0];
+          const actual = createHash("sha256").update(bytes).digest("hex");
+          if (!expected || actual !== expected) throw new Error("release catalog checksum verification failed");
+          const catalog = JSON.parse(bytes.toString("utf8"));
+          if (catalog.version !== SDK_VERSION) throw new Error(`release catalog ${catalog.version} does not match SDK ${SDK_VERSION}`);
+          const daemon = await startEmbedded();
+          try {
+            const health = await (await fetch(`${daemon.baseUrl}/healthz`)).json();
+            if (!health.ok) throw new Error(`unhealthy daemon: ${JSON.stringify(health)}`);
+            if (health.version !== SDK_VERSION) throw new Error(`daemon ${health.version} does not match SDK ${SDK_VERSION}`);
+            console.log(`downloaded and booted daemon v${health.version}`);
+          } finally {
+            daemon.stop();
+          }
+          EOF
+
+  publish-npm:
+    name: Publish SDK to npm
+    needs: [gate, publish-release, verify-release-daemon]
+    # npm is immutable, so it goes LAST — only after the gate and the GitHub release succeed, so a
+    # partial failure re-runs under the SAME version. `always()` keeps the manual npm-only path working:
+    # on workflow_dispatch `publish-release` is skipped (push-only), and we publish anyway; on a tag push
+    # we require it to have succeeded. `gate` is required on BOTH paths (no escape hatch).
+    if: >-
+      always() &&
+      needs.gate.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' || (needs.publish-release.result == 'success' && needs.verify-release-daemon.result == 'success'))
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # The tag IS the source of truth for the npm version — refuse a mismatch rather than publish a
+      # version the tag doesn't name. Skipped on dispatch (no tag: dispatch re-publishes current version).
+      - name: Verify tag matches SDK version
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./packages/sdk/package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag v$TAG does not match packages/sdk/package.json version $PKG"; exit 1
+          fi
+
+      - name: Build SDK (dist)
+        run: bun --filter='mindwire' run build
+
+      # Pack and install only the SDK exactly as consumers receive it, before npm's immutable publish.
+      - name: Packaged-install smoke
+        run: bash scripts/release-smoke.sh
+
+      - name: Check for npm token
+        id: token
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "${NPM_TOKEN:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::NPM_TOKEN is not set — build + smoke ran, but npm publish is skipped (dry run)."
+          fi
+
+      - name: Publish mindwire
+        if: steps.token.outputs.present == 'true'
+        working-directory: packages/sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          NPM_TAG=""
+          if [[ "${TAG}" == *-* ]]; then NPM_TAG="--tag next"; fi
+          NAME="$(npm pkg get name | tr -d '"')"
+          VERSION="$(npm pkg get version | tr -d '"')"
+          if [ -n "$(npm view "$NAME@$VERSION" version 2>/dev/null || true)" ]; then
+            echo "::notice::$NAME@$VERSION already on npm — skipping publish (re-run of an existing release)."
+            exit 0
+          fi
+          echo "publishing $NAME@$VERSION"
+          npm publish --access public --provenance ${NPM_TAG}

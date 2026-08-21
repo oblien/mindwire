@@ -1,0 +1,160 @@
+---
+title: MCP servers
+description: Read and write the persistent MCP-server config an agent loads on every run — one agent-agnostic shape over Claude's JSON stores and Codex's config.toml.
+---
+
+An agent can talk to [MCP](https://modelcontextprotocol.io) servers two ways: passed **per turn**
+through [`options.mcpServers`](/docs/guides/configuration), or read from **persistent config on disk**
+that the agent loads on every run. This surface is the second one — `mw.mcp` — a single shape over
+Claude's JSON stores and Codex's `config.toml`, so the same call configures a server regardless of which
+agent runs.
+
+It's gated by `capabilities.mcpConfig` (distinct from the per-turn `mcpServers` flag). An agent that
+doesn't expose persistent config returns an honest `400` — read
+[`GET /agent`](/docs/guides/agents#read-the-capabilities) first.
+
+## Scopes
+
+Scopes match the rest of the persistent surfaces, but the set differs by agent — read them live from
+`GET /agent`; the bundled state is:
+
+- **Claude** — `project` (`<dir>/.mcp.json`) **and** `user` (`~/.claude.json`). A write touches only the
+  `mcpServers` subtree of the user store; every sibling key in that file is preserved byte-for-byte.
+- **Codex** — **`user` only** (`$CODEX_HOME/config.toml`, the `[mcp_servers.*]` tables); a
+  project-scope op returns a `400`. Only those tables are rewritten — the rest of `config.toml` is left
+  verbatim.
+
+`scope` defaults to `user` (the scope every supporting agent has); `dir` selects the project-scope
+working directory (defaults to the daemon cwd) and is ignored by user-scope calls.
+
+## Server shape
+
+A server is either a **stdio** launch or a **remote HTTP** endpoint:
+
+| Field | For | Meaning |
+| --- | --- | --- |
+| `command` / `args` / `env` / `cwd` | stdio | the process to spawn, its arguments, extra environment, working directory |
+| `url` | HTTP | the server endpoint |
+| `bearerTokenEnvVar` | HTTP | the **name** of an env var holding the bearer token — never the token itself |
+| `httpHeaders` | HTTP | extra request headers |
+
+<Callout type="warn">
+**No secrets cross this surface.** HTTP auth travels as `bearerTokenEnvVar` — the *name* of an
+environment variable, resolved at run time, never the token value. On Claude it maps to an
+`Authorization: Bearer ${VAR}` header in the stored config (the env-var name, via Claude's own `${VAR}`
+expansion), and reads back through `httpHeaders`. Command/args and env-var names are the only things
+written; the actual credential only ever flows through [authentication](/docs/guides/authentication).
+</Callout>
+
+## List
+
+Every configured server across the agent's supported scopes, keyed `scope → name → server`. A missing
+config file yields an empty object for that scope rather than an error.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const byScope = await mw.mcp.list({ dir: "/abs/path/to/project" });
+for (const [scope, servers] of Object.entries(byScope)) {
+  for (const [name, server] of Object.entries(servers ?? {})) {
+    console.log(scope, name, server.command ?? server.url);
+  }
+}
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+byScope, err := client.MCP.List("") // "" → the daemon cwd
+if err != nil {
+	log.Fatal(err) // an agent without the module is an *APIError with Status 400
+}
+for scope, servers := range byScope {
+	for name := range servers {
+		fmt.Println(scope, name)
+	}
+}
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -s "http://127.0.0.1:8790/mcp?agent=claude-code&dir=/abs/path/to/project"
+```
+
+</Tab>
+
+</ApiTabs>
+
+## Get, set, delete
+
+`set` creates or overwrites one server and returns the stored definition; `get` fetches one (a missing
+name is a `404`); `delete` is idempotent — removing an absent server still succeeds. A name is a bare
+identifier — no slashes.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+// A stdio server at user scope.
+await mw.mcp.set("fs", { command: "mcp-fs", args: ["--root", "/srv"] }, { scope: "user" });
+
+// A remote HTTP server — auth by env-var NAME, never the token.
+await mw.mcp.set(
+  "remote",
+  { url: "https://mcp.example.com", bearerTokenEnvVar: "MCP_TOKEN" },
+  { scope: "project", dir: "/abs/path/to/project" },
+);
+
+const server = await mw.mcp.get("remote", { scope: "project", dir: "/abs/path/to/project" });
+console.log(server.url, server.bearerTokenEnvVar);
+
+await mw.mcp.delete("fs", { scope: "user" }); // idempotent
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+_, err := client.MCP.Set(mindwire.MemoryUser, "", "fs",
+	mindwire.MCPServer{Command: "mcp-fs", Args: []string{"--root", "/srv"}})
+
+server, err := client.MCP.Get(mindwire.MemoryUser, "", "fs")
+if err != nil {
+	log.Fatal(err) // a missing server is an *APIError with Status 404
+}
+fmt.Println(server.Command)
+
+err = client.MCP.Delete(mindwire.MemoryUser, "", "fs") // idempotent
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+# Write one; the body is the server definition. scope defaults to user.
+curl -XPUT "http://127.0.0.1:8790/mcp/fs?agent=claude-code&scope=user" \
+  -d '{"command":"mcp-fs","args":["--root","/srv"]}'
+
+# Read one — a missing server is a 404.
+curl -s "http://127.0.0.1:8790/mcp/fs?agent=claude-code&scope=user"
+
+# Remove one — idempotent.
+curl -XDELETE "http://127.0.0.1:8790/mcp/fs?agent=claude-code&scope=user"
+```
+
+</Tab>
+
+</ApiTabs>
+
+Subagent definitions — Claude's on-disk `.claude/agents/*.md` — live on the
+[prompts & memory](/docs/guides/prompts-and-memory#subagent-definitions) surface.

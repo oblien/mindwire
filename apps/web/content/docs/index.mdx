@@ -1,0 +1,72 @@
+---
+title: Introduction
+description: The runtime for coding agents — one protocol, one event stream, one auth flow, driven from TypeScript, Go, or plain REST.
+---
+
+The world's most advanced coding agents — Claude Code, Codex, Copilot CLI, Grok CLI, opencode — already plan, edit code, and run real multi-step work, each behind its own CLI, flags, session model, and auth. **MindWire is the runtime that drives them**: a daemon owns the agent processes and normalizes them to one protocol. **Claude Code, Codex, and opencode ship today**; Grok CLI and Copilot CLI are next.
+
+Pick an agent per call and drive it from wherever you work — a **TypeScript** app, a **Go** service,
+or plain **REST + SSE**. Swap the agent like you swap a model: one request shape, one auth flow, one
+event stream.
+
+## Install
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```bash
+npm i mindwire
+```
+
+The SDK ships the daemon with the package and **runs it for you locally** — nothing to deploy.
+
+</Tab>
+
+<Tab value="Go">
+
+```bash
+go get github.com/oblien/mindwire/daemon
+```
+
+The Go SDK (`.../daemon/sdk`, package `mindwire`) is the daemon's own engine, **in-process** — no
+HTTP hop, no subprocess.
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+go build -o mindwired ./daemon/cmd/daemon && ./mindwired
+```
+
+Run the daemon standalone for a plain **HTTP + SSE** API — any language, no SDK.
+
+</Tab>
+
+</ApiTabs>
+
+## The pieces
+
+| Component | What it is |
+| --- | --- |
+| `mindwire` (TS) | The TypeScript SDK — auto-runs the bundled daemon locally. |
+| `.../daemon/sdk` (Go) | The native in-process Go SDK — the daemon's core as a library. |
+| daemon | The Go core (`mindwired`) that owns the agent processes; runs embedded, or standalone over HTTP + SSE for remote/self-host. |
+| adapters | One drop-in folder per agent. `claude-code`, `codex`, and `opencode` today; `grok`, `copilot` next. |
+
+## Why it exists
+
+Every coding agent ships its own CLI, flags, and auth. Model APIs converged on one standard and are stateless; agent harnesses did **not**, and they're stateful and side-effecting. MindWire is built around exactly those hard parts:
+
+- **Durable sessions.** A turn keeps running if the client disconnects; reattach to its live stream.
+- **A unified event stream.** `text`, `thinking`, `tool_use`, `tool_result`, `result` — every agent, one shape.
+- **A capabilities matrix.** Each adapter declares what its agent does natively; the core emulates the rest.
+
+## Next
+
+Head to the [Quickstart](/docs/guides/quickstart) to install, authenticate, and stream your first
+turn in TypeScript, Go, or REST. Then dig into [Streaming](/docs/guides/streaming),
+[Interaction & approvals](/docs/guides/interaction), and [Steering a live turn](/docs/guides/steering).
+For how this compares to the other ways to drive a coding agent, see
+[Comparison](/docs/concepts/comparison).

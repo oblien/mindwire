@@ -1,0 +1,223 @@
+---
+title: opencode adapter
+description: Driving SST's opencode through mindwire — the native server + SSE transport, the settings mapping, live approvals, auth, and the documented gaps.
+---
+
+[opencode](https://github.com/sst/opencode) is mindwire's third agent adapter (`?agent=opencode`),
+and the first driven over a harness's **own HTTP + SSE server** rather than a one-shot CLI. It proves
+the architecture holds across transports: a server-first agent slots in as one drop-in adapter with
+**zero core or client changes** — the same request shape, the same [`Event`](/docs/reference/sdk-ts/interfaces/Event/) stream,
+the same [auth](/docs/reference/rest/auth/post-auth-begin/) and [settings](/docs/reference/rest/agent/get-agent/) surface you already use.
+
+Everything below is served **live** at runtime by [`GET /agent?agent=opencode`](/docs/reference/rest/agent/get-agent/)
+(capabilities, the settings schema, the auth methods). This page explains the mapping and the design
+choices behind it.
+
+## Server-first, not a CLI wrapper
+
+opencode is **server-first**: its own TUI is a client of `opencode serve`. So mindwire embeds it the
+intended way — it drives opencode's native HTTP server and SSE bus, not the `opencode run` CLI. Claude
+Code and Codex are process-per-turn harnesses whose output is NDJSON on stdout; opencode is a service
+you talk to over HTTP. The daemon core never sees the difference — it only reads unified events — so
+this is purely additive.
+
+One turn is one managed server:
+
+1. **Spawn per turn.** `opencode serve` is started on a free loopback port, bound to the turn's working
+   directory (its cwd *is* the session's project root), and torn down when the turn ends. Cold start is
+   sub-second; a shared cwd-keyed pool is a documented future optimization.
+2. **Subscribe first.** The adapter opens the `GET /event` SSE bus and waits for `server.connected`
+   **before** sending the prompt, so no `message.part.*` event is missed.
+3. **Create or resume a session.** `POST /session` for a fresh turn; a resumed turn reuses the stored
+   opencode session id (mindwire persists it as the chat's `SessionID`, exactly as Codex persists its
+   thread id). Emits [`EventSession`](/docs/reference/sdk-ts/interfaces/Event/).
+4. **Prompt, event-driven.** `POST /session/:id/prompt_async` returns `204` immediately — no long-held
+   request. The answer streams back over the SSE bus as message parts.
+5. **Terminal on idle.** `session.idle` for our session id ends the turn (→ `result` event with token +
+   cost meta); `session.error` surfaces as an error event.
+
+Because the whole turn is event-driven over one bus, live tool approvals and interrupt ride the same
+channel as the streamed output — there is no separate control transport to negotiate.
+
+## Streaming & tokens
+
+opencode streams message **parts** over the bus, which the adapter normalizes to the unified stream:
+
+- **`text` parts** → assistant text as `Delta=true` events, so a client's accumulated text equals the
+  final answer (the same streaming discipline as Claude and Codex).
+- **`reasoning` parts** → `thinking` events.
+- **`tool` parts** → a `tool_use` / `tool_result` pair keyed by the tool's `callID`, with the action
+  (bash / edit / write / read / grep / glob / webfetch) mapped to the unified tool shape.
+
+Token counts and USD cost ride the result event's `meta` (`inputTokens`, `outputTokens`,
+`reasoningTokens`, `cacheReadTokens`, `cacheWriteTokens`, `costUsd`) — sourced from opencode's
+`message.updated` info as the assistant message settles.
+
+## Settings
+
+opencode folds "when to ask a human" into a single permission mode, so the mapping is close to the
+unified canon with no second axis (unlike Codex's separate sandbox). Everything is served live by
+`GET /agent?agent=opencode`:
+
+| Setting (mindwire) | Canon | opencode | Notes |
+|---|---|---|---|
+| Model | `model` | `prompt_async` `model {providerID, modelID}` | opencode's `provider/model` id (e.g. `anthropic/claude-sonnet-4`). The select is discovered from `opencode models` and enriched with provider-aware metadata from the on-disk catalog (see [Models & providers](/docs/reference/models/)); blank = the opencode config default. |
+| Agent | `agent` (custom) | `prompt_async` `agent` | opencode's named agent for the turn (`build`, `plan`, or a custom one from `.opencode/agent`). Blank = opencode's default. |
+| Permission mode | `permission-mode` | driver-controlled | `auto` (autonomous — the driver approves tool requests for you) or `ask` (pause and surface each request). Default `auto`. |
+| System prompt | `system-prompt` | `prompt_async` `system` | Full replacement of opencode's default instructions for the turn. A per-turn `systemPrompt` option overrides this sticky value. |
+| Working directory | `working-dir` (custom) | server cwd | Directory the server binds as the session's project root. Defaults to the turn's working directory. |
+
+The model select discovers its values from `opencode models` (opencode's offline aggregated catalog,
+one `provider/model` id per line) and **degrades to free text** if the CLI enumerates nothing — nothing
+is hardcoded, so an opencode upgrade is picked up without a mindwire release. A `provider/model` value
+is split on the first slash; a malformed value is dropped so opencode falls back to its configured
+default rather than being handed a bad selector.
+
+Each enumerated id is then **enriched** from the on-disk models.dev catalog opencode maintains — provider,
+context window, max output, modalities, capability flags, and per-million-token cost all ride the
+[`ModelInfo`](/docs/reference/models/) entries returned by [`GET /models`](/docs/reference/rest/agent/get-models/).
+Enrichment is best-effort and native (no network): a missing catalog just means the ids come back with
+`id`/`label` only.
+
+## Permission mode is the transport switch
+
+There is one transport, but two postures — chosen by the permission mode, transparently to the client:
+
+```
+permission-mode = auto (default)  → driver auto-approves every request  (autonomous)
+permission-mode = ask + inbound   → each request surfaces for you to answer
+```
+
+- **`auto`** is the analogue of Codex's `approval_policy=never`: opencode still raises permission
+  requests over the bus, and the driver answers each one `always` without surfacing an interaction.
+- **`ask`** (with an inbound channel to answer on) surfaces each request as an
+  [`EventInteraction`](/docs/reference/sdk-ts/interfaces/Event/) of kind `approval`; your `response`
+  is POSTed back to `POST /session/:id/permissions/:id`. A user *allow* becomes `once`; a *deny* becomes
+  `reject` (deny and reject collapse through `agent.Denied`).
+
+Interrupt is `POST /session/:id/abort` — sent when the client sends an `interrupt` or the context is
+cancelled, then the managed server is torn down.
+
+## System prompt
+
+`TurnOptions.systemPrompt` (and the sticky `system-prompt` setting) is honored as a **full replacement**
+of opencode's default instructions, sent as the `system` field of the `prompt_async` body (verified
+against the generated `@opencode-ai/sdk` types). The prompt text goes in the request body, never on a
+command line.
+
+`appendSystemPrompt` has no opencode mechanism, so it stays unsupported (an honest `400`) rather than
+being faked on top of the replace path.
+
+## Capabilities
+
+`GET /agent?agent=opencode` reports:
+
+| Capability | Value | Meaning |
+|---|---|---|
+| `protocol` | `http` | Driven over `opencode serve` + the `GET /event` SSE bus. |
+| `output` | `structured-json` | Message parts arrive as structured JSON over SSE. |
+| `sessions` | `native` | `POST /session`; resume by reusing the session id. |
+| `history` | `emulated` | opencode's store (`opencode.db`, SQLite) is undocumented and off-limits, so mindwire serves its own recorded stream. |
+| `resume`, `toolEvents`, `cancel` | `true` | |
+| `persistent` | `false` | The server is spawned per turn and torn down at turn end — no process is held across turns. |
+| `models` | `true` | `opencode models` enumerates `provider/model` ids, enriched with provider-aware metadata from the on-disk catalog ([Models & providers](/docs/reference/models/)). |
+| `respond`, `interrupt` | `true` | Answer a permission ask; abort a running turn. |
+| `input`, `setModel`, `setPermissionMode` | `false` | opencode exposes no mid-turn message injection or live model / permission-mode switch; those routes `400`. |
+| `systemPrompt` | `true` | Full system-prompt replacement via the `prompt_async` `system` field. |
+| `appendSystemPrompt`, `mcpServers`, `subagents`, `claudeSettings` | `false` | No opencode mechanism / Claude-shaped passthroughs opencode can't take; each `400`s rather than dropping silently. |
+| `memory`, `promptTemplates`, `subagentDefs` | `true` | Persistent AGENTS.md, commands, and agent definitions (see below). |
+| `customProviders` | `true` | Register custom OpenAI-compatible providers into `opencode.json` (see [Custom LLM providers](#custom-llm-providers)). |
+| `imageInput`, `mcpConfig`, `compactNow` | `false` | No verified wire path yet — each is a follow-up. |
+| `resolve` | `true` | `session.idle` is a fully-settled terminal, so a resolve run completes in one iteration. |
+
+Every turn-option support bool is a **core switch**: when it's `false`, sending that option to
+[`POST /turns`](/docs/reference/rest/turns-runs/post-turns/) returns a `400` rather than silently dropping it —
+so a client always knows whether an option was honored.
+
+## Memory, commands & agents
+
+opencode has native on-disk conventions for persistent context, which mindwire surfaces through the
+optional memory / prompts / subagents modules at both **project** and **user** scope:
+
+| Surface | Project scope | User scope |
+|---|---|---|
+| Memory (`memory`) | `<dir>/AGENTS.md` | `<configDir>/AGENTS.md` |
+| Prompt templates — opencode "commands" (`promptTemplates`) | `<dir>/.opencode/command/<name>.md` | `<configDir>/command/<name>.md` |
+| Subagent definitions — opencode "agents" (`subagentDefs`) | `<dir>/.opencode/agent/<name>.md` | `<configDir>/agent/<name>.md` |
+
+Agent definitions are `<name>.md` files with YAML frontmatter (opencode's own shape). `<configDir>` is
+`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`. None of these files carries a secret.
+
+## Auth
+
+opencode reads provider API keys straight from the **process environment** (`ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, …) — the same keys its own "Environment" providers rely on — so mindwire authenticates
+a run **env-only** and never writes opencode's `auth.json`. Secrets enter a run through exactly one path
+(the daemon's credential store → the run's env via `EnvForRun`), never through request config or a
+config file.
+
+One field-based method, **API key**:
+
+- **Provider** — the opencode provider id (`anthropic`, `openai`, `openrouter`, `google`, `groq`,
+  `deepseek`, …). It determines which env var the key is exported as.
+- **API key** — exported to the run as that provider's key var.
+- **Env var (override)** — optional; the exact var name to export as, when a provider isn't in the table
+  or uses a non-standard name.
+
+The provider → var table covers the common providers (e.g. `anthropic` → `ANTHROPIC_API_KEY`, `openai` →
+`OPENAI_API_KEY`, `google`/`gemini` → `GOOGLE_GENERATIVE_AI_API_KEY`, `xai`/`grok` → `XAI_API_KEY`), and
+an unknown provider falls back to the `<PROVIDER>_API_KEY` convention. Auth status is presence-based
+(env-only creds don't appear in opencode's auth store, so the daemon-stored credential is the source of
+truth).
+
+Set credentials via the [auth flow](/docs/reference/rest/auth/post-auth-begin/) (`POST /auth/begin` → `POST /auth/step`)
+just like any other agent.
+
+## Custom LLM providers
+
+opencode can point at any OpenAI-compatible endpoint through a `provider.<id>` block in its
+`opencode.json`, and mindwire registers those blocks natively through the
+[`/providers`](/docs/reference/rest/providers/get-providers/) control plane (`capabilities.customProviders =
+true`, user scope only). See [Models & providers](/docs/reference/models/) for the cross-agent shape.
+
+- **Write.** `PUT /providers/{id}` writes `provider.<id> = {npm: "@ai-sdk/openai-compatible", name,
+  options: {baseURL, apiKey: "{env:VAR}"}, models: {…}}`. The write is **subtree-preserving**: every
+  other top-level key in `opencode.json` (`$schema`, `model`, `theme`, `mcp`, …) is left byte-for-byte
+  intact, mirroring the MCP-config writers.
+- **Secret path.** The `apiKey` you send is stored in the daemon's credential store, never in the file —
+  the block references it only through opencode's own `{env:VAR}` placeholder. At turn time `EnvForRun`
+  exports the key under `VAR`, so `{env:VAR}` resolves. `GET` reports `hasKey`, never the key.
+- **Models.** The registered models surface through [`GET /models`](/docs/reference/rest/agent/get-models/)
+  as `provider/model` with `custom: true` — metadata is sparse (a custom endpoint isn't in the models.dev
+  catalog), so only `id`/`label`/`provider` are populated.
+- **Delete.** `DELETE /providers/{id}` removes only that `provider.<id>` subtree (dropping the `provider`
+  key entirely when it empties) and clears the stored key. Idempotent.
+
+## Documented gaps
+
+These unified fields have **no verified opencode wire path** and are intentionally surfaced as
+unsupported rather than faked:
+
+- `appendSystemPrompt` — opencode has no append-style prompt mechanism; the full-replacement
+  `systemPrompt` *is* supported.
+- `mcpServers` (per-turn) and `mcpConfig` (the persistent `opencode.json` **`mcp`** subtree reader/writer)
+  — a follow-up. The `provider` subtree of the same file *is* managed, via
+  [`/providers`](#custom-llm-providers).
+- `subagents` (per-turn Claude shape) and `claudeSettings` — Claude-native shapes with no opencode
+  equivalent.
+- `setModel` / `setPermissionMode` — opencode has no live-switch control mid-turn.
+- `imageInput` — no verified vision-attachment wire path yet.
+- `compactNow` — no verified on-demand compaction endpoint.
+- **History** is emulated: opencode's `opencode.db` is undocumented and off-limits, so mindwire serves
+  its own recorded stream. A native reader is a follow-up.
+
+## Install
+
+opencode ships its own installer (not npm-first — **no Node dependency**):
+
+```
+curl -fsSL https://opencode.ai/install | bash
+```
+
+`opencode --version` is the health check. Config lives at `<configDir>/opencode.json`
+(`$XDG_CONFIG_HOME/opencode/opencode.json`, else `~/.config/opencode/opencode.json`).
