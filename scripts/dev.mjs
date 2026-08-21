@@ -17,6 +17,7 @@
 // Env overrides: ADDR=host:port (default 127.0.0.1:8790), AGENT_TYPE=<id> (default opencode — the
 // daemon's fallback agent when a request omits ?agent=; the console's picker overrides it per call).
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,6 +29,9 @@ if (targets.length === 0) targets.push("daemon", "console");
 
 const addr = process.env.ADDR || "127.0.0.1:8790";
 const daemonUrl = `http://${addr.replace(/^0\.0\.0\.0/, "127.0.0.1")}`;
+// One dev command owns both processes, so mint one ephemeral bearer and give each side the matching
+// name. Nothing is written to disk; production/self-host uses MINDWIRE_RUNTIME_TOKEN instead.
+const runtimeToken = process.env.MINDWIRE_RUNTIME_TOKEN || process.env.DAEMON_TOKEN || randomBytes(32).toString("hex");
 
 const procs = [];
 let shuttingDown = false;
@@ -64,14 +68,14 @@ if (targets.includes("daemon")) {
   console.log(`[dev] daemon → ${daemonUrl}   (DEV_CORS on; agent fallback: ${process.env.AGENT_TYPE || "opencode"})`);
   run("daemon", "go", ["run", "./cmd/daemon"], {
     cwd: daemonDir,
-    env: { ...process.env, DEV_CORS: "1", ADDR: addr, AGENT_TYPE: process.env.AGENT_TYPE || "opencode" },
+    env: { ...process.env, DEV_CORS: "1", ADDR: addr, AGENT_TYPE: process.env.AGENT_TYPE || "opencode", DAEMON_TOKEN: runtimeToken },
   });
 }
 if (targets.includes("console")) {
 	console.log(`[dev] console → http://127.0.0.1:5174   ← open this   (default runtime: the daemon at ${daemonUrl})`);
 	run("console", "bun", ["--filter=@mindwire/console", "run", "dev"], {
     cwd: root,
-    env: { ...process.env, DAEMON_URL: daemonUrl },
+    env: { ...process.env, DAEMON_URL: daemonUrl, MINDWIRE_RUNTIME_TOKEN: runtimeToken },
   });
 }
 if (targets.includes("web")) {

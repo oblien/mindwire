@@ -107,7 +107,7 @@ function buildTarget(session: Session, record: DaemonRecord): Target {
   // A box reached over SSH: the SDK deploys `mindwired` on the remote and tunnels to it. Credentials
   // come from the session (never the browser). Optionally runs the remote daemon inside a container.
   if (r.provider === "ssh") {
-    return ssh({
+    const inner = ssh({
       host: r.host,
       ...(r.port ? { port: r.port } : {}),
       username: r.username,
@@ -118,6 +118,9 @@ function buildTarget(session: Session, record: DaemonRecord): Target {
       agentType: record.agent,
       stopOnExit: r.lifecycle === "temporary",
       ...(r.dockerImage ? { docker: { image: r.dockerImage } } : {}),
+    });
+    return capturing(inner, (h) => {
+      if (record.runtime.provider === "ssh" && h.token) record.runtime.token = h.token;
     });
   }
 
@@ -133,6 +136,7 @@ function buildTarget(session: Session, record: DaemonRecord): Target {
     return capturing(inner, (h) => {
       if (record.runtime.provider !== "docker") return;
       record.runtime.containerId = h.id;
+      if (h.token) record.runtime.token = h.token;
       const port = portOf(h.baseUrl);
       if (port) record.runtime.hostPort = port;
     });
@@ -156,7 +160,10 @@ function buildTarget(session: Session, record: DaemonRecord): Target {
     ...(r.workspaceId ? { workspaceId: r.workspaceId } : {}),
   });
   return capturing(inner, (h) => {
-    if (record.runtime.provider === "oblien") record.runtime.workspaceId = h.id;
+    if (record.runtime.provider === "oblien") {
+      record.runtime.workspaceId = h.id;
+      if (h.token) record.runtime.token = h.token;
+    }
   });
 }
 

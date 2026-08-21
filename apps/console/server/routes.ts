@@ -23,6 +23,8 @@ import { verifyOblien, OblienAuthError } from "./oblien";
 import {
   activeRecord,
   addDaemon,
+  candidateDaemon,
+  commitDaemon,
   connectOblien,
   destroySession,
   disconnectOblien,
@@ -74,6 +76,24 @@ import type {
   ProviderAvailability,
   RunningChat,
 } from "../shared/api";
+
+/** Validate a requested target before it is ever represented in the user's fleet. */
+async function validateRuntimeRequest(session: Session, body: AddDaemonRequest): Promise<string | undefined> {
+  if (body.provider === "remote" && !env.allowRemote) return "Remote runtimes are disabled on this deployment.";
+  if (body.provider === "remote") {
+    if (env.mode === "cloud" && !body.token?.trim()) return "A bearer token is required for cloud remote runtimes.";
+    try {
+      await assertPublicRemote(body.daemonUrl ?? "");
+    } catch (err) {
+      return err instanceof Error ? err.message : "Invalid remote runtime URL.";
+    }
+  }
+  if (body.provider === "local" && !env.allowLocal) return "Controlling the current host is disabled on this deployment.";
+  if (body.provider === "ssh" && (!env.allowSsh || !(await sshAvailable()))) return "SSH is not available on this server (missing the ssh2 peer).";
+  if (body.provider === "docker" && (!env.allowDocker || !(await dockerAvailable()))) return "Docker is not available on this server.";
+  if (body.provider === "oblien" && !hasOblien(session)) return "Connect your Oblien account before adding an Oblien runtime.";
+  return undefined;
+}
 
 /** Probe one daemon live: is it online, how many adapter types does it host, and what's running. */
 async function inspectDaemon(session: Session, record: DaemonRecord): Promise<DaemonInspection> {
@@ -220,37 +240,64 @@ export function registerRoutes(app: Hono): void {
     const session = resolveSession(c);
     if (!session) return c.json({ error: "No session." }, 401);
     const body = await readJson<AddDaemonRequest>(c);
-    if (body.provider === "remote" && !env.allowRemote) {
-      return c.json({ error: "Remote runtimes are disabled on this deployment." }, 409);
-    }
-    if (body.provider === "remote") {
-      if (env.mode === "cloud" && !body.token?.trim()) {
-        return c.json({ error: "A bearer token is required for cloud remote runtimes." }, 400);
-      }
-      try {
-        await assertPublicRemote(body.daemonUrl ?? "");
-      } catch (err) {
-        return c.json({ error: err instanceof Error ? err.message : "Invalid remote runtime URL." }, 400);
-      }
-    }
-    if (body.provider === "local" && !env.allowLocal) {
-      return c.json({ error: "Controlling the current host is disabled on this deployment." }, 409);
-    }
-    if (body.provider === "ssh" && (!env.allowSsh || !(await sshAvailable()))) {
-      return c.json({ error: "SSH is not available on this server (missing the ssh2 peer)." }, 409);
-    }
-    if (body.provider === "docker" && (!env.allowDocker || !(await dockerAvailable()))) {
-      return c.json({ error: "Docker is not available on this server." }, 409);
-    }
-    if (body.provider === "oblien" && !hasOblien(session)) {
-      return c.json({ error: "Connect your Oblien account before adding an Oblien runtime." }, 409);
-    }
+    const invalid = await validateRuntimeRequest(session, body);
+    if (invalid) return c.json({ error: invalid }, 409);
     try {
       addDaemon(session, body);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "Invalid runtime." }, 400);
     }
     return json(c, fleetView(session));
+  });
+
+  // Add is transactional: a candidate is never placed into the fleet until its target has answered
+  // `ensure()` successfully. This is intentionally separate from re-provisioning an existing card.
+  app.post("/events/daemons/add", async (c) => {
+    const session = resolveSession(c);
+    if (!session) return c.json({ error: "No session." }, 401);
+    const body = await readJson<AddDaemonRequest>(c);
+    const invalid = await validateRuntimeRequest(session, body);
+    if (invalid) return c.json({ error: invalid }, 409);
+    let record: DaemonRecord;
+    try {
+      record = candidateDaemon(body);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Invalid runtime." }, 400);
+    }
+
+    c.header("Cache-Control", "no-cache, no-transform");
+    c.header("X-Accel-Buffering", "no");
+    return streamSSE(c, async (stream) => {
+      let writes = Promise.resolve();
+      const send = (frame: EnsureFrame) => {
+        writes = writes.then(() => stream.writeSSE({ data: JSON.stringify(frame) }));
+        return writes;
+      };
+      if (record.runtime.provider !== "remote" && record.runtime.provider !== "local") {
+        record.runtime.state = "provisioning";
+      }
+      setEnsureSink(session, record, (ev: EnsureEvent) => void send({ t: "log", ev }));
+      try {
+        // `ensure` probes remote runtimes and creates/reuses provisioned targets. No fleet mutation has
+        // occurred yet, so a failed health check or failed sandbox leaves no broken runtime card behind.
+        const client = mwForDaemon(session, record);
+        await client.ensure();
+        // `remote()` deliberately has no side effects, so `ensure()` only resolves its transport. A
+        // health request is the proof that a connect-only runtime is actually reachable and authorized.
+        await client.health();
+        if (record.runtime.provider !== "remote" && record.runtime.provider !== "local") {
+          record.runtime.state = "ready";
+        }
+        commitDaemon(session, record, Boolean(body.activate));
+        await send({ t: "done", daemon: toDaemonView(record, session.activeDaemonId) });
+      } catch (err) {
+        await disposeDaemon(session.id, record.id);
+        await send({ t: "error", message: err instanceof Error ? err.message : String(err) });
+      } finally {
+        clearEnsureSink(session.id, record.id);
+        await writes;
+      }
+    });
   });
 
   app.post("/api/daemons/:id/activate", (c) => {

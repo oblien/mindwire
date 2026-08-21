@@ -15,6 +15,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Pool } from "pg";
 import type { Context } from "hono";
 import { betterAuth } from "better-auth";
+import { hashPassword } from "better-auth/crypto";
 import { getMigrations } from "better-auth/db/migration";
 
 import { env } from "./env";
@@ -41,9 +42,10 @@ const socialProviders =
       }
     : {};
 
-export const auth = betterAuth({
+function makeAuth(disableSignUp: boolean) {
+  return betterAuth({
   database,
-  emailAndPassword: { enabled: true, autoSignIn: true },
+  emailAndPassword: { enabled: true, autoSignIn: true, disableSignUp },
   socialProviders,
   secret: env.authSecret,
   baseURL: env.baseUrl,
@@ -51,7 +53,11 @@ export const auth = betterAuth({
   trustedOrigins: env.trustedOrigins,
   // Secure cookies require HTTPS; only force them in prod so dev over http still sets the cookie.
   advanced: { useSecureCookies: env.isProd },
-});
+  });
+}
+
+/** SaaS is multi-user; a self-host is deliberately a single deployment-owned account. */
+export const auth = makeAuth(env.mode === "self-hosted");
 
 /** Which social providers are actually clickable — the single source of truth for the login screen. */
 export function enabledSocials(): SocialProvider[] {
@@ -73,6 +79,21 @@ export function publicConfig(): PublicConfig {
   };
 }
 
+/** Make the deployment environment the source of truth for the sole self-host admin password. */
+async function syncSelfHostAdminPassword(email: string, password: string): Promise<void> {
+  const hash = await hashPassword(password);
+  if (database instanceof Pool) {
+    await database.query(
+      `UPDATE account SET password = $1 WHERE "providerId" = 'credential' AND "userId" = (SELECT id FROM "user" WHERE email = $2)`,
+      [hash, email],
+    );
+    return;
+  }
+  database
+    .prepare(`UPDATE account SET password = ? WHERE providerId = 'credential' AND userId = (SELECT id FROM user WHERE email = ?)`)
+    .run(hash, email);
+}
+
 // Run the schema migrations once at boot (creates user/session/account/verification). Memoized so the
 // guard middleware can `await` it cheaply on the first request without racing a second run.
 let migrated: Promise<void> | null = null;
@@ -87,6 +108,20 @@ export function initAuth(): Promise<void> {
         try {
           const { runMigrations } = await getMigrations(auth.options);
           await runMigrations();
+          if (env.selfHostAdmin) {
+            // Better Auth owns password hashing and account writes. Use a short-lived registration-capable
+            // instance only to seed the deployment admin; the mounted instance permanently rejects signup.
+            const seed = makeAuth(false);
+            const email = `${env.selfHostAdmin.username}@mindwire.local`;
+            try {
+              await seed.api.signUpEmail({
+                body: { email, password: env.selfHostAdmin.password, name: env.selfHostAdmin.username },
+              });
+            } catch {
+              // The account already exists; the configured password is reconciled below.
+            }
+            await syncSelfHostAdminPassword(email, env.selfHostAdmin.password);
+          }
           return;
         } catch (error) {
           if (attempt === attempts) throw error;

@@ -36,7 +36,6 @@ export function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void })
   const [social, setSocial] = useState<SocialProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isSignup = mode === "signup";
 
   // The one pre-auth call: branding + which sign-in options to offer. Failure is non-fatal — the gate
   // simply falls back to email/password with default links.
@@ -56,14 +55,15 @@ export function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void })
   const docsUrl = cfg?.docsUrl ?? DOCS_FALLBACK;
   const githubUrl = cfg?.githubUrl ?? GITHUB_FALLBACK;
   const isCloud = cfg?.mode === "cloud";
+  const isSignup = isCloud && mode === "signup";
   const locked = busy || social !== null;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    const em = email.trim();
-    if (!em || !password) {
-      setError("Email and password are required.");
+    const identifier = email.trim();
+    if (!identifier || !password) {
+      setError(`${isCloud ? "Email" : "Username"} and password are required.`);
       return;
     }
     if (isSignup && password.length < 8) {
@@ -72,9 +72,10 @@ export function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void })
     }
     setBusy(true);
     try {
+      const accountEmail = isCloud ? identifier : `${identifier.toLowerCase()}@mindwire.local`;
       const res = isSignup
-        ? await api.account.signUp(em, password, name.trim() || em.split("@")[0]!)
-        : await api.account.signIn(em, password);
+        ? await api.account.signUp(accountEmail, password, name.trim() || accountEmail.split("@")[0]!)
+        : await api.account.signIn(accountEmail, password);
       onAuthed(res.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed.");
@@ -202,16 +203,16 @@ export function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void })
                     </div>
                   )}
                   <div className="space-y-1.5">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email">{isCloud ? "Email" : "Username"}</Label>
                     <Input
                       id="email"
                       className="h-10"
-                      type="email"
-                      autoComplete="email"
+                      type="text"
+                      autoComplete={isCloud ? "email" : "username"}
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com"
+                      placeholder={isCloud ? "you@example.com" : "admin"}
                       disabled={locked}
                     />
                   </div>
@@ -240,7 +241,7 @@ export function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void })
               </CardContent>
             </Card>
 
-            <p className="mt-5 text-center text-xs text-muted-foreground">
+            {isCloud && <p className="mt-5 text-center text-xs text-muted-foreground">
               {isSignup ? "Already have an account?" : "Need an account?"}{" "}
               <button
                 type="button"
@@ -249,7 +250,7 @@ export function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void })
               >
                 {isSignup ? "Sign in" : "Create one"}
               </button>
-            </p>
+            </p>}
           </div>
         </section>
       </main>

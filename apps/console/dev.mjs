@@ -6,6 +6,7 @@
 // http://127.0.0.1:8790, i.e. a `bun dev` daemon in the repo root) or spin up an Oblien sandbox from
 // the app's Sandbox tab once signed in.
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +14,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)));
 const serverPort = process.env.PORT || "8787";
 const daemonUrl = process.env.DAEMON_URL || "http://127.0.0.1:8790";
 const isCloud = (process.env.CONSOLE_MODE || "").toLowerCase() === "cloud";
+const selfHostUsername = process.env.CONSOLE_USERNAME || "admin";
+const selfHostPassword = process.env.CONSOLE_PASSWORD || randomBytes(24).toString("base64url");
 
 const procs = [];
 let shuttingDown = false;
@@ -45,7 +48,14 @@ if (isCloud) {
   console.log(`[console] mode   → cloud / SaaS   (empty fleet on sign-in; wire a runtime from the Console — run the daemon with \`bun dev:demon\`)`);
 }
 console.log(`[console] server → http://127.0.0.1:${serverPort}   (drives daemon at ${daemonUrl})`);
-run("server", "bunx", ["tsx", "watch", "server/index.ts"], { PORT: serverPort, DAEMON_URL: daemonUrl });
+if (!isCloud && !process.env.CONSOLE_PASSWORD) {
+  console.log(`[console] self-host admin → ${selfHostUsername} / ${selfHostPassword} (ephemeral; set CONSOLE_PASSWORD to choose one)`);
+}
+run("server", "bunx", ["tsx", "watch", "server/index.ts"], {
+  PORT: serverPort,
+  DAEMON_URL: daemonUrl,
+  ...(isCloud ? {} : { CONSOLE_USERNAME: selfHostUsername, CONSOLE_PASSWORD: selfHostPassword }),
+});
 
 console.log(`[console] app    → http://127.0.0.1:5174   ← open this`);
 run("client", "bunx", ["vite"], { SERVER_ORIGIN: `http://127.0.0.1:${serverPort}` });

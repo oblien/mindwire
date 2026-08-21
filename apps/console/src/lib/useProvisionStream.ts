@@ -4,7 +4,7 @@
 // the settled {@link DaemonView}) or `error`. Used by both docker and oblien daemons — remote daemons
 // never provision.
 import { useCallback, useRef, useState } from "react";
-import type { DaemonView, EnsureEvent, EnsureFrame } from "@shared/api";
+import type { AddDaemonRequest, DaemonView, EnsureEvent, EnsureFrame } from "@shared/api";
 
 export type ProvisionStatus = "idle" | "provisioning" | "ready" | "error";
 
@@ -14,7 +14,9 @@ export interface ProvisionStream {
   daemon: DaemonView | null;
   error: string | null;
   /** Provision the daemon with the given id; resolves when the stream terminates. */
-  start: (daemonId: string) => Promise<void>;
+  start: (daemonId: string) => Promise<boolean>;
+  /** Validate and add a new runtime atomically; it reaches the fleet only after `ensure()` succeeds. */
+  add: (request: AddDaemonRequest) => Promise<boolean>;
   reset: () => void;
 }
 
@@ -58,9 +60,9 @@ export function useProvisionStream(onSettled?: (daemon: DaemonView) => void): Pr
     setError(null);
   }, []);
 
-  const start = useCallback(
-    async (daemonId: string) => {
-      if (busy.current) return;
+  const run = useCallback(
+    async (url: string, payload?: AddDaemonRequest): Promise<boolean> => {
+      if (busy.current) return false;
       busy.current = true;
       setStatus("provisioning");
       setLogs([]);
@@ -68,34 +70,46 @@ export function useProvisionStream(onSettled?: (daemon: DaemonView) => void): Pr
       setError(null);
 
       try {
-        const res = await fetch(`/events/daemons/${encodeURIComponent(daemonId)}/up`, {
+        const res = await fetch(url, {
           method: "POST",
+          ...(payload ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) } : {}),
           credentials: "same-origin",
         });
         if (!res.ok || !res.body) {
           const text = await res.text().catch(() => "");
-          throw new Error(text || `provisioning failed (${res.status})`);
+          let message = "";
+          try {
+            message = (JSON.parse(text) as { error?: string }).error ?? "";
+          } catch {}
+          throw new Error(message || text || `provisioning failed (${res.status})`);
         }
+        let settled = false;
+        let succeeded = false;
         await readFrames(res.body, (frame) => {
           switch (frame.t) {
             case "log":
               setLogs((prev) => [...prev, frame.ev]);
               break;
             case "done":
+              settled = true;
+              succeeded = true;
               setDaemon(frame.daemon);
               setStatus("ready");
               onSettled?.(frame.daemon);
               break;
             case "error":
+              settled = true;
               setError(frame.message);
               setStatus("error");
               break;
           }
         });
-        setStatus((s) => (s === "provisioning" ? "error" : s));
+        if (!settled) throw new Error("The runtime stream closed before it reported a result.");
+        return succeeded;
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
         setStatus("error");
+        return false;
       } finally {
         busy.current = false;
       }
@@ -103,5 +117,8 @@ export function useProvisionStream(onSettled?: (daemon: DaemonView) => void): Pr
     [onSettled],
   );
 
-  return { status, logs, daemon, error, start, reset };
+  const start = useCallback((daemonId: string) => run(`/events/daemons/${encodeURIComponent(daemonId)}/up`), [run]);
+  const add = useCallback((request: AddDaemonRequest) => run("/events/daemons/add", request), [run]);
+
+  return { status, logs, daemon, error, start, add, reset };
 }

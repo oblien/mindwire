@@ -51,6 +51,8 @@ export type DaemonRuntime =
       agentCwd?: string;
       dockerImage?: string;
       lifecycle: SandboxLifecycle;
+      /** Generated while this Console provisions the daemon; never serialized to the browser. */
+      token?: string;
       state: DaemonState;
       message?: string;
     }
@@ -61,6 +63,7 @@ export type DaemonRuntime =
       engineHost?: string;
       attached: boolean;
       lifecycle: SandboxLifecycle;
+      token?: string;
       state: DaemonState;
       message?: string;
       /** Captured at spin-up (see the `capturing` wrapper in mindwire.ts). */
@@ -73,6 +76,7 @@ export type DaemonRuntime =
       cpus?: number;
       memoryMb?: number;
       lifecycle: SandboxLifecycle;
+      token?: string;
       state: DaemonState;
       message?: string;
       /** Captured at spin-up, or supplied to reuse an existing workspace. */
@@ -274,21 +278,31 @@ function labelFor(runtime: DaemonRuntime): string {
   return runtime.image ? `Oblien · ${runtime.image}` : "Oblien sandbox";
 }
 
-export function addDaemon(session: Session, req: AddDaemonRequest): DaemonRecord {
+/** Build an uncommitted runtime record. Callers may validate/provision it before adding it to the fleet. */
+export function candidateDaemon(req: AddDaemonRequest): DaemonRecord {
   const runtime = runtimeFromRequest(req);
-  const wasEmpty = session.daemons.length === 0;
-  const record: DaemonRecord = {
+  return {
     id: randomUUID(),
     label: req.label?.trim() || labelFor(runtime),
     createdAt: Date.now(),
     agent: req.agent?.trim() || env.defaultAgent,
     runtime,
   };
+}
+
+/** Commit a successfully connected/provisioned runtime to the user's fleet. */
+export function commitDaemon(session: Session, record: DaemonRecord, activate = false): DaemonRecord {
+  const wasEmpty = session.daemons.length === 0;
   session.daemons.push(record);
   // Activate on explicit request, or automatically for the very first daemon in an empty fleet (the
   // SaaS "wire your first runtime" case) so `activeDaemonId` never dangles past an empty seed.
-  if (req.activate || wasEmpty) session.activeDaemonId = record.id;
+  if (activate || wasEmpty) session.activeDaemonId = record.id;
   return record;
+}
+
+/** Legacy non-transactional helper retained for internal callers. New UI flows use candidate + commit. */
+export function addDaemon(session: Session, req: AddDaemonRequest): DaemonRecord {
+  return commitDaemon(session, candidateDaemon(req), Boolean(req.activate));
 }
 
 /** A fresh copy of a runtime's *config* — provisioning state and captured ids reset to a clean slate. */
@@ -311,6 +325,7 @@ function freshRuntime(rt: DaemonRuntime): DaemonRuntime {
       agentCwd: rt.agentCwd,
       dockerImage: rt.dockerImage,
       lifecycle: rt.lifecycle,
+      token: rt.token,
       state: "off",
     };
   }
@@ -322,6 +337,7 @@ function freshRuntime(rt: DaemonRuntime): DaemonRuntime {
       engineHost: rt.engineHost,
       attached: rt.attached,
       lifecycle: rt.lifecycle,
+      token: rt.token,
       state: "off",
     };
   }
@@ -332,6 +348,7 @@ function freshRuntime(rt: DaemonRuntime): DaemonRuntime {
     cpus: rt.cpus,
     memoryMb: rt.memoryMb,
     lifecycle: rt.lifecycle,
+    token: rt.token,
     state: "off",
   };
 }
@@ -461,7 +478,7 @@ function locationOf(rt: DaemonRuntime): DaemonLocation {
       sshUser: rt.username,
       sshPort: rt.port,
       sshAuth,
-      secured: sshAuth !== "agent",
+      secured: sshAuth !== "agent" || Boolean(rt.token),
       containerized: Boolean(rt.dockerImage),
       summary: `SSH · ${rt.username}@${rt.host}${rt.port ? `:${rt.port}` : ""} · ${sshAuth}${
         rt.dockerImage ? ` · docker ${rt.dockerImage}` : ""
@@ -478,6 +495,7 @@ function locationOf(rt: DaemonRuntime): DaemonLocation {
       containerId: rt.containerId ? short(rt.containerId) : undefined,
       hostPort: rt.hostPort,
       attached: rt.attached,
+      secured: Boolean(rt.token),
       summary: `Docker · ${what} · ${engine}`,
     };
   }
@@ -488,6 +506,7 @@ function locationOf(rt: DaemonRuntime): DaemonLocation {
     mode: rt.lifecycle,
     cpus: rt.cpus,
     memoryMb: rt.memoryMb,
+    secured: Boolean(rt.token),
     summary: `Oblien · ${rt.image} · ${rt.lifecycle}`,
   };
 }

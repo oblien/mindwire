@@ -44,5 +44,7 @@ export function registerAuth(app: Hono): void {
   });
 
   // Better Auth owns its whole subtree (sign-up / sign-in / sign-out / get-session, all methods).
-  app.on(["POST", "GET"], `${AUTH_BASE_PATH}/**`, (c) => auth.handler(c.req.raw));
+  // Hono's subtree wildcard is `/*`; `/**` can fall through to a 404 for nested Better Auth routes
+  // such as `/sign-in/email` and `/get-session` when running behind Vite's dev proxy.
+  app.on(["POST", "GET"], `${AUTH_BASE_PATH}/*`, (c) => auth.handler(c.req.raw));
 }

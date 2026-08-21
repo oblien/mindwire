@@ -72,7 +72,16 @@ async function parse<T>(res: Response): Promise<T> {
  */
 async function authParse<T>(res: Response): Promise<T> {
   const text = await res.text();
-  const data = text ? (JSON.parse(text) as unknown) : null;
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text) as unknown;
+    } catch {
+      // A dev proxy/server failure can return plain text or an HTML 404. Surface that response rather
+      // than hiding the actionable status behind a JSON parser exception.
+      throw new HttpError(res.status, text.slice(0, 300) || res.statusText);
+    }
+  }
   if (!res.ok) {
     const rec = data as { message?: string; error?: string } | null;
     throw new HttpError(res.status, rec?.message ?? rec?.error ?? res.statusText);

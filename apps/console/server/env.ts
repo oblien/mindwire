@@ -15,6 +15,13 @@ function optional(name: string): string | undefined {
   return v && v.length > 0 ? v : undefined;
 }
 
+function requiredSelfHost(name: string, developmentFallback: string): string {
+  const value = optional(name);
+  if (value) return value;
+  if (!isProd) return developmentFallback;
+  throw new Error(`${name} is required when CONSOLE_MODE=self-hosted`);
+}
+
 /** Parse a comma/space-separated env list into trimmed non-empty entries. */
 function list(name: string): string[] {
   return (process.env[name] ?? "")
@@ -50,6 +57,9 @@ const isProd = process.env.NODE_ENV === "production";
  */
 const mode: ConsoleMode =
   str("CONSOLE_MODE", "self-hosted").toLowerCase() === "cloud" ? "cloud" : "self-hosted";
+
+const selfHostUsername = mode === "self-hosted" ? requiredSelfHost("CONSOLE_USERNAME", "admin") : undefined;
+const selfHostPassword = mode === "self-hosted" ? requiredSelfHost("CONSOLE_PASSWORD", "mindwire-dev-password") : undefined;
 
 /**
  * An explicit DATABASE_URL always wins. Otherwise a deployment can supply standard Postgres pieces;
@@ -99,7 +109,8 @@ export const env = {
 
   /** Default daemon the session connects to when the user hasn't picked their own. */
   daemonUrl: str("DAEMON_URL", "http://127.0.0.1:8790"),
-  daemonToken: optional("DAEMON_TOKEN"),
+  // Public deployment name. DAEMON_TOKEN remains a backwards-compatible internal fallback.
+  daemonToken: optional("MINDWIRE_RUNTIME_TOKEN") ?? optional("DAEMON_TOKEN"),
 
   /**
    * Seed a brand-new session's fleet with the deployment's default daemon (`daemonUrl`). A single-tenant
@@ -149,6 +160,7 @@ export const env = {
     github: socialCreds("GITHUB"),
     google: socialCreds("GOOGLE"),
   },
+  selfHostAdmin: selfHostUsername && selfHostPassword ? { username: selfHostUsername, password: selfHostPassword } : undefined,
 
   /** Postgres URL, explicit or assembled from POSTGRES_* settings; otherwise SQLite is used. */
   databaseUrl: databaseUrl(),
