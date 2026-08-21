@@ -99,7 +99,8 @@ stream needs the process).
 | `SEED_DEFAULT_DAEMON` | on for self-hosted, off for cloud | Seed a new session's fleet with `DAEMON_URL`. Off ⇒ users start with an empty fleet and wire their own runtime (the multi-tenant SaaS model). |
 | `MINDWIRE_AGENT` | `claude-code` | Harness selected for the session. |
 | `AUTH_SECRET` | *(dev placeholder)* | Better Auth signing key (≥32 chars). **Must be overridden in any real deployment.** `SESSION_SECRET` is accepted as a fallback name. |
-| `DATABASE_URL` | *(empty)* | Postgres connection URL. Required for multi-user SaaS; takes precedence over SQLite. |
+| `DATABASE_URL` | *(empty)* | Explicit Postgres connection URL (for example a managed database). Takes precedence over the `POSTGRES_*` settings and SQLite. |
+| `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | *(empty)* | Postgres connection pieces. When `POSTGRES_HOST` is set, the console safely constructs its connection URL; root SaaS Compose supplies these automatically. |
 | `AUTH_DB_PATH` | `/data/auth.db` in production, `../.data/auth.db` in dev | SQLite fallback (`node:sqlite`, Node 22+) for self-hosting. Point it at a persistent volume. |
 | `BASE_URL` | `http://127.0.0.1:$PORT` | Public origin — used for auth cookies, CSRF/origin checks, and the OAuth callback base. Set this to your real URL in prod. |
 | `TRUSTED_ORIGINS` | *(dev proxy in dev)* | Extra comma/space-separated browser origins allowed to call the auth endpoints. |

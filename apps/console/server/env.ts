@@ -51,6 +51,32 @@ const isProd = process.env.NODE_ENV === "production";
 const mode: ConsoleMode =
   str("CONSOLE_MODE", "self-hosted").toLowerCase() === "cloud" ? "cloud" : "self-hosted";
 
+/**
+ * An explicit DATABASE_URL always wins. Otherwise a deployment can supply standard Postgres pieces;
+ * building the URL here correctly encodes passwords rather than relying on Compose string interpolation.
+ * With neither DATABASE_URL nor POSTGRES_HOST, the console uses its SQLite fallback.
+ */
+function databaseUrl(): string | undefined {
+  const explicit = optional("DATABASE_URL");
+  if (explicit) return explicit;
+
+  const host = optional("POSTGRES_HOST");
+  if (!host) return undefined;
+
+  const password = optional("POSTGRES_PASSWORD");
+  if (!password) {
+    throw new Error("POSTGRES_PASSWORD is required when POSTGRES_HOST is set");
+  }
+
+  const url = new URL("postgresql://localhost");
+  url.hostname = host;
+  url.port = str("POSTGRES_PORT", "5432");
+  url.username = str("POSTGRES_USER", "mindwire");
+  url.password = password;
+  url.pathname = `/${str("POSTGRES_DB", "mindwire")}`;
+  return url.toString();
+}
+
 // Better Auth validates the browser Origin against this URL. The hosted deployment has a safe canonical
 // default; other production domains must set BASE_URL explicitly (and register the same OAuth callbacks).
 const baseUrl = str(
@@ -118,11 +144,8 @@ export const env = {
     google: socialCreds("GOOGLE"),
   },
 
-  /**
-   * Postgres connection URL for a multi-replica SaaS deployment. When set, it takes precedence over
-   * SQLite so Better Auth's users, sessions, and OAuth accounts have a shared durable store.
-   */
-  databaseUrl: optional("DATABASE_URL"),
+  /** Postgres URL, explicit or assembled from POSTGRES_* settings; otherwise SQLite is used. */
+  databaseUrl: databaseUrl(),
 
   /**
    * SQLite file backing the user/session tables. Self-host (incl. Docker) should point this at a

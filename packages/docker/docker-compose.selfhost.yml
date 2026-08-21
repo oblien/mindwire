@@ -25,9 +25,14 @@ services:
     environment:
       NODE_ENV: production
       PORT: "8787"
-      # The root .env may contain SaaS settings. A self-host is intentionally SQLite-only, so do not
-      # inherit DATABASE_URL and accidentally attempt to resolve the SaaS Compose-only `postgres` host.
-      DATABASE_URL: ""
+      # SQLite remains the default. Set DATABASE_URL, or all POSTGRES_* values including POSTGRES_HOST,
+      # to deliberately use an external Postgres database for this self-hosted console.
+      DATABASE_URL: ${DATABASE_URL:-}
+      POSTGRES_HOST: ${POSTGRES_HOST:-}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-mindwire}
+      POSTGRES_USER: ${POSTGRES_USER:-mindwire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       AUTH_DB_PATH: /data/auth.db
       CONSOLE_MODE: self-hosted
       DAEMON_URL: http://runtime:8790

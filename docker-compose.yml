@@ -9,9 +9,9 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: mindwire
-      POSTGRES_USER: mindwire
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-mindwire}
+      POSTGRES_USER: ${POSTGRES_USER:-mindwire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -45,9 +45,14 @@ services:
       NODE_ENV: production
       PORT: "8787"
       CONSOLE_MODE: cloud
-      # Better Auth uses Postgres for the multi-user SaaS control plane. The password must be URL-safe
-      # (or percent-encoded) because Compose interpolates it into this standard connection URL.
-      DATABASE_URL: postgresql://mindwire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/mindwire
+      # An explicit DATABASE_URL is supported for managed Postgres. Otherwise the console builds a safe
+      # connection URL from these standard Postgres settings (including correctly escaped passwords).
+      DATABASE_URL: ${DATABASE_URL:-}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-mindwire}
+      POSTGRES_USER: ${POSTGRES_USER:-mindwire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       # Better Auth's canonical public origin. Override BASE_URL for a custom SaaS domain; it is also
       # the OAuth callback origin and is automatically included in the trusted-origin allowlist.
       BASE_URL: ${BASE_URL:-https://console.mindwire.sh}
