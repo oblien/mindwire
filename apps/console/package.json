@@ -39,7 +39,7 @@
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.1.1",
     "sonner": "^2.0.8",
-    "tailwind-merge": "^2.6.0"
+    "tailwind-merge": "^3.6.0"
   },
   "optionalDependencies": {
     "dockerode": "^5.0.1",
