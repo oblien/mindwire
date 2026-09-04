@@ -13,11 +13,13 @@ import (
 // which is exactly the security posture mindwire wants: secrets enter a run ONLY through EnvForRun,
 // never via TurnInput.Config or the shell string.
 //
-// Two field-based methods (both non-interactive — the ChatGPT `localhost:1455` OAuth loopback is not
+// Three field-based methods (all non-interactive — the ChatGPT `localhost:1455` OAuth loopback is not
 // headless-compatible, so it is deliberately not offered):
 //   - "apiKey":      an OpenAI/Codex API key → CODEX_API_KEY (+ OPENAI_API_KEY for pre-Rust builds),
 //                    with optional base URL / organization / project.
 //   - "accessToken": a ChatGPT/PAT access token → CODEX_ACCESS_TOKEN.
+//   - "azureFoundry": Microsoft Foundry/Azure OpenAI v1 via native Codex provider configuration;
+//     the API key or Entra token still enters the process through an env-var reference only.
 //
 // Status is presence-based: because creds are env-only they don't appear in `codex login status`
 // (that reflects ~/.codex/auth.json, which mindwire never writes), so sniffing the CLI would wrongly
@@ -25,12 +27,20 @@ import (
 
 // Cred-store keys.
 const (
-	ckMethod      = "authMethod"
-	ckAPIKey      = "apiKey"
-	ckAccessToken = "accessToken"
-	ckBaseURL     = "baseUrl"
-	ckOrg         = "org"
-	ckProject     = "project"
+	ckMethod            = "authMethod"
+	ckAPIKey            = "apiKey"
+	ckAccessToken       = "accessToken"
+	ckBaseURL           = "baseUrl"
+	ckOrg               = "org"
+	ckProject           = "project"
+	ckAzureResource     = "azureResource"
+	ckAzureBaseURL      = "azureBaseUrl"
+	ckAzureAPIKey       = "azureApiKey"
+	ckAzureToken        = "azureAuthToken"
+	ckAzureModel        = "azureModel"
+	azureProviderID     = "azure-foundry"
+	azureProviderMarker = "MINDWIRE_CODEX_MODEL_PROVIDER"
+	azureModelMarker    = "MINDWIRE_CODEX_MODEL"
 )
 
 type authModule struct{ store agent.CredStore }
@@ -61,6 +71,17 @@ func (m *authModule) Methods() []agent.AuthMethod {
 					Help: "Exported as CODEX_ACCESS_TOKEN."},
 			},
 		},
+		{
+			ID: "azureFoundry", Label: "Microsoft Foundry", Scope: agent.ScopeCustom,
+			Help: "Run Codex through a Microsoft Foundry/Azure OpenAI v1 endpoint. Mindwire writes Codex's native provider config; credentials remain in the daemon store.",
+			Fields: []agent.Field{
+				{Key: ckAzureResource, Label: "Azure resource name", Type: agent.FieldText, Placeholder: "my-resource", Help: "Set this or the full base URL."},
+				{Key: ckAzureBaseURL, Label: "Base URL", Type: agent.FieldText, Placeholder: "https://my-resource.openai.azure.com/openai/v1", Help: "Full Foundry/Azure OpenAI v1 base URL. Takes precedence over resource name."},
+				{Key: ckAzureAPIKey, Label: "API key", Type: agent.FieldSecret, Help: "Set this or an Entra ID token."},
+				{Key: ckAzureToken, Label: "Entra ID token", Type: agent.FieldSecret, Help: "Microsoft Entra bearer token; takes precedence over the API key."},
+				{Key: ckAzureModel, Label: "Deployment / model", Type: agent.FieldText, Required: true, Placeholder: "gpt-5.2-codex", Help: "Azure deployment or model id sent to Codex."},
+			},
+		},
 	}
 }
 
@@ -72,12 +93,43 @@ func (m *authModule) Begin(_ context.Context, methodID string) (agent.AuthState,
 	case "accessToken":
 		return agent.AuthState{Method: "accessToken", Status: "needs_input",
 			Fields: agent.MethodFields(m, "accessToken"), Message: "Enter your Codex access token."}, nil
+	case "azureFoundry":
+		return agent.AuthState{Method: "azureFoundry", Status: "needs_input",
+			Fields: agent.MethodFields(m, "azureFoundry"), Message: "Connect Microsoft Foundry to Codex."}, nil
 	default:
 		return agent.AuthState{}, errors.New("unknown auth method: " + methodID)
 	}
 }
 
 func (m *authModule) Step(_ context.Context, input map[string]string) (agent.AuthState, error) {
+	if hasAzureInput(input) {
+		baseURL, err := azureBaseURL(input)
+		if err != nil {
+			return agent.AuthState{Method: "azureFoundry", Status: "error", Message: err.Error()}, nil
+		}
+		credential := strings.TrimSpace(input[ckAzureToken])
+		envVar := "AZURE_OPENAI_ACCESS_TOKEN"
+		if credential == "" {
+			credential = strings.TrimSpace(input[ckAzureAPIKey])
+			envVar = "AZURE_OPENAI_API_KEY"
+		}
+		if credential == "" {
+			return agent.AuthState{Method: "azureFoundry", Status: "error", Message: "enter an Azure API key or Entra ID token"}, nil
+		}
+		model := strings.TrimSpace(input[ckAzureModel])
+		if model == "" {
+			return agent.AuthState{Method: "azureFoundry", Status: "error", Message: "enter the Azure deployment or model id"}, nil
+		}
+		models := []string{model}
+		provider := agent.CustomProvider{ID: azureProviderID, Name: "Microsoft Foundry", BaseURL: baseURL, Models: models, EnvVar: envVar}
+		if err := (adapter{}).SetProvider(m.store, agent.MemoryUser, "", azureProviderID, provider, credential, nil); err != nil {
+			return agent.AuthState{}, err
+		}
+		_ = m.store.Set(ckAPIKey, "")
+		_ = m.store.Set(ckAccessToken, "")
+		_ = m.store.Set(ckMethod, "azureFoundry")
+		return agent.AuthState{Method: "azureFoundry", Status: "complete"}, nil
+	}
 	if key := strings.TrimSpace(input[ckAPIKey]); key != "" {
 		if err := m.store.Set(ckAPIKey, key); err != nil {
 			return agent.AuthState{}, err
@@ -107,6 +159,8 @@ func (m *authModule) Step(_ context.Context, input map[string]string) (agent.Aut
 // show up in `codex login status`, so presence is authoritative here).
 func (m *authModule) Status(_ context.Context) agent.AuthStatus {
 	switch {
+	case m.store.Get(ckMethod) == "azureFoundry" && strings.TrimSpace(m.store.Get(agent.ProviderCredKey(azureProviderID))) != "":
+		return agent.AuthStatus{Configured: true, Method: "azureFoundry", Detail: "Microsoft Foundry connected"}
 	case strings.TrimSpace(m.store.Get(ckAPIKey)) != "":
 		return agent.AuthStatus{Configured: true, Method: "apiKey", Detail: "API key set"}
 	case strings.TrimSpace(m.store.Get(ckAccessToken)) != "":
@@ -152,6 +206,11 @@ func (m *authModule) EnvForRun() map[string]string {
 		if accessToken != "" {
 			env["CODEX_ACCESS_TOKEN"] = accessToken
 		}
+	case "azureFoundry":
+		env[azureProviderMarker] = azureProviderID
+		if models := storedModels(m.store, azureProviderID); len(models) > 0 {
+			env[azureModelMarker] = models[0]
+		}
 	}
 	// Every registered CUSTOM provider's stored key, exported under the env-var name it was registered
 	// with (agent.ProviderEnvForRun) so config.toml's `[model_providers.<id>] env_key = "VAR"` resolves
@@ -160,4 +219,30 @@ func (m *authModule) EnvForRun() map[string]string {
 		env[name] = key
 	}
 	return env
+}
+
+func hasAzureInput(input map[string]string) bool {
+	for _, key := range []string{ckAzureResource, ckAzureBaseURL, ckAzureAPIKey, ckAzureToken, ckAzureModel} {
+		if strings.TrimSpace(input[key]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func azureBaseURL(input map[string]string) (string, error) {
+	if base := strings.TrimRight(strings.TrimSpace(input[ckAzureBaseURL]), "/"); base != "" {
+		if !strings.HasPrefix(base, "https://") {
+			return "", errors.New("Microsoft Foundry base URL must use https")
+		}
+		return base, nil
+	}
+	resource := strings.TrimSpace(input[ckAzureResource])
+	if resource == "" {
+		return "", errors.New("enter an Azure resource name or full base URL")
+	}
+	if strings.ContainsAny(resource, "/.: ") {
+		return "", errors.New("invalid Azure resource name")
+	}
+	return "https://" + resource + ".openai.azure.com/openai/v1", nil
 }

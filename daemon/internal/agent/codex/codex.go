@@ -267,6 +267,9 @@ func buildExecCommand(in agent.TurnInput, files materialized) string {
 	resuming := in.Options.SessionID != "" || in.SessionID != "" || in.Options.ContinueLatest
 
 	cli := "codex exec"
+	if provider := strings.TrimSpace(in.Env[azureProviderMarker]); provider != "" {
+		cli += " -c " + agent.ShellQuote("model_provider="+provider)
+	}
 	// Per-run config overlay (systemPrompt/mcpServers). `-p` must precede the `resume` subcommand —
 	// codex rejects it after `resume` — so it is emitted first, before the fresh-vs-resume branch.
 	if files.configProfile != "" {
@@ -288,7 +291,7 @@ func buildExecCommand(in agent.TurnInput, files materialized) string {
 	cli += " --json --skip-git-repo-check"
 
 	// Model (fresh + resume both accept -m).
-	if v := strings.TrimSpace(in.Config[keyModel]); v != "" {
+	if v := agent.FirstNonEmpty(in.Config[keyModel], in.Env[azureModelMarker]); strings.TrimSpace(v) != "" {
 		cli += " -m " + agent.ShellQuote(v)
 	}
 	// Reasoning effort — config-only (no CLI flag), fresh + resume.
@@ -468,12 +471,18 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 	for k, v := range in.Env {
 		env[k] = v
 	}
+	// These are daemon routing hints, not credentials or variables the Codex child needs to inherit.
+	delete(env, azureProviderMarker)
+	delete(env, azureModelMarker)
 
 	// Transport selection (mirrors claude's persistent-vs-oneshot switch): a turn that can pause for
 	// the user (non-`never` approval) and has an inbound channel upgrades to the app-server transport;
 	// everything else — the autonomous default — runs the one-shot exec hot path.
 	if in.Inbound != nil && approvalPolicy(in) != "never" {
 		cmd := "codex app-server"
+		if provider := strings.TrimSpace(in.Env[azureProviderMarker]); provider != "" {
+			cmd = "codex -c " + agent.ShellQuote("model_provider="+provider) + " app-server"
+		}
 		if in.CWD != "" {
 			cmd = "cd " + agent.ShellQuote(in.CWD) + " && " + cmd
 		}
@@ -488,7 +497,7 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 			command:  cmd,
 			env:      env,
 			message:  in.Message,
-			model:    strings.TrimSpace(in.Config[keyModel]),
+			model:    strings.TrimSpace(agent.FirstNonEmpty(in.Config[keyModel], in.Env[azureModelMarker])),
 			effort:   strings.TrimSpace(in.Config[keyEffort]),
 			sandbox:  sandbox(in),
 			approval: approvalPolicy(in),

@@ -2,7 +2,12 @@ package codex
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/oblien/mindwire/daemon/internal/agent"
 )
 
 // mapStore is an in-memory agent.CredStore for exercising the auth module.
@@ -104,6 +109,91 @@ func TestStepNoCredentialErrors(t *testing.T) {
 	st, _ := newAuth(mapStore{}).Step(context.Background(), map[string]string{})
 	if st.Status != "error" {
 		t.Errorf("empty Step status = %q, want error", st.Status)
+	}
+}
+
+func TestAzureFoundryAuthWritesNativeProviderAndSelectsIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	store := mapStore{}
+	m := newAuth(store)
+
+	st, err := m.Step(context.Background(), map[string]string{
+		ckAzureResource: "contoso-ai",
+		ckAzureAPIKey:   "azure-secret",
+		ckAzureModel:    "gpt-5.2-codex",
+	})
+	if err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	if st.Method != "azureFoundry" || st.Status != "complete" {
+		t.Fatalf("state = %+v", st)
+	}
+	if got := m.Status(context.Background()); !got.Configured || got.Method != "azureFoundry" {
+		t.Fatalf("status = %+v", got)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	config := string(data)
+	for _, want := range []string{
+		"[model_providers.azure-foundry]",
+		`base_url = "https://contoso-ai.openai.azure.com/openai/v1"`,
+		`env_http_headers = { "api-key" = "AZURE_OPENAI_API_KEY" }`,
+		`wire_api = "responses"`,
+	} {
+		if !strings.Contains(config, want) {
+			t.Errorf("config missing %q:\n%s", want, config)
+		}
+	}
+	env := m.EnvForRun()
+	if env["AZURE_OPENAI_API_KEY"] != "azure-secret" {
+		t.Errorf("Azure credential not exported: %v", env)
+	}
+	if env[azureProviderMarker] != azureProviderID {
+		t.Errorf("provider marker missing: %v", env)
+	}
+	cmd := buildExecCommand(agent.TurnInput{Env: env, Config: map[string]string{}}, materialized{})
+	if !strings.Contains(cmd, "model_provider=azure-foundry") {
+		t.Errorf("command does not select Azure provider: %s", cmd)
+	}
+	if !strings.Contains(cmd, "gpt-5.2-codex") {
+		t.Errorf("command does not select Azure model: %s", cmd)
+	}
+}
+
+func TestAzureFoundryRequiresHTTPSAndCredential(t *testing.T) {
+	m := newAuth(mapStore{})
+	st, _ := m.Step(context.Background(), map[string]string{ckAzureBaseURL: "http://example.test", ckAzureAPIKey: "x"})
+	if st.Status != "error" {
+		t.Fatalf("insecure URL state = %+v", st)
+	}
+	st, _ = m.Step(context.Background(), map[string]string{ckAzureResource: "valid-resource"})
+	if st.Status != "error" {
+		t.Fatalf("missing credential state = %+v", st)
+	}
+}
+
+func TestAzureFoundryEntraUsesBearerEnvReference(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	m := newAuth(mapStore{})
+	_, err := m.Step(context.Background(), map[string]string{
+		ckAzureBaseURL: "https://contoso.services.ai.azure.com/openai/v1/",
+		ckAzureToken:   "entra-token",
+		ckAzureModel:   "gpt-5.2-codex",
+	})
+	if err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(data), `env_key = "AZURE_OPENAI_ACCESS_TOKEN"`) {
+		t.Fatalf("Entra config does not use bearer env reference:\n%s", data)
 	}
 }
 

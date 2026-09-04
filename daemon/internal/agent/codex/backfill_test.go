@@ -283,13 +283,13 @@ func TestRunStreamMaterializeError(t *testing.T) {
 }
 
 // Begin returns a needs_input state for each known method and an error for an unknown one; Methods
-// declares the two credential methods with their secret fields.
+// declares every credential method with its input fields.
 func TestAuthBeginAndMethods(t *testing.T) {
 	m := newAuth(mapStore{})
-	if len(m.Methods()) != 2 {
-		t.Fatalf("Methods = %d, want 2 (apiKey + accessToken)", len(m.Methods()))
+	if len(m.Methods()) != 3 {
+		t.Fatalf("Methods = %d, want 3 (apiKey + accessToken + azureFoundry)", len(m.Methods()))
 	}
-	for _, id := range []string{"apiKey", "accessToken"} {
+	for _, id := range []string{"apiKey", "accessToken", "azureFoundry"} {
 		st, err := m.Begin(context.Background(), id)
 		if err != nil || st.Status != "needs_input" || st.Method != id || len(st.Fields) == 0 {
 			t.Errorf("Begin(%q) = %+v, err=%v; want needs_input with fields", id, st, err)

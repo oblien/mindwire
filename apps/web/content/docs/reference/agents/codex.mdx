@@ -119,14 +119,19 @@ so a client always knows whether an option was honored.
 
 ## Auth
 
-Codex authenticates a headless run **entirely from the process environment** — mindwire never writes a
-config file. Secrets enter a run through exactly one path (the daemon's credential store → the run's
-env), never through request config or the shell string. Two non-interactive methods:
+Codex authenticates a headless run **entirely from the process environment**. Secrets enter a run
+through exactly one path (the daemon's credential store → the run's env), never through request config,
+the shell string, or `config.toml`. Three non-interactive methods:
 
 - **API key** — an OpenAI/Codex API key (platform.openai.com), exported as `CODEX_API_KEY` (and
   `OPENAI_API_KEY` for older CLI builds). Optional `OPENAI_BASE_URL` / `OPENAI_ORGANIZATION` /
   `OPENAI_PROJECT` companions.
 - **Access token** — a ChatGPT / personal access token, exported as `CODEX_ACCESS_TOKEN`.
+- **Microsoft Foundry** — an Azure OpenAI v1 resource/base URL plus either an Azure API key or Entra ID
+  token. Mindwire writes a native `[model_providers.azure-foundry]` table containing only endpoint and
+  env-var metadata (`wire_api = "responses"`), stores the credential in the daemon, and selects that
+  provider for both `codex exec` and `codex app-server` runs. The required deployment/model id is
+  selected automatically unless the turn explicitly overrides the model setting.
 
 The interactive ChatGPT sign-in (the `localhost:1455` OAuth loopback) is **deliberately not offered** —
 it can't complete against a headless daemon. Auth status is presence-based (env-only creds never appear
@@ -144,11 +149,11 @@ through the [`/providers`](/docs/reference/rest/providers/get-providers/) contro
 for the cross-agent shape.
 
 - **Write.** `PUT /providers/{id}` writes `[model_providers.<id>]` with `name` / `base_url` /
-  `env_key = "VAR"` / `wire_api = "chat"`, using the same section-preserving TOML discipline as the
+  `env_key = "VAR"` / `wire_api = "chat"` (the first-party Foundry lane uses `"responses"`), using the same section-preserving TOML discipline as the
   MCP-config writer — every other table in `config.toml` is left byte-for-byte intact.
-- **Secret path.** The table carries `env_key` (the **name** of the env var Codex reads the key from),
-  never the secret. The `apiKey` you send is stored in the daemon and exported under that name by
-  `EnvForRun` at turn time. `GET` reports `hasKey`, never the key.
+- **Secret path.** The table carries an env-var reference, never the secret: `env_key` for bearer
+  credentials, or `env_http_headers = { "api-key" = "ENV_VAR" }` for an Azure API key. The value is
+  stored in the daemon and exported only at run time. `GET` reports `hasKey`, never the key.
 - **Models.** Codex's TOML has no per-provider model-list field, so the registered model ids are stored
   alongside the credential and echoed back by `GET /providers` for round-trip fidelity. Codex's
   [`GET /models`](/docs/reference/rest/agent/get-models/) stays the OpenAI catalog — a custom provider's

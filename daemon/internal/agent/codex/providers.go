@@ -31,6 +31,13 @@ var _ agent.CustomProvidersModule = adapter{}
 
 const providerWireAPI = "chat"
 
+func providerWireAPIFor(id string) string {
+	if id == azureProviderID {
+		return "responses"
+	}
+	return providerWireAPI
+}
+
 // pkModels is the CredStore key holding a custom provider's model ids (newline-joined), since
 // config.toml's [model_providers.*] has no model-list field.
 func pkModels(id string) string { return "provider:" + id + ":models" }
@@ -54,6 +61,9 @@ func (adapter) ListProviders(store agent.CredStore, scope agent.MemoryScope, _ s
 	}
 	out := map[string]agent.CustomProvider{}
 	for id, p := range parseModelProviders(data) {
+		if p.EnvVar == "" && store != nil {
+			p.EnvVar = strings.TrimSpace(store.Get(agent.ProviderEnvKey(id)))
+		}
 		p.Models = storedModels(store, id)
 		p.EnvVars = sortedNames(agent.StoredProviderEnv(store, id))
 		p.HasKey = (store != nil && strings.TrimSpace(store.Get(agent.ProviderCredKey(id))) != "") || len(p.EnvVars) > 0
@@ -264,8 +274,15 @@ func buildProviderSection(id string, p agent.CustomProvider, envVar string) stri
 		b.WriteString("name = " + tomlString(name) + "\n")
 	}
 	b.WriteString("base_url = " + tomlString(strings.TrimSpace(p.BaseURL)) + "\n")
-	b.WriteString("env_key = " + tomlString(envVar) + "\n")
-	b.WriteString("wire_api = " + tomlString(providerWireAPI) + "\n")
+	if id == azureProviderID && envVar == "AZURE_OPENAI_API_KEY" {
+		// Azure API keys use the `api-key` header, not Authorization: Bearer. Codex resolves the
+		// value from this env-var reference; the secret itself stays solely in the CredStore.
+		b.WriteString("env_http_headers = { \"api-key\" = " + tomlString(envVar) + " }\n")
+	} else {
+		// Entra tokens and ordinary OpenAI-compatible providers use bearer authentication.
+		b.WriteString("env_key = " + tomlString(envVar) + "\n")
+	}
+	b.WriteString("wire_api = " + tomlString(providerWireAPIFor(id)) + "\n")
 	return b.String()
 }
 
