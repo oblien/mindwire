@@ -9,7 +9,7 @@ package codex
 // needs request→await→next-request correlation (turn/start needs the threadId returned by
 // thread/start).
 //
-// Wire framing (verified from `codex app-server generate-json-schema`, codex-cli 0.146.0): NOT
+// Wire framing (verified from `codex app-server generate-json-schema`, codex-cli 0.153.4): NOT
 // standard JSON-RPC — there is no "jsonrpc":"2.0" version field. Each stdout line is one message:
 //
 //	request       {id, method, params}   we send these; the server replies with a response
@@ -19,8 +19,8 @@ package codex
 //
 // Everything is camelCase (the exec `--json` stream is snake_case — a different surface, parse.go).
 //
-// UNVERIFIED AT RUNTIME: the shapes are schema-derived but the live behavior could not be exercised
-// (the local ChatGPT OAuth token is expired) — the Stage-7 smoke test is the blocking acceptance gate.
+// Protocol reference: https://learn.chatgpt.com/docs/app-server. turn/start returns an
+// inProgress acknowledgement; only a terminal turn status ends the run.
 
 import (
 	"bufio"
@@ -49,6 +49,8 @@ const (
 	famReviewDecision = "reviewDecision" // legacy execCommandApproval / applyPatchApproval → {"decision":"approved"|{"denied":…}}
 	famV2Decision     = "v2Decision"     // item/*/requestApproval (experimental) → {"decision":"accept"|"decline"}
 	famAnswers        = "answers"        // item/tool/requestUserInput → {"answers":{…}}
+	famPermissions    = "permissions"
+	famElicitation    = "elicitation"
 )
 
 var errTransportClosed = errors.New("codex app-server transport closed")
@@ -99,7 +101,13 @@ func (a appServer) Run(ctx context.Context, in agent.TurnInput, emit agent.Emit)
 	werr := cmd.Wait()
 
 	if !got {
-		msg := strings.TrimSpace(stderr.String())
+		msg := ""
+		if result.IsError {
+			msg = strings.TrimSpace(result.Text)
+		}
+		if msg == "" {
+			msg = strings.TrimSpace(stderr.String())
+		}
 		if msg == "" && werr != nil {
 			msg = werr.Error()
 		}
@@ -110,7 +118,7 @@ func (a appServer) Run(ctx context.Context, in agent.TurnInput, emit agent.Emit)
 			msg = "no result from codex app-server"
 		}
 		emit(agent.Event{Type: agent.EventError, Error: msg})
-		return agent.TurnResult{Text: msg, IsError: true}, werr
+		return agent.TurnResult{Text: msg, SessionID: result.SessionID, IsError: true}, werr
 	}
 	return result, nil
 }
@@ -144,8 +152,17 @@ type rpcIn struct {
 }
 
 type rpcErr struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+func (e *rpcErr) text() string {
+	message := e.Message
+	if detail := errorText(e.Data, ""); detail != "" && !strings.Contains(message, detail) {
+		message = strings.TrimSpace(message + "\n" + detail)
+	}
+	return fmt.Sprintf("Codex RPC error %d: %s", e.Code, message)
 }
 
 type pendingResp struct {
@@ -156,13 +173,16 @@ type pendingResp struct {
 // approval is the correlator for one outstanding server-request, keyed by the interaction id we
 // emitted. It carries the raw JSON-RPC id to echo in the reply and the decision family to encode.
 type approval struct {
-	rawID      json.RawMessage
-	family     string
-	questionID string // famAnswers only: the first question's id
+	rawID         json.RawMessage
+	family        string
+	questionID    string // famAnswers only: this prompt's question id
+	questionCount int
+	permissions   json.RawMessage
+	interaction   *agent.Interaction
 }
 
 // serializeEmit wraps an Emit so it is safe to call from multiple goroutines. The app-server transport
-// emits from several goroutines at once (the stdout reader, the turn-await watcher, the handshake), but
+// emits from the stdout reader, handshake and inbound-response goroutines, but
 // the runner's emit accumulates unsynchronized transcript state and assumes serial calls — as the CLI
 // path (single parse goroutine) provides. Every app-server emission goes through this.
 func serializeEmit(emit agent.Emit) agent.Emit {
@@ -178,8 +198,8 @@ func serializeEmit(emit agent.Emit) agent.Emit {
 // Run so tests drive it with in-memory pipes and a scripted server (no real binary). It returns the
 // terminal result and whether one was seen (got=false ⇒ Run surfaces stderr/exit as the error).
 func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbound <-chan agent.Inbound, rawEmit agent.Emit) (agent.TurnResult, bool) {
-	// emit is driven from several goroutines here (the reader, the turn-await watcher, and this
-	// handshake path's EventSession) — unlike the CLI path, which parses on a single goroutine. The
+	// emit is driven by the reader, inbound responses and this handshake path's EventSession,
+	// unlike the CLI path, which parses on a single goroutine. The
 	// runner's emit accumulates shared, unsynchronized transcript state, so serialize every emission.
 	emit := serializeEmit(rawEmit)
 
@@ -204,6 +224,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	var idmu sync.Mutex
 	idSeq := 0
 	pending := map[string]chan pendingResp{}
+	pendingMethods := map[string]string{}
 	nextID := func() json.RawMessage {
 		idmu.Lock()
 		defer idmu.Unlock()
@@ -217,20 +238,40 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		ch := make(chan pendingResp, 1)
 		idmu.Lock()
 		pending[string(id)] = ch
+		pendingMethods[string(id)] = method
 		idmu.Unlock()
 		return ch, writeJSON(rpcRequest{ID: id, Method: method, Params: params})
 	}
-	// sendRequest fires a request we don't await (steer/interrupt); its response is dropped by the reader.
+	// Steering/interrupt acknowledgements do not block ingress, but their errors must
+	// still reach the transcript (for example, trying to steer a review turn).
 	sendRequest := func(method string, params any) error {
-		return writeJSON(rpcRequest{ID: nextID(), Method: method, Params: params})
+		id := nextID()
+		idmu.Lock()
+		pendingMethods[string(id)] = method
+		idmu.Unlock()
+		return writeJSON(rpcRequest{ID: id, Method: method, Params: params})
 	}
 
 	// shared turn state
 	var smu sync.Mutex
 	var threadID, turnID, sessionID string
+	turnReady := make(chan struct{})
+	var turnReadyOnce sync.Once
+	recordTurnID := func(id string) {
+		if id == "" {
+			return
+		}
+		smu.Lock()
+		if turnID == "" {
+			turnID = id
+		}
+		smu.Unlock()
+		turnReadyOnce.Do(func() { close(turnReady) })
+	}
 	var tokens map[string]any
 	var tokensUsage *agent.Usage // typed mirror of tokens, attached additively to the terminal result
 	approvals := map[string]approval{}
+	questionAnswers := map[string]map[string]any{}
 
 	// compactTrigger tags every compaction boundary this connection surfaces: "manual" when we drove a
 	// thread/compact/start (a.compact), "auto" when Codex compacted mid-turn on its own. A compact turn
@@ -246,6 +287,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 
 	var result agent.TurnResult
 	var got bool
+	var failureText string
 	// emitTerminal records the turn's result and emits the single EventResult (first caller wins), then
 	// unblocks everyone waiting on done. Two sources can race here — the turn/completed notification and
 	// the turn/start response — and exactly one must surface.
@@ -283,15 +325,56 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		sc := bufio.NewScanner(r)
 		sc.Buffer(make([]byte, 0, 1<<20), 16<<20)
 		terminated := false
-		finalText := "" // last agentMessage seen mid-turn (fallback for the terminal text)
+		lastError := ""
 		st := newStreamState()
+		st.compactTrigger = compactTrigger
+		// Both notifications and any terminal start response are reconciled on this reader.
+		// It is the sole owner of item state, so final snapshots cannot race streaming deltas.
+		completeTurn := func(raw json.RawMessage) {
+			var te turnEnvelope
+			if err := json.Unmarshal(raw, &te); err != nil {
+				lastError = "Could not decode Codex turn: " + err.Error()
+				st.decodeFailure(lastError, emit)
+				return
+			}
+			recordTurnID(te.Turn.ID)
+			smu.Lock()
+			sid := sessionID
+			smu.Unlock()
+			if !terminalStatus(te.Turn.Status) {
+				return
+			}
+			for _, item := range te.Turn.Items {
+				emitItem(phaseCompleted, item, emit, st)
+			}
+			st.emitTurnDiff(te.Turn.ID, emit)
+			text, isErr := turnOutcome(raw)
+			if isErr {
+				text = errorText(te.Turn.Error, agent.FirstNonEmpty(lastError, text, "Codex turn failed."))
+			} else {
+				text = st.finalText
+				if text == "" && !st.visible {
+					text, isErr = agent.FirstNonEmpty(lastError, st.decodeError, st.problem, "Codex finished without a response."), true
+				}
+				if a.compact && !isErr && text == "" {
+					text = "Conversation compacted."
+				}
+			}
+			terminated = true
+			emitTerminal(agent.TurnResult{Text: text, SessionID: sid, IsError: isErr}, tokenMeta())
+		}
 		for sc.Scan() {
+			if terminated {
+				continue
+			}
 			line := strings.TrimSpace(sc.Text())
 			if len(line) == 0 || line[0] != '{' {
 				continue
 			}
 			var msg rpcIn
-			if json.Unmarshal([]byte(line), &msg) != nil {
+			if err := json.Unmarshal([]byte(line), &msg); err != nil {
+				lastError = "Could not decode Codex event: " + err.Error()
+				st.decodeFailure(lastError, emit)
 				continue
 			}
 			switch {
@@ -299,7 +382,16 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 				if terminated {
 					continue
 				}
-				if inter, ap := serverRequestInteraction(msg); inter != nil {
+				prompts := serverRequestPrompts(msg)
+				if len(prompts) == 0 {
+					message := "Unsupported Codex request: " + msg.Method
+					_ = writeJSON(map[string]any{"id": msg.ID, "error": rpcErr{Code: -32601, Message: message}})
+					lastError = message
+					st.emitInteraction(&agent.Interaction{ID: "codex:unsupported:" + string(msg.ID), Kind: "error", Title: "Codex request unavailable", Detail: message,
+						Meta: map[string]any{"source": "codex", "method": msg.Method}}, emit)
+				}
+				for _, prompt := range prompts {
+					inter, ap := prompt.interaction, prompt
 					smu.Lock()
 					approvals[inter.ID] = ap
 					smu.Unlock()
@@ -308,6 +400,24 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 
 			case msg.Method != "":
 				if terminated {
+					continue
+				}
+				var route struct {
+					ThreadID string `json:"threadId"`
+					TurnID   string `json:"turnId"`
+					Turn     struct {
+						ID string `json:"id"`
+					} `json:"turn"`
+				}
+				_ = json.Unmarshal(msg.Params, &route)
+				if route.TurnID == "" {
+					route.TurnID = route.Turn.ID
+				}
+				smu.Lock()
+				wrongThread := route.ThreadID != "" && threadID != "" && route.ThreadID != threadID
+				wrongTurn := route.TurnID != "" && turnID != "" && route.TurnID != turnID
+				smu.Unlock()
+				if wrongThread || wrongTurn {
 					continue
 				}
 				switch msg.Method {
@@ -336,11 +446,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 						} `json:"turn"`
 					}
 					if json.Unmarshal(msg.Params, &p) == nil && p.Turn.ID != "" {
-						smu.Lock()
-						if turnID == "" {
-							turnID = p.Turn.ID
-						}
-						smu.Unlock()
+						recordTurnID(p.Turn.ID)
 					}
 				case "item/started":
 					var p struct {
@@ -356,15 +462,14 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 						Item json.RawMessage `json:"item"`
 					}
 					if json.Unmarshal(msg.Params, &p) == nil {
-						if t := emitItem(phaseUpdated, p.Item, emit, st); t != "" {
-							finalText = t
-						}
+						emitItem(phaseUpdated, p.Item, emit, st)
 					}
 				case "item/completed":
 					var p struct {
 						Item json.RawMessage `json:"item"`
 					}
 					if json.Unmarshal(msg.Params, &p) == nil {
+						emitItem(phaseCompleted, p.Item, emit, st)
 						// A contextCompaction item is the compaction boundary (preferred terminal signal for a
 						// compact turn; also emitted when Codex auto-compacts mid-turn). Surface it as
 						// EventCompaction; in compact mode it's the terminal result.
@@ -372,18 +477,57 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 							smu.Lock()
 							sid := sessionID
 							smu.Unlock()
-							emit(agent.Event{Type: agent.EventCompaction, SessionID: sid, Compaction: ci})
 							if a.compact {
 								terminated = true
 								emitTerminal(agent.TurnResult{Text: "Conversation compacted.", SessionID: sid}, tokenMeta())
 							}
-						} else if t := emitItem(phaseCompleted, p.Item, emit, st); t != "" {
-							finalText = t
 						}
 					}
 				case "turn/plan/updated":
 					if inter := planInteraction(msg.Params); inter != nil {
-						emit(agent.Event{Type: agent.EventInteraction, Interaction: inter})
+						st.visible = true
+						st.emitInteraction(inter, emit)
+					}
+				case "item/agentMessage/delta", "item/plan/delta", "item/reasoning/summaryTextDelta",
+					"item/reasoning/summaryPartAdded", "item/reasoning/textDelta",
+					"item/commandExecution/outputDelta", "item/fileChange/patchUpdated",
+					"item/fileChange/outputDelta", "item/mcpToolCall/progress":
+					st.emitDelta(msg.Method, msg.Params, emit)
+				case "turn/diff/updated":
+					var p struct {
+						TurnID string `json:"turnId"`
+						Diff   string `json:"diff"`
+					}
+					if json.Unmarshal(msg.Params, &p) == nil {
+						st.turnDiff = p.Diff
+						emit(agent.Event{Type: agent.EventStatus, Meta: map[string]any{"turnId": p.TurnID, "diff": p.Diff}})
+					}
+				case "warning", "guardianWarning", "configWarning", "deprecationNotice",
+					"hook/started", "hook/completed", "mcpServer/startupStatus/updated",
+					"item/commandExecution/terminalInteraction", "model/rerouted", "model/verification",
+					"modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted",
+					"item/autoApprovalReview/started", "item/autoApprovalReview/completed", "autoApprovalReview/strictReviewRequired":
+					st.emitNotice(msg.Method, msg.Params, emit)
+				case "serverRequest/resolved":
+					var p struct {
+						RequestID json.RawMessage `json:"requestId"`
+					}
+					if json.Unmarshal(msg.Params, &p) == nil {
+						var resolved []agent.Interaction
+						smu.Lock()
+						for id, ap := range approvals {
+							if string(ap.rawID) == string(p.RequestID) {
+								inter := *ap.interaction
+								inter.NeedsResponse = false
+								resolved = append(resolved, inter)
+								delete(approvals, id)
+							}
+						}
+						delete(questionAnswers, string(p.RequestID))
+						smu.Unlock()
+						for _, inter := range resolved {
+							emit(agent.Event{Type: agent.EventInteraction, Interaction: &inter})
+						}
 					}
 				case "thread/tokenUsage/updated":
 					if u, ok := tokenUsageFrom(msg.Params); ok {
@@ -397,70 +541,89 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 						emit(agent.Event{Type: agent.EventStatus, Meta: m})
 					}
 				case "turn/completed":
-					text, isErr := turnOutcome(msg.Params)
-					if text == "" {
-						text = finalText
-					}
-					smu.Lock()
-					sid := sessionID
-					smu.Unlock()
-					terminated = true
-					emitTerminal(agent.TurnResult{Text: text, SessionID: sid, IsError: isErr}, tokenMeta())
+					completeTurn(msg.Params)
 				case "thread/compacted":
 					// Legacy terminal signal for a compaction, superseded by the contextCompaction item above.
 					// Handle it too so an older server still terminates a compact turn (and a mid-turn
-					// auto-compaction still surfaces). Harmless if the item already fired — emitTerminal is
-					// first-wins and EventCompaction is idempotent for the client.
+					// auto-compaction still surfaces). The stream state pairs it with the modern item.
 					smu.Lock()
 					sid := sessionID
 					smu.Unlock()
-					emit(agent.Event{Type: agent.EventCompaction, SessionID: sid,
-						Compaction: &agent.CompactionInfo{Trigger: compactTrigger}})
+					st.emitCompaction("", "", true, emit)
 					if a.compact {
 						terminated = true
 						emitTerminal(agent.TurnResult{Text: "Conversation compacted.", SessionID: sid}, tokenMeta())
 					}
 				case "error":
 					var p struct {
-						Error struct {
-							Message string `json:"message"`
-						} `json:"error"`
-						WillRetry bool `json:"willRetry"`
+						Error     json.RawMessage `json:"error"`
+						WillRetry bool            `json:"willRetry"`
 					}
 					_ = json.Unmarshal(msg.Params, &p)
-					m := strings.TrimSpace(p.Error.Message)
-					if m == "" {
-						m = "codex error"
+					lastError = errorText(p.Error, "Codex error.")
+					if p.WillRetry {
+						emit(agent.Event{Type: agent.EventStatus, Meta: map[string]any{"message": lastError, "willRetry": true}})
+					} else {
+						emit(agent.Event{Type: agent.EventError, Error: lastError})
 					}
-					// Non-terminal on its own; a turn/completed with status=failed is the terminal signal.
-					emit(agent.Event{Type: agent.EventError, Error: m})
 				}
 
 			case len(msg.ID) > 0:
 				idmu.Lock()
 				ch := pending[string(msg.ID)]
+				method := pendingMethods[string(msg.ID)]
 				delete(pending, string(msg.ID))
+				delete(pendingMethods, string(msg.ID))
 				idmu.Unlock()
+				if !terminated && (method == "turn/start" || method == "thread/compact/start") {
+					if msg.Error != nil {
+						smu.Lock()
+						sid := sessionID
+						smu.Unlock()
+						terminated = true
+						emitTerminal(agent.TurnResult{Text: msg.Error.text(), IsError: true, SessionID: sid}, nil)
+					} else if method == "turn/start" {
+						completeTurn(msg.Result)
+					}
+				}
+				if !terminated && msg.Error != nil && (method == "turn/steer" || method == "turn/interrupt") {
+					st.emitInteraction(&agent.Interaction{ID: "codex:rpc:" + string(msg.ID), Kind: "error",
+						Title: "Codex request failed", Detail: msg.Error.text(),
+						Meta: map[string]any{"source": "codex", "method": method}}, emit)
+				}
 				if ch != nil {
 					ch <- pendingResp{result: msg.Result, err: msg.Error}
 				}
 			}
 		}
+		if err := sc.Err(); err != nil && lastError == "" {
+			lastError = "Codex stream read error: " + err.Error()
+		}
+		smu.Lock()
+		failureText = agent.FirstNonEmpty(lastError, st.decodeError)
+		smu.Unlock()
 		closeDone() // stdout ended → nothing more will arrive
 	}()
 
 	await := func(ch chan pendingResp) (json.RawMessage, error) {
+		var resp pendingResp
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-done:
-			return nil, errTransportClosed
-		case resp := <-ch:
-			if resp.err != nil {
-				return nil, fmt.Errorf("app-server error %d: %s", resp.err.Code, resp.err.Message)
+			// A server may send its rejection and close stdout immediately. Drain the queued
+			// response before reporting EOF, otherwise the actionable RPC error is lost.
+			select {
+			case resp = <-ch:
+			default:
+				return nil, errTransportClosed
 			}
-			return resp.result, nil
+		case resp = <-ch:
 		}
+		if resp.err != nil {
+			return nil, errors.New(resp.err.text())
+		}
+		return resp.result, nil
 	}
 
 	// 1. initialize handshake — arms the experimental v2 API (item/*/requestApproval etc.).
@@ -469,10 +632,10 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		"capabilities": map[string]any{"experimentalApi": true},
 	})
 	if err != nil {
-		return agent.TurnResult{Text: "initialize: " + err.Error()}, false
+		return agent.TurnResult{Text: "initialize: " + err.Error(), IsError: true}, false
 	}
 	if _, err := await(ch); err != nil {
-		return agent.TurnResult{Text: "initialize: " + err.Error()}, false
+		return agent.TurnResult{Text: "initialize: " + err.Error(), IsError: true}, false
 	}
 	// 2. initialized notification.
 	if err := writeJSON(rpcNotification{Method: "initialized"}); err != nil {
@@ -486,11 +649,11 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		ch, err = call("thread/start", a.startParams())
 	}
 	if err != nil {
-		return agent.TurnResult{Text: "thread: " + err.Error()}, false
+		return agent.TurnResult{Text: "thread: " + err.Error(), IsError: true}, false
 	}
 	res, err := await(ch)
 	if err != nil {
-		return agent.TurnResult{Text: "thread: " + err.Error()}, false
+		return agent.TurnResult{Text: "thread: " + err.Error(), IsError: true}, false
 	}
 	var ts struct {
 		Thread struct {
@@ -520,55 +683,34 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	// 4. Kick off the work. In compact mode: thread/compact/start, whose immediate {} response is a mere
 	// "accepted" ACK, not a terminal — the terminal signal is the streamed contextCompaction item (or a
 	// legacy thread/compacted notification), which the reader turns into the terminal result. Otherwise:
-	// turn/start, whose response may resolve only when the turn ends (carrying the final turn), so we
-	// don't block on it here — we await it in a goroutine as a second terminal source, and capture the
-	// turn id (for steer/interrupt) from either the response or the turn/started notification.
+	// turn/start returns the initial inProgress turn. The reader captures that id and continues
+	// consuming items until turn/completed; the acknowledgement must never close the transport.
 	if a.compact {
-		compactCh, err := call("thread/compact/start", map[string]any{"threadId": tid})
+		_, err := call("thread/compact/start", map[string]any{"threadId": tid})
 		if err != nil {
 			return agent.TurnResult{Text: "compact: " + err.Error()}, false
 		}
-		go func() {
-			// Await ONLY to surface an early rejection (e.g. thread not compactable); a successful {} ack
-			// means accepted, not done, so we keep waiting for the reader's compaction boundary.
-			if _, err := await(compactCh); err != nil {
-				if errors.Is(err, errTransportClosed) || errors.Is(err, context.Canceled) {
-					return
-				}
-				emitTerminal(agent.TurnResult{Text: "compact: " + err.Error(), IsError: true}, nil)
-			}
-		}()
 	} else {
-		turnCh, err := call("turn/start", a.turnParams(tid))
+		_, err := call("turn/start", a.turnParams(tid))
 		if err != nil {
 			return agent.TurnResult{Text: "turn: " + err.Error()}, false
 		}
-		go func() {
-			res, err := await(turnCh)
-			if err != nil {
-				if errors.Is(err, errTransportClosed) || errors.Is(err, context.Canceled) {
-					return // done/ctx already drives the terminal path
-				}
-				emitTerminal(agent.TurnResult{Text: "turn: " + err.Error(), IsError: true}, nil)
-				return
-			}
-			if uid := turnIDOf(res); uid != "" {
-				smu.Lock()
-				if turnID == "" {
-					turnID = uid
-				}
-				smu.Unlock()
-			}
-			text, isErr := turnOutcome(res)
-			smu.Lock()
-			s := sessionID
-			smu.Unlock()
-			emitTerminal(agent.TurnResult{Text: text, SessionID: s, IsError: isErr}, tokenMeta())
-		}()
 	}
 
 	// Inbound pump: answer approvals, steer, or interrupt mid-turn. Stateless-correlator pattern —
 	// the approval reply id rides in the approvals map (keyed by the interaction id we handed out).
+	awaitTurn := func() (string, string, bool) {
+		select {
+		case <-turnReady:
+			smu.Lock()
+			defer smu.Unlock()
+			return threadID, turnID, true
+		case <-done:
+			return "", "", false
+		case <-ctx.Done():
+			return "", "", false
+		}
+	}
 	go func() {
 		for {
 			select {
@@ -584,35 +726,60 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 				case "response":
 					smu.Lock()
 					ap, found := approvals[msg.InteractionID]
-					smu.Unlock()
 					if !found {
+						smu.Unlock()
 						continue
 					}
-					_ = writeJSON(rpcResponse{ID: ap.rawID, Result: decisionResult(ap, msg)})
+					delete(approvals, msg.InteractionID)
+					reply := decisionResult(ap, msg)
+					ready := true
+					if ap.family == famAnswers && ap.questionCount > 1 {
+						key := string(ap.rawID)
+						if questionAnswers[key] == nil {
+							questionAnswers[key] = map[string]any{}
+						}
+						questionAnswers[key][ap.questionID] = map[string]any{"answers": answerValues(msg)}
+						ready = len(questionAnswers[key]) == ap.questionCount
+						if ready {
+							reply = map[string]any{"answers": questionAnswers[key]}
+							delete(questionAnswers, key)
+						}
+					}
+					smu.Unlock()
+					if ap.interaction != nil {
+						resolved := *ap.interaction
+						resolved.NeedsResponse = false
+						emit(agent.Event{Type: agent.EventInteraction, Interaction: &resolved})
+					}
+					if ready {
+						if err := writeJSON(rpcResponse{ID: ap.rawID, Result: reply}); err != nil {
+							emit(agent.Event{Type: agent.EventError, Error: "Could not answer Codex: " + err.Error()})
+						}
+					}
 				case "input":
 					text := strings.TrimSpace(msg.Text)
 					if text == "" {
 						continue
 					}
-					smu.Lock()
-					t, u := threadID, turnID
-					smu.Unlock()
-					if t == "" || u == "" {
-						continue
+					t, u, ready := awaitTurn()
+					if !ready {
+						return
 					}
-					_ = sendRequest("turn/steer", map[string]any{
+					if err := sendRequest("turn/steer", map[string]any{
 						"threadId":       t,
 						"expectedTurnId": u,
 						"input":          []any{map[string]any{"type": "text", "text": text}},
-					})
-				case "interrupt":
-					smu.Lock()
-					t, u := threadID, turnID
-					smu.Unlock()
-					if t == "" || u == "" {
-						continue
+					}); err != nil {
+						emit(agent.Event{Type: agent.EventError, Error: "Could not send Codex input: " + err.Error()})
 					}
-					_ = sendRequest("turn/interrupt", map[string]any{"threadId": t, "turnId": u})
+				case "interrupt":
+					t, u, ready := awaitTurn()
+					if !ready {
+						return
+					}
+					if err := sendRequest("turn/interrupt", map[string]any{"threadId": t, "turnId": u}); err != nil {
+						emit(agent.Event{Type: agent.EventError, Error: "Could not interrupt Codex: " + err.Error()})
+					}
 				}
 			}
 		}
@@ -633,9 +800,10 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 
 	smu.Lock()
 	res2, ok := result, got
+	failure, sid := failureText, sessionID
 	smu.Unlock()
 	if !ok {
-		return agent.TurnResult{Text: "codex app-server ended without a result"}, false
+		return agent.TurnResult{Text: agent.FirstNonEmpty(failure, "Codex app-server ended without a result."), SessionID: sid, IsError: failure != ""}, false
 	}
 	return res2, true
 }
@@ -687,7 +855,7 @@ func (a appServer) turnParams(threadID string) map[string]any {
 // serverRequestInteraction maps a server-request (an approval or a user-input ask) to a unified
 // interaction plus the correlator needed to answer it. The interaction id is the raw JSON-RPC id (a
 // string or number) rendered as text; the approval carries that raw id back for the reply. Unknown
-// request methods still map to a yes/no approval so the turn can't hang unanswered.
+// requests return nil and the reader sends an explicit unsupported-method RPC error.
 func serverRequestInteraction(msg rpcIn) (*agent.Interaction, approval) {
 	id := string(msg.ID)
 	allowDeny := []agent.Action{{ID: "allow", Label: "Approve"}, {ID: "deny", Label: "Reject"}}
@@ -730,7 +898,7 @@ func serverRequestInteraction(msg rpcIn) (*agent.Interaction, approval) {
 			Meta: map[string]any{"method": msg.Method},
 		}, approval{rawID: msg.ID, family: famV2Decision}
 
-	case "item/fileChange/requestApproval", "item/permissions/requestApproval":
+	case "item/fileChange/requestApproval":
 		var p struct {
 			Reason string `json:"reason"`
 		}
@@ -740,35 +908,99 @@ func serverRequestInteraction(msg rpcIn) (*agent.Interaction, approval) {
 			Options: allowDeny, NeedsResponse: true,
 			Meta: map[string]any{"method": msg.Method},
 		}, approval{rawID: msg.ID, family: famV2Decision}
-
-	case "item/tool/requestUserInput":
+	case "item/permissions/requestApproval":
 		var p struct {
-			Questions []struct {
-				ID       string `json:"id"`
-				Header   string `json:"header"`
-				Question string `json:"question"`
-			} `json:"questions"`
+			Reason      string          `json:"reason"`
+			Permissions json.RawMessage `json:"permissions"`
 		}
 		_ = json.Unmarshal(msg.Params, &p)
-		title, detail, qid := "Codex needs your input", "", ""
-		if len(p.Questions) > 0 {
-			title = agent.FirstNonEmpty(p.Questions[0].Question, title)
-			detail = p.Questions[0].Header
-			qid = p.Questions[0].ID
+		return &agent.Interaction{ID: id, Kind: "approval", Title: "Allow additional access?", Detail: p.Reason,
+				Options: allowDeny, NeedsResponse: true, Meta: map[string]any{"method": msg.Method, "permissions": p.Permissions}},
+			approval{rawID: msg.ID, family: famPermissions, permissions: p.Permissions}
+
+	case "item/tool/requestUserInput":
+		prompts := questionPrompts(msg)
+		if len(prompts) > 0 {
+			return prompts[0].interaction, prompts[0]
 		}
-		return &agent.Interaction{
-			ID: id, Kind: "choice", Title: title, Detail: detail, NeedsResponse: true,
-			Meta: map[string]any{"method": msg.Method},
-		}, approval{rawID: msg.ID, family: famAnswers, questionID: qid}
+		return nil, approval{}
+	case "mcpServer/elicitation/request":
+		var p struct {
+			Mode    string `json:"mode"`
+			Message string `json:"message"`
+			URL     string `json:"url"`
+		}
+		_ = json.Unmarshal(msg.Params, &p)
+		if p.Mode != "url" {
+			return nil, approval{}
+		}
+		return &agent.Interaction{ID: id, Kind: "approval", Title: p.Message, Detail: p.URL,
+			Options: allowDeny, NeedsResponse: true}, approval{rawID: msg.ID, family: famElicitation}
 
 	default:
-		// Any other server-request (e.g. an mcp elicitation) — surface as a yes/no so the turn proceeds.
-		return &agent.Interaction{
-			ID: id, Kind: "approval", Title: "Codex needs your approval", Detail: msg.Method,
-			Options: allowDeny, NeedsResponse: true,
-			Meta: map[string]any{"method": msg.Method},
-		}, approval{rawID: msg.ID, family: famV2Decision}
+		return nil, approval{}
 	}
+}
+
+func serverRequestPrompts(msg rpcIn) []approval {
+	if msg.Method == "item/tool/requestUserInput" {
+		return questionPrompts(msg)
+	}
+	inter, ap := serverRequestInteraction(msg)
+	if inter == nil {
+		return nil
+	}
+	ap.interaction = inter
+	return []approval{ap}
+}
+
+func questionPrompts(msg rpcIn) []approval {
+	var p struct {
+		Questions []struct {
+			ID       string `json:"id"`
+			Header   string `json:"header"`
+			Question string `json:"question"`
+			IsOther  bool   `json:"isOther"`
+			IsSecret bool   `json:"isSecret"`
+			Options  []struct {
+				Label       string `json:"label"`
+				Description string `json:"description"`
+			} `json:"options"`
+		} `json:"questions"`
+	}
+	if json.Unmarshal(msg.Params, &p) != nil {
+		return nil
+	}
+	prompts := make([]approval, 0, len(p.Questions))
+	for _, q := range p.Questions {
+		id := string(msg.ID)
+		if len(p.Questions) > 1 {
+			id += ":" + q.ID
+		}
+		inter := &agent.Interaction{ID: id, Kind: "input", Title: q.Question, Detail: q.Header, NeedsResponse: true,
+			Meta: map[string]any{"method": msg.Method, "allowOther": q.IsOther, "isSecret": q.IsSecret}}
+		for _, option := range q.Options {
+			inter.Options = append(inter.Options, agent.Action{ID: option.Label, Label: option.Label})
+		}
+		if len(inter.Options) > 0 {
+			inter.Kind = "choice"
+		}
+		prompts = append(prompts, approval{rawID: msg.ID, family: famAnswers, questionID: q.ID, questionCount: len(p.Questions), interaction: inter})
+	}
+	return prompts
+}
+
+func answerValues(in agent.Inbound) []string {
+	if strings.TrimSpace(in.Text) != "" {
+		return []string{in.Text}
+	}
+	if len(in.Options) > 0 {
+		return in.Options
+	}
+	if in.Decision != "" {
+		return []string{in.Decision}
+	}
+	return []string{}
 }
 
 // decisionResult encodes an approval answer into the native decision shape for its family.
@@ -785,18 +1017,22 @@ func decisionResult(ap approval, in agent.Inbound) any {
 		}
 		return map[string]any{"decision": "approved"}
 	case famAnswers:
-		answer := strings.TrimSpace(in.Text)
-		if answer == "" && len(in.Options) > 0 {
-			answer = strings.Join(in.Options, ", ")
-		}
-		if answer == "" {
-			answer = in.Decision
-		}
 		answers := map[string]any{}
 		if ap.questionID != "" {
-			answers[ap.questionID] = answer
+			answers[ap.questionID] = map[string]any{"answers": answerValues(in)}
 		}
 		return map[string]any{"answers": answers}
+	case famPermissions:
+		permissions := ap.permissions
+		if deny || len(permissions) == 0 || string(permissions) == "null" {
+			permissions = json.RawMessage(`{}`)
+		}
+		return map[string]any{"permissions": permissions, "scope": "turn"}
+	case famElicitation:
+		if deny {
+			return map[string]any{"action": "decline"}
+		}
+		return map[string]any{"action": "accept"}
 	default: // famV2Decision
 		if deny {
 			return map[string]any{"decision": "decline"}
@@ -811,21 +1047,42 @@ func decisionResult(ap approval, in agent.Inbound) any {
 // ones relevant to a given type are populated. Unknown fields are ignored (forward-compatible).
 // fromAsItem (normalize.go) maps this into the transport-independent normItem.
 type asItem struct {
-	ID         string          `json:"id"`
-	Type       string          `json:"type"`
-	Text       string          `json:"text"`             // agentMessage / plan
-	Content    []string        `json:"content"`          // reasoning
-	Summary    []string        `json:"summary"`          // reasoning (alt)
-	Command    string          `json:"command"`          // commandExecution
-	Cwd        string          `json:"cwd"`              // commandExecution (may be absent on app-server turns)
-	Aggregated string          `json:"aggregatedOutput"` // commandExecution
-	ExitCode   *int            `json:"exitCode"`
-	Status     string          `json:"status"` // inProgress|completed|failed|declined
-	Changes    []normChange    `json:"changes"`
-	Query      string          `json:"query"`  // webSearch
-	Server     string          `json:"server"` // mcpToolCall
-	Tool       string          `json:"tool"`   // mcpToolCall / dynamicToolCall
-	Result     json.RawMessage `json:"result"` // mcpToolCall
+	ID            string                 `json:"id"`
+	Type          string                 `json:"type"`
+	Text          string                 `json:"text"` // agentMessage / plan
+	Message       string                 `json:"message"`
+	Content       json.RawMessage        `json:"content"` // reasoning; user input uses a different shape
+	Summary       json.RawMessage        `json:"summary"`
+	Phase         string                 `json:"phase"`
+	Command       string                 `json:"command"`          // commandExecution
+	Cwd           string                 `json:"cwd"`              // commandExecution (may be absent on app-server turns)
+	Aggregated    *string                `json:"aggregatedOutput"` // commandExecution
+	ExitCode      *int                   `json:"exitCode"`
+	Status        string                 `json:"status"` // inProgress|completed|failed|declined
+	Changes       []normChange           `json:"changes"`
+	Query         string                 `json:"query"`  // webSearch
+	Server        string                 `json:"server"` // mcpToolCall
+	Tool          string                 `json:"tool"`   // mcpToolCall / dynamicToolCall
+	Result        json.RawMessage        `json:"result"` // mcpToolCall
+	Error         json.RawMessage        `json:"error"`
+	Arguments     json.RawMessage        `json:"arguments"`
+	ContentItems  json.RawMessage        `json:"contentItems"`
+	Success       *bool                  `json:"success"`
+	Path          string                 `json:"path"`
+	SavedPath     string                 `json:"savedPath"`
+	Failure       json.RawMessage        `json:"failure"`
+	Review        string                 `json:"review"`
+	Name          string                 `json:"name"`
+	Output        json.RawMessage        `json:"output"`
+	Action        *webAction             `json:"action"`
+	Results       json.RawMessage        `json:"results"`
+	Prompt        string                 `json:"prompt"`
+	Agents        map[string]collabState `json:"agentsStates"`
+	AgentPath     string                 `json:"agentPath"`
+	AgentThreadID string                 `json:"agentThreadId"`
+	ActivityKind  string                 `json:"kind"`
+	DurationMS    float64                `json:"durationMs"`
+	Questions     []asyncQuestion        `json:"questions"`
 }
 
 // emitItem maps one item (at started/updated/completed) to events, returning the item's text when it is
@@ -834,8 +1091,16 @@ type asItem struct {
 // stream as Delta=true suffixes across phases, so nothing is double-counted.
 func emitItem(phase itemPhase, raw json.RawMessage, emit agent.Emit, st *streamState) string {
 	var it asItem
-	if json.Unmarshal(raw, &it) != nil {
+	if err := json.Unmarshal(raw, &it); err != nil {
+		st.decodeFailure("Could not decode Codex item: "+err.Error(), emit)
 		return ""
+	}
+	if it.Type == "" {
+		return ""
+	}
+	// Old servers sometimes repeat the final message without an id inside the turn envelope.
+	if it.ID == "" && it.Type == "agentMessage" && it.Text == st.finalText {
+		return st.finalText
 	}
 	return emitNorm(fromAsItem(it), phase, raw, emit, st)
 }
@@ -861,7 +1126,9 @@ func compactionItem(raw json.RawMessage, trigger string) *agent.CompactionInfo {
 // buildTodos tail).
 func planInteraction(params json.RawMessage) *agent.Interaction {
 	var p struct {
-		Plan []struct {
+		TurnID      string `json:"turnId"`
+		Explanation string `json:"explanation"`
+		Plan        []struct {
 			Step   string `json:"step"`
 			Status string `json:"status"`
 		} `json:"plan"`
@@ -873,7 +1140,12 @@ func planInteraction(params json.RawMessage) *agent.Interaction {
 	for _, s := range p.Plan {
 		rows = append(rows, todoRow{Content: s.Step, Status: s.Status})
 	}
-	return buildTodos(rows)
+	inter := buildTodos(rows)
+	if inter != nil {
+		inter.ID = p.TurnID + ":plan"
+		inter.Detail = p.Explanation
+	}
+	return inter
 }
 
 // tokenUsageFrom decodes a thread/tokenUsage/updated notification into the normalized tokenUsage
@@ -919,13 +1191,15 @@ func tokenUsageMeta(params json.RawMessage) map[string]any {
 
 type turnEnvelope struct {
 	Turn struct {
-		ID     string `json:"id"`
-		Status string `json:"status"` // completed|interrupted|failed|inProgress
-		Error  *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-		Items []asItem `json:"items"`
+		ID     string            `json:"id"`
+		Status string            `json:"status"` // completed|interrupted|failed|inProgress
+		Error  json.RawMessage   `json:"error"`
+		Items  []json.RawMessage `json:"items"`
 	} `json:"turn"`
+}
+
+func terminalStatus(status string) bool {
+	return status == "completed" || status == "failed" || status == "interrupted"
 }
 
 func turnIDOf(raw json.RawMessage) string {
@@ -944,14 +1218,21 @@ func turnOutcome(raw json.RawMessage) (string, bool) {
 		return "", false
 	}
 	text := ""
-	for _, it := range te.Turn.Items {
-		if it.Type == "agentMessage" && strings.TrimSpace(it.Text) != "" {
+	final := false
+	for _, raw := range te.Turn.Items {
+		var it asItem
+		if json.Unmarshal(raw, &it) == nil && it.Type == "agentMessage" && strings.TrimSpace(it.Text) != "" && (it.Phase == "final_answer" || !final) {
 			text = it.Text
+			final = it.Phase == "final_answer"
 		}
 	}
-	isErr := te.Turn.Status == "failed"
-	if isErr && text == "" && te.Turn.Error != nil {
-		text = te.Turn.Error.Message
+	isErr := te.Turn.Status == "failed" || te.Turn.Status == "interrupted"
+	if isErr {
+		fallback := "Codex turn failed."
+		if te.Turn.Status == "interrupted" {
+			fallback = "Codex turn interrupted."
+		}
+		text = errorText(te.Turn.Error, fallback)
 	}
 	return text, isErr
 }

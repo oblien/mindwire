@@ -143,7 +143,7 @@ func TestParseTurnFailed(t *testing.T) {
 // A mid-stream error with no terminal turn event surfaces as an error event and got=false, so the
 // driver falls back to stderr/exit for the turn's error.
 func TestParseMidStreamErrorNoTerminal(t *testing.T) {
-	evs, _, ok := feed(t,
+	evs, res, ok := feed(t,
 		`{"type":"thread.started","thread_id":"th-1"}`,
 		`{"type":"error","message":"stream blew up"}`,
 	)
@@ -152,6 +152,22 @@ func TestParseMidStreamErrorNoTerminal(t *testing.T) {
 	}
 	if e := firstOf(evs, agent.EventError); e == nil || e.Error != "stream blew up" {
 		t.Errorf("error event = %+v", e)
+	}
+	if !res.IsError || res.Text != "stream blew up" || res.SessionID != "th-1" {
+		t.Fatalf("error lost at EOF: %+v", res)
+	}
+}
+
+func TestExecStructuredErrorsAndMCPFailure(t *testing.T) {
+	events, res, got := feed(t,
+		`{"type":"item.completed","item":{"id":"mcp","type":"mcp_tool_call","server":"docs","tool":"search","status":"failed","error":{"message":"Access denied"},"result":null}}`,
+		`{"type":"turn.failed","error":{"message":"Request failed","additionalDetails":"Deployment not found","codexErrorInfo":{"httpConnectionFailed":{"httpStatusCode":404}}}}`)
+	tool := firstOf(events, agent.EventToolResult)
+	if tool == nil || !tool.Tool.IsError || tool.Tool.Output != "Access denied" {
+		t.Fatalf("MCP error=%+v", tool)
+	}
+	if !got || !res.IsError || !strings.Contains(res.Text, "Deployment not found") || !strings.Contains(res.Text, "404") {
+		t.Fatalf("result=%+v got=%v", res, got)
 	}
 }
 

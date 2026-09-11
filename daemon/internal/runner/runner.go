@@ -126,8 +126,17 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 	var thinkingStart time.Time
 	toolIdx := map[string]int{}
 	toolStart := map[string]time.Time{}
+	itemIdx := map[string]int{}
+	interactionIdx := map[string]int{}
 	flush := func() {
 		if cur != nil {
+			if cur.Type == "thinking" && !thinkingStart.IsZero() {
+				cur.DurationMs = int(time.Since(thinkingStart).Milliseconds())
+				thinkingStart = time.Time{}
+			}
+			if cur.ID != "" {
+				itemIdx[cur.ID] = len(parts)
+			}
 			parts = append(parts, *cur)
 			cur = nil
 		}
@@ -141,39 +150,69 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 			sessionID = ev.SessionID
 		}
 		switch ev.Type {
-		case agent.EventText:
-			if !thinkingStart.IsZero() {
-				if cur != nil && cur.Type == "thinking" {
-					cur.DurationMs = int(now.Sub(thinkingStart).Milliseconds())
+		case agent.EventText, agent.EventThinking:
+			kind := string(ev.Type)
+			// Completed snapshots can correct an earlier item after other parts have arrived.
+			if i, ok := itemIdx[ev.ItemID]; ev.ItemID != "" && ok {
+				if ev.Delta {
+					parts[i].Text += ev.Text
+				} else {
+					parts[i].Text = ev.Text
 				}
-				thinkingStart = time.Time{}
+				if ev.Tokens > 0 {
+					parts[i].Tokens = ev.Tokens
+				}
+				break
 			}
-			if cur == nil || cur.Type != "text" {
+			if cur == nil || cur.Type != kind || (ev.ItemID != "" && cur.ID != ev.ItemID) {
 				flush()
-				cur = &agent.Part{Type: "text", At: ev.At}
+				cur = &agent.Part{Type: kind, ID: ev.ItemID, At: ev.At}
+				if kind == "thinking" {
+					thinkingStart = now
+				}
 			}
-			cur.Text += ev.Text
-		case agent.EventThinking:
-			if cur == nil || cur.Type != "thinking" {
-				flush()
-				cur = &agent.Part{Type: "thinking", At: ev.At}
-				thinkingStart = now
+			if ev.ItemID != "" && !ev.Delta {
+				cur.Text = ev.Text
+			} else {
+				cur.Text += ev.Text
 			}
-			cur.Text += ev.Text
 			if ev.Tokens > 0 { // cumulative estimate → latest wins
 				cur.Tokens = ev.Tokens
 			}
 		case agent.EventToolUse:
 			flush()
 			if ev.Tool != nil {
+				if i, ok := toolIdx[ev.Tool.ID]; ev.Tool.ID != "" && ok {
+					tp := parts[i].Tool
+					if ev.Tool.Name != "" {
+						tp.Name = ev.Tool.Name
+					}
+					if ev.Tool.Input != nil {
+						tp.Input = toRaw(ev.Tool.Input)
+					}
+					if ev.Tool.Action != nil {
+						tp.Action = ev.Tool.Action
+					}
+					if ev.Tool.Output != "" {
+						tp.Output = ev.Tool.Output
+					}
+					break
+				}
 				parts = append(parts, agent.Part{Type: "tool", At: ev.At,
-					Tool: &agent.ToolPart{ID: ev.Tool.ID, Name: ev.Tool.Name, Input: toRaw(ev.Tool.Input), Action: ev.Tool.Action}})
+					Tool: &agent.ToolPart{ID: ev.Tool.ID, Name: ev.Tool.Name, Input: toRaw(ev.Tool.Input), Output: ev.Tool.Output, Action: ev.Tool.Action}})
 				toolIdx[ev.Tool.ID] = len(parts) - 1
 				toolStart[ev.Tool.ID] = now
 			}
 		case agent.EventInteraction:
 			flush()
 			if ev.Interaction != nil {
+				if i, ok := interactionIdx[ev.Interaction.ID]; ev.Interaction.ID != "" && ok {
+					parts[i].Interaction = ev.Interaction
+					break
+				}
+				if ev.Interaction.ID != "" {
+					interactionIdx[ev.Interaction.ID] = len(parts)
+				}
 				parts = append(parts, agent.Part{Type: "interaction", At: ev.At, Interaction: ev.Interaction})
 			}
 		case agent.EventCompaction:
@@ -185,6 +224,12 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 			flush()
 			if ev.Tool != nil {
 				if i, ok := toolIdx[ev.Tool.ID]; ok && parts[i].Tool != nil {
+					if ev.Tool.Name != "" {
+						parts[i].Tool.Name = ev.Tool.Name
+					}
+					if ev.Tool.Input != nil {
+						parts[i].Tool.Input = toRaw(ev.Tool.Input)
+					}
 					parts[i].Tool.Output = ev.Tool.Output
 					parts[i].Tool.IsError = ev.Tool.IsError
 					// The completed action carries output/exit-code the input-only one lacked; overwrite
@@ -197,15 +242,32 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 					}
 				} else {
 					parts = append(parts, agent.Part{Type: "tool", At: ev.At,
-						Tool: &agent.ToolPart{ID: ev.Tool.ID, Output: ev.Tool.Output, IsError: ev.Tool.IsError, Action: ev.Tool.Action}})
+						Tool: &agent.ToolPart{ID: ev.Tool.ID, Name: ev.Tool.Name, Input: toRaw(ev.Tool.Input), Output: ev.Tool.Output, IsError: ev.Tool.IsError, Action: ev.Tool.Action}})
+					toolIdx[ev.Tool.ID] = len(parts) - 1
 				}
 			}
 		}
 		r.hub.Publish(runID, ev)
 	}
 
-	res, _ := fn(ctx, in, emit)
+	res, err := fn(ctx, in, emit)
+	if err != nil {
+		if !res.IsError || res.Text == "" {
+			res.Text = err.Error()
+		}
+		res.IsError = true
+		emit(agent.Event{Type: agent.EventError, Error: res.Text})
+	}
 	flush()
+	if !res.IsError && res.Text != "" {
+		hasText := false
+		for _, part := range parts {
+			hasText = hasText || part.Type == "text" && part.Text != ""
+		}
+		if !hasText {
+			parts = append(parts, agent.Part{Type: "text", Text: res.Text})
+		}
+	}
 
 	sid := res.SessionID
 	if sid == "" {

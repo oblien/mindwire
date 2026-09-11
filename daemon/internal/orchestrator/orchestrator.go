@@ -501,6 +501,7 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 			run.Status = "error"
 			run.Error = fmt.Sprintf("agent crashed: %v", rec)
 			run.EndedAt = nowISO()
+			s.saveReply(&run, "", nil, run.Error)
 			_ = s.store.SaveRun(run)
 			s.hub.Publish(run.ID, agent.Event{Type: agent.EventError, Error: run.Error})
 			s.hub.Close(run.ID)
@@ -537,23 +538,25 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 	// turn timeout). Record it as cancelled, no error notification.
 	if ctx.Err() == context.Canceled {
 		run.Status = "cancelled"
+		if len(parts) > 0 {
+			s.saveReply(&run, "", parts, "")
+		}
 		_ = s.store.SaveRun(run)
 		s.hub.Close(run.ID)
 		return
 	}
 	if res.IsError {
 		run.Status = "error"
-		run.Error = res.Text
+		run.Error = agent.FirstNonEmpty(res.Text, "The agent turn failed.")
+		s.saveReply(&run, "", parts, run.Error)
 		_ = s.store.SaveRun(run)
 		s.emit(a, run, agent.Errored, snippet(res.Text)) // notify + publish result BEFORE closing
 		s.hub.Close(run.ID)
 		return
 	}
 
-	reply := session.Message{ID: newID(), ChatID: run.ChatID, Role: "assistant", Text: res.Text, Parts: parts, CreatedAt: nowISO()}
-	_ = s.store.AddMessage(reply)
+	s.saveReply(&run, res.Text, parts, "")
 	run.Status = "done"
-	run.ReplyID = reply.ID
 	_ = s.store.SaveRun(run)
 	s.emit(a, run, agent.Finished, snippet(res.Text)) // notify + publish result BEFORE closing
 	s.hub.Close(run.ID)
@@ -632,6 +635,10 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 		// A parent cancel surfaces as context.Canceled on the child; stop the whole resolve.
 		if ctx.Err() == context.Canceled {
 			child.Status = "cancelled"
+			if len(parts) > 0 {
+				s.saveReply(&child, "", parts, "")
+				lastReplyID = child.ReplyID
+			}
 			_ = s.store.SaveRun(child)
 			stopReason = "cancelled"
 			break
@@ -645,7 +652,9 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 
 		if res.IsError {
 			child.Status = "error"
-			child.Error = res.Text
+			child.Error = agent.FirstNonEmpty(res.Text, "The agent turn failed.")
+			s.saveReply(&child, "", parts, child.Error)
+			lastReplyID = child.ReplyID
 			_ = s.store.SaveRun(child)
 			if res.Text != "" {
 				lastText = res.Text

@@ -30,88 +30,87 @@ function mergeFull(acc: string, incoming: string): string {
 export function eventsToBlocks(events: Event[]): Block[] {
   const blocks: Block[] = [];
   const toolAt = new Map<string, number>();
-  let text: { kind: "text"; text: string } | null = null;
-  let think: { kind: "thinking"; text: string } | null = null;
-
-  const flushText = () => {
-    if (text && text.text) blocks.push(text);
-    text = null;
-  };
-  const flushThink = () => {
-    if (think && think.text) blocks.push(think);
-    think = null;
-  };
+  const interactionAt = new Map<string, number>();
+  type TextBlock = Extract<Block, { kind: "text" | "thinking" }>;
+  const itemBlocks = new Map<string, TextBlock>();
+  const current: { block?: TextBlock; id?: string } = {};
+  const transientErrors = new Set<Block>();
+  const recoveredErrors = new Set<Block>();
 
   for (const ev of events) {
+    if (ev.type !== "text" && ev.type !== "thinking") {
+      current.block = undefined;
+      current.id = undefined;
+    }
     switch (ev.type) {
-      case "text": {
-        flushThink();
-        if (!text) text = { kind: "text", text: "" };
-        text.text = ev.delta ? text.text + (ev.text ?? "") : mergeFull(text.text, ev.text ?? "");
-        break;
-      }
+      case "text":
       case "thinking": {
-        flushText();
-        if (!think) think = { kind: "thinking", text: "" };
-        think.text = ev.delta ? think.text + (ev.text ?? "") : mergeFull(think.text, ev.text ?? "");
+        const existing = (ev.itemId ? itemBlocks.get(ev.itemId) : undefined) ??
+          (current.block?.kind === ev.type && (!ev.itemId || current.id === ev.itemId) ? current.block : undefined);
+        const block: TextBlock = existing ?? { kind: ev.type, text: "" };
+        if (!existing) {
+          blocks.push(block);
+          if (ev.itemId) itemBlocks.set(ev.itemId, block);
+        }
+        const incoming = ev.text ?? "";
+        block.text = ev.delta ? block.text + incoming : ev.itemId ? incoming : mergeFull(block.text, incoming);
+        current.block = block;
+        current.id = ev.itemId;
         break;
       }
-      case "tool_use": {
-        flushText();
-        flushThink();
-        const tool: ToolEvent = { ...(ev.tool ?? {}) };
-        const idx = blocks.push({ kind: "tool", tool }) - 1;
-        if (tool.id) toolAt.set(tool.id, idx);
-        break;
-      }
+      case "tool_use":
       case "tool_result": {
-        flushText();
-        flushThink();
         const incoming = ev.tool ?? {};
         const idx = incoming.id ? toolAt.get(incoming.id) : undefined;
         if (idx !== undefined) {
-          const b = blocks[idx] as { kind: "tool"; tool: ToolEvent };
-          b.tool = {
-            ...b.tool,
-            output: incoming.output ?? b.tool.output,
-            isError: incoming.isError ?? b.tool.isError,
-            action: incoming.action ?? b.tool.action,
+          const block = blocks[idx] as Extract<Block, { kind: "tool" }>;
+          block.tool = {
+            ...block.tool,
+            name: incoming.name ?? block.tool.name,
+            input: incoming.input ?? block.tool.input,
+            output: incoming.output ?? block.tool.output,
+            isError: ev.type === "tool_result" ? incoming.isError ?? false : block.tool.isError,
+            action: incoming.action ?? block.tool.action,
           };
         } else {
-          blocks.push({ kind: "tool", tool: { ...incoming } });
+          const index = blocks.push({ kind: "tool", tool: { ...incoming } }) - 1;
+          if (incoming.id) toolAt.set(incoming.id, index);
         }
         break;
       }
       case "interaction": {
-        flushText();
-        flushThink();
-        if (ev.interaction) blocks.push({ kind: "interaction", interaction: ev.interaction });
+        if (!ev.interaction) break;
+        const id = ev.interaction.id;
+        const index = id ? interactionAt.get(id) : undefined;
+        if (index !== undefined) {
+          (blocks[index] as Extract<Block, { kind: "interaction" }>).interaction = ev.interaction;
+        } else {
+          const index = blocks.push({ kind: "interaction", interaction: ev.interaction }) - 1;
+          if (id) interactionAt.set(id, index);
+        }
         break;
       }
-      case "compaction": {
-        flushText();
-        flushThink();
+      case "compaction":
         if (ev.compaction) blocks.push({ kind: "compaction", compaction: ev.compaction });
         break;
-      }
-      case "result": {
-        flushText();
-        flushThink();
-        if (ev.result) blocks.push({ kind: "result", result: ev.result });
+      case "result":
+        if (ev.result) {
+          if (!ev.result.isError) for (const error of transientErrors) recoveredErrors.add(error);
+          blocks.push({ kind: "result", result: ev.result });
+          transientErrors.clear();
+        }
         break;
-      }
       case "error": {
-        flushText();
-        flushThink();
-        blocks.push({ kind: "result", result: { text: ev.error, isError: true } });
+        const block: Block = { kind: "result", result: { text: ev.error, isError: true } };
+        blocks.push(block);
+        transientErrors.add(block);
         break;
       }
       // session / status / continuation carry no visible block.
     }
   }
-  flushText();
-  flushThink();
-  return blocks;
+  return blocks.filter((block) => !recoveredErrors.has(block) &&
+    ((block.kind !== "text" && block.kind !== "thinking") || block.text.length > 0));
 }
 
 /** Map a reloaded assistant message's parts to the same block model. */

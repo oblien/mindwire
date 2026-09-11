@@ -141,6 +141,7 @@ type Message struct {
 // DaemonMessagePart/DaemonToolCall exactly.
 type Part struct {
 	Type        string          `json:"type"`                 // "text" | "thinking" | "tool" | "interaction" | "compaction"
+	ID          string          `json:"id,omitempty"`         // streaming item identity, when supplied
 	Text        string          `json:"text,omitempty"`       // body for text / thinking
 	DurationMs  int             `json:"durationMs,omitempty"` // thinking window, or tool duration
 	Tokens      int             `json:"tokens,omitempty"`     // thinking-token estimate (Claude Code's preview counter)
@@ -168,6 +169,9 @@ type HistoryQuery struct {
 	ChatID    string
 	SessionID string
 	CWD       string
+	// Recorded is the daemon's transcript for this chat. Native readers may supplement
+	// their transcript with streamed components the CLI does not persist, such as warnings.
+	Recorded []Message
 }
 
 // CredStore persists an agent's credentials/settings (backed by the daemon's state file).

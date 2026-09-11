@@ -1,0 +1,1038 @@
+{
+  "version": "0.154.0",
+  "source": "codex app-server generate-json-schema",
+  "items": [
+    {
+      "wire": {
+        "id": "user",
+        "type": "userMessage",
+        "content": [
+          {
+            "type": "text",
+            "text": "Inspect the project."
+          }
+        ]
+      },
+      "want": {
+        "disposition": "input"
+      }
+    },
+    {
+      "wire": {
+        "id": "hook",
+        "type": "hookPrompt",
+        "fragments": [
+          {
+            "hookRunId": "hook-run",
+            "text": "Project context"
+          }
+        ]
+      },
+      "want": {
+        "disposition": "input"
+      }
+    },
+    {
+      "wire": {
+        "id": "answer",
+        "type": "agentMessage",
+        "text": "The project is ready.",
+        "phase": "final_answer"
+      },
+      "want": {
+        "event": "text",
+        "text": "The project is ready."
+      }
+    },
+    {
+      "wire": {
+        "id": "output",
+        "type": "functionCallOutput",
+        "name": "lookup",
+        "namespace": "functions",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "Tool replied"
+          },
+          {
+            "type": "input_image",
+            "image_url": "data:image/png;base64,OPAQUE_IMAGE"
+          },
+          {
+            "type": "input_audio",
+            "audio_url": "data:audio/wav;base64,OPAQUE_AUDIO"
+          },
+          {
+            "type": "encrypted_content",
+            "encrypted_content": "OPAQUE_ENCRYPTED"
+          }
+        ]
+      },
+      "want": {
+        "event": "tool_result",
+        "tool": "lookup",
+        "output": "Tool replied\nImage\nAudio\nEncrypted tool content"
+      }
+    },
+    {
+      "wire": {
+        "id": "plan",
+        "type": "plan",
+        "text": "Inspect the code, then run the relevant tests."
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "plan",
+        "detail": "Inspect the code, then run the relevant tests."
+      }
+    },
+    {
+      "wire": {
+        "id": "reason",
+        "type": "reasoning",
+        "summary": [
+          "Checking the parser.",
+          "Checking failure paths."
+        ],
+        "content": [
+          "Model-provided reasoning text"
+        ]
+      },
+      "want": {
+        "event": "thinking",
+        "text": "Checking the parser.\n\nChecking failure paths."
+      }
+    },
+    {
+      "wire": {
+        "id": "command",
+        "type": "commandExecution",
+        "command": "go test ./...",
+        "commandActions": [],
+        "cwd": "/repo",
+        "status": "completed",
+        "aggregatedOutput": "ok",
+        "exitCode": 0,
+        "durationMs": 12
+      },
+      "want": {
+        "event": "tool_result",
+        "tool": "shell",
+        "output": "ok",
+        "action": "shell"
+      }
+    },
+    {
+      "wire": {
+        "id": "patch",
+        "type": "fileChange",
+        "status": "completed",
+        "changes": [
+          {
+            "path": "old.go",
+            "kind": {
+              "type": "update",
+              "move_path": "new.go"
+            },
+            "diff": "@@ -1 +1 @@\n-old\n+new"
+          },
+          {
+            "path": "added.go",
+            "kind": {
+              "type": "add"
+            },
+            "diff": "@@ -0,0 +1 @@\n+package main"
+          },
+          {
+            "path": "deleted.go",
+            "kind": {
+              "type": "delete"
+            },
+            "diff": "@@ -1 +0,0 @@\n-package old"
+          }
+        ]
+      },
+      "want": {
+        "event": "tool_result",
+        "tool": "apply_patch",
+        "outputContains": "update old.go",
+        "action": "file_edit",
+        "paths": [
+          "new.go",
+          "added.go",
+          "deleted.go"
+        ]
+      }
+    },
+    {
+      "wire": {
+        "id": "mcp",
+        "type": "mcpToolCall",
+        "server": "docs",
+        "tool": "search",
+        "arguments": {
+          "query": "Codex"
+        },
+        "status": "completed",
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Found documentation"
+            }
+          ],
+          "structuredContent": {
+            "count": 1
+          }
+        }
+      },
+      "want": {
+        "event": "tool_result",
+        "tool": "docs.search",
+        "outputContains": "Found documentation",
+        "action": "mcp"
+      }
+    },
+    {
+      "wire": {
+        "id": "dynamic",
+        "type": "dynamicToolCall",
+        "tool": "client.lookup",
+        "namespace": "functions",
+        "arguments": {
+          "key": "version"
+        },
+        "status": "completed",
+        "success": true,
+        "contentItems": [
+          {
+            "type": "inputText",
+            "text": "Current version"
+          },
+          {
+            "type": "inputImage",
+            "imageUrl": "data:image/png;base64,OPAQUE_IMAGE"
+          },
+          {
+            "type": "inputAudio",
+            "audioUrl": "data:audio/wav;base64,OPAQUE_AUDIO"
+          }
+        ]
+      },
+      "want": {
+        "event": "tool_result",
+        "tool": "client.lookup",
+        "output": "Current version\nImage\nAudio",
+        "action": "mcp"
+      }
+    },
+    {
+      "wire": {
+        "id": "collab",
+        "type": "collabAgentToolCall",
+        "tool": "spawnAgent",
+        "status": "completed",
+        "senderThreadId": "thread-1",
+        "receiverThreadIds": [
+          "child"
+        ],
+        "agentsStates": {
+          "child": {
+            "status": "completed",
+            "message": "Checked the files."
+          }
+        },
+        "prompt": "Check the files."
+      },
+      "want": {
+        "event": "tool_result",
+        "tool": "spawnAgent",
+        "output": "child: completed\nChecked the files.",
+        "action": "other"
+      }
+    },
+    {
+      "wire": {
+        "id": "subagent",
+        "type": "subAgentActivity",
+        "agentPath": "/root/reviewer",
+        "agentThreadId": "child",
+        "kind": "completed"
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "info",
+        "title": "Agent finished",
+        "detail": "/root/reviewer"
+      }
+    },
+    {
+      "wire": {
+        "id": "web",
+        "type": "webSearch",
+        "query": "Codex app-server protocol",
+        "action": {
+          "type": "search",
+          "query": "Codex app-server protocol"
+        },
+        "results": [
+          {
+            "url": "https://learn.chatgpt.com/docs/app-server",
+            "title": "App server"
+          }
+        ]
+      },
+      "want": {
+        "event": "tool_result",
+        "tool": "web_search",
+        "outputContains": "https://learn.chatgpt.com/docs/app-server",
+        "action": "web_search"
+      }
+    },
+    {
+      "wire": {
+        "id": "image",
+        "type": "imageView",
+        "path": "/repo/preview.png"
+      },
+      "want": {
+        "event": "tool_result",
+        "tool": "view_image",
+        "output": "/repo/preview.png",
+        "action": "file_read"
+      }
+    },
+    {
+      "wire": {
+        "id": "sleep",
+        "type": "sleep",
+        "durationMs": 1250
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "info",
+        "title": "Wait finished",
+        "detail": "1.25 seconds"
+      }
+    },
+    {
+      "wire": {
+        "id": "generated",
+        "type": "imageGeneration",
+        "result": "OPAQUE_IMAGE",
+        "status": "completed",
+        "savedPath": "/tmp/diagram.png"
+      },
+      "want": {
+        "event": "tool_result",
+        "tool": "image_generation",
+        "output": "/tmp/diagram.png"
+      }
+    },
+    {
+      "wire": {
+        "id": "review-in",
+        "type": "enteredReviewMode",
+        "review": "Reviewing the latest change."
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "info",
+        "title": "Review started",
+        "detail": "Reviewing the latest change."
+      }
+    },
+    {
+      "wire": {
+        "id": "review-out",
+        "type": "exitedReviewMode",
+        "review": "No issues found."
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "info",
+        "title": "Review complete",
+        "detail": "No issues found."
+      }
+    },
+    {
+      "wire": {
+        "id": "compact",
+        "type": "contextCompaction"
+      },
+      "want": {
+        "event": "compaction"
+      }
+    }
+  ],
+  "notifications": [
+    {
+      "wire": {
+        "method": "warning",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "message": "An optional feature is unavailable."
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "warning",
+        "detail": "An optional feature is unavailable."
+      }
+    },
+    {
+      "wire": {
+        "method": "guardianWarning",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "message": "The command needs review."
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "warning",
+        "detail": "The command needs review."
+      }
+    },
+    {
+      "wire": {
+        "method": "configWarning",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "summary": "Ignored setting",
+          "details": "The setting is no longer supported.",
+          "path": "/repo/config.toml"
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "warning",
+        "detail": "Ignored setting\nThe setting is no longer supported.\n/repo/config.toml"
+      }
+    },
+    {
+      "wire": {
+        "method": "deprecationNotice",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "summary": "Compatibility update",
+          "details": "Use the new setting."
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "warning",
+        "detail": "Compatibility update\nUse the new setting."
+      }
+    },
+    {
+      "wire": {
+        "method": "item/mcpToolCall/progress",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "itemId": "mcp-progress",
+          "message": "Fetched 3 results."
+        }
+      },
+      "want": {
+        "event": "tool_use",
+        "tool": "mcp_tool_call",
+        "output": "Fetched 3 results."
+      }
+    },
+    {
+      "wire": {
+        "method": "item/fileChange/outputDelta",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "itemId": "patch-progress",
+          "delta": "Applying the change."
+        }
+      },
+      "want": {
+        "event": "tool_use",
+        "tool": "apply_patch",
+        "output": "Applying the change."
+      }
+    },
+    {
+      "wire": {
+        "method": "item/commandExecution/terminalInteraction",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "itemId": "pty",
+          "processId": "process-1",
+          "stdin": "y\n"
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "info",
+        "title": "Terminal input",
+        "detail": "y\n"
+      }
+    },
+    {
+      "wire": {
+        "method": "hook/started",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "run": {
+            "id": "hook-run",
+            "eventName": "preToolUse",
+            "handlerType": "command",
+            "executionMode": "sync",
+            "scope": "turn",
+            "sourcePath": "/repo/hook.sh",
+            "displayOrder": 0,
+            "startedAt": 100,
+            "status": "running",
+            "entries": []
+          }
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "info",
+        "title": "Hook: Before tool use",
+        "detail": "Running"
+      }
+    },
+    {
+      "wire": {
+        "method": "hook/completed",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "run": {
+            "id": "hook-run",
+            "eventName": "preToolUse",
+            "handlerType": "command",
+            "executionMode": "sync",
+            "scope": "turn",
+            "sourcePath": "/repo/hook.sh",
+            "displayOrder": 0,
+            "startedAt": 100,
+            "status": "blocked",
+            "entries": [
+              {
+                "kind": "context",
+                "text": "PRIVATE_INJECTED_CONTEXT"
+              },
+              {
+                "kind": "error",
+                "text": "Required configuration is missing."
+              }
+            ],
+            "statusMessage": "Hook blocked this command."
+          }
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "error",
+        "detail": "Hook blocked this command.\nRequired configuration is missing."
+      }
+    },
+    {
+      "wire": {
+        "method": "mcpServer/startupStatus/updated",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "name": "docs",
+          "status": "failed",
+          "error": "Token expired.",
+          "failureReason": "reauthenticationRequired"
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "error",
+        "detail": "Token expired.\nSign in to this MCP server again."
+      }
+    },
+    {
+      "wire": {
+        "method": "model/verification",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "verifications": [
+            "trustedAccessForCyber"
+          ]
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "warning",
+        "title": "Account verification required",
+        "detail": "Complete the required account verification to continue with this model."
+      }
+    },
+    {
+      "wire": {
+        "method": "modelProvider/authRecoveryStarted",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "provider": "foundry",
+          "message": "Refreshing authentication."
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "info",
+        "detail": "Refreshing authentication."
+      }
+    },
+    {
+      "wire": {
+        "method": "modelProvider/authRecoveryCompleted",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "provider": "foundry",
+          "message": "Authentication refreshed."
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "info",
+        "detail": "Authentication refreshed."
+      }
+    },
+    {
+      "wire": {
+        "method": "turn/plan/updated",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "explanation": "Run the focused tests.",
+          "plan": [
+            {
+              "step": "Inspect parser",
+              "status": "completed"
+            },
+            {
+              "step": "Run tests",
+              "status": "inProgress"
+            },
+            {
+              "step": "Review output",
+              "status": "pending"
+            }
+          ]
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "todos",
+        "detail": "Run the focused tests.",
+        "statuses": [
+          "completed",
+          "in_progress",
+          "pending"
+        ]
+      }
+    },
+    {
+      "wire": {
+        "method": "model/rerouted",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "fromModel": "model-a",
+          "toModel": "model-b",
+          "reason": "highRiskCyberActivity"
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "info",
+        "title": "Model changed",
+        "detail": "model-a → model-b"
+      }
+    },
+    {
+      "wire": {
+        "method": "item/autoApprovalReview/started",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "reviewId": "review",
+          "startedAtMs": 100,
+          "action": {
+            "type": "command",
+            "command": "go test",
+            "cwd": "/repo",
+            "source": "shell"
+          },
+          "review": {
+            "status": "inProgress"
+          }
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "info",
+        "title": "Automatic approval review",
+        "detail": "Reviewing the requested action."
+      }
+    },
+    {
+      "wire": {
+        "method": "item/autoApprovalReview/completed",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "reviewId": "review",
+          "startedAtMs": 100,
+          "completedAtMs": 200,
+          "decisionSource": "agent",
+          "action": {
+            "type": "command",
+            "command": "go test",
+            "cwd": "/repo",
+            "source": "shell"
+          },
+          "review": {
+            "status": "denied",
+            "rationale": "The requested scope was not authorized."
+          }
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "warning",
+        "title": "Automatic approval review",
+        "detail": "The action was not approved.\nThe requested scope was not authorized."
+      }
+    },
+    {
+      "wire": {
+        "method": "autoApprovalReview/strictReviewRequired",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "startedAtMs": 100
+        }
+      },
+      "want": {
+        "event": "interaction",
+        "kind": "info",
+        "title": "Automatic approval review",
+        "detail": "Additional review is required."
+      }
+    },
+    {
+      "wire": {
+        "method": "item/fileChange/patchUpdated",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "itemId": "patch-update",
+          "changes": [
+            {
+              "path": "a.go",
+              "kind": {
+                "type": "update"
+              },
+              "diff": "@@ -1 +1 @@\n-old\n+new"
+            }
+          ]
+        }
+      },
+      "want": {
+        "event": "tool_use",
+        "tool": "apply_patch",
+        "action": "file_edit",
+        "paths": [
+          "a.go"
+        ]
+      }
+    },
+    {
+      "wire": {
+        "method": "item/commandExecution/outputDelta",
+        "params": {
+          "threadId": "thread-1",
+          "turnId": "turn-1",
+          "itemId": "stdout",
+          "delta": "stdout line\n"
+        }
+      },
+      "want": {
+        "event": "tool_use",
+        "tool": "shell",
+        "output": "stdout line\n",
+        "action": "shell"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "name": "contextWindowExceeded",
+      "wire": {
+        "message": "Model request failed: contextWindowExceeded",
+        "codexErrorInfo": "contextWindowExceeded",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: contextWindowExceeded",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "sessionBudgetExceeded",
+      "wire": {
+        "message": "Model request failed: sessionBudgetExceeded",
+        "codexErrorInfo": "sessionBudgetExceeded",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: sessionBudgetExceeded",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "usageLimitExceeded",
+      "wire": {
+        "message": "Model request failed: usageLimitExceeded",
+        "codexErrorInfo": "usageLimitExceeded",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: usageLimitExceeded",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "rateLimitExceeded",
+      "wire": {
+        "message": "Model request failed: rateLimitExceeded",
+        "codexErrorInfo": "rateLimitExceeded",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: rateLimitExceeded",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "serverOverloaded",
+      "wire": {
+        "message": "Model request failed: serverOverloaded",
+        "codexErrorInfo": "serverOverloaded",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: serverOverloaded",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "cyberPolicy",
+      "wire": {
+        "message": "Model request failed: cyberPolicy",
+        "codexErrorInfo": "cyberPolicy",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: cyberPolicy",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "misalignmentPolicyViolation",
+      "wire": {
+        "message": "Model request failed: misalignmentPolicyViolation",
+        "codexErrorInfo": "misalignmentPolicyViolation",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: misalignmentPolicyViolation",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "internalServerError",
+      "wire": {
+        "message": "Model request failed: internalServerError",
+        "codexErrorInfo": "internalServerError",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: internalServerError",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "unauthorized",
+      "wire": {
+        "message": "Model request failed: unauthorized",
+        "codexErrorInfo": "unauthorized",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: unauthorized",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "badRequest",
+      "wire": {
+        "message": "Model request failed: badRequest",
+        "codexErrorInfo": "badRequest",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: badRequest",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "threadRollbackFailed",
+      "wire": {
+        "message": "Model request failed: threadRollbackFailed",
+        "codexErrorInfo": "threadRollbackFailed",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: threadRollbackFailed",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "sandboxError",
+      "wire": {
+        "message": "Model request failed: sandboxError",
+        "codexErrorInfo": "sandboxError",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: sandboxError",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "other",
+      "wire": {
+        "message": "Model request failed: other",
+        "codexErrorInfo": "other",
+        "additionalDetails": "The upstream service supplied this detail."
+      },
+      "contains": [
+        "Model request failed: other",
+        "The upstream service supplied this detail."
+      ]
+    },
+    {
+      "name": "httpConnectionFailed",
+      "wire": {
+        "message": "Model connection failed.",
+        "codexErrorInfo": {
+          "httpConnectionFailed": {
+            "httpStatusCode": 401
+          }
+        },
+        "additionalDetails": "Deployment request could not finish."
+      },
+      "contains": [
+        "Model connection failed.",
+        "Deployment request could not finish.",
+        "HTTP 401"
+      ]
+    },
+    {
+      "name": "responseStreamConnectionFailed",
+      "wire": {
+        "message": "Model connection failed.",
+        "codexErrorInfo": {
+          "responseStreamConnectionFailed": {
+            "httpStatusCode": 404
+          }
+        },
+        "additionalDetails": "Deployment request could not finish."
+      },
+      "contains": [
+        "Model connection failed.",
+        "Deployment request could not finish.",
+        "HTTP 404"
+      ]
+    },
+    {
+      "name": "responseStreamDisconnected",
+      "wire": {
+        "message": "Model connection failed.",
+        "codexErrorInfo": {
+          "responseStreamDisconnected": {
+            "httpStatusCode": 503
+          }
+        },
+        "additionalDetails": "Deployment request could not finish."
+      },
+      "contains": [
+        "Model connection failed.",
+        "Deployment request could not finish.",
+        "HTTP 503"
+      ]
+    },
+    {
+      "name": "responseTooManyFailedAttempts",
+      "wire": {
+        "message": "Model connection failed.",
+        "codexErrorInfo": {
+          "responseTooManyFailedAttempts": {
+            "httpStatusCode": 429
+          }
+        },
+        "additionalDetails": "Deployment request could not finish."
+      },
+      "contains": [
+        "Model connection failed.",
+        "Deployment request could not finish.",
+        "HTTP 429"
+      ]
+    },
+    {
+      "name": "activeTurnNotSteerable",
+      "wire": {
+        "message": "This review is still running.",
+        "codexErrorInfo": {
+          "activeTurnNotSteerable": {
+            "turnKind": "review"
+          }
+        }
+      },
+      "contains": [
+        "This review is still running."
+      ]
+    },
+    {
+      "name": "publicMisalignmentExplanation",
+      "wire": {
+        "message": "The request could not continue.",
+        "codexErrorInfo": "misalignmentPolicyViolation",
+        "misalignment": {
+          "errorType": "public-explanation",
+          "detailedExplanation": "Please narrow the request to the supported operation.",
+          "steer": null
+        }
+      },
+      "contains": [
+        "The request could not continue.",
+        "Please narrow the request to the supported operation."
+      ]
+    }
+  ]
+}

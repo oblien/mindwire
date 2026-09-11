@@ -186,7 +186,15 @@ func (p Persistent) Run(ctx context.Context, _ agent.TurnInput, emit agent.Emit)
 // returns it; otherwise it surfaces stderr (then the wait error, then the parser's text) as the error.
 func finish(result agent.TurnResult, got bool, stderrStr string, werr error, emit agent.Emit) (agent.TurnResult, error) {
 	if !got {
-		msg := strings.TrimSpace(stderrStr)
+		// A structured parser failure is more useful than a generic process exit status or
+		// incidental stderr logging (notably Codex's nested upstream/auth errors).
+		msg := ""
+		if result.IsError {
+			msg = strings.TrimSpace(result.Text)
+		}
+		if msg == "" {
+			msg = strings.TrimSpace(stderrStr)
+		}
 		if msg == "" && werr != nil {
 			msg = werr.Error()
 		}
@@ -197,7 +205,7 @@ func finish(result agent.TurnResult, got bool, stderrStr string, werr error, emi
 			msg = "no result from agent"
 		}
 		emit(agent.Event{Type: agent.EventError, Error: msg})
-		return agent.TurnResult{Text: msg, IsError: true}, werr
+		return agent.TurnResult{Text: msg, IsError: true, SessionID: result.SessionID}, werr
 	}
 	return result, nil
 }

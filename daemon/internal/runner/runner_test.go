@@ -60,6 +60,39 @@ func (a *stubAdapter) RunStream(_ context.Context, in agent.TurnInput, _ agent.E
 // completed action (with stdout + exit code) for the same id.
 type actionAdapter struct{ *stubAdapter }
 
+type transcriptAdapter struct {
+	*stubAdapter
+	events []agent.Event
+}
+
+func (a transcriptAdapter) RunStream(_ context.Context, _ agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
+	for _, event := range a.events {
+		emit(event)
+	}
+	return agent.TurnResult{Text: "Final"}, nil
+}
+
+func TestRunTurnReconcilesSnapshotsAndComponentUpdates(t *testing.T) {
+	store, err := session.Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := transcriptAdapter{&stubAdapter{}, []agent.Event{
+		{Type: agent.EventText, ItemID: "answer", Text: "Draft", Delta: true},
+		{Type: agent.EventToolUse, Tool: &agent.ToolEvent{ID: "shell", Name: "shell"}},
+		{Type: agent.EventToolUse, Tool: &agent.ToolEvent{ID: "shell", Output: "Streaming"}},
+		{Type: agent.EventText, ItemID: "answer", Text: "Final"},
+		{Type: agent.EventInteraction, Interaction: &agent.Interaction{ID: "plan", Kind: "plan", Detail: "Draft plan"}},
+		{Type: agent.EventInteraction, Interaction: &agent.Interaction{ID: "plan", Kind: "plan", Detail: "Final plan"}},
+		{Type: agent.EventToolResult, Tool: &agent.ToolEvent{ID: "shell", Name: "shell", Output: "Done"}},
+	}}
+	runner := New(store, adapter, stubAuth{}, namespacedCreds{vals: map[string]string{}}, stream.New(), "/work")
+	_, parts := runner.RunTurn(context.Background(), Turn{ChatID: "chat", RunID: "run", Message: "test"})
+	if len(parts) != 3 || parts[0].Text != "Final" || parts[0].ID != "answer" || parts[1].Tool.Output != "Done" || parts[2].Interaction.Detail != "Final plan" {
+		t.Fatalf("parts=%+v", parts)
+	}
+}
+
 func (actionAdapter) RunStream(_ context.Context, _ agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
 	emit(agent.Event{Type: agent.EventToolUse, Tool: &agent.ToolEvent{ID: "t1", Name: "Bash",
 		Action: &agent.ToolAction{Kind: agent.KindShell, Shell: &agent.ShellCommand{Command: "ls"}}}})

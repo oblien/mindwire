@@ -20,8 +20,8 @@ import (
 //	error            {message}                        → EventError (mid-stream; not terminal by itself)
 //
 // item.type is a second discriminator (agent_message/reasoning/command_execution/file_change/
-// mcp_tool_call/web_search/todo_list). Unknown top-level and item types are ignored — Codex ships
-// fast and the stream is not a stable contract, so the parser is deliberately forward-compatible.
+// mcp_tool_call/web_search/todo_list). Unknown top-level events are ignored; unknown items retain
+// a generic tool component so newly introduced activity does not silently disappear.
 //
 // Note: text and reasoning are emitted as Delta=true events via the shared streamText tail
 // (normalize.go): incrementally when the stream sends cumulative item.updated frames, otherwise as a
@@ -29,12 +29,13 @@ import (
 // runner's accumulated text equals the final answer — matching claude's streaming discipline.
 
 type streamEnvelope struct {
-	Type     string          `json:"type"`
-	ThreadID string          `json:"thread_id"`
-	Item     json.RawMessage `json:"item"`
-	Usage    *usage          `json:"usage"`
-	Error    *streamError    `json:"error"`
-	Message  string          `json:"message"`
+	Type      string          `json:"type"`
+	ThreadID  string          `json:"thread_id"`
+	Item      json.RawMessage `json:"item"`
+	Usage     *usage          `json:"usage"`
+	Error     json.RawMessage `json:"error"`
+	Message   string          `json:"message"`
+	WillRetry bool            `json:"will_retry"`
 }
 
 type usage struct {
@@ -44,28 +45,39 @@ type usage struct {
 	ReasoningOutputTokens int `json:"reasoning_output_tokens"`
 }
 
-type streamError struct {
-	Message string `json:"message"`
-}
-
 // item is one ThreadItem. Fields are the union across item types; only the relevant ones are set for
 // a given type. Unrecognized fields are ignored (forward-compatible).
 type item struct {
-	ID               string          `json:"id"`
-	Type             string          `json:"type"`
-	Text             string          `json:"text"`    // agent_message / reasoning
-	Summary          string          `json:"summary"` // reasoning (alt)
-	Command          string          `json:"command"` // command_execution
-	Status           string          `json:"status"`  // in_progress | completed | failed
-	ExitCode         *int            `json:"exit_code"`
-	AggregatedOutput string          `json:"aggregated_output"`
-	Cwd              string          `json:"cwd"`
-	Query            string          `json:"query"`  // web_search
-	Server           string          `json:"server"` // mcp_tool_call
-	Tool             string          `json:"tool"`   // mcp_tool_call
-	Changes          []normChange    `json:"changes"`
-	Items            json.RawMessage `json:"items"`  // todo_list
-	Result           json.RawMessage `json:"result"` // mcp_tool_call
+	ID               string                 `json:"id"`
+	Type             string                 `json:"type"`
+	Text             string                 `json:"text"`    // agent_message / reasoning
+	Message          string                 `json:"message"` // item-level error
+	Summary          json.RawMessage        `json:"summary"` // reasoning (alt)
+	Phase            string                 `json:"phase"`
+	Command          string                 `json:"command"` // command_execution
+	Status           string                 `json:"status"`  // in_progress | completed | failed
+	ExitCode         *int                   `json:"exit_code"`
+	AggregatedOutput *string                `json:"aggregated_output"`
+	Cwd              string                 `json:"cwd"`
+	Query            string                 `json:"query"`  // web_search
+	Server           string                 `json:"server"` // mcp_tool_call
+	Tool             string                 `json:"tool"`   // mcp_tool_call
+	Changes          []normChange           `json:"changes"`
+	Items            json.RawMessage        `json:"items"`  // todo_list
+	Result           json.RawMessage        `json:"result"` // mcp_tool_call
+	Error            json.RawMessage        `json:"error"`
+	Arguments        json.RawMessage        `json:"arguments"`
+	Success          *bool                  `json:"success"`
+	Path             string                 `json:"path"`
+	SavedPath        string                 `json:"saved_path"`
+	Failure          json.RawMessage        `json:"failure"`
+	Action           *webAction             `json:"action"`
+	Prompt           string                 `json:"prompt"`
+	Agents           map[string]collabState `json:"agents_states"`
+	AgentPath        string                 `json:"agent_path"`
+	AgentThreadID    string                 `json:"agent_thread_id"`
+	ActivityKind     string                 `json:"kind"`
+	DurationMS       float64                `json:"duration_ms"`
 }
 
 // parseStream consumes the NDJSON stream, emits unified events, and returns the terminal result plus
@@ -75,17 +87,22 @@ func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
 	sc.Buffer(make([]byte, 0, 1<<20), 16<<20) // rollout/tool output lines can be large
 
 	var result agent.TurnResult
-	var sessionID, finalText string
+	var sessionID, finalText, lastError string
 	got := false
 	st := newStreamState() // tool-use dedup + per-item emitted-length for streaming text/thinking deltas
 
 	for sc.Scan() {
+		if got {
+			continue
+		}
 		line := strings.TrimSpace(sc.Text())
 		if len(line) == 0 || line[0] != '{' {
 			continue
 		}
 		var env streamEnvelope
-		if json.Unmarshal([]byte(line), &env) != nil {
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			lastError = "Could not decode Codex event: " + err.Error()
+			st.decodeFailure(lastError, emit)
 			continue
 		}
 		switch env.Type {
@@ -103,16 +120,26 @@ func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
 				continue
 			}
 			var it item
-			if json.Unmarshal(env.Item, &it) != nil {
+			if err := json.Unmarshal(env.Item, &it); err != nil {
+				lastError = "Could not decode Codex item: " + err.Error()
+				st.decodeFailure(lastError, emit)
 				continue
+			}
+			if it.Type == "error" {
+				lastError = errorText(it.Error, agent.FirstNonEmpty(it.Message, it.Text, "Codex item failed."))
 			}
 			finalText = handleItem(execPhase(env.Type), env.Item, it, emit, st, finalText)
 
 		case "turn.completed":
 			got = true
+			finalText = st.finalText
+			if finalText == "" && !st.visible {
+				result.IsError = true
+				finalText = agent.FirstNonEmpty(lastError, "Codex finished without a response.")
+			}
 			result.Text, result.SessionID = finalText, sessionID
 			ev := agent.Event{Type: agent.EventResult, SessionID: sessionID,
-				Result: &agent.ResultInfo{Text: finalText, SessionID: sessionID}}
+				Result: &agent.ResultInfo{Text: finalText, SessionID: sessionID, IsError: result.IsError}}
 			if env.Usage != nil {
 				u := tokenUsage{
 					InputTokens:           env.Usage.InputTokens,
@@ -129,10 +156,7 @@ func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
 
 		case "turn.failed":
 			got = true
-			msg := "codex turn failed"
-			if env.Error != nil && strings.TrimSpace(env.Error.Message) != "" {
-				msg = env.Error.Message
-			}
+			msg := errorText(env.Error, agent.FirstNonEmpty(env.Message, lastError, "Codex turn failed."))
 			result = agent.TurnResult{Text: msg, SessionID: sessionID, IsError: true}
 			emit(agent.Event{Type: agent.EventResult, SessionID: sessionID,
 				Result: &agent.ResultInfo{Text: msg, IsError: true, SessionID: sessionID}})
@@ -141,19 +165,20 @@ func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
 			// Mid-stream error (e.g. an auth/refresh failure). Surface it as an error event; a
 			// turn.failed usually follows and is the terminal result. If none does, got stays false and
 			// the driver surfaces this as the turn's error.
-			msg := strings.TrimSpace(env.Message)
-			if msg == "" {
-				msg = "codex error"
+			lastError = errorText(env.Error, agent.FirstNonEmpty(env.Message, "Codex error."))
+			if env.WillRetry {
+				emit(agent.Event{Type: agent.EventStatus, SessionID: sessionID, Meta: map[string]any{"message": lastError, "willRetry": true}})
+			} else {
+				emit(agent.Event{Type: agent.EventError, SessionID: sessionID, Error: lastError})
 			}
-			emit(agent.Event{Type: agent.EventError, SessionID: sessionID, Error: msg})
 		}
 	}
 
 	if err := sc.Err(); err != nil {
-		return agent.TurnResult{Text: "stream read error: " + err.Error()}, false
+		return agent.TurnResult{Text: agent.FirstNonEmpty(lastError, "stream read error: "+err.Error()), SessionID: sessionID, IsError: true}, false
 	}
 	if !got {
-		return agent.TurnResult{Text: "no result from agent"}, false
+		return agent.TurnResult{Text: agent.FirstNonEmpty(lastError, "Codex ended without a result."), SessionID: sessionID, IsError: lastError != ""}, false
 	}
 	return result, true
 }
@@ -164,10 +189,10 @@ func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
 // is exec-only, so its decode stays here (feeding the shared buildTodos).
 func handleItem(phase itemPhase, raw json.RawMessage, it item, emit agent.Emit, st *streamState, finalText string) string {
 	if it.Type == "todo_list" {
-		if phase == phaseCompleted {
-			if inter := todosInteraction(it); inter != nil {
-				emit(agent.Event{Type: agent.EventInteraction, Interaction: inter})
-			}
+		if inter := todosInteraction(it); inter != nil {
+			inter.ID = it.ID
+			st.visible = true
+			emit(agent.Event{Type: agent.EventInteraction, Interaction: inter})
 		}
 		return finalText
 	}

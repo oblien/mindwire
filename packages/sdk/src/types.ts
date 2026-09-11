@@ -165,6 +165,8 @@ export interface ResultInfo {
 /** The unified stream item. Optional fields are populated per `type`. */
 export interface Event {
   type: EventType;
+  /** Text/thinking item identity. A non-delta snapshot replaces this item's earlier text. */
+  itemId?: string;
   sessionId?: string;
   /** Assistant/thinking text body. */
   text?: string;
@@ -690,6 +692,8 @@ export interface ToolPart {
 /** One ordered piece of an assistant turn. */
 export interface Part {
   type: "text" | "thinking" | "tool" | "interaction" | "compaction" | (string & {});
+  /** Streaming item identity, when the agent supplies it. */
+  id?: string;
   text?: string;
   durationMs?: number;
   tokens?: number;

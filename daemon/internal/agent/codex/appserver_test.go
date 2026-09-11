@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 )
@@ -153,7 +154,9 @@ func scriptedServer(r io.Reader, w io.Writer, gotDecision chan<- json.RawMessage
 	writeLine(map[string]any{"id": ts.ID, "result": map[string]any{
 		"thread": map[string]any{"id": "th-1", "sessionId": "sess-1"}}})
 
-	read() // turn/start
+	start := read() // turn/start returns immediately, before any model output
+	writeLine(map[string]any{"id": start.ID, "result": map[string]any{
+		"turn": map[string]any{"id": "turn-1", "status": "inProgress", "items": []any{}, "error": nil}}})
 	writeLine(map[string]any{"method": "turn/started", "params": map[string]any{
 		"threadId": "th-1", "turn": map[string]any{"id": "turn-1"}}})
 	// Ask for command approval.
@@ -165,8 +168,8 @@ func scriptedServer(r io.Reader, w io.Writer, gotDecision chan<- json.RawMessage
 	// W4a item/updated case and suffix-delta discipline end-to-end.
 	writeLine(map[string]any{"method": "item/started", "params": map[string]any{
 		"item": map[string]any{"id": "a1", "type": "agentMessage", "text": ""}}})
-	writeLine(map[string]any{"method": "item/updated", "params": map[string]any{
-		"item": map[string]any{"id": "a1", "type": "agentMessage", "text": "Do"}}})
+	writeLine(map[string]any{"method": "item/agentMessage/delta", "params": map[string]any{
+		"itemId": "a1", "delta": "Do"}})
 	writeLine(map[string]any{"method": "item/completed", "params": map[string]any{
 		"item": map[string]any{"id": "a1", "type": "agentMessage", "text": "Done."}}})
 	// Live token telemetry → an EventStatus.
@@ -176,7 +179,258 @@ func scriptedServer(r io.Reader, w io.Writer, gotDecision chan<- json.RawMessage
 	writeLine(map[string]any{"method": "turn/completed", "params": map[string]any{
 		"threadId": "th-1",
 		"turn": map[string]any{"id": "turn-1", "status": "completed",
-			"items": []any{map[string]any{"type": "agentMessage", "text": "Done."}}}}})
+			"items": []any{map[string]any{"id": "a1", "type": "agentMessage", "text": "Done."}}}}})
+}
+
+// Run the real request lifecycle against recorded protocol shapes. The model is never called.
+func protocolTurn(t *testing.T, notifications ...string) ([]agent.Event, agent.TurnResult, bool) {
+	t.Helper()
+	clientR, clientW := io.Pipe()
+	serverR, serverW := io.Pipe()
+	t.Cleanup(func() { clientR.Close(); clientW.Close(); serverR.Close(); serverW.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	go func() {
+		defer serverW.Close()
+		decoder, encoder := json.NewDecoder(clientR), json.NewEncoder(serverW)
+		var request rpcIn
+		for _, body := range []string{`{}`, ``, `{"thread":{"id":"thread-1"}}`, `{"turn":{"id":"turn-1","status":"inProgress","items":[],"error":null}}`} {
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			if body != "" {
+				if encoder.Encode(map[string]any{"id": request.ID, "result": json.RawMessage(body)}) != nil {
+					return
+				}
+			}
+		}
+		for _, line := range notifications {
+			if _, err := io.WriteString(serverW, line+"\n"); err != nil {
+				return
+			}
+		}
+	}()
+	col := &collector{}
+	res, got := (appServer{message: "test", approval: "never"}).converse(ctx, clientW, serverR, nil, col.emit)
+	return col.snapshot(), res, got
+}
+
+func TestAppServerFinalSnapshotIncludesToolsAndFailure(t *testing.T) {
+	events, res, got := protocolTurn(t,
+		`{"method":"item/agentMessage/delta","params":{"itemId":"answer","delta":"Partial answer"}}`,
+		`{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"failed","error":{"message":"Request rejected","additionalDetails":"Deployment does not exist","codexErrorInfo":{"httpConnectionFailed":{"httpStatusCode":404}}},"items":[{"id":"answer","type":"agentMessage","text":"Partial answer"},{"id":"edit","type":"fileChange","status":"completed","changes":[{"path":"a.go","kind":{"type":"update","move_path":null},"diff":"@@ -1 +1 @@\n-old\n+new"}]}]}}}`)
+	if !got || !res.IsError || !strings.Contains(res.Text, "Deployment does not exist") || !strings.Contains(res.Text, "404") {
+		t.Fatalf("failure lost behind partial answer: %+v, got=%v", res, got)
+	}
+	if countType(events, agent.EventText) != 1 || countType(events, agent.EventResult) != 1 {
+		t.Fatalf("duplicated text/result: %+v", events)
+	}
+	tool := firstOf(events, agent.EventToolResult)
+	if tool == nil || tool.Tool.Action == nil || len(tool.Tool.Action.Files) != 1 || tool.Tool.Action.Files[0].Diff == "" {
+		t.Fatalf("final-only file edit lost: %+v", tool)
+	}
+}
+
+func TestAppServerDeltasAndAuthoritativePlan(t *testing.T) {
+	events, res, got := protocolTurn(t,
+		`{"method":"item/started","params":{"item":{"type":"reasoning","id":"reason","summary":[],"content":[]}}}`,
+		`{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"reason","summaryIndex":0,"delta":"Checking"}}`,
+		`{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"reason","summaryIndex":1,"delta":"the source"}}`,
+		`{"method":"item/completed","params":{"item":{"type":"reasoning","id":"reason","summary":["Checking","the source"],"content":[]}}}`,
+		`{"method":"item/plan/delta","params":{"itemId":"plan","delta":"Draft plan"}}`,
+		`{"method":"item/completed","params":{"item":{"type":"plan","id":"plan","text":"Final plan"}}}`,
+		`{"method":"item/started","params":{"item":{"type":"commandExecution","id":"shell","command":"go test","cwd":"/repo","status":"inProgress"}}}`,
+		`{"method":"item/commandExecution/outputDelta","params":{"itemId":"shell","delta":"ok"}}`,
+		`{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"shell","command":"go test","cwd":"/repo","status":"completed","aggregatedOutput":"ok","exitCode":0}}}`,
+		`{"method":"item/agentMessage/delta","params":{"itemId":"answer","delta":"Done"}}`,
+		`{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"answer","text":"Done.","phase":"final_answer"}}}`,
+		`{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed","items":[]}}}`)
+	if !got || res.IsError || res.Text != "Done." {
+		t.Fatalf("result=%+v got=%v", res, got)
+	}
+	var text, thinking string
+	var plans []agent.Interaction
+	streamedOutput := false
+	for _, event := range events {
+		switch event.Type {
+		case agent.EventText:
+			text += event.Text
+		case agent.EventThinking:
+			thinking += event.Text
+		case agent.EventInteraction:
+			plans = append(plans, *event.Interaction)
+		case agent.EventToolUse:
+			streamedOutput = streamedOutput || event.Tool.Output == "ok"
+		}
+	}
+	if text != "Done." || thinking != "Checking\n\nthe source" || !streamedOutput {
+		t.Fatalf("lost/duplicated deltas: text=%q thinking=%q toolOutput=%v", text, thinking, streamedOutput)
+	}
+	if len(plans) != 2 || plans[0].ID != plans[1].ID || plans[1].Detail != "Final plan" {
+		t.Fatalf("plans=%+v", plans)
+	}
+}
+
+func TestAppServerErrorBeforeEOF(t *testing.T) {
+	events, res, got := protocolTurn(t, `{"method":"error","params":{"error":{"message":"Authentication failed","additionalDetails":"API key is invalid"},"willRetry":false}}`)
+	if got || !res.IsError || !strings.Contains(res.Text, "API key is invalid") || res.SessionID != "thread-1" {
+		t.Fatalf("structured error lost at EOF: %+v, got=%v", res, got)
+	}
+	if countType(events, agent.EventResult) != 0 {
+		t.Fatal("start acknowledgement emitted a terminal result")
+	}
+}
+
+func TestAppServerRetryCanRecover(t *testing.T) {
+	events, res, got := protocolTurn(t,
+		`{"method":"error","params":{"error":{"message":"Reconnecting"},"willRetry":true}}`,
+		`{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed","items":[{"id":"answer","type":"agentMessage","text":"Recovered"}]}}}`)
+	if !got || res.IsError || res.Text != "Recovered" || countType(events, agent.EventError) != 0 {
+		t.Fatalf("retry treated as failure: %+v, %+v", res, events)
+	}
+}
+
+func TestAppServerChildTurnCannotCompleteParent(t *testing.T) {
+	_, res, got := protocolTurn(t,
+		`{"method":"turn/completed","params":{"threadId":"child","turn":{"id":"child-turn","status":"failed","error":{"message":"Child failed"},"items":[]}}}`,
+		`{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed","items":[{"id":"answer","type":"agentMessage","text":"Parent completed"}]}}}`)
+	if !got || res.IsError || res.Text != "Parent completed" {
+		t.Fatalf("child ended parent: %+v", res)
+	}
+}
+
+func TestAppServerAnswersEveryQuestionBeforeResponding(t *testing.T) {
+	clientR, clientW := io.Pipe()
+	serverR, serverW := io.Pipe()
+	defer clientR.Close()
+	defer clientW.Close()
+	defer serverR.Close()
+	defer serverW.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	inbound := make(chan agent.Inbound, 4)
+	response := make(chan json.RawMessage, 1)
+	go func() {
+		defer serverW.Close()
+		decoder, encoder := json.NewDecoder(clientR), json.NewEncoder(serverW)
+		var request rpcIn
+		for _, body := range []string{`{}`, ``, `{"thread":{"id":"thread-1"}}`, `{"turn":{"id":"turn-1","status":"inProgress","items":[]}}`} {
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			if body != "" {
+				if encoder.Encode(map[string]any{"id": request.ID, "result": json.RawMessage(body)}) != nil {
+					return
+				}
+			}
+		}
+		_, _ = io.WriteString(serverW, `{"id":7,"method":"item/tool/requestUserInput","params":{"questions":[{"id":"color","header":"Color","question":"Which color?","options":[{"label":"Blue","description":"Default"}]},{"id":"path","header":"Folder","question":"Which folder?"}]}}`+"\n")
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		response <- request.Result
+		_, _ = io.WriteString(serverW, `{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed","items":[{"id":"answer","type":"agentMessage","text":"Both answered"}]}}}`+"\n")
+	}()
+	res, got := (appServer{message: "test"}).converse(ctx, clientW, serverR, inbound, func(ev agent.Event) {
+		if inter := ev.Interaction; inter != nil && inter.NeedsResponse {
+			answer := "/repo"
+			if inter.Kind == "choice" {
+				answer = inter.Options[0].Label
+			}
+			inbound <- agent.Inbound{Kind: "response", InteractionID: inter.ID, Text: answer}
+		}
+	})
+	if !got || res.IsError || res.Text != "Both answered" {
+		t.Fatalf("result=%+v got=%v", res, got)
+	}
+	select {
+	case raw := <-response:
+		var answers struct {
+			Answers map[string]struct {
+				Answers []string `json:"answers"`
+			} `json:"answers"`
+		}
+		if json.Unmarshal(raw, &answers) != nil || len(answers.Answers) != 2 || strings.Join(answers.Answers["color"].Answers, "") != "Blue" || strings.Join(answers.Answers["path"].Answers, "") != "/repo" {
+			t.Fatalf("invalid question response: %s", raw)
+		}
+	default:
+		t.Fatal("questions never received a response")
+	}
+}
+
+func TestPermissionsResponsesUseRequestedGrants(t *testing.T) {
+	ap := approval{family: famPermissions, permissions: json.RawMessage(`{"network":{"enabled":true}}`)}
+	allow, _ := json.Marshal(decisionResult(ap, agent.Inbound{Decision: "allow"}))
+	deny, _ := json.Marshal(decisionResult(ap, agent.Inbound{Decision: "deny"}))
+	if string(allow) != `{"permissions":{"network":{"enabled":true}},"scope":"turn"}` || string(deny) != `{"permissions":{},"scope":"turn"}` {
+		t.Fatalf("allow=%s deny=%s", allow, deny)
+	}
+}
+
+func TestRichAppServerToolOutputs(t *testing.T) {
+	var events []agent.Event
+	st := newStreamState()
+	for _, raw := range []string{
+		`{"type":"dynamicToolCall","id":"dynamic","tool":"lookup","status":"completed","success":false,"contentItems":[{"type":"inputText","text":"Missing record"}]}`,
+		`{"type":"collabAgentToolCall","id":"collab","tool":"wait","status":"completed","agentsStates":{"child":{"status":"completed","message":"Tests passed"}}}`,
+		`{"type":"webSearch","id":"web","query":"","action":{"type":"openPage","url":"https://example.com"}}`,
+		`{"type":"functionCallOutput","id":"output","name":"lookup","output":[{"type":"input_text","text":"Found"}]}`,
+	} {
+		emitItem(phaseCompleted, json.RawMessage(raw), func(ev agent.Event) { events = append(events, ev) }, st)
+	}
+	tools := map[string]*agent.ToolEvent{}
+	for _, ev := range events {
+		if ev.Type == agent.EventToolResult {
+			tools[ev.Tool.ID] = ev.Tool
+		}
+	}
+	if len(tools) != 4 || tools["dynamic"].Output != "Missing record" || !tools["dynamic"].IsError || !strings.Contains(tools["collab"].Output, "Tests passed") || tools["web"].Action.Kind != agent.KindWebFetch || tools["output"].Output != "Found" {
+		t.Fatalf("tools=%+v", tools)
+	}
+}
+
+func TestImageGenerationOutputAndFailure(t *testing.T) {
+	for _, tc := range []struct {
+		raw, output string
+		failed      bool
+	}{
+		{`{"type":"imageGeneration","id":"image","status":"completed","result":"BASE64_IMAGE_DATA","savedPath":"/repo/image.png"}`, "/repo/image.png", false},
+		{`{"type":"imageGeneration","id":"image","status":"completed","result":"BASE64_IMAGE_DATA"}`, "Image generated.", false},
+		{`{"type":"imageGeneration","id":"image","status":"failed","result":"","failure":{"type":"usageLimitExceeded","limitId":"image_gen"}}`, "Image generation usage limit exceeded.", true},
+	} {
+		var tool *agent.ToolEvent
+		emitItem(phaseCompleted, json.RawMessage(tc.raw), func(ev agent.Event) {
+			if ev.Type == agent.EventToolResult {
+				tool = ev.Tool
+			}
+		}, newStreamState())
+		if tool == nil || tool.Output != tc.output || tool.IsError != tc.failed {
+			t.Fatalf("image output=%+v, want %q (error=%v)", tool, tc.output, tc.failed)
+		}
+	}
+}
+
+func TestAggregateDiffIsOnlyAFallback(t *testing.T) {
+	for _, hasPatch := range []bool{false, true} {
+		st := newStreamState()
+		st.turnDiff = "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-old\n+new\n"
+		if hasPatch {
+			st.items["edit"] = normItem{Kind: kindFileChange, Changes: []normChange{{Path: "a.go", Diff: st.turnDiff}}}
+		}
+		var results []*agent.ToolEvent
+		st.emitTurnDiff("turn", func(ev agent.Event) {
+			if ev.Type == agent.EventToolResult {
+				results = append(results, ev.Tool)
+			}
+		})
+		if hasPatch {
+			if len(results) != 0 {
+				t.Fatalf("duplicate aggregate diff: %+v", results)
+			}
+		} else if len(results) != 1 || results[0].Output != st.turnDiff {
+			t.Fatalf("aggregate diff lost: %+v", results)
+		}
+	}
 }
 
 // TestAppServerCompactFlow drives an on-demand compaction over in-memory pipes: handshake →
@@ -316,11 +570,12 @@ func TestServerRequestInteractionFamilies(t *testing.T) {
 		{"applyPatchApproval", "approval", famReviewDecision},
 		{"item/commandExecution/requestApproval", "approval", famV2Decision},
 		{"item/fileChange/requestApproval", "approval", famV2Decision},
-		{"item/tool/requestUserInput", "choice", famAnswers},
-		{"mcpServer/elicitation/request", "approval", famV2Decision}, // unknown → safe yes/no fallback
+		{"item/permissions/requestApproval", "approval", famPermissions},
+		{"item/tool/requestUserInput", "input", famAnswers},
+		{"mcpServer/elicitation/request", "approval", famElicitation},
 	}
 	for _, tc := range cases {
-		msg := rpcIn{ID: json.RawMessage(`"req-9"`), Method: tc.method, Params: json.RawMessage(`{}`)}
+		msg := rpcIn{ID: json.RawMessage(`"req-9"`), Method: tc.method, Params: json.RawMessage(`{"mode":"url","url":"https://example.com/connect","questions":[{"id":"q1","question":"Which name?"}]}`)}
 		inter, ap := serverRequestInteraction(msg)
 		if inter == nil {
 			t.Errorf("%s: nil interaction", tc.method)
@@ -370,7 +625,7 @@ func TestDecisionResult(t *testing.T) {
 
 	// Answers: the free-text answer is keyed by the question id.
 	ans := mustJSON(decisionResult(approval{family: famAnswers, questionID: "q1"}, agent.Inbound{Text: "blue"}))
-	if !strings.Contains(ans, `"answers"`) || !strings.Contains(ans, `"q1":"blue"`) {
+	if ans != `{"answers":{"q1":{"answers":["blue"]}}}` {
 		t.Errorf("answers = %s, want the answer keyed by q1", ans)
 	}
 }

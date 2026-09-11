@@ -78,7 +78,11 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 		return nil, err
 	}
 	defer f.Close()
-	return parseRollout(f, q.ChatID)
+	messages, err := parseRollout(f, q.ChatID)
+	if err != nil {
+		return nil, err
+	}
+	return mergeRecordedHistory(messages, q.Recorded), nil
 }
 
 // errStopWalk halts filepath.WalkDir once the target rollout is found (returning a sentinel is the
@@ -122,8 +126,13 @@ type rolloutEnvelope struct {
 }
 
 type eventMsgPayload struct {
-	Type    string `json:"type"` // user_message | agent_message | …
-	Message string `json:"message"`
+	Type             string          `json:"type"` // user_message | agent_message | …
+	Message          string          `json:"message"`
+	Item             json.RawMessage `json:"item"`
+	Error            json.RawMessage `json:"error"`
+	LastAgentMessage string          `json:"last_agent_message"`
+	StartedAtMS      int64           `json:"started_at_ms"`
+	CompletedAtMS    int64           `json:"completed_at_ms"`
 }
 
 type responseItemPayload struct {
@@ -134,6 +143,11 @@ type responseItemPayload struct {
 	CallID    string          `json:"call_id"`
 	Output    json.RawMessage `json:"output"`  // *_output (string or {content,success})
 	Summary   []summaryPart   `json:"summary"` // reasoning
+	Content   json.RawMessage `json:"content"`
+	Role      string          `json:"role"`
+	ID        string          `json:"id"`
+	Action    *webAction      `json:"action"`
+	Status    string          `json:"status"`
 }
 
 type summaryPart struct {
@@ -153,6 +167,10 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 	var out []agent.Message
 	curAsst := -1                   // index of the open assistant message, or -1
 	toolIdx := map[string]toolRef{} // call_id → where its tool part lives (to fold the output)
+	modern := false
+	nativeState := newStreamState()
+	// Older rollouts can carry the same assistant message in both event_msg and response_item.
+	eventTexts, responseTexts := map[string]int{}, map[string]int{}
 	nextID := func() string { return "codex-" + strconv.Itoa(len(out)) }
 
 	// ensureAsst returns the open assistant message's index, opening one if needed.
@@ -162,6 +180,31 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 			curAsst = len(out) - 1
 		}
 		return curAsst
+	}
+	appendCompaction := func(ts, summary string) {
+		curAsst = -1
+		if len(out) > 0 {
+			last := &out[len(out)-1]
+			if last.Role == "system" && len(last.Parts) == 1 && last.Parts[0].Compaction != nil {
+				if summary != "" {
+					last.Parts[0].Compaction.Summary = summary
+				}
+				return // A rollout can record both the completed item and its compacted envelope.
+			}
+		}
+		out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "system", CreatedAt: ts,
+			Parts: []agent.Part{{Type: "compaction", At: ts, Compaction: &agent.CompactionInfo{Summary: summary}}}})
+	}
+	appendFeedback := func(ts string, inter *agent.Interaction) {
+		i := ensureAsst(ts)
+		part := agent.Part{Type: "interaction", At: ts, Interaction: inter}
+		for j, existing := range out[i].Parts {
+			if sameHistoryPart(existing, part) {
+				out[i].Parts[j] = part
+				return
+			}
+		}
+		out[i].Parts = append(out[i].Parts, part)
 	}
 
 	for sc.Scan() {
@@ -184,17 +227,92 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 				Message string `json:"message"`
 			}
 			_ = json.Unmarshal(env.Payload, &p)
-			curAsst = -1
-			out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "system", CreatedAt: env.Timestamp,
-				Parts: []agent.Part{{Type: "compaction", At: env.Timestamp,
-					Compaction: &agent.CompactionInfo{Summary: strings.TrimSpace(p.Message)}}}})
+			appendCompaction(env.Timestamp, strings.TrimSpace(p.Message))
 		case "event_msg":
 			var p eventMsgPayload
 			if json.Unmarshal(env.Payload, &p) != nil {
 				continue
 			}
 			switch p.Type {
+			case "item_completed":
+				n, err := rolloutItem(p.Item)
+				if err != nil {
+					return nil, err
+				} // let the API use its recorded stream on malformed native data
+				if !modern && curAsst >= 0 && n.rawType != "userMessage" && n.Kind != kindIgnored && n.Kind != kindCompaction {
+					// Canonical completed items replace duplicate response_item activity for this turn.
+					// Keep diagnostic events: they are not restated in the item snapshots.
+					var feedback []agent.Part
+					for _, part := range out[curAsst].Parts {
+						if part.Interaction != nil && part.Interaction.Meta["source"] == "codex" {
+							feedback = append(feedback, part)
+						}
+					}
+					if len(feedback) > 0 {
+						out[curAsst].Text, out[curAsst].Parts = "", feedback
+					} else {
+						out = out[:curAsst]
+						curAsst = -1
+					}
+				}
+				modern = true
+				if n.rawType == "contextCompaction" {
+					appendCompaction(env.Timestamp, "")
+					continue
+				}
+				if n.rawType == "userMessage" {
+					curAsst = -1
+					nativeState = newStreamState()
+					if text := strings.TrimSpace(n.Text); text != "" {
+						out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "user", Text: text, CreatedAt: env.Timestamp})
+					}
+					continue
+				}
+				emitNorm(n, phaseCompleted, p.Item, func(ev agent.Event) {
+					i := ensureAsst(env.Timestamp)
+					switch ev.Type {
+					case agent.EventText:
+						appendText(&out[i], ev.Text)
+						out[i].Parts[len(out[i].Parts)-1].ID = ev.ItemID
+					case agent.EventThinking:
+						out[i].Parts = append(out[i].Parts, agent.Part{Type: "thinking", ID: n.ID, Text: ev.Text, At: env.Timestamp,
+							DurationMs: int(p.CompletedAtMS - p.StartedAtMS)})
+					case agent.EventInteraction:
+						appendFeedback(env.Timestamp, ev.Interaction)
+					case agent.EventToolUse:
+						toolIdx[ev.Tool.ID] = toolRef{msg: i, part: len(out[i].Parts)}
+						out[i].Parts = append(out[i].Parts, agent.Part{Type: "tool", At: env.Timestamp,
+							Tool: &agent.ToolPart{ID: ev.Tool.ID, Name: ev.Tool.Name, Input: p.Item, Action: ev.Tool.Action}})
+					case agent.EventToolResult:
+						if ref, ok := toolIdx[ev.Tool.ID]; ok {
+							part := &out[ref.msg].Parts[ref.part]
+							part.Tool.Output, part.Tool.IsError, part.Tool.Action = ev.Tool.Output, ev.Tool.IsError, ev.Tool.Action
+							if p.CompletedAtMS >= p.StartedAtMS {
+								part.DurationMs = int(p.CompletedAtMS - p.StartedAtMS)
+							}
+						}
+					}
+				}, nativeState)
+			case "task_complete":
+				if message := errorText(p.Error, ""); message != "" {
+					appendFeedback(env.Timestamp, &agent.Interaction{Kind: "error", Title: "Codex error", Detail: message,
+						Meta: map[string]any{"source": "codex"}})
+				} else if p.LastAgentMessage != "" && (curAsst < 0 || out[curAsst].Text == "") {
+					appendText(&out[ensureAsst(env.Timestamp)], p.LastAgentMessage)
+				}
+			case "error", "warning", "deprecation_notice":
+				kind, title := "warning", "Codex warning"
+				if p.Type == "error" {
+					kind, title = "error", "Codex error"
+				}
+				if message := errorText(env.Payload, p.Message); message != "" {
+					appendFeedback(env.Timestamp, &agent.Interaction{Kind: kind, Title: title, Detail: message,
+						Meta: map[string]any{"source": "codex"}})
+				}
 			case "user_message":
+				modern = false
+				nativeState = newStreamState()
+				eventTexts, responseTexts = map[string]int{}, map[string]int{}
 				txt := strings.TrimSpace(p.Message)
 				if txt == "" {
 					continue
@@ -202,16 +320,34 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 				curAsst = -1 // a user turn closes the current assistant message
 				out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "user", Text: txt, CreatedAt: env.Timestamp})
 			case "agent_message":
+				if modern {
+					continue
+				}
 				if txt := strings.TrimSpace(p.Message); txt != "" {
-					appendText(&out[ensureAsst(env.Timestamp)], txt)
+					eventTexts[txt]++
+					if eventTexts[txt] > responseTexts[txt] {
+						appendText(&out[ensureAsst(env.Timestamp)], txt)
+					}
 				}
 			}
 		case "response_item":
+			if modern {
+				continue
+			}
 			var p responseItemPayload
 			if json.Unmarshal(env.Payload, &p) != nil {
 				continue
 			}
 			switch p.Type {
+			case "message":
+				if p.Role == "assistant" {
+					if text := strings.TrimSpace(strings.Join(textBlocks(p.Content), "\n\n")); text != "" {
+						responseTexts[text]++
+						if responseTexts[text] > eventTexts[text] {
+							appendText(&out[ensureAsst(env.Timestamp)], text)
+						}
+					}
+				}
 			case "reasoning":
 				if t := summaryText(p.Summary); t != "" {
 					i := ensureAsst(env.Timestamp)
@@ -222,6 +358,13 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 				input := p.Arguments
 				if input == "" {
 					input = p.Input
+				}
+				if strings.TrimPrefix(p.Name, "functions.") == "update_plan" {
+					if inter := planInteraction(json.RawMessage(input)); inter != nil {
+						inter.ID = p.CallID
+						out[i].Parts = append(out[i].Parts, agent.Part{Type: "interaction", Interaction: inter, At: env.Timestamp})
+						continue
+					}
 				}
 				out[i].Parts = append(out[i].Parts, agent.Part{Type: "tool", At: env.Timestamp,
 					Tool: &agent.ToolPart{ID: p.CallID, Name: p.Name, Input: rawJSON(input),
@@ -239,8 +382,17 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 					// Only shell stdout arrives late; fold it into the already-classified action.
 					if tp.Action != nil && tp.Action.Shell != nil {
 						tp.Action.Shell.Stdout = tp.Output
+						if code := shellExitCode(tp.Output); code != nil {
+							tp.Action.Shell.ExitCode = code
+							tp.IsError = tp.IsError || *code != 0
+						}
 					}
 				}
+			case "web_search_call":
+				n := normItem{ID: agent.FirstNonEmpty(p.ID, p.CallID), Kind: kindWebSearch, WebAction: p.Action, Status: p.Status}
+				i := ensureAsst(env.Timestamp)
+				out[i].Parts = append(out[i].Parts, agent.Part{Type: "tool", At: env.Timestamp,
+					Tool: &agent.ToolPart{ID: n.ID, Name: "web_search", Input: env.Payload, Action: codexToolAction(n)}})
 			}
 		}
 	}
@@ -275,28 +427,7 @@ func summaryText(parts []summaryPart) string {
 // outputText renders a tool output payload (a JSON string, or a {content, success} object) to display
 // text plus an error flag.
 func outputText(raw json.RawMessage) (string, bool) {
-	if len(raw) == 0 {
-		return "", false
-	}
-	// Bare JSON string form.
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s, false
-	}
-	// Object form: {content|output: string, success: bool}.
-	var obj struct {
-		Content string `json:"content"`
-		Output  string `json:"output"`
-		Success *bool  `json:"success"`
-	}
-	if json.Unmarshal(raw, &obj) == nil {
-		txt := agent.FirstNonEmpty(obj.Content, obj.Output)
-		if txt == "" {
-			txt = strings.TrimSpace(string(raw))
-		}
-		return txt, obj.Success != nil && !*obj.Success
-	}
-	return strings.TrimSpace(string(raw)), false
+	return renderOutput(raw)
 }
 
 // rawJSON returns valid JSON for a tool's Input: the value verbatim if it already parses as JSON
@@ -323,8 +454,8 @@ func rawJSON(s string) json.RawMessage {
 // call site and folded in later for shell stdout. Best-effort: an unknown name yields a Title-only
 // "other"; the raw Input always survives alongside.
 func codexHistoryAction(name, input, output string, isError bool) *agent.ToolAction {
-	switch name {
-	case "shell", "local_shell":
+	switch strings.TrimPrefix(name, "functions.") {
+	case "shell", "local_shell", "shell_command", "exec_command", "write_stdin":
 		return codexShellHistoryAction(input, output)
 	case "apply_patch":
 		return codexPatchAction(input)
@@ -345,14 +476,31 @@ func codexHistoryAction(name, input, output string, isError bool) *agent.ToolAct
 func codexShellHistoryAction(input, output string) *agent.ToolAction {
 	var in struct {
 		Command any    `json:"command"`
+		Cmd     string `json:"cmd"`
 		Workdir string `json:"workdir"`
 	}
 	_ = json.Unmarshal([]byte(input), &in)
-	cmd := joinCommand(in.Command)
+	cmd := agent.FirstNonEmpty(joinCommand(in.Command), in.Cmd)
 	return &agent.ToolAction{
 		Kind: agent.KindShell, Title: cmd,
 		Shell: &agent.ShellCommand{Command: cmd, Cwd: in.Workdir, Stdout: output},
 	}
+}
+
+// Older exec_command rollouts put the process status in the output header. Only inspect
+// that header, never arbitrary stdout that happens to contain similar text.
+func shellExitCode(output string) *int {
+	for _, line := range strings.Split(output, "\n") {
+		if line == "Output:" || line == "Final output:" {
+			break
+		}
+		if value, ok := strings.CutPrefix(line, "Process exited with code "); ok {
+			if code, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+				return &code
+			}
+		}
+	}
+	return nil
 }
 
 // joinCommand renders a shell command that may be a bare string or an argv array to one command line.

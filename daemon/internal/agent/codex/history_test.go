@@ -7,6 +7,92 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/agent"
 )
 
+func TestParseCurrentRolloutCompletedItems(t *testing.T) {
+	lines := []string{
+		`{"timestamp":"2026-09-11T10:00:00Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"user","content":[{"type":"text","text":"Fix the test","text_elements":[]}]}}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done"}]}}`,
+		`{"timestamp":"2026-09-11T10:00:01Z","type":"event_msg","payload":{"type":"item_completed","started_at_ms":1000,"completed_at_ms":1100,"item":{"type":"Reasoning","id":"reason","summary_text":["Checking the test"],"raw_content":[]}}}`,
+		`{"timestamp":"2026-09-11T10:00:02Z","type":"event_msg","payload":{"type":"item_completed","started_at_ms":1100,"completed_at_ms":1400,"item":{"type":"CommandExecution","id":"command","command":"go test","cwd":"/repo","status":"completed","aggregated_output":"FAIL","exit_code":1,"duration":{"secs":0,"nanos":300000000}}}}`,
+		`{"timestamp":"2026-09-11T10:00:03Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"FileChange","id":"edit","status":"completed","changes":{"a.go":{"type":"update","unified_diff":"@@ -1 +1 @@\n-old\n+new","move_path":null},"b.go":{"type":"add","content":"package main\n"}}}}}`,
+		`{"timestamp":"2026-09-11T10:00:04Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"answer","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}}`,
+		`{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"Done","error":null}}`,
+	}
+	messages, err := parseRollout(strings.NewReader(strings.Join(lines, "\n")), "chat")
+	if err != nil || len(messages) != 2 {
+		t.Fatalf("messages=%+v err=%v", messages, err)
+	}
+	if messages[0].Text != "Fix the test" || messages[1].Text != "Done" {
+		t.Fatalf("missing/duplicate messages: %+v", messages)
+	}
+	parts := messages[1].Parts
+	if got := partTypes(parts); !equalStrings(got, []string{"thinking", "tool", "tool", "text"}) {
+		t.Fatalf("parts=%v", got)
+	}
+	if parts[0].Text != "Checking the test" || parts[0].DurationMs != 100 {
+		t.Fatalf("thinking=%+v", parts[0])
+	}
+	if parts[3].ID != "answer" {
+		t.Fatalf("text item identity lost: %+v", parts[3])
+	}
+	command := parts[1].Tool
+	if !command.IsError || command.Output != "FAIL" || command.Action.Shell.ExitCode == nil || *command.Action.Shell.ExitCode != 1 {
+		t.Fatalf("command=%+v", command)
+	}
+	files := parts[2].Tool.Action.Files
+	if len(files) != 2 || files[0].Path != "a.go" || !strings.Contains(files[0].Diff, "+new") || !strings.Contains(files[1].Diff, "+package main") {
+		t.Fatalf("files=%+v", files)
+	}
+}
+
+func TestRolloutUpgradeKeepsThePreviousTurn(t *testing.T) {
+	lines := []string{
+		`{"type":"event_msg","payload":{"type":"user_message","message":"Old question"}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","message":"Old answer"}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"new-user","content":[{"type":"text","text":"New question"}]}}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"new-answer","content":[{"type":"output_text","text":"New answer"}]}}}`,
+	}
+	messages, err := parseRollout(strings.NewReader(strings.Join(lines, "\n")), "chat")
+	if err != nil || len(messages) != 4 || messages[1].Text != "Old answer" || messages[3].Text != "New answer" {
+		t.Fatalf("messages=%+v err=%v", messages, err)
+	}
+}
+
+func TestCompletedCompactionPreservesTheBoundaryWithoutDuplicateMarkers(t *testing.T) {
+	lines := []string{
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"user","content":[{"type":"text","text":"Continue"}]}}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"first","content":[{"type":"output_text","text":"Before"}]}}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"ContextCompaction","id":"compact"}}}`,
+		`{"type":"compacted","payload":{"message":"Earlier context"}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"last","content":[{"type":"output_text","text":"After"}]}}}`,
+	}
+	messages, err := parseRollout(strings.NewReader(strings.Join(lines, "\n")), "chat")
+	if err != nil || len(messages) != 4 || messages[1].Text != "Before" || messages[3].Text != "After" {
+		t.Fatalf("messages=%+v err=%v", messages, err)
+	}
+	if marker := messages[2]; marker.Role != "system" || marker.Parts[0].Compaction.Summary != "Earlier context" {
+		t.Fatalf("compaction=%+v", marker)
+	}
+}
+
+func TestLegacyRolloutResponseMessagesDeduplicateAndKeepShellErrors(t *testing.T) {
+	lines := []string{
+		`{"type":"event_msg","payload":{"type":"user_message","message":"Run it"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Working"}]}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","message":"Working"}}`,
+		`{"type":"response_item","payload":{"type":"function_call","call_id":"command","name":"functions.exec_command","arguments":"{\"cmd\":\"go test\",\"workdir\":\"/repo\"}"}}`,
+		`{"type":"response_item","payload":{"type":"function_call_output","call_id":"command","output":"Process exited with code 2\nFinal output:\nFAIL"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Tests failed"}]}}`,
+	}
+	messages, err := parseRollout(strings.NewReader(strings.Join(lines, "\n")), "chat")
+	if err != nil || len(messages) != 2 || messages[1].Text != "Working\n\nTests failed" {
+		t.Fatalf("messages=%+v err=%v", messages, err)
+	}
+	tool := findTool(messages[1].Parts, "command")
+	if tool == nil || !tool.IsError || tool.Action.Shell.Command != "go test" || *tool.Action.Shell.ExitCode != 2 {
+		t.Fatalf("tool=%+v", tool)
+	}
+}
+
 // parseRollout normalizes a rollout transcript: user/assistant text, reasoning, and tool calls paired
 // to their outputs by call_id, with all assistant activity between two user turns folded into one
 // assistant message of ordered parts.

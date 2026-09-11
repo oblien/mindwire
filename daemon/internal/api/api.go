@@ -799,21 +799,24 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 	// scroll-to-top load-more. Applied to BOTH the native transcript and the store fallback.
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	before := r.URL.Query().Get("before")
+	recorded := a.store.Messages(chatID)
 	if ag.Adapter.Capabilities().History == agent.SupportNative {
 		// Native transcripts are path-scoped: use the dir this chat actually ran in.
 		cwd := a.store.ChatCWD(chatID)
 		if cwd == "" {
 			cwd = a.sup.CWD()
 		}
-		msgs, err := ag.Adapter.History(agent.HistoryQuery{
-			ChatID: chatID, SessionID: a.store.Session(ag.ID(), chatID), CWD: cwd,
-		})
+		query := agent.HistoryQuery{ChatID: chatID, SessionID: a.store.Session(ag.ID(), chatID), CWD: cwd}
+		for _, message := range recorded {
+			query.Recorded = append(query.Recorded, agent.Message(message))
+		}
+		msgs, err := ag.Adapter.History(query)
 		if err == nil && len(msgs) > 0 {
 			writeJSON(w, http.StatusOK, pageWindow(msgs, limit, before, func(m agent.Message) string { return m.ID }))
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, pageWindow(a.store.Messages(chatID), limit, before, func(m session.Message) string { return m.ID }))
+	writeJSON(w, http.StatusOK, pageWindow(recorded, limit, before, func(m session.Message) string { return m.ID }))
 }
 
 // pageWindow returns the tail window of an oldest→newest message slice: everything strictly BEFORE

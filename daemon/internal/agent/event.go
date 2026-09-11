@@ -84,7 +84,10 @@ type ContinuationInfo struct {
 
 // Event is the unified stream item. Optional fields are populated per Type.
 type Event struct {
-	Type         EventType         `json:"type"`
+	Type EventType `json:"type"`
+	// ItemID correlates text/thinking snapshots with their streaming item. A non-delta
+	// event replaces that item's text even if other components have arrived since it.
+	ItemID       string            `json:"itemId,omitempty"`
 	SessionID    string            `json:"sessionId,omitempty"`
 	Text         string            `json:"text,omitempty"`
 	Delta        bool              `json:"delta,omitempty"`
