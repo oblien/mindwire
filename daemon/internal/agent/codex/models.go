@@ -2,12 +2,9 @@ package codex
 
 import "github.com/oblien/mindwire/daemon/internal/agent"
 
-// Model listing for Codex. Codex ships no scriptable model list of its own (no list command, no help
-// enum), and mindwire no longer stores the models.dev catalog in the daemon — the client owns it and
-// fetches it live. So Codex enumerates NOTHING locally: it DECLARES its catalog provider scope (openai)
-// via ModelCatalogProviders, and the client sources the model picker from that provider's live catalog
-// and enriches every row. Models therefore returns an empty native list (a valid 200), and the settings
-// model field degrades to free text (CLI-validated) — nothing is ever hardcoded.
+// Codex has no scriptable account model list. Surface explicitly configured
+// deployments from the Foundry auth flow or native config; the public OpenAI
+// catalog remains a client concern. Never guess an Azure deployment name from it.
 var (
 	_ agent.ModelsModule       = adapter{}
 	_ agent.ModelCatalogModule = adapter{}
@@ -22,10 +19,15 @@ var codexModelProviders = []string{"openai"}
 // populate the picker from the live catalog (the daemon stores none).
 func (adapter) ModelCatalogProviders() []string { return codexModelProviders }
 
-// Models returns the models Codex enumerates natively — none, since Codex has no scriptable list and the
-// daemon carries no catalog. The OpenAI list is a client concern (see ModelCatalogProviders). An empty
-// list is valid, not an error. env is ignored (no per-account list to fetch).
-func (adapter) Models(_ map[string]string) ([]agent.ModelInfo, error) {
+// Models reports the configured deployment, if any. Without custom routing the
+// native list stays empty and the client can use the public OpenAI catalog.
+func (adapter) Models(env map[string]string) ([]agent.ModelInfo, error) {
+	if model := env[azureModelMarker]; env[azureProviderMarker] != "" && model != "" {
+		return []agent.ModelInfo{{ID: model, Label: model, Provider: "azure", Custom: true}}, nil
+	}
+	if p, model := nativeProvider(); p.ID != "" && model != "" {
+		return []agent.ModelInfo{{ID: model, Label: model, Provider: p.ID, Custom: true}}, nil
+	}
 	return []agent.ModelInfo{}, nil
 }
 

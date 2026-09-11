@@ -368,6 +368,14 @@ export type FieldScope = "unified" | "custom";
 export interface Option {
   value: string;
   label: string;
+  /** Contextual help shown when this option is selected. */
+  help?: string;
+}
+
+/** Show and submit a field only when the referenced field has this value, after resolving defaults. */
+export interface FieldCondition {
+  key: string;
+  equals: string;
 }
 
 export interface Field {
@@ -379,11 +387,20 @@ export interface Field {
   /** Stable cross-agent key; equals `key` for custom fields. */
   canon?: string;
   required?: boolean;
+  /** A required field may be left blank when any named alternative has a value. */
+  requiredUnless?: string[];
+  /** Optional or alternative inputs that auth forms may initially collapse. */
+  advanced?: boolean;
   placeholder?: string;
   help?: string;
   /** For `select` / `multiselect`. */
   options?: Option[];
   default?: string;
+  visibleWhen?: FieldCondition;
+  /** Native select presentation; unknown hints fall back to the client's default control. */
+  presentation?: "segmented" | "menu" | (string & {});
+  /** Text keyboard hint. */
+  inputMode?: "url" | (string & {});
 }
 
 export interface Section {
@@ -582,6 +599,14 @@ export interface CustomProvider {
 
 // ---- auth (agent/auth.go) --------------------------------------------------
 
+/** Daemon-owned grouping, order, and context for an authentication form. */
+export interface AuthSection {
+  id: string;
+  title: string;
+  help?: string;
+  fieldKeys: string[];
+}
+
 /** One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin→step→status flow. */
 export interface AuthMethod {
   id: string;
@@ -596,6 +621,7 @@ export interface AuthMethod {
   interactive?: boolean;
   /** Reuses the settings `Field` shape. */
   fields?: Field[];
+  sections?: AuthSection[];
 }
 
 /** The current step of an in-progress auth flow. */
@@ -607,6 +633,7 @@ export interface AuthState {
   message?: string;
   /** Inputs the client should collect next. */
   fields?: Field[];
+  sections?: AuthSection[];
 }
 
 /** The resting state: is the agent authenticated, and via which method. */

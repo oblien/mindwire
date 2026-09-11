@@ -1493,6 +1493,10 @@
           },
           "label": {
             "type": "string"
+          },
+          "help": {
+            "type": "string",
+            "description": "Contextual help shown when this option is selected."
           }
         }
       },
@@ -1581,6 +1585,15 @@
           "kind"
         ]
       },
+      "FieldCondition": {
+        "type": "object",
+        "description": "Show and submit a field only when the referenced field has this value, after resolving defaults.",
+        "required": ["key", "equals"],
+        "properties": {
+          "key": { "type": "string" },
+          "equals": { "type": "string" }
+        }
+      },
       "Field": {
         "type": "object",
         "properties": {
@@ -1615,6 +1628,15 @@
           "required": {
             "type": "boolean"
           },
+          "requiredUnless": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "A required field may be left blank when any named alternative field has a value."
+          },
+          "advanced": {
+            "type": "boolean",
+            "description": "Optional or alternative inputs that auth forms may initially collapse."
+          },
           "placeholder": {
             "type": "string"
           },
@@ -1629,6 +1651,17 @@
           },
           "default": {
             "type": "string"
+          },
+          "visibleWhen": {
+            "$ref": "#/components/schemas/FieldCondition"
+          },
+          "presentation": {
+            "type": "string",
+            "description": "Native select presentation: segmented or menu. Unknown hints use the client's default control."
+          },
+          "inputMode": {
+            "type": "string",
+            "description": "Text keyboard hint, such as url."
           }
         }
       },
@@ -1655,6 +1688,17 @@
               "$ref": "#/components/schemas/Section"
             }
           }
+        }
+      },
+      "AuthSection": {
+        "type": "object",
+        "description": "Daemon-owned grouping, order, and context for an authentication form.",
+        "required": ["id", "title", "fieldKeys"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "help": { "type": "string" },
+          "fieldKeys": { "type": "array", "items": { "type": "string" } }
         }
       },
       "AuthMethod": {
@@ -1687,6 +1731,10 @@
               "$ref": "#/components/schemas/Field"
             },
             "description": "Inputs to collect for a field-based method (reuses the settings Field shape)."
+          },
+          "sections": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AuthSection" }
           }
         },
         "required": [
@@ -1725,6 +1773,10 @@
               "$ref": "#/components/schemas/Field"
             },
             "description": "Inputs the client should collect next."
+          },
+          "sections": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AuthSection" }
           }
         },
         "required": [

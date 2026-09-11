@@ -127,37 +127,43 @@ the shell string, or `config.toml`. Three non-interactive methods:
   `OPENAI_API_KEY` for older CLI builds). Optional `OPENAI_BASE_URL` / `OPENAI_ORGANIZATION` /
   `OPENAI_PROJECT` companions.
 - **Access token** — a ChatGPT / personal access token, exported as `CODEX_ACCESS_TOKEN`.
-- **Microsoft Foundry** — an Azure OpenAI v1 resource/base URL plus either an Azure API key or Entra ID
-  token. Mindwire writes a native `[model_providers.azure-foundry]` table containing only endpoint and
-  env-var metadata (`wire_api = "responses"`), stores the credential in the daemon, and selects that
-  provider for both `codex exec` and `codex app-server` runs. The required deployment/model id is
-  selected automatically unless the turn explicitly overrides the model setting.
+- **Microsoft Foundry** — endpoint URL, Azure API key, and deployment name (`azureBaseUrl`,
+  `azureApiKey`, `azureModel`). The URL ends in `/openai/v1`; a resource URL is normalized to that
+  path. Mindwire writes a native `[model_providers.azure-foundry]` table with `wire_api = "responses"`
+  and `env_key = "AZURE_OPENAI_API_KEY"`. This sends the key as a bearer credential, matching native
+  `experimental_bearer_token` authentication without writing a new secret into TOML. It selects the
+  provider and exact deployment for both `codex exec` and `codex app-server`, unless a turn explicitly
+  overrides the model. The daemon declares switches for URL/resource name and API key/Entra ID;
+  only the selected inputs are required. No API version is needed for the v1 endpoint.
+  See [Foundry setup](/docs/guides/authentication/#microsoft-foundry).
 
 The interactive ChatGPT sign-in (the `localhost:1455` OAuth loopback) is **deliberately not offered** —
-it can't complete against a headless daemon. Auth status is presence-based (env-only creds never appear
-in `codex login status`), so the daemon-stored credential is the source of truth.
+it can't complete against a headless daemon. Auth status is presence-based: it recognizes daemon-stored
+credentials and the selected native provider's `experimental_bearer_token` or populated `env_key`.
+Native `model_provider` and `model` values, including those in the selected profile, are respected.
+Existing native secrets stay in `config.toml` and are never returned by the provider API.
 
 Set credentials via the [auth flow](/docs/reference/rest/auth/post-auth-begin/) (`POST /auth/begin` → `POST /auth/step`)
 just like any other agent.
 
 ## Custom LLM providers
 
-Codex can route a run to any OpenAI-compatible endpoint via a `[model_providers.<id>]` table in
+Codex can route a run to a Responses-compatible endpoint via a `[model_providers.<id>]` table in
 `config.toml` (selected per run with `model_provider = "<id>"`), and mindwire registers those tables
 through the [`/providers`](/docs/reference/rest/providers/get-providers/) control plane
 (`capabilities.customProviders = true`, user scope only). See [Models & providers](/docs/reference/models/)
 for the cross-agent shape.
 
 - **Write.** `PUT /providers/{id}` writes `[model_providers.<id>]` with `name` / `base_url` /
-  `env_key = "VAR"` / `wire_api = "chat"` (the first-party Foundry lane uses `"responses"`), using the same section-preserving TOML discipline as the
+  `env_key = "VAR"` / `wire_api = "responses"`, using the same section-preserving TOML discipline as the
   MCP-config writer — every other table in `config.toml` is left byte-for-byte intact.
-- **Secret path.** The table carries an env-var reference, never the secret: `env_key` for bearer
-  credentials, or `env_http_headers = { "api-key" = "ENV_VAR" }` for an Azure API key. The value is
-  stored in the daemon and exported only at run time. `GET` reports `hasKey`, never the key.
+- **Secret path.** New credentials are stored in the daemon and referenced through `env_key`,
+  including Azure OpenAI v1 API keys and Entra tokens. `GET` reports `hasKey`, never the key.
+  Metadata-only edits preserve an existing provider's native authentication and retry settings.
 - **Models.** Codex's TOML has no per-provider model-list field, so the registered model ids are stored
-  alongside the credential and echoed back by `GET /providers` for round-trip fidelity. Codex's
-  [`GET /models`](/docs/reference/rest/agent/get-models/) stays the OpenAI catalog — a custom provider's
-  model is chosen by naming it in the `model` setting.
+  alongside the credential and echoed back by `GET /providers` for round-trip fidelity. A selected
+  native provider's `model` is also surfaced. [`GET /models`](/docs/reference/rest/agent/get-models/)
+  reports the configured deployment; the client supplies the public OpenAI catalog separately.
 - **Delete.** `DELETE /providers/{id}` removes only that table and clears the stored key/models.
   Idempotent.
 

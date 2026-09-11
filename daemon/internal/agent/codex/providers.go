@@ -25,18 +25,10 @@ import (
 // authModule.EnvForRun (which merges agent.ProviderEnvForRun). Codex's TOML has no per-provider model
 // list, so the registered model ids live in the CredStore too (provider:<id>:models), echoed back by
 // GET /providers for round-trip fidelity (Codex's /models stays the OpenAI catalog — a custom provider's
-// model is chosen by the user, not enumerable from config alone). `wire_api = "chat"` selects the
-// OpenAI-compatible Chat Completions wire.
+// model is chosen by the user). Current Codex custom providers use the Responses API.
 var _ agent.CustomProvidersModule = adapter{}
 
-const providerWireAPI = "chat"
-
-func providerWireAPIFor(id string) string {
-	if id == azureProviderID {
-		return "responses"
-	}
-	return providerWireAPI
-}
+const providerWireAPI = "responses"
 
 // pkModels is the CredStore key holding a custom provider's model ids (newline-joined), since
 // config.toml's [model_providers.*] has no model-list field.
@@ -60,13 +52,20 @@ func (adapter) ListProviders(store agent.CredStore, scope agent.MemoryScope, _ s
 		return nil, err
 	}
 	out := map[string]agent.CustomProvider{}
+	selected, model := nativeSelection(data)
 	for id, p := range parseModelProviders(data) {
-		if p.EnvVar == "" && store != nil {
+		if p.EnvVar == "" && store != nil && strings.TrimSpace(store.Get(agent.ProviderCredKey(id))) != "" {
 			p.EnvVar = strings.TrimSpace(store.Get(agent.ProviderEnvKey(id)))
 		}
 		p.Models = storedModels(store, id)
+		if len(p.Models) == 0 && id == selected && model != "" {
+			p.Models = []string{model}
+		}
+		if p.Models == nil {
+			p.Models = []string{}
+		}
 		p.EnvVars = sortedNames(agent.StoredProviderEnv(store, id))
-		p.HasKey = (store != nil && strings.TrimSpace(store.Get(agent.ProviderCredKey(id))) != "") || len(p.EnvVars) > 0
+		p.HasKey = p.HasKey || (store != nil && strings.TrimSpace(store.Get(agent.ProviderCredKey(id))) != "") || len(p.EnvVars) > 0
 		out[id] = p
 	}
 	// Provider credentials live in a CROSS-AGENT namespace, and authModule.EnvForRun merges every one of
@@ -192,11 +191,13 @@ func (adapter) SetProvider(store agent.CredStore, scope agent.MemoryScope, _ str
 	if path == "" {
 		return fmt.Errorf("cannot resolve codex home")
 	}
-	envVar := agent.DeriveEnvVar(id, p.EnvVar)
 	existing, err := readConfig(path)
 	if err != nil {
 		return err
 	}
+	previous := parseModelProviders(existing)[id]
+	p.Name = agent.FirstNonEmpty(p.Name, previous.Name, id)
+	envVar := agent.DeriveEnvVar(id, agent.FirstNonEmpty(p.EnvVar, previous.EnvVar))
 	body := strings.TrimRight(strings.Join(removeProvider(splitLines(existing), id), "\n"), "\n")
 	section := strings.TrimLeft(buildProviderSection(id, p, envVar), "\n")
 	var out string
@@ -206,6 +207,11 @@ func (adapter) SetProvider(store agent.CredStore, scope agent.MemoryScope, _ str
 		out = body + "\n\n" + section
 	}
 	out = strings.TrimRight(out, "\n") + "\n"
+	if previous.ID != "" && strings.TrimSpace(apiKey) == "" && (p.EnvVar == "" || p.EnvVar == previous.EnvVar) {
+		// Editing a native provider with "leave key blank to keep it" must
+		// preserve its bearer token, env references, headers, and retry tuning.
+		out = updateProviderMetadata(existing, id, p)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("prepare codex home: %w", err)
 	}
@@ -226,6 +232,29 @@ func (adapter) SetProvider(store agent.CredStore, scope agent.MemoryScope, _ str
 		}
 	}
 	return nil
+}
+
+// updateProviderMetadata changes public fields in place, leaving native auth and
+// any extra Codex provider settings intact during a metadata-only update.
+func updateProviderMetadata(content, id string, p agent.CustomProvider) string {
+	var out []string
+	inProvider := false
+	for _, line := range splitLines(content) {
+		if strings.HasPrefix(strings.TrimSpace(line), "[") {
+			parts, ok := parseTableHeader(strings.TrimSpace(line))
+			inProvider = ok && len(parts) == 2 && parts[0] == "model_providers" && parts[1] == id
+			out = append(out, line)
+			if inProvider {
+				out = append(out, "name = "+tomlString(p.Name), "base_url = "+tomlString(strings.TrimSpace(p.BaseURL)), "wire_api = "+tomlString(providerWireAPI))
+			}
+			continue
+		}
+		if key, _, ok := splitKV(line); inProvider && ok && (key == "name" || key == "base_url" || key == "wire_api") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.TrimRight(strings.Join(out, "\n"), "\n") + "\n"
 }
 
 // DeleteProvider removes the `[model_providers.<id>]` table and clears the stored key/env-var/models.
@@ -274,15 +303,11 @@ func buildProviderSection(id string, p agent.CustomProvider, envVar string) stri
 		b.WriteString("name = " + tomlString(name) + "\n")
 	}
 	b.WriteString("base_url = " + tomlString(strings.TrimSpace(p.BaseURL)) + "\n")
-	if id == azureProviderID && envVar == "AZURE_OPENAI_API_KEY" {
-		// Azure API keys use the `api-key` header, not Authorization: Bearer. Codex resolves the
-		// value from this env-var reference; the secret itself stays solely in the CredStore.
-		b.WriteString("env_http_headers = { \"api-key\" = " + tomlString(envVar) + " }\n")
-	} else {
-		// Entra tokens and ordinary OpenAI-compatible providers use bearer authentication.
-		b.WriteString("env_key = " + tomlString(envVar) + "\n")
-	}
-	b.WriteString("wire_api = " + tomlString(providerWireAPIFor(id)) + "\n")
+	// Azure's OpenAI v1 endpoint accepts API keys as bearer credentials, like an
+	// experimental_bearer_token in native Codex config. Keep the secret in the
+	// credential store and reference its environment variable instead.
+	b.WriteString("env_key = " + tomlString(envVar) + "\n")
+	b.WriteString("wire_api = " + tomlString(providerWireAPI) + "\n")
 	return b.String()
 }
 
@@ -350,8 +375,18 @@ func parseModelProviders(content string) map[string]agent.CustomProvider {
 			p.BaseURL = parseTOMLValue(val)
 		case "env_key":
 			p.EnvVar = parseTOMLValue(val)
+		case "experimental_bearer_token":
+			// Native Codex configs may already contain a token. Report presence
+			// only; never put the token in a provider DTO or the daemon store.
+			p.HasKey = strings.TrimSpace(parseTOMLValue(val)) != ""
 		}
 		out[cur] = p
+	}
+	for id, p := range out {
+		if p.EnvVar != "" && strings.TrimSpace(os.Getenv(p.EnvVar)) != "" {
+			p.HasKey = true
+			out[id] = p
+		}
 	}
 	return out
 }

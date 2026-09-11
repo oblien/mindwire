@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"testing"
 
@@ -152,6 +153,7 @@ func TestCloudProviderForInput(t *testing.T) {
 		"vertexProjectId":  "vertex",
 		"foundryResource":  "foundry",
 		"foundryAuthToken": "foundry",
+		"foundryModel":     "foundry",
 	} {
 		if p, ok := cloudProviderForInput(map[string]string{key: "x"}); !ok || p.id != want {
 			t.Errorf("cloudProviderForInput(%q) = %q,%v; want %q,true", key, p.id, ok, want)
@@ -159,6 +161,113 @@ func TestCloudProviderForInput(t *testing.T) {
 	}
 	if p, ok := cloudProviderForInput(map[string]string{"apiKey": "x"}); ok {
 		t.Errorf("cloudProviderForInput(apiKey) matched %q, want no match", p.id)
+	}
+}
+
+func TestFoundryThreeFieldConnection(t *testing.T) {
+	store := mapStore{"apiKey": "stale-first-party-key", "baseUrl": "https://old-gateway.test"}
+	m := newAuth(store)
+	st, err := m.Step(context.Background(), map[string]string{
+		"foundryBaseUrl": " https://example.services.ai.azure.com/ ",
+		"foundryApiKey":  " azure-key ", "foundryModel": " custom-claude-deployment ",
+	})
+	if err != nil || st.Method != "foundry" || st.Status != "complete" {
+		t.Fatalf("Foundry connect: %+v, %v", st, err)
+	}
+	env := m.EnvForRun()
+	if env["CLAUDE_CODE_USE_FOUNDRY"] != "1" || env["ANTHROPIC_FOUNDRY_BASE_URL"] != "https://example.services.ai.azure.com/anthropic" || env["ANTHROPIC_FOUNDRY_API_KEY"] != "azure-key" {
+		t.Fatalf("incorrect Foundry routing: %v", env)
+	}
+	for _, key := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"} {
+		if env[key] != "custom-claude-deployment" {
+			t.Errorf("%s did not use the configured Azure deployment", key)
+		}
+	}
+	for _, key := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_FOUNDRY_AUTH_TOKEN", "ANTHROPIC_FOUNDRY_RESOURCE"} {
+		if _, ok := env[key]; ok {
+			t.Errorf("unexpected first-party or alternative setting: %s", key)
+		}
+	}
+	models, err := (adapter{}).Models(env)
+	if err != nil || len(models) != 1 || models[0].ID != "custom-claude-deployment" {
+		t.Fatalf("Foundry deployment list: %+v, %v", models, err)
+	}
+}
+
+func TestFoundryAlternatives(t *testing.T) {
+	for _, token := range []string{"", "entra-token"} {
+		store := mapStore{"foundryApiKey": "stale-key"}
+		m := newAuth(store)
+		input := map[string]string{"foundryResource": "example", "foundryModel": "deployment", "foundryAuthToken": token}
+		if token != "" {
+			input["foundryApiKey"] = "ignored-key"
+		}
+		st, err := m.Step(context.Background(), input)
+		if err != nil || st.Status != "complete" {
+			t.Fatalf("Foundry alternative: %+v, %v", st, err)
+		}
+		env := m.EnvForRun()
+		if env["ANTHROPIC_FOUNDRY_BASE_URL"] != "https://example.services.ai.azure.com/anthropic" || env["ANTHROPIC_FOUNDRY_AUTH_TOKEN"] != token {
+			t.Fatalf("incorrect alternative routing: %v", env)
+		}
+		if env["ANTHROPIC_FOUNDRY_API_KEY"] != "" {
+			t.Fatal("an API key must not shadow the chosen Azure authentication")
+		}
+	}
+}
+
+func TestFoundrySelectionsControlCredentialsAndEndpoint(t *testing.T) {
+	store := mapStore{}
+	m := newAuth(store)
+	for _, mode := range []string{"entraToken", "apiKey", "azureCredentials"} {
+		input := map[string]string{
+			"foundryEndpointType": "resource", "foundryResource": "selected", "foundryBaseUrl": "https://stale.test/openai/v1",
+			"foundryAuthType": mode, "foundryApiKey": "key", "foundryAuthToken": "token", "foundryModel": "deployment",
+		}
+		st, err := m.Step(context.Background(), input)
+		if err != nil || st.Status != "complete" {
+			t.Fatalf("selected mode %s: %+v, %v", mode, st, err)
+		}
+		env := m.EnvForRun()
+		wantKey, wantToken := "", ""
+		if mode == "apiKey" {
+			wantKey = "key"
+		} else if mode == "entraToken" {
+			wantToken = "token"
+		}
+		if env["ANTHROPIC_FOUNDRY_API_KEY"] != wantKey || env["ANTHROPIC_FOUNDRY_AUTH_TOKEN"] != wantToken {
+			t.Fatalf("hidden credentials overrode %s", mode)
+		}
+		if env["ANTHROPIC_FOUNDRY_BASE_URL"] != "https://selected.services.ai.azure.com/anthropic" || env["ANTHROPIC_MODEL"] != "deployment" {
+			t.Fatal("hidden URL overrode the selected resource/deployment")
+		}
+		if _, malformed := env[""]; malformed {
+			t.Fatal("form selectors became process environment variables")
+		}
+		before := maps.Clone(store)
+		input["foundryAuthType"], input["foundryApiKey"] = "apiKey", ""
+		st, err = m.Step(context.Background(), input)
+		if err != nil || st.Status != "error" || len(st.Sections) == 0 || !maps.Equal(store, before) {
+			t.Fatalf("missing API key fell back to hidden token or lost the form: %+v, %v", st, err)
+		}
+	}
+}
+
+func TestFoundryInvalidInputPreservesConnection(t *testing.T) {
+	for _, input := range []map[string]string{
+		{"foundryBaseUrl": "", "foundryModel": "deployment"},
+		{"foundryBaseUrl": "https://example.test/openai/v1", "foundryModel": "deployment"},
+		{"foundryBaseUrl": "http://example.test/anthropic", "foundryModel": "deployment"},
+		{"foundryResource": "example", "foundryModel": " \n "},
+	} {
+		store := mapStore{"authMethod": "apiKey", "apiKey": "working-key"}
+		st, err := newAuth(store).Step(context.Background(), input)
+		if err != nil || st.Status != "error" || st.Method != "foundry" || st.Message == "" {
+			t.Fatalf("invalid input result: %+v, %v", st, err)
+		}
+		if len(store) != 2 || store["authMethod"] != "apiKey" {
+			t.Fatal("invalid Foundry setup changed working credentials")
+		}
 	}
 }
 

@@ -47,7 +47,7 @@ func TestProvidersRoundTrip(t *testing.T) {
 		"[model_providers.my-llm]",
 		`base_url = "https://llm.example/v1"`,
 		`env_key = "MY_LLM_API_KEY"`,
-		`wire_api = "chat"`,
+		`wire_api = "responses"`,
 		"[mcp_servers.local]",
 	} {
 		if !strings.Contains(content, want) {

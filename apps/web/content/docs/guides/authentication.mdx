@@ -97,6 +97,58 @@ curl -XPOST 'http://127.0.0.1:8790/auth/step?agent=claude-code'  -d '{"apiKey":"
 
 </ApiTabs>
 
+## Microsoft Foundry
+
+For a normal API-key connection, enter **endpoint URL, API key, and deployment name**.
+Copy the URL and key from your Azure resource's **Endpoints and keys** page, and use the
+exact name from its model deployments. A deployment name may differ from the public model name.
+
+| Agent | Method | Endpoint | Input keys |
+| --- | --- | --- | --- |
+| Codex | `azureFoundry` | `https://RESOURCE.services.ai.azure.com/openai/v1` | `azureBaseUrl`, `azureApiKey`, `azureModel` |
+| Claude Code | `foundry` | `https://RESOURCE.services.ai.azure.com/anthropic` | `foundryBaseUrl`, `foundryApiKey`, `foundryModel` |
+
+A bare HTTPS resource URL is accepted; Mindwire adds the matching API path. Codex also supports
+`openai.azure.com` resources. Its OpenAI v1 endpoint needs no `api-version` query parameter.
+The OpenAI and Anthropic API paths are different and cannot be swapped between agents.
+
+The form has three sections: **Connection details**, **Authentication**, and **Deployment name**.
+Connection details has a **URL / Resource name** switch. Authentication has an **API key / Entra ID**
+switch; Claude also offers **Azure sign-in** for credentials already available in the workspace.
+Only the inputs for the selected options are shown and required.
+
+| Choice | Codex selector | Claude selector | Values |
+| --- | --- | --- | --- |
+| Endpoint | `azureEndpointType` | `foundryEndpointType` | `url` (default), `resource` |
+| Authentication | `azureAuthType` | `foundryAuthType` | `apiKey` (default), `entraToken`; Claude also accepts `azureCredentials` |
+
+With `resource`, send `azureResource` / `foundryResource`. With `entraToken`, send
+`azureAuthToken` / `foundryAuthToken`. Explicit selections always win: hidden URL or credential
+values are discarded before validation and persistence. **Azure sign-in** collects no credential;
+Azure sign-in or a managed identity must already be available in the agent's workspace.
+An explicit Claude Entra token requires Claude Code 2.1.203 or later.
+
+Older clients can still submit the three input keys in the first table without selectors.
+For those requests, a URL takes precedence over a resource name, a token over an API key, and
+Claude uses workspace Azure credentials when neither credential is supplied.
+
+Claude uses `foundryModel` for its default model, model aliases, and background tasks, so one deployed
+Claude model is sufficient. Codex uses `azureModel` as its `model` value. An explicit turn model can
+override either default, and must name a deployment available on the selected Azure resource.
+
+`GET /auth/methods` and `POST /auth/begin` declare the entire form. Clients render `sections` in
+order using each section's `title` and `fieldKeys`, with native controls for the field types.
+Resolve field `default` values before evaluating `visibleWhen: { key, equals }`; validate and submit
+only visible fields. Selects may request `presentation: "segmented"`, and URL inputs declare
+`inputMode: "url"`. Show field `help` and the selected option's `help` in section footers.
+Keep the Connect action outside the scrolling form, above the keyboard on mobile.
+Older daemons without sections can render each field under its own label; `requiredUnless`
+continues to support legacy alternative fields.
+
+Provider references: [Microsoft's endpoint guide](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/switching-endpoints),
+[Codex provider configuration](https://developers.openai.com/codex/config-reference/), and
+[Claude Code on Foundry](https://code.claude.com/docs/en/microsoft-foundry).
+
 ## Interactive: browser sign-in
 
 `begin` returns a `url` (and sometimes a `code`) to show the user; then `step` **polls** until the

@@ -1,6 +1,19 @@
 package agent
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"strings"
+)
+
+// AuthSection groups declared field keys in display order. Titles and help belong
+// to the daemon; clients render native form sections without provider-specific UI.
+type AuthSection struct {
+	ID        string   `json:"id"`
+	Title     string   `json:"title"`
+	Help      string   `json:"help,omitempty"`
+	FieldKeys []string `json:"fieldKeys"`
+}
 
 // AuthMethod is one way to authenticate an agent — the client shows these as an
 // options list. A field-based method collects Fields; an interactive one drives a
@@ -12,22 +25,24 @@ import "context"
 // cloud providers), declared + typed in the adapter, never open passthrough. Empty scope reads as
 // unified for backward compatibility.
 type AuthMethod struct {
-	ID          string  `json:"id"`
-	Label       string  `json:"label"`
-	Scope       Scope   `json:"scope,omitempty"` // unified | custom (taxonomy; empty = unified)
-	Help        string  `json:"help,omitempty"`
-	Interactive bool    `json:"interactive,omitempty"`
-	Fields      []Field `json:"fields,omitempty"` // reuses the settings Field shape
+	ID          string        `json:"id"`
+	Label       string        `json:"label"`
+	Scope       Scope         `json:"scope,omitempty"` // unified | custom (taxonomy; empty = unified)
+	Help        string        `json:"help,omitempty"`
+	Interactive bool          `json:"interactive,omitempty"`
+	Fields      []Field       `json:"fields,omitempty"` // reuses the settings Field shape
+	Sections    []AuthSection `json:"sections,omitempty"`
 }
 
 // AuthState is the current step of an in-progress auth flow.
 type AuthState struct {
-	Method  string  `json:"method"`
-	Status  string  `json:"status"` // "needs_input" | "pending" | "complete" | "error"
-	URL     string  `json:"url,omitempty"`
-	Code    string  `json:"code,omitempty"`
-	Message string  `json:"message,omitempty"`
-	Fields  []Field `json:"fields,omitempty"` // inputs the client should collect next
+	Method   string        `json:"method"`
+	Status   string        `json:"status"` // "needs_input" | "pending" | "complete" | "error"
+	URL      string        `json:"url,omitempty"`
+	Code     string        `json:"code,omitempty"`
+	Message  string        `json:"message,omitempty"`
+	Fields   []Field       `json:"fields,omitempty"` // inputs the client should collect next
+	Sections []AuthSection `json:"sections,omitempty"`
 }
 
 // AuthStatus is the resting state: is the agent authenticated, and via which method.
@@ -46,4 +61,49 @@ type AuthModule interface {
 	Step(ctx context.Context, input map[string]string) (AuthState, error)
 	Status(ctx context.Context) AuthStatus
 	EnvForRun() map[string]string
+}
+
+// NormalizeAuthInput applies the same declared defaults, visibility, and required
+// rules as the client. Hidden drafts never take precedence over the chosen mode,
+// even when a client submits them. Unknown keys are not forwarded to an adapter.
+func NormalizeAuthInput(fields []Field, input map[string]string) (map[string]string, error) {
+	values := make(map[string]string, len(fields))
+	for _, f := range fields {
+		value, provided := input[f.Key]
+		if !provided {
+			value = f.Default
+		}
+		values[f.Key] = strings.TrimSpace(value)
+	}
+	out := make(map[string]string, len(fields))
+	for _, f := range fields {
+		if f.VisibleWhen == nil || values[f.VisibleWhen.Key] == f.VisibleWhen.Equals {
+			out[f.Key] = values[f.Key]
+		}
+	}
+	for _, f := range fields {
+		value, visible := out[f.Key]
+		if !visible {
+			continue
+		}
+		required := f.Required
+		for _, alternative := range f.RequiredUnless {
+			if out[alternative] != "" {
+				required = false
+			}
+		}
+		if required && value == "" && f.Type != FieldToggle {
+			return nil, fmt.Errorf("enter %s", strings.ToLower(f.Label))
+		}
+		if f.Type == FieldSelect && value != "" {
+			valid := false
+			for _, option := range f.Options {
+				valid = valid || option.Value == value
+			}
+			if !valid {
+				return nil, fmt.Errorf("choose a valid option for %s", strings.ToLower(f.Label))
+			}
+		}
+	}
+	return out, nil
 }

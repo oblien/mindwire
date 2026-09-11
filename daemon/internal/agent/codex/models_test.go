@@ -23,6 +23,7 @@ func modelField(t *testing.T) agent.Field {
 // the native /models list is EMPTY (a valid 200) and the settings model field degrades to free text.
 // The rich OpenAI list is a client concern, sourced from the live models.dev catalog.
 func TestCodexModelsNativeEmpty(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
 	if !(adapter{}).Capabilities().Models {
 		t.Fatal("codex caps: Models=false, want true")
 	}

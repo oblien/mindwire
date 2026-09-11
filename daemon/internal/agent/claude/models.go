@@ -23,6 +23,18 @@ var _ agent.ModelsModule = adapter{}
 // says signed in. No credential anywhere, offline, or a transient API failure leaves the cache empty →
 // an empty list, which is not an error.
 func (adapter) Models(env map[string]string) ([]agent.ModelInfo, error) {
+	// Foundry deployment names are account-specific, not the public Anthropic
+	// model catalog. Never reuse a cached first-party model list for a cloud run.
+	for _, provider := range cloudProviders() {
+		if env[provider.enableEnv] == "1" {
+			out := []agent.ModelInfo{}
+			if provider.id == "foundry" && env["ANTHROPIC_MODEL"] != "" {
+				model := env["ANTHROPIC_MODEL"]
+				out = append(out, agent.ModelInfo{ID: model, Label: model, Provider: "azure", Custom: true})
+			}
+			return out, nil
+		}
+	}
 	ensureModels(env)
 	opts := knownModels()
 	out := make([]agent.ModelInfo, 0, len(opts))

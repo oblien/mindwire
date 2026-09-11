@@ -117,5 +117,5 @@ byte-for-byte intact, the same discipline as the MCP-config writers.
 | Agent | `customProviders` | How |
 | --- | --- | --- |
 | [`opencode`](/docs/reference/agents/opencode/#custom-llm-providers) | `true` | `provider.<id>` block in `opencode.json` (`@ai-sdk/openai-compatible`); registered models surface in `GET /models` with `custom: true`. User scope. |
-| [`codex`](/docs/reference/agents/codex/#custom-llm-providers) | `true` | `[model_providers.<id>]` table in `config.toml` (`base_url` + `env_key` + `wire_api = "chat"`); pick it per run with `model_provider`. User scope. |
+| [`codex`](/docs/reference/agents/codex/#custom-llm-providers) | `true` | `[model_providers.<id>]` table in `config.toml` (`base_url` + `env_key` + `wire_api = "responses"`); pick it per run with `model_provider`. User scope. |
 | [`claude-code`](/docs/reference/agents/claude/) | `false` | No provider registry. Claude's "custom endpoint" is the **gateway auth lane** — `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` (see the adapter's [Auth](/docs/reference/agents/claude/#auth)) — so `/providers` honestly `400`s. |

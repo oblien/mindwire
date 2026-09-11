@@ -89,7 +89,7 @@ func (m *authModule) Begin(ctx context.Context, methodID string) (agent.AuthStat
 		if p, ok := cloudProviderByID(methodID); ok {
 			return agent.AuthState{
 				Method: p.id, Status: "needs_input",
-				Fields: p.method().Fields, Message: "Enter your " + p.label + " details.",
+				Fields: p.method().Fields, Sections: p.sections,
 			}, nil
 		}
 		return agent.AuthState{}, errors.New("unknown auth method: " + methodID)
@@ -121,6 +121,13 @@ func (m *authModule) Step(ctx context.Context, input map[string]string) (agent.A
 	// provider, so the match is unambiguous). Persist each provided value under its cred-store key —
 	// secrets included — and record the provider as the active auth method; EnvForRun exports them.
 	if p, ok := cloudProviderForInput(input); ok {
+		if p.id == "foundry" {
+			validated, err := validateFoundryInput(input)
+			if err != nil {
+				return agent.AuthState{Method: p.id, Status: "error", Message: err.Error(), Fields: p.method().Fields, Sections: p.sections}, nil
+			}
+			input = validated
+		}
 		for _, cf := range p.fields {
 			// Trim; empty clears any prior value (so a re-setup can drop a field, e.g. switch from
 			// static keys to an AWS profile).
@@ -128,7 +135,9 @@ func (m *authModule) Step(ctx context.Context, input map[string]string) (agent.A
 				return agent.AuthState{}, err
 			}
 		}
-		_ = m.store.Set("authMethod", p.id)
+		if err := m.store.Set("authMethod", p.id); err != nil {
+			return agent.AuthState{}, err
+		}
 		go ensureModels(m.EnvForRun())
 		return agent.AuthState{Method: p.id, Status: "complete"}, nil
 	}
@@ -256,8 +265,18 @@ func (m *authModule) EnvForRun() map[string]string {
 	if p, ok := cloudProviderByID(m.store.Get("authMethod")); ok {
 		env[p.enableEnv] = "1"
 		for _, cf := range p.fields {
+			if cf.env == "" { // form selectors do not become process environment variables
+				continue
+			}
 			if v := strings.TrimSpace(m.store.Get(cf.Key)); v != "" {
 				env[cf.env] = v
+			}
+		}
+		if p.id == "foundry" && env["ANTHROPIC_MODEL"] != "" {
+			// A three-field setup has one deployed model. Pin aliases and the
+			// background model to it so Claude never guesses undeployed Azure IDs.
+			for _, name := range []string{"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"} {
+				env[name] = env["ANTHROPIC_MODEL"]
 			}
 		}
 		return env

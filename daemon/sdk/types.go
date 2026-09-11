@@ -103,6 +103,7 @@ type (
 	SettingsSchema = agent.SettingsSchema
 	Section        = agent.Section
 	Field          = agent.Field
+	FieldCondition = agent.FieldCondition
 	Option         = agent.Option
 	FieldType      = agent.FieldType
 	Scope          = agent.Scope
@@ -165,6 +166,7 @@ const (
 // Auth, health checks, and notifications.
 type (
 	AuthMethod       = agent.AuthMethod
+	AuthSection      = agent.AuthSection
 	AuthState        = agent.AuthState
 	AuthStatus       = agent.AuthStatus
 	Check            = agent.Check

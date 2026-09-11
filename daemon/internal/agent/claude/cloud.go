@@ -1,8 +1,6 @@
 package claude
 
-import (
-	"github.com/oblien/mindwire/daemon/internal/agent"
-)
+import "github.com/oblien/mindwire/daemon/internal/agent"
 
 // Cloud providers are Claude's third-party model backends — Amazon Bedrock, Google Vertex AI, and
 // Microsoft Foundry. They are the concrete demonstration of the CUSTOM lane in the field taxonomy:
@@ -25,6 +23,7 @@ type cloudProvider struct {
 	help      string
 	enableEnv string // env var that routes the CLI to this backend (value is always "1")
 	fields    []cloudField
+	sections  []agent.AuthSection
 }
 
 // cloudField is one declared input and the env var it populates on a run. The embedded Field's Key
@@ -65,17 +64,47 @@ func cloudProviders() []cloudProvider {
 				custom("vertexBaseUrl", "Vertex base URL", agent.FieldText, "ANTHROPIC_VERTEX_BASE_URL", agent.Field{Placeholder: "https://us-east5-aiplatform.googleapis.com", Help: "Optional — override the Vertex endpoint (regional endpoint / proxy)."}),
 			},
 		},
-		{
-			id: "foundry", label: "Microsoft Foundry", enableEnv: "CLAUDE_CODE_USE_FOUNDRY",
-			help: "Run Claude through Microsoft Foundry (Azure). Set either the Azure resource name or the full base URL, plus an API key or a Microsoft Entra ID token.",
-			fields: []cloudField{
-				custom("foundryResource", "Azure resource name", agent.FieldText, "ANTHROPIC_FOUNDRY_RESOURCE", agent.Field{Placeholder: "my-resource", Help: "Set this OR the base URL."}),
-				custom("foundryBaseUrl", "Base URL", agent.FieldText, "ANTHROPIC_FOUNDRY_BASE_URL", agent.Field{Placeholder: "https://my-resource.services.ai.azure.com/anthropic", Help: "Set this OR the resource name."}),
-				custom("foundryApiKey", "API key", agent.FieldSecret, "ANTHROPIC_FOUNDRY_API_KEY", agent.Field{Help: "Azure API key. Leave blank to use an Entra ID token or the Azure credential chain."}),
-				custom("foundryAuthToken", "Entra ID token", agent.FieldSecret, "ANTHROPIC_FOUNDRY_AUTH_TOKEN", agent.Field{Help: "Optional — a Microsoft Entra ID bearer token (takes precedence over the API key)."}),
-			},
-		},
+		foundryProvider(),
 	}
+}
+
+var foundryAuthSpec = agent.FoundryAuthSpec{
+	Prefix: "foundry", ResourceDomain: "services.ai.azure.com", APIPath: "/anthropic",
+	ModelPlaceholder: "my-claude-deployment", AllowAzureCredentials: true,
+}
+
+func foundryProvider() cloudProvider {
+	env := map[string]string{
+		"foundryBaseUrl": "ANTHROPIC_FOUNDRY_BASE_URL", "foundryResource": "ANTHROPIC_FOUNDRY_RESOURCE",
+		"foundryApiKey": "ANTHROPIC_FOUNDRY_API_KEY", "foundryAuthToken": "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+		"foundryModel": "ANTHROPIC_MODEL",
+	}
+	var fields []cloudField
+	for _, field := range foundryAuthSpec.Fields() {
+		fields = append(fields, cloudField{Field: field, env: env[field.Key]})
+	}
+	return cloudProvider{
+		id: "foundry", label: "Microsoft Foundry", enableEnv: "CLAUDE_CODE_USE_FOUNDRY",
+		help:   "Use a Claude deployment hosted in Microsoft Foundry.",
+		fields: fields, sections: foundryAuthSpec.Sections(),
+	}
+}
+
+// validateFoundryInput runs before storing anything, so an incomplete or mixed
+// endpoint cannot replace a working connection. Existing stored setups continue
+// to work; new setups explicitly pin the deployment rather than guessing one.
+func validateFoundryInput(input map[string]string) (map[string]string, error) {
+	out, err := foundryAuthSpec.NormalizeInput(input)
+	if err != nil {
+		return nil, err
+	}
+	base, err := agent.FoundryBaseURL(out["foundryBaseUrl"], out["foundryResource"], "services.ai.azure.com", "/anthropic")
+	if err != nil {
+		return nil, err
+	}
+	out["foundryBaseUrl"] = base
+	out["foundryResource"] = ""
+	return out, nil
 }
 
 // method renders the provider as a custom-scope AuthMethod for the options list.
@@ -84,7 +113,7 @@ func (p cloudProvider) method() agent.AuthMethod {
 	for i, cf := range p.fields {
 		fields[i] = cf.Field
 	}
-	return agent.AuthMethod{ID: p.id, Label: p.label, Scope: agent.ScopeCustom, Help: p.help, Fields: fields}
+	return agent.AuthMethod{ID: p.id, Label: p.label, Scope: agent.ScopeCustom, Help: p.help, Fields: fields, Sections: p.sections}
 }
 
 // cloudProviderByID returns the provider with that id (the persisted authMethod), ok=false if none.

@@ -17,6 +17,14 @@ const (
 type Option struct {
 	Value string `json:"value"`
 	Label string `json:"label"`
+	Help  string `json:"help,omitempty"` // shown when this option is selected
+}
+
+// FieldCondition makes a field active only for one value of another field.
+// Clients resolve defaults first and omit inactive fields from submissions.
+type FieldCondition struct {
+	Key    string `json:"key"`
+	Equals string `json:"equals"`
 }
 
 // Scope marks whether a field is a UNIFIED cross-agent concept — one every agent has some
@@ -34,16 +42,21 @@ const (
 )
 
 type Field struct {
-	Key         string    `json:"key"`
-	Label       string    `json:"label"`
-	Type        FieldType `json:"type"`
-	Scope       Scope     `json:"scope,omitempty"` // unified | custom (taxonomy)
-	Canon       string    `json:"canon,omitempty"` // stable cross-agent key; == Key for custom fields
-	Required    bool      `json:"required,omitempty"`
-	Placeholder string    `json:"placeholder,omitempty"`
-	Help        string    `json:"help,omitempty"`
-	Options     []Option  `json:"options,omitempty"` // for select
-	Default     string    `json:"default,omitempty"`
+	Key            string          `json:"key"`
+	Label          string          `json:"label"`
+	Type           FieldType       `json:"type"`
+	Scope          Scope           `json:"scope,omitempty"` // unified | custom (taxonomy)
+	Canon          string          `json:"canon,omitempty"` // stable cross-agent key; == Key for custom fields
+	Required       bool            `json:"required,omitempty"`
+	RequiredUnless []string        `json:"requiredUnless,omitempty"` // required unless any of these alternative field keys has a value
+	Advanced       bool            `json:"advanced,omitempty"`       // optional/alternative inputs, initially collapsed by auth forms
+	Placeholder    string          `json:"placeholder,omitempty"`
+	Help           string          `json:"help,omitempty"`
+	Options        []Option        `json:"options,omitempty"` // for select
+	Default        string          `json:"default,omitempty"`
+	VisibleWhen    *FieldCondition `json:"visibleWhen,omitempty"`
+	Presentation   string          `json:"presentation,omitempty"` // select: segmented | menu; empty = native default
+	InputMode      string          `json:"inputMode,omitempty"`    // text keyboard hint, e.g. url
 }
 
 // Section groups fields under a heading (the app renders one group per section).

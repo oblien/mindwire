@@ -78,7 +78,7 @@ same request returns a `400` there rather than a faked mapping.
 
 ## Auth
 
-Claude Code offers three non-interactive-friendly methods; secrets enter a run through exactly one path
+Claude Code offers account sign-in, API/gateway credentials, and cloud-provider methods. New secrets enter a run through one path
 (the daemon's credential store → the run's env via `EnvForRun`), never through request config or the shell
 string:
 
@@ -88,6 +88,17 @@ string:
   subscription.
 - **Bearer token (gateway)** — a token for a custom Anthropic-compatible gateway/proxy, sent as
   `ANTHROPIC_AUTH_TOKEN` (`Authorization: Bearer`) alongside the gateway's base URL.
+- **Microsoft Foundry** — endpoint URL, Azure API key, and deployment name (`foundryBaseUrl`,
+  `foundryApiKey`, `foundryModel`). Claude needs the `/anthropic` endpoint. Mindwire sets
+  `CLAUDE_CODE_USE_FOUNDRY=1`, the Foundry endpoint/key variables, and `ANTHROPIC_MODEL` with the
+  exact deployment name. The Opus, Sonnet, and Haiku aliases also point to that deployment so
+  background tasks do not request an undeployed model. The daemon declares switches for
+  URL/resource name and API key/Entra ID/Azure sign-in. Only the selected inputs are required;
+  Azure sign-in uses credentials already configured in the workspace. Explicit Entra tokens
+  require Claude Code 2.1.203 or later.
+  See [Foundry setup](/docs/guides/authentication/#microsoft-foundry).
+- **Amazon Bedrock / Google Vertex AI** — their own cloud-provider credentials and endpoints,
+  declared separately from Foundry.
 
 Set credentials via the [auth flow](/docs/reference/rest/auth/post-auth-begin/) (`POST /auth/begin` → `POST /auth/step`).
 
