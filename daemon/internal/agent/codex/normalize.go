@@ -868,6 +868,7 @@ func buildTodos(rows []todoRow) *agent.Interaction {
 type tokenUsage struct {
 	InputTokens           int
 	CachedInputTokens     int
+	CacheWriteInputTokens int
 	OutputTokens          int
 	ReasoningOutputTokens int
 	TotalTokens           int
@@ -886,26 +887,30 @@ func usageMeta(u tokenUsage) map[string]any {
 	if u.HasTotal {
 		m["totalTokens"] = u.TotalTokens
 	}
+	if u.CacheWriteInputTokens != 0 {
+		m["cacheWriteInputTokens"] = u.CacheWriteInputTokens
+	}
 	return m
 }
 
 // usageStruct maps Codex's per-turn token accounting to the typed agent.Usage carried on the terminal
 // result (alongside — not replacing — the existing Meta usage). CachedInputTokens is Codex's cache-read
-// concept; Codex has no cache-write, so CacheWriteTokens stays 0. TotalTokens is set only when reported
+// concept; CacheWriteInputTokens is reported by newer versions. TotalTokens is set only when reported
 // (HasTotal). Returns nil when nothing was reported, so the wire field stays omitempty.
 func usageStruct(u tokenUsage) *agent.Usage {
 	total := 0
 	if u.HasTotal {
 		total = u.TotalTokens
 	}
-	if u.InputTokens == 0 && u.CachedInputTokens == 0 && u.OutputTokens == 0 && u.ReasoningOutputTokens == 0 && total == 0 {
+	if u.InputTokens == 0 && u.CachedInputTokens == 0 && u.CacheWriteInputTokens == 0 && u.OutputTokens == 0 && u.ReasoningOutputTokens == 0 && total == 0 {
 		return nil
 	}
 	return &agent.Usage{
-		InputTokens:     u.InputTokens,
-		OutputTokens:    u.OutputTokens,
-		CacheReadTokens: u.CachedInputTokens,
-		ReasoningTokens: u.ReasoningOutputTokens,
-		TotalTokens:     total,
+		InputTokens:      u.InputTokens,
+		OutputTokens:     u.OutputTokens,
+		CacheReadTokens:  u.CachedInputTokens,
+		CacheWriteTokens: u.CacheWriteInputTokens,
+		ReasoningTokens:  u.ReasoningOutputTokens,
+		TotalTokens:      total,
 	}
 }

@@ -1,12 +1,13 @@
 # Codex output compatibility
 
 Audited against **codex-cli 0.154.0**, its generated app-server JSON schema, and the
-[official OpenAI app-server documentation](https://learn.chatgpt.com/docs/app-server)
-on 2026-09-11. The exec transport also follows the
-[official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
+[official OpenAI app-server documentation](https://developers.openai.com/codex/app-server)
+on 2026-09-13. The exec transport also follows the
+[official non-interactive documentation](https://developers.openai.com/codex/noninteractive).
 
-This is protocol and client regression coverage. It is **not an end-to-end test of a
-live Foundry/OpenAI deployment**, every CLI version, or every optional app-server service.
+Coverage includes authenticated local Codex runs and protocol/client regression tests.
+It does not establish compatibility with every Foundry deployment, CLI version, or
+optional app-server service.
 Changes require a rebuilt daemon; rebuilding locally does not update a published release.
 
 ## Thread items
@@ -73,6 +74,32 @@ The exec stream's additional `todo_list` and `error` items are covered separatel
 Current native PascalCase/snake_case completed items and older rollout messages/tool
 outputs use the shared item mapping. Unknown item types retain a generic tool component.
 
+## Captured CLI runs
+
+`testdata/live-0.154.0/` contains sanitized output captured from the installed CLI:
+
+- `hello`: one greeting, both exec JSONL and the saved native transcript.
+- `activity`: commentary, four shell commands, a two-file patch, an intentional exit-7
+  failure, a passing assertion, and the final reply; exec JSONL plus the native transcript.
+- `structured`: `--output-schema` with reasoning, a JSON object, and cache-write usage.
+- `plan`: app-server plan mode, text deltas, command output, 62 plan deltas, and final snapshots.
+
+The default exec session did not expose a checklist tool. Checklist updates remain covered
+by the protocol fixtures; the proposed-plan component was verified live in app-server plan mode.
+
+`captured_test.go` replays these through the production parsers and runner. It checks that
+native and recorded history produce one component per item, preserve native file diffs and
+exit codes, and retain the live IDs returned to clients. Exec's `item_N` IDs and native
+message/tool IDs are different namespaces; matches use text or the shared tool action and
+consume components chronologically. Native command argv arrays are decoded without executing
+them, and local file URLs become paths. Repeated history reads must be idempotent.
+
+The same exported events and messages are fixtures for Pocket Agent's iOS `ChatRunTests`.
+They exercise the existing text, thinking, tool, file-diff, and interaction components with
+no provider-specific UI. Size tests cover 70 KiB and 1 MiB frames in exec, app-server, and
+native history, a Unicode tool output over 1 MiB in iOS, and an explicit error beyond the
+daemon's 16 MiB frame limit.
+
 ## Scope outside the chat adapter
 
 Mindwire does not register client-executed dynamic tools. Unsupported server requests,
@@ -103,3 +130,10 @@ so new or removed variants are reported rather than silently counted as covered.
 Client checks: `bun test apps/console/test/chat-blocks.test.ts` from the repository root;
 the iOS `ChatRunTests`, `ModelCodableTests` and `TransportTests` suites from the Mindwire
 Xcode scheme. Live provider tests remain explicitly opt-in (`CODEX_LIVE=1`).
+
+To refresh the normalized consumer fixtures from the saved captures:
+
+```sh
+mkdir -p /tmp/mindwire-protocol-fixtures
+CODEX_CAPTURE_EXPORT=/tmp/mindwire-protocol-fixtures go test ./internal/agent/codex -run TestCaptured -count=1
+```

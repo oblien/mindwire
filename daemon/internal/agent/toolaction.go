@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -82,6 +83,56 @@ type WebSearch struct {
 type MCPCall struct {
 	Server string `json:"server,omitempty"`
 	Tool   string `json:"tool,omitempty"`
+}
+
+// SameInvocation compares the work a tool was asked to do, excluding output and display labels.
+// Live streams and native transcripts can have different IDs and progressively richer results.
+// Callers still match chronologically, so two executions of the same command remain two calls.
+func (a *ToolAction) SameInvocation(b *ToolAction) bool {
+	if a == nil || b == nil || a.Kind != b.Kind {
+		return false
+	}
+	switch a.Kind {
+	case KindShell:
+		if a.Shell == nil || b.Shell == nil || a.Shell.Command == "" || b.Shell.Command == "" {
+			return false
+		}
+		if a.Shell.Cwd != "" && b.Shell.Cwd != "" && a.Shell.Cwd != b.Shell.Cwd {
+			return false
+		}
+		if a.Shell.Command == b.Shell.Command {
+			return true
+		}
+		left, right := ShellWords(a.Shell.Command), ShellWords(b.Shell.Command)
+		return left != nil && reflect.DeepEqual(left, right)
+	case KindFileEdit, KindFileRead:
+		if len(a.Files) == 0 || len(a.Files) != len(b.Files) {
+			return false
+		}
+		used := make([]bool, len(b.Files))
+		for _, left := range a.Files {
+			found := false
+			for i, right := range b.Files {
+				if !used[i] && left.Path != "" && left.Path == right.Path && left.Op == right.Op &&
+					(left.Diff == "" || right.Diff == "" || left.Diff == right.Diff) {
+					used[i], found = true, true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+	case KindSearch:
+		return a.Search != nil && reflect.DeepEqual(a.Search, b.Search)
+	case KindWebSearch, KindWebFetch:
+		return a.Web != nil && reflect.DeepEqual(a.Web, b.Web)
+	case KindMCP:
+		return a.MCP != nil && reflect.DeepEqual(a.MCP, b.MCP)
+	default:
+		return false
+	}
 }
 
 // MapChangeOp normalizes an agent's file-change verb (Codex uses "add"/"modify"/"delete", etc.) to the

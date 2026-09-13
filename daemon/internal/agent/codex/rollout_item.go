@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -40,6 +41,11 @@ func rolloutItem(raw json.RawMessage) (normItem, error) {
 	case "reasoning":
 		converted["summary"] = fields["summary_text"]
 		converted["content"] = fields["raw_content"]
+	case "commandExecution":
+		var argv []string
+		if json.Unmarshal(fields["command"], &argv) == nil {
+			converted["command"], _ = json.Marshal(agent.JoinShellWords(argv))
+		}
 	case "fileChange":
 		var changes map[string]struct {
 			Type     string `json:"type"`
@@ -79,6 +85,9 @@ func rolloutItem(raw json.RawMessage) (normItem, error) {
 		return normItem{}, err
 	}
 	n := fromAsItem(it)
+	if cwd, err := url.Parse(n.Cwd); err == nil && cwd.Scheme == "file" && (cwd.Host == "" || cwd.Host == "localhost") {
+		n.Cwd = cwd.Path
+	}
 	if itemType == "userMessage" {
 		n.Text = it.Text
 	}

@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"thread-structured"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"**Formulating JSON output**\n\nI need to produce a final JSON that matches the schema, specifically with a greeting, a checked value, and an items array. I can simplify this to just outputting the structured data without any commentary. The precise format should be: {\"greeting\":\"Hello\",\"checked\":true,\"items\":[1,2,3]}. It’s important to keep it straightforward and aligned with the exact user and system format, so I'll stick to that!"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\"greeting\":\"Hello\",\"checked\":true,\"items\":[1,2,3]}"}}
+{"type":"turn.completed","usage":{"input_tokens":9574,"cached_input_tokens":0,"cache_write_input_tokens":9571,"output_tokens":97,"reasoning_output_tokens":67}}

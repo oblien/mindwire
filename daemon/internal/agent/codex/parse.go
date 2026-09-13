@@ -41,6 +41,7 @@ type streamEnvelope struct {
 type usage struct {
 	InputTokens           int `json:"input_tokens"`
 	CachedInputTokens     int `json:"cached_input_tokens"`
+	CacheWriteInputTokens int `json:"cache_write_input_tokens"`
 	OutputTokens          int `json:"output_tokens"`
 	ReasoningOutputTokens int `json:"reasoning_output_tokens"`
 }
@@ -144,6 +145,7 @@ func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
 				u := tokenUsage{
 					InputTokens:           env.Usage.InputTokens,
 					CachedInputTokens:     env.Usage.CachedInputTokens,
+					CacheWriteInputTokens: env.Usage.CacheWriteInputTokens,
 					OutputTokens:          env.Usage.OutputTokens,
 					ReasoningOutputTokens: env.Usage.ReasoningOutputTokens,
 				}

@@ -1,7 +1,9 @@
 package codex
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -135,8 +137,20 @@ func mergeTurnParts(native, recorded []agent.Message) []agent.Message {
 				if final.Tokens == 0 {
 					final.Tokens = part.Tokens
 				}
-				if final.ID == "" {
+				// Return the same identity the client saw live. Exec's item_N identifiers
+				// are unrelated to the native msg_/exec- identifiers for the same item.
+				if part.ID != "" {
 					final.ID = part.ID
+				}
+				if final.Tool != nil && part.Tool != nil && part.Tool.ID != "" {
+					tool := *final.Tool
+					tool.ID = part.Tool.ID
+					final.Tool = &tool
+				}
+				if final.Interaction != nil && part.Interaction != nil && part.Interaction.ID != "" {
+					interaction := *final.Interaction
+					interaction.ID = part.Interaction.ID
+					final.Interaction = &interaction
 				}
 				cursor = match + 1
 				continue
@@ -197,13 +211,28 @@ func sameHistoryPart(final, recorded agent.Part) bool {
 	}
 	switch final.Type {
 	case "text", "thinking":
-		if final.ID != "" && recorded.ID != "" {
-			return final.ID == recorded.ID
+		if final.ID != "" && final.ID == recorded.ID {
+			return true
 		}
-		return final.Text != "" && recorded.Text != "" &&
-			(strings.HasPrefix(final.Text, recorded.Text) || strings.HasPrefix(recorded.Text, final.Text))
+		a, b := strings.TrimSpace(final.Text), strings.TrimSpace(recorded.Text)
+		if a == "" || b == "" {
+			return false
+		}
+		return a == b || (final.ID == "" || recorded.ID == "") && (strings.HasPrefix(a, b) || strings.HasPrefix(b, a))
 	case "tool":
-		return final.Tool != nil && recorded.Tool != nil && final.Tool.ID != "" && final.Tool.ID == recorded.Tool.ID
+		a, b := final.Tool, recorded.Tool
+		if a == nil || b == nil {
+			return false
+		}
+		if a.ID != "" && a.ID == b.ID {
+			return true
+		}
+		if !a.Action.SameInvocation(b.Action) {
+			return false
+		}
+		// MCP action metadata identifies a tool, not its arguments. Distinct calls
+		// to the same server/tool must not consume each other's native results.
+		return a.Action.Kind != agent.KindMCP || reflect.DeepEqual(historyToolArguments(a.Input), historyToolArguments(b.Input))
 	case "interaction":
 		a, b := final.Interaction, recorded.Interaction
 		return a != nil && b != nil && (a.ID != "" && a.ID == b.ID || a.Kind == b.Kind && a.Detail == b.Detail && (a.Kind == "error" || a.Title == b.Title))
@@ -211,4 +240,17 @@ func sameHistoryPart(final, recorded agent.Part) bool {
 		return true // chronological boundary, never copied into an earlier user turn
 	}
 	return false
+}
+
+func historyToolArguments(raw json.RawMessage) any {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return string(raw)
+	}
+	if fields, ok := value.(map[string]any); ok {
+		if arguments, found := fields["arguments"]; found {
+			return arguments
+		}
+	}
+	return value
 }

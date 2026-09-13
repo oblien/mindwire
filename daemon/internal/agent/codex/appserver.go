@@ -1157,6 +1157,7 @@ func tokenUsageFrom(params json.RawMessage) (tokenUsage, bool) {
 			Total struct {
 				InputTokens           int `json:"inputTokens"`
 				CachedInputTokens     int `json:"cachedInputTokens"`
+				CacheWriteInputTokens int `json:"cacheWriteInputTokens"`
 				OutputTokens          int `json:"outputTokens"`
 				ReasoningOutputTokens int `json:"reasoningOutputTokens"`
 				TotalTokens           int `json:"totalTokens"`
@@ -1170,6 +1171,7 @@ func tokenUsageFrom(params json.RawMessage) (tokenUsage, bool) {
 	return tokenUsage{
 		InputTokens:           t.InputTokens,
 		CachedInputTokens:     t.CachedInputTokens,
+		CacheWriteInputTokens: t.CacheWriteInputTokens,
 		OutputTokens:          t.OutputTokens,
 		ReasoningOutputTokens: t.ReasoningOutputTokens,
 		TotalTokens:           t.TotalTokens,

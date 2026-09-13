@@ -34,7 +34,7 @@ func TestCodexMessagesPreserveRecordedWarningsAndErrorsWithNativeHistory(t *test
 		{ID: "u1", ChatID: "chat", Role: "user", Text: "Inspect it", CreatedAt: "2026-09-11T10:00:00Z"},
 		{ID: "a1", ChatID: "chat", Role: "assistant", Text: "Done", CreatedAt: "2026-09-11T10:00:02Z", Parts: []agent.Part{
 			{Type: "interaction", Interaction: &agent.Interaction{ID: "warning", Kind: "warning", Title: "Configuration warning", Detail: "One setting was ignored."}},
-			{Type: "text", ID: "answer", Text: "Done"},
+			{Type: "text", ID: "item_0", Text: "Done"},
 		}},
 		{ID: "u2", ChatID: "chat", Role: "user", Text: "Try the other model", CreatedAt: "2026-09-11T10:01:00Z"},
 		{ID: "a2", ChatID: "chat", Role: "assistant", CreatedAt: "2026-09-11T10:01:01Z", Parts: []agent.Part{
@@ -56,6 +56,9 @@ func TestCodexMessagesPreserveRecordedWarningsAndErrorsWithNativeHistory(t *test
 	}
 	if len(messages) != 4 || len(messages[1].Parts) != 2 || messages[1].Parts[0].Interaction.Kind != "warning" || messages[1].Text != "Done" || messages[3].Parts[0].Interaction.Detail != "Deployment not found (HTTP 404)" {
 		t.Fatalf("native history hid recorded diagnostics: %+v", messages)
+	}
+	if messages[1].Parts[1].ID != "item_0" {
+		t.Fatal("history did not preserve the item identity delivered to the client")
 	}
 	response = serve(t, handler, "GET", "/chats/chat/messages?agent=codex&limit=1", "")
 	if err := json.Unmarshal(response.Body.Bytes(), &messages); err != nil {
