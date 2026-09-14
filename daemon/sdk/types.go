@@ -24,6 +24,7 @@ type (
 	EventType      = agent.EventType
 	ToolEvent      = agent.ToolEvent
 	ResultInfo     = agent.ResultInfo
+	RunSnapshot    = orchestrator.RunSnapshot
 	CompactionInfo = agent.CompactionInfo
 	// ContinuationInfo delimits one iteration of a global-resolve run on the merged parent stream (see
 	// Client.Resolve). Carried on an EventContinuation. Field additions to Event/ResultInfo/RunRecord

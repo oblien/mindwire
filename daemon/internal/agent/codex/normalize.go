@@ -548,6 +548,12 @@ type streamState struct {
 	finalItemID             string
 	decodeError             string
 	turnDiff                string
+	cwd                     string
+	fileItems               []string
+	aggregateID             string
+	aggregatePaths          map[string]bool
+	aggregateFilled         map[string]bool
+	interrupted             bool
 	compactTrigger          string
 	legacyCompactionPending bool
 	modernCompactionPending bool
@@ -558,26 +564,9 @@ type streamState struct {
 
 func newStreamState() *streamState {
 	return &streamState{seenUse: map[string]bool{}, emitted: map[string]string{},
+		aggregatePaths: map[string]bool{}, aggregateFilled: map[string]bool{},
 		items: map[string]normItem{}, raw: map[string]json.RawMessage{},
 		toolSnapshots: map[string]string{}, toolResults: map[string]string{}, interactionSnapshots: map[string]string{}, completed: map[string]bool{}, compactTrigger: "auto"}
-}
-
-// Some server versions publish only an aggregate turn diff. Keep it visible when no item
-// supplied per-file patches, and avoid duplicating the normal file-change components.
-func (st *streamState) emitTurnDiff(turnID string, emit agent.Emit) {
-	if st.turnDiff == "" {
-		return
-	}
-	for _, item := range st.items {
-		for _, change := range item.Changes {
-			if change.Diff != "" {
-				return
-			}
-		}
-	}
-	result, _ := json.Marshal(st.turnDiff)
-	emitNorm(normItem{ID: "turn-diff-" + turnID, Kind: kindOther, rawType: "Changes", Result: result},
-		phaseCompleted, nil, emit, st)
 }
 
 // emitNorm maps one normalized item at a lifecycle phase to unified events. Text and thinking stream
@@ -587,6 +576,29 @@ func (st *streamState) emitTurnDiff(turnID string, emit agent.Emit) {
 // (the running final answer), else "".
 func emitNorm(n normItem, phase itemPhase, raw json.RawMessage, emit agent.Emit, st *streamState) string {
 	if n.ID != "" {
+		if n.Kind == kindFileChange {
+			n.Changes = append([]normChange(nil), n.Changes...)
+			for i, change := range n.Changes {
+				path := st.filePath(agent.FirstNonEmpty(change.MovePath, change.Path))
+				if change.Diff != "" {
+					delete(st.aggregateFilled, n.ID+"\x00"+path)
+					continue
+				}
+				for _, prior := range st.items[n.ID].Changes {
+					if st.filePath(agent.FirstNonEmpty(prior.MovePath, prior.Path)) == path {
+						n.Changes[i].Diff, n.Changes[i].OldText, n.Changes[i].NewText = prior.Diff, prior.OldText, prior.NewText
+						break
+					}
+				}
+			}
+		}
+		if _, exists := st.items[n.ID]; !exists && n.Kind == kindFileChange {
+			st.fileItems = append(st.fileItems, n.ID)
+		}
+		if st.interrupted && (n.Kind == kindAgentMessage || n.Kind == kindReasoning) && strings.HasPrefix(st.emitted[n.ID], n.Text) {
+			// Interrupted final items can be empty/stale. Keep the output already emitted.
+			n.Text = st.emitted[n.ID]
+		}
 		if n.Kind == kindAgentMessage && n.MessagePhase == "" {
 			n.MessagePhase = st.items[n.ID].MessagePhase
 		}
@@ -752,6 +764,20 @@ func (st *streamState) streamText(n normItem, evType agent.EventType, phase item
 // emitTool announces a tool_use the first time an item id is seen and a tool_result when it completes,
 // correlating by item id.
 func (st *streamState) emitTool(n normItem, phase itemPhase, raw json.RawMessage, emit agent.Emit) {
+	if n.Kind == kindFileChange && n.ID != st.aggregateID && st.aggregateID != "" {
+		// Some versions report file items after their aggregate diff. Those paths already
+		// have a stable live card; later aggregate snapshots keep that card current.
+		var remaining []normChange
+		for _, change := range n.Changes {
+			if !st.aggregatePaths[st.filePath(change.Path)] && !st.aggregatePaths[st.filePath(change.MovePath)] {
+				remaining = append(remaining, change)
+			}
+		}
+		if len(n.Changes) > 0 && len(remaining) == 0 {
+			return
+		}
+		n.Changes = remaining
+	}
 	name := toolName(n)
 	if len(raw) == 0 {
 		raw = st.raw[n.ID]

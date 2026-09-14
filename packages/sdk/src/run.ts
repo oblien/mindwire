@@ -1,10 +1,12 @@
 import type { Http } from "./http.js";
 import { readSSE } from "./sse.js";
 import { RunFailedError } from "./errors.js";
-import type { Event, ResultInfo, RespondInput, Run as RunData } from "./types.js";
+import type { Event, ResultInfo, RespondInput, RunSnapshot, Run as RunData } from "./types.js";
 
 export interface StreamOptions {
   signal?: AbortSignal;
+  /** Resume after a snapshot/event cursor without replaying earlier output. */
+  after?: number;
   /**
    * Include the daemon's `{ type: "status", meta: { stream: "open" } }` sentinel that is
    * flushed the instant the stream opens (used to detect a live vs. buffered transport).
@@ -77,7 +79,8 @@ export class Run {
 
   /** Unified SSE event stream: replay buffer, then live events, then close. */
   async *stream(opts: StreamOptions = {}): AsyncGenerator<Event, void, unknown> {
-    const res = await this.http.open("GET", `/runs/${encodeURIComponent(this.id)}/stream`, {
+    const cursor = opts.after === undefined ? "" : `?after=${encodeURIComponent(opts.after)}`;
+    const res = await this.http.open("GET", `/runs/${encodeURIComponent(this.id)}/stream${cursor}`, {
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
     for await (const ev of readSSE<Event>(res.body!, opts.signal)) {
@@ -162,6 +165,13 @@ export class Run {
   async refresh(): Promise<RunData> {
     this.data = await this.http.request<RunData>("GET", `/runs/${encodeURIComponent(this.id)}`);
     return this.data;
+  }
+
+  /** Restore current output once, then follow with `stream({ after: snapshot.sequence })`. */
+  async snapshot(): Promise<RunSnapshot> {
+    const snapshot = await this.http.request<RunSnapshot>("GET", `/runs/${encodeURIComponent(this.id)}/snapshot`);
+    this.data = snapshot.run;
+    return snapshot;
   }
 
   /**

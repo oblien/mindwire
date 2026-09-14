@@ -332,6 +332,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		terminated := false
 		lastError := ""
 		st := newStreamState()
+		st.cwd = a.cwd
 		st.compactTrigger = compactTrigger
 		// Both notifications and any terminal start response are reconciled on this reader.
 		// It is the sole owner of item state, so final snapshots cannot race streaming deltas.
@@ -349,6 +350,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 			if !terminalStatus(te.Turn.Status) {
 				return
 			}
+			st.interrupted = te.Turn.Status == "interrupted"
 			for _, item := range te.Turn.Items {
 				emitItem(phaseCompleted, item, emit, st)
 			}
@@ -505,7 +507,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 					}
 					if json.Unmarshal(msg.Params, &p) == nil {
 						st.turnDiff = p.Diff
-						emit(agent.Event{Type: agent.EventStatus, Meta: map[string]any{"turnId": p.TurnID, "diff": p.Diff}})
+						st.emitTurnDiff(p.TurnID, emit)
 					}
 				case "warning", "guardianWarning", "configWarning", "deprecationNotice",
 					"hook/started", "hook/completed", "mcpServer/startupStatus/updated",

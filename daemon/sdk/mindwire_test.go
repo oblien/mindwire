@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/api"
@@ -54,6 +55,11 @@ func (fakeAdapter) History(q HistoryQuery) ([]Message, error) {
 // emits a text→tool_use→tool_result→result sequence and completes cleanly.
 func (fakeAdapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
 	switch in.Message {
+	case "partial":
+		emit(Event{Type: EventText, ItemID: "reply", Text: "Partial ", Delta: true})
+		<-ctx.Done()
+		emit(Event{Type: EventText, ItemID: "reply", Text: "reply", Delta: true})
+		return agent.TurnResult{IsError: true, Text: "cancelled"}, nil
 	case "hang":
 		<-ctx.Done()
 		return agent.TurnResult{IsError: true, Text: "cancelled"}, nil
@@ -150,6 +156,39 @@ func TestStreamOrderAndWait(t *testing.T) {
 	}
 	if res.Result == nil || res.Result.Text != "hello" {
 		t.Fatalf("result = %+v, want text=hello", res.Result)
+	}
+}
+
+func TestSnapshotResumeAndStopRetainPartialOutput(t *testing.T) {
+	c := newFakeClient(t, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	run, err := c.Turn(ctx, TurnRequest{ChatID: "snapshot-chat", Message: "partial"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range run.Stream(ctx) {
+		break
+	}
+	snapshot, err := run.Snapshot()
+	if err != nil || snapshot.Sequence != 1 || snapshot.Run.Status != "running" || len(snapshot.Parts) != 1 || snapshot.Parts[0].Text != "Partial " {
+		t.Fatalf("partial snapshot=%+v error=%v", snapshot, err)
+	}
+	if err := run.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	for event := range run.Stream(ctx, WithAfterSequence(snapshot.Sequence)) {
+		if event.Type == EventText {
+			text += event.Text
+		}
+	}
+	if text != "reply" {
+		t.Fatalf("resuming replayed/lost text: %q", text)
+	}
+	stopped, err := run.Snapshot()
+	if err != nil || stopped.Run.Status != "cancelled" || stopped.Parts[0].Text != "Partial reply" {
+		t.Fatalf("stopped snapshot=%+v error=%v", stopped, err)
 	}
 }
 
@@ -573,6 +612,7 @@ func TestSDKRouteParity(t *testing.T) {
 	coverage := map[string]string{
 		"POST /turns":                         "Client.Turn",
 		"GET /runs/{id}":                      "Client.Run",
+		"GET /runs/{id}/snapshot":             "Run.Snapshot",
 		"GET /runs/{id}/children":             "Client.Children",
 		"POST /runs/{id}/cancel":              "Run.Cancel",
 		"POST /runs/{id}/respond":             "Run.Respond",

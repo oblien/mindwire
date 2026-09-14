@@ -165,6 +165,10 @@ export interface ResultInfo {
 /** The unified stream item. Optional fields are populated per `type`. */
 export interface Event {
   type: EventType;
+  /** Per-run cursor. Subscribe with `stream({ after: sequence })` to receive newer events. */
+  sequence?: number;
+  /** Buffered output from before this stream connection opened. */
+  replay?: boolean;
   /** Text/thinking item identity. A non-delta snapshot replaces this item's earlier text. */
   itemId?: string;
   sessionId?: string;
@@ -677,6 +681,16 @@ export interface NotificationSpec {
 }
 
 // ---- messages & runs (agent/agent.go, session/store.go) --------------------
+
+/** Materialized output at an exact stream cursor, shared by all agent harnesses. */
+export interface RunSnapshot {
+  run: Run;
+  sequence: number;
+  parts: Part[];
+  result?: ResultInfo;
+  error?: string;
+  statusMessage?: string;
+}
 
 /** A paired tool call (use + result) within an assistant turn. */
 export interface ToolPart {

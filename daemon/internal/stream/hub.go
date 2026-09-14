@@ -30,10 +30,11 @@ type Hub struct {
 }
 
 type topic struct {
-	mu     sync.Mutex
-	buf    []agent.Event // full replay buffer for this run
-	subs   map[chan agent.Event]struct{}
-	closed bool
+	mu         sync.Mutex
+	buf        []agent.Event // full replay buffer for this run
+	transcript Transcript
+	subs       map[chan agent.Event]struct{}
+	closed     bool
 }
 
 func New() *Hub { return newHub(reapAfter) }
@@ -63,6 +64,10 @@ func (h *Hub) Publish(id string, ev agent.Event) {
 	}
 	ev.Sequence = int64(len(t.buf)) + 1
 	ev.Replay = false
+	if ev.At == "" {
+		ev.At = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	t.transcript.Apply(ev)
 	t.buf = append(t.buf, ev)
 	for ch := range t.subs {
 		select {
@@ -74,6 +79,20 @@ func (h *Hub) Publish(id string, ev agent.Event) {
 			close(ch)
 		}
 	}
+}
+
+// Snapshot reads the components and cursor under the same lock as Publish. Looking up
+// a completed/reaped run must not create a new, empty live topic.
+func (h *Hub) Snapshot(id string) (Snapshot, bool) {
+	h.mu.Lock()
+	t := h.topics[id]
+	h.mu.Unlock()
+	if t == nil {
+		return Snapshot{Parts: []agent.Part{}}, false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.transcript.Snapshot(t.closed), true
 }
 
 // Close marks the run finished, closes all live subscriber channels, and schedules the

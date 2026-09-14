@@ -87,3 +87,33 @@ func TestActiveHistoryKeepsEarlierTurnWithinSameSecond(t *testing.T) {
 		}
 	}
 }
+
+func TestRunSnapshotSurvivesBufferExpiryAndDaemonRestart(t *testing.T) {
+	store, err := session.Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, retained := range []bool{true, false} {
+		hub := stream.New()
+		sup := orchestrator.New(store, hub, notify.Fanout(nil), t.TempDir(), "codex")
+		mux := http.NewServeMux()
+		New(store, hub, sup).Register(mux)
+		_ = store.SaveRun(session.Run{ID: "run", ChatID: "chat", Agent: "codex", Status: "cancelled", ReplyID: "reply"})
+		_ = store.AddMessage(session.Message{ID: "reply", ChatID: "chat", Role: "assistant", Text: "Partial answer", Parts: []agent.Part{{ID: "answer", Type: "text", Text: "Partial answer"}}})
+		if retained {
+			hub.Publish("run", agent.Event{Type: agent.EventText, ItemID: "answer", Text: "Partial answer", Delta: true})
+			hub.Close("run")
+		}
+		response := serve(t, mux, "GET", "/runs/run/snapshot", "")
+		var snapshot struct {
+			Run session.Run `json:"run"`
+			stream.Snapshot
+		}
+		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &snapshot) != nil || len(snapshot.Parts) != 1 || snapshot.Parts[0].Text != "Partial answer" || snapshot.Run.Status != "cancelled" {
+			t.Fatalf("retained=%v snapshot=%s", retained, response.Body.String())
+		}
+		if retained && snapshot.Sequence != 1 || !retained && snapshot.Sequence != 0 {
+			t.Fatalf("wrong cursor: %+v", snapshot)
+		}
+	}
+}

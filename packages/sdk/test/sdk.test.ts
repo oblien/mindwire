@@ -89,6 +89,26 @@ test("run.stream(): parses multi-frame SSE, filters the stream-open sentinel", a
   expect(seen.filter((e) => e.type === "text").map((e) => e.text).join("")).toBe("hello");
 });
 
+test("run.snapshot() restores partial output and stream(after) requests only the suffix", async () => {
+  const record = { id: "run1", chatId: "c1", status: "running", createdAt: "t" };
+  const { fn, calls } = mockFetch((url) => {
+    if (url.includes("/snapshot")) return Response.json({ run: record, sequence: 2,
+      parts: [{ type: "text", id: "answer", text: "Partial " }] });
+    if (url.includes("/stream")) return sseResponse('data: {"type":"text","itemId":"answer","sequence":3,"text":"answer","delta":true}\n\n');
+    return Response.json(record);
+  });
+  const mw = new Mindwire({ target: remote("http://d"), agent: "codex", fetch: fn });
+  const run = await mw.run("run1");
+  const snapshot = await run.snapshot();
+  let text = snapshot.parts[0]?.text ?? "";
+  for await (const event of run.stream({ after: snapshot.sequence })) text += event.text;
+  expect(text).toBe("Partial answer");
+  const streamURL = new URL(calls.at(-1)!.url);
+  expect(streamURL.pathname).toBe("/runs/run1/stream");
+  expect(streamURL.searchParams.get("after")).toBe("2");
+  expect(run.status).toBe("running");
+});
+
 test("run ingress: respond/sendInput/interrupt POST to the right routes with the right bodies", async () => {
   // The GET /runs/run1 that mw.run() issues returns a record; every ingress POST returns a bare 202.
   const { fn, calls } = mockFetch((url, init) =>

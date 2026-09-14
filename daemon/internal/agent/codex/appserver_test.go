@@ -415,7 +415,8 @@ func TestAggregateDiffIsOnlyAFallback(t *testing.T) {
 		st := newStreamState()
 		st.turnDiff = "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-old\n+new\n"
 		if hasPatch {
-			st.items["edit"] = normItem{Kind: kindFileChange, Changes: []normChange{{Path: "a.go", Diff: st.turnDiff}}}
+			emitNorm(normItem{ID: "edit", Kind: kindFileChange, Changes: []normChange{{Path: "a.go", Diff: st.turnDiff}}},
+				phaseCompleted, nil, func(agent.Event) {}, st)
 		}
 		var results []*agent.ToolEvent
 		st.emitTurnDiff("turn", func(ev agent.Event) {
@@ -427,8 +428,56 @@ func TestAggregateDiffIsOnlyAFallback(t *testing.T) {
 			if len(results) != 0 {
 				t.Fatalf("duplicate aggregate diff: %+v", results)
 			}
-		} else if len(results) != 1 || results[0].Output != st.turnDiff {
+		} else if len(results) != 1 || results[0].Action.Kind != agent.KindFileEdit || results[0].Action.Files[0].Diff != st.turnDiff {
 			t.Fatalf("aggregate diff lost: %+v", results)
+		}
+	}
+}
+
+func TestAppServerAggregateFilesAppearBeforeNextMessage(t *testing.T) {
+	patch := "diff --git a/New.swift b/New.swift\nnew file mode 100644\n--- /dev/null\n+++ b/New.swift\n@@ -0,0 +1 @@\n+let value = 1\n"
+	frame, _ := json.Marshal(map[string]any{"method": "turn/diff/updated", "params": map[string]any{"turnId": "turn-1", "diff": patch}})
+	events, _, got := protocolTurn(t, string(frame),
+		`{"method":"item/agentMessage/delta","params":{"itemId":"answer","delta":"Continuing after file creation"}}`,
+		`{"method":"item/completed","params":{"item":{"id":"late","type":"fileChange","status":"completed","changes":[{"path":"New.swift","kind":{"type":"add"},"diff":"let value = 1\n"}]}}}`,
+		`{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed","items":[]}}}`)
+	var fileAt, textAt, files int
+	for i, event := range events {
+		if event.Type == agent.EventToolResult && event.Tool.Action != nil && event.Tool.Action.Kind == agent.KindFileEdit {
+			fileAt, files = i, files+1
+			if event.Tool.Action.Files[0].Op != "create" || event.Tool.Action.Files[0].Diff != patch {
+				t.Fatalf("aggregate file was not normalized: %+v", event.Tool.Action)
+			}
+		}
+		if event.Type == agent.EventText {
+			textAt = i
+		}
+	}
+	if !got || files != 1 || fileAt >= textAt {
+		t.Fatalf("file was delayed or duplicated: files=%d fileAt=%d textAt=%d events=%+v", files, fileAt, textAt, events)
+	}
+}
+
+func TestAppServerInterruptedSnapshotKeepsPartialAnswer(t *testing.T) {
+	for _, final := range []string{"", "Partial"} {
+		frame, _ := json.Marshal(map[string]any{"method": "turn/completed", "params": map[string]any{"turn": map[string]any{
+			"id": "turn-1", "status": "interrupted", "items": []any{map[string]any{"id": "answer", "type": "agentMessage", "text": final}},
+		}}})
+		events, _, _ := protocolTurn(t,
+			`{"method":"item/agentMessage/delta","params":{"itemId":"answer","delta":"Partial answer still being written"}}`, string(frame))
+		text := ""
+		for _, event := range events {
+			if event.Type != agent.EventText {
+				continue
+			}
+			if event.Delta {
+				text += event.Text
+			} else {
+				text = event.Text
+			}
+		}
+		if text != "Partial answer still being written" {
+			t.Fatalf("interrupt erased text: %q", text)
 		}
 	}
 }

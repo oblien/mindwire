@@ -100,6 +100,39 @@
       }
     },
     "schemas": {
+      "RunSnapshot": {
+        "type": "object",
+        "required": [
+          "run",
+          "sequence",
+          "parts"
+        ],
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/Run"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            }
+          },
+          "result": {
+            "$ref": "#/components/schemas/ResultInfo"
+          },
+          "error": {
+            "type": "string"
+          },
+          "statusMessage": {
+            "type": "string"
+          }
+        }
+      },
       "Error": {
         "type": "object",
         "properties": {
@@ -2198,6 +2231,42 @@
     }
   ],
   "paths": {
+    "/runs/{id}/snapshot": {
+      "get": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Get the current turn snapshot and stream cursor",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunSnapshot"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Load the ordered partial components once, then subscribe to /runs/{id}/stream?after=sequence for newer events. Also available after cancellation or completion; persisted parts survive buffer expiry and daemon restarts."
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [

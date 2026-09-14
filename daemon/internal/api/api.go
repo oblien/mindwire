@@ -74,6 +74,7 @@ func (a *API) Routes() []Route {
 		// Turns + streaming
 		{"POST", "/turns", a.turn},
 		{"GET", "/runs/{id}", a.getRun},
+		{"GET", "/runs/{id}/snapshot", a.runSnapshot},
 		{"GET", "/runs/{id}/children", a.runChildren},
 		{"POST", "/runs/{id}/cancel", a.cancelRun},
 		{"POST", "/runs/{id}/respond", a.respondRun},
@@ -282,6 +283,17 @@ func (a *API) getRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, run)
+}
+
+// runSnapshot hydrates a turn once, then the client subscribes after its cursor. It is
+// also a recovery path when a proxy keeps an SSE connection open without forwarding it.
+func (a *API) runSnapshot(w http.ResponseWriter, r *http.Request) {
+	snapshot, ok := a.sup.Snapshot(r.PathValue("id"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
 }
 
 // statsResp is the daemon PROCESS's own resource snapshot — deliberately cheap and dependency-free:

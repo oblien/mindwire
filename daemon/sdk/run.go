@@ -37,7 +37,15 @@ func (r *Run) Value() RunRecord { return r.data }
 // StreamOption tunes Stream.
 type StreamOption func(*streamConfig)
 
-type streamConfig struct{ openSentinel bool }
+type streamConfig struct {
+	openSentinel bool
+	after        int64
+}
+
+// WithAfterSequence subscribes only to events newer than a snapshot/event cursor.
+func WithAfterSequence(sequence int64) StreamOption {
+	return func(c *streamConfig) { c.after = max(sequence, 0) }
+}
 
 // WithOpenSentinel prepends a synthetic {type:"status", meta:{"stream":"open"}} event, reproducing the
 // immediate open frame the SSE endpoint flushes before replay. Off by default (the raw hub stream has
@@ -59,7 +67,7 @@ func (r *Run) Stream(ctx context.Context, opts ...StreamOption) iter.Seq[Event] 
 		o(&cfg)
 	}
 	return func(yield func(Event) bool) {
-		replay, ch, done, cancel := r.core.hub.Subscribe(r.data.ID)
+		replay, ch, done, cancel := r.core.hub.SubscribeAfter(r.data.ID, cfg.after)
 		defer cancel()
 
 		if cfg.openSentinel {
@@ -68,11 +76,16 @@ func (r *Run) Stream(ctx context.Context, opts ...StreamOption) iter.Seq[Event] 
 			}
 		}
 		for _, ev := range replay {
+			ev.Replay = true
 			if !yield(ev) {
 				return
 			}
 		}
-		if done {
+		record, exists := r.core.store.GetRun(r.data.ID)
+		if done || !exists || record.Status != "running" {
+			if !done {
+				r.core.hub.Close(r.data.ID)
+			}
 			return
 		}
 		for {
@@ -207,6 +220,17 @@ func (r *Run) Refresh() (RunRecord, error) {
 	}
 	r.data = rec
 	return rec, nil
+}
+
+// Snapshot restores the current ordered output without replaying it. Follow new output
+// with Stream(ctx, WithAfterSequence(snapshot.Sequence)). Stopped output remains available.
+func (r *Run) Snapshot() (RunSnapshot, error) {
+	snapshot, ok := r.core.sup.Snapshot(r.data.ID)
+	if !ok {
+		return RunSnapshot{}, &APIError{Message: "not found", Status: http.StatusNotFound, Op: "Run.Snapshot"}
+	}
+	r.data = snapshot.Run
+	return snapshot, nil
 }
 
 // capGate returns APIError{400 msg} when the run's agent declares the capability false. An

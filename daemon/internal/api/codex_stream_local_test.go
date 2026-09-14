@@ -262,6 +262,7 @@ func (f *codexStreamFixture) model(w http.ResponseWriter, r *http.Request) {
 				var source strings.Builder
 				for line := 0; line < 240; line++ {
 					fmt.Fprintf(&source, "+let value%d = %d\n", line, line)
+					fmt.Fprintf(&source, "+// %s\n", strings.Repeat("界", 128)) // >64 KiB, split UTF-8/network frames
 				}
 				patch = fmt.Sprintf("*** Begin Patch\n*** Add File: App-%d.swift\n%s*** Add File: notes-%d.md\n+# Streaming app\n+Created with a second file in the same operation.\n*** End Patch", turn, source.String(), turn)
 			}
@@ -280,6 +281,111 @@ func (f *codexStreamFixture) model(w http.ResponseWriter, r *http.Request) {
 		"id": fmt.Sprintf("resp_%d", index), "object": "response", "status": "completed", "output": output,
 		"usage": map[string]any{"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
 	}})
+}
+
+func TestCodexCancellationPreservesPartialNativeOutput(t *testing.T) {
+	f := newCodexStreamFixture(t)
+	response := fixtureRequest(t, f.server.URL, "POST", "/turns?agent=codex", map[string]any{"chatId": "cancel-chat", "message": "Build files, then explain"})
+	var run session.Run
+	if err := json.NewDecoder(response.Body).Decode(&run); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	response = fixtureRequest(t, f.server.URL, "GET", "/runs/"+run.ID+"/stream", nil)
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(make([]byte, 4096), 16<<20)
+	seen := map[string]bool{}
+	cancelled := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var event agent.Event
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+			t.Fatal(err)
+		}
+		phase := ""
+		if event.Type == agent.EventThinking && event.Text == "Checking " {
+			phase = "thinking"
+		}
+		if event.Type == agent.EventText && event.Text == "Inspecting " {
+			phase = "commentary"
+		}
+		if event.Tool != nil {
+			if strings.Contains(event.Tool.Output, "tool output one") {
+				phase = "tool"
+			}
+			if event.Tool.Action != nil {
+				for _, file := range event.Tool.Action.Files {
+					switch {
+					case strings.Contains(file.Diff, "+let value239 = 239"):
+						phase = "files"
+					case strings.Contains(file.Diff, "+Updated while streaming"):
+						phase = "edit"
+					case strings.Contains(file.Diff, "+Hello from Codex streaming"):
+						phase = "create"
+					}
+				}
+			}
+		}
+		if phase != "" && !seen[phase] {
+			seen[phase] = true
+			ack := fixtureRequest(t, f.server.URL, "POST", "/fixture/ack/"+phase+"-1", nil)
+			ack.Body.Close()
+		}
+		if event.Type == agent.EventText && event.Text == "Finished " && !cancelled {
+			// The model is blocked before item completion. Snapshot and Stop use real daemon
+			// state, rather than a fixture manufacturing a completed transcript for cancellation.
+			snap := fixtureRequest(t, f.server.URL, "GET", "/runs/"+run.ID+"/snapshot", nil)
+			var snapshot stream.Snapshot
+			_ = json.NewDecoder(snap.Body).Decode(&snapshot)
+			snap.Body.Close()
+			if snapshot.Parts[len(snapshot.Parts)-1].Text != "Finished " {
+				t.Fatalf("partial snapshot missing: %+v", snapshot)
+			}
+			stop := fixtureRequest(t, f.server.URL, "POST", "/runs/"+run.ID+"/cancel", nil)
+			stop.Body.Close()
+			cancelled = true
+		}
+	}
+	response.Body.Close()
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !cancelled || len(seen) != 6 {
+		t.Fatalf("partial phases=%v cancelled=%v", seen, cancelled)
+	}
+	current, _ := f.store.GetRun(run.ID)
+	if current.Status != "cancelled" {
+		t.Fatalf("run=%+v", current)
+	}
+	response = fixtureRequest(t, f.server.URL, "GET", "/chats/cancel-chat/messages?agent=codex", nil)
+	var messages []agent.Message
+	_ = json.NewDecoder(response.Body).Decode(&messages)
+	response.Body.Close()
+	if len(messages) != 2 {
+		t.Fatalf("cancelled history=%+v", messages)
+	}
+	var partial, diffs int
+	for _, part := range messages[1].Parts {
+		if part.Type == "text" && part.Text == "Finished " {
+			partial++
+		}
+		if part.Tool != nil && part.Tool.Action != nil {
+			diffs += len(part.Tool.Action.Files)
+		}
+	}
+	if partial != 1 || diffs != 4 || !strings.Contains(messages[1].Text, "Finished") {
+		for _, part := range messages[1].Parts {
+			if part.Tool != nil && part.Tool.Action != nil {
+				for _, file := range part.Tool.Action.Files {
+					t.Logf("tool=%s path=%q diffBytes=%d", part.Tool.ID, file.Path, len(file.Diff))
+				}
+			}
+		}
+		t.Fatalf("Stop lost partial output: text=%q partial=%d diffs=%d", messages[1].Text, partial, diffs)
+	}
 }
 
 func fixtureRequest(t *testing.T, base, method, path string, body any) *http.Response {

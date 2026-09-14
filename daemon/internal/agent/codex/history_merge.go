@@ -131,6 +131,10 @@ func mergeTurnParts(native, recorded []agent.Message) []agent.Message {
 			}
 			if match >= 0 {
 				final := &parts[match].part
+				if final.Text == "" && (part.Type == "text" || part.Type == "thinking") {
+					// Interrupted items can be persisted without their streamed body.
+					final.Text = part.Text
+				}
 				if final.DurationMs == 0 {
 					final.DurationMs = part.DurationMs
 				}
