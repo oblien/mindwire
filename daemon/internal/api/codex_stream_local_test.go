@@ -219,8 +219,15 @@ func (f *codexStreamFixture) model(w http.ResponseWriter, r *http.Request) {
 	f.calls++
 	index := f.calls
 	f.mu.Unlock()
-	turn, step := (index-1)/3+1, (index-1)%3
+	turn, step := (index-1)/5+1, (index-1)%5
 	w.Header().Set("Content-Type", "text/event-stream")
+	// Each later operation waits for the preceding file diff to reach the client.
+	// Final-history-only file parsing cannot satisfy these gates.
+	if phase := map[int]string{2: "create", 3: "edit", 4: "files"}[step]; phase != "" {
+		if !f.wait(r, fmt.Sprintf("%s-%d", phase, turn)) {
+			return
+		}
+	}
 	var output []any
 	if step == 0 {
 		id := fmt.Sprintf("reasoning_%d", turn)
@@ -241,7 +248,7 @@ func (f *codexStreamFixture) model(w http.ResponseWriter, r *http.Request) {
 		}
 		output = append(output, message)
 	}
-	if step < 2 {
+	if step < 4 {
 		item := map[string]any{"id": fmt.Sprintf("tool_%d", index), "call_id": fmt.Sprintf("call_%d", index)}
 		if step == 0 {
 			command := "/bin/sh " + agent.ShellQuote(filepath.Join(f.cwd, "stream_tool.sh")) + " " + agent.ShellQuote(filepath.Join(f.cwd, fmt.Sprintf("tool-%d", turn)))
@@ -249,6 +256,15 @@ func (f *codexStreamFixture) model(w http.ResponseWriter, r *http.Request) {
 			item["type"], item["name"], item["arguments"] = "function_call", "exec_command", string(args)
 		} else {
 			patch := fmt.Sprintf("*** Begin Patch\n*** Add File: result-%d.txt\n+Hello from Codex streaming\n*** End Patch", turn)
+			if step == 2 {
+				patch = fmt.Sprintf("*** Begin Patch\n*** Update File: result-%d.txt\n@@\n Hello from Codex streaming\n+Updated while streaming\n*** End Patch", turn)
+			} else if step == 3 {
+				var source strings.Builder
+				for line := 0; line < 240; line++ {
+					fmt.Fprintf(&source, "+let value%d = %d\n", line, line)
+				}
+				patch = fmt.Sprintf("*** Begin Patch\n*** Add File: App-%d.swift\n%s*** Add File: notes-%d.md\n+# Streaming app\n+Created with a second file in the same operation.\n*** End Patch", turn, source.String(), turn)
+			}
 			item["type"], item["name"], item["input"] = "custom_tool_call", "apply_patch", patch
 		}
 		streamFixtureEvent(w, map[string]any{"type": "response.output_item.done", "output_index": 2, "item": item})
@@ -323,9 +339,37 @@ func TestCodexStreamingHTTP(t *testing.T) {
 			case event.Type == agent.EventToolUse && event.Tool != nil && strings.Contains(event.Tool.Output, "tool output one") && !strings.Contains(event.Tool.Output, "tool output two"):
 				phase = "tool"
 			}
+			if event.Tool != nil && event.Tool.Action != nil {
+				for _, file := range event.Tool.Action.Files {
+					switch {
+					case strings.Contains(file.Diff, "+Updated while streaming"):
+						phase = "edit"
+					case strings.Contains(file.Diff, "+Hello from Codex streaming"):
+						phase = "create"
+					case strings.Contains(file.Diff, "+let value239 = 239"):
+						phase = "files"
+					}
+				}
+			}
 			if phase != "" && !seen[phase] {
 				if current, _ := f.store.GetRun(run.ID); current.Status != "running" {
 					t.Fatalf("%s arrived after the turn ended", phase)
+				}
+				if phase == "files" {
+					listing := fixtureRequest(t, f.server.URL, "GET", "/chats", nil)
+					var chats []session.ChatSummary
+					_ = json.NewDecoder(listing.Body).Decode(&chats)
+					listing.Body.Close()
+					if len(chats) != 1 || chats[0].LastStatus != "running" || chats[0].LastRunID != run.ID || chats[0].Agent != "codex" {
+						t.Fatalf("daemon did not expose the working chat: %+v", chats)
+					}
+					history := fixtureRequest(t, f.server.URL, "GET", "/chats/stream-chat/messages?agent=codex", nil)
+					var messages []agent.Message
+					_ = json.NewDecoder(history.Body).Decode(&messages)
+					history.Body.Close()
+					if len(messages) != turn*2-1 || messages[len(messages)-1].Role != "user" {
+						t.Fatalf("active history must keep prior turns and exclude live output: %+v", messages)
+					}
 				}
 				seen[phase] = true
 				ack := fixtureRequest(t, f.server.URL, "POST", fmt.Sprintf("/fixture/ack/%s-%d", phase, turn), nil)
@@ -337,11 +381,11 @@ func TestCodexStreamingHTTP(t *testing.T) {
 			t.Fatal(err)
 		}
 		current, _ := f.store.GetRun(run.ID)
-		if len(seen) != 4 || current.Status != "done" {
+		if len(seen) != 7 || current.Status != "done" {
 			data, _ := json.Marshal(events)
 			t.Fatalf("turn %d: partial phases=%v run=%+v events=%s", turn, seen, current, data)
 		}
-		if data, err := os.ReadFile(filepath.Join(f.cwd, fmt.Sprintf("result-%d.txt", turn))); err != nil || string(data) != "Hello from Codex streaming\n" {
+		if data, err := os.ReadFile(filepath.Join(f.cwd, fmt.Sprintf("result-%d.txt", turn))); err != nil || string(data) != "Hello from Codex streaming\nUpdated while streaming\n" {
 			t.Fatalf("native file edit failed: %q %v", data, err)
 		}
 		response = fixtureRequest(t, f.server.URL, "GET", "/chats/stream-chat/messages?agent=codex", nil)
@@ -364,8 +408,8 @@ func TestCodexStreamingHTTP(t *testing.T) {
 				}
 			}
 		}
-		if final != 1 || diffs != 1 {
-			t.Fatalf("turn %d: final replies=%d diffs=%d, want one each; %+v", turn, final, diffs, messages)
+		if final != 1 || diffs != 4 {
+			t.Fatalf("turn %d: final replies=%d diffs=%d, want one reply and four diffs; %+v", turn, final, diffs, messages)
 		}
 	}
 }

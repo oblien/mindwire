@@ -518,6 +518,18 @@ func (st *Store) Chats() []ChatSummary {
 		if r.ParentID != "" {
 			continue // a resolve child iteration; the parent is the chat's representative run
 		}
+		a := m[r.ChatID]
+		if a == nil {
+			a = &agg{}
+			m[r.ChatID] = a
+			order = append(order, r.ChatID)
+		}
+		if r.CreatedAt > a.updated {
+			a.updated = r.CreatedAt
+		}
+		if r.EndedAt > a.updated {
+			a.updated = r.EndedAt
+		}
 		status[r.ChatID] = r.Status // runs are appended in order, so last wins
 		lastRun[r.ChatID] = r.ID
 		if r.Agent != "" {
@@ -574,6 +586,12 @@ func (st *Store) ChatSummaryFor(chatID string) ChatSummary {
 		}
 		sum.LastStatus = r.Status // runs are appended in order, so last wins
 		sum.LastRunID = r.ID
+		if r.CreatedAt > sum.UpdatedAt {
+			sum.UpdatedAt = r.CreatedAt
+		}
+		if r.EndedAt > sum.UpdatedAt {
+			sum.UpdatedAt = r.EndedAt
+		}
 		if r.Agent != "" {
 			sum.Agent = r.Agent
 		}

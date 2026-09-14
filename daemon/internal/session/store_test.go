@@ -15,6 +15,34 @@ func openTestStore(t *testing.T) *Store {
 	return st
 }
 
+func TestChatActivityTracksRunsWithoutMessagesAndSkipsChildRuns(t *testing.T) {
+	st := openTestStore(t)
+	if err := st.AddMessage(Message{ID: "message", ChatID: "older", Role: "user", Text: "Earlier chat", CreatedAt: "2026-09-14T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: "parent", ChatID: "active", Agent: "codex", Status: "running", CreatedAt: "2026-09-14T10:01:00Z"}
+	if err := st.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveRun(Run{ID: "child", ChatID: "active", ParentID: "parent", Agent: "codex", Status: "done", CreatedAt: "2026-09-14T10:02:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	chats := st.Chats()
+	if len(chats) != 2 || chats[0].ChatID != "active" || chats[0].LastRunID != "parent" || chats[0].LastStatus != "running" {
+		t.Fatalf("working chat must be visible with its top-level run: %+v", chats)
+	}
+	if single := st.ChatSummaryFor("active"); single != chats[0] {
+		t.Fatalf("single and list activity disagree: %+v / %+v", single, chats[0])
+	}
+	run.Status, run.EndedAt = "done", "2026-09-14T10:03:00Z"
+	if err := st.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Chats()[0]; got.LastStatus != "done" || got.UpdatedAt != run.EndedAt || got.Agent != "codex" {
+		t.Fatalf("completion did not update activity/recency: %+v", got)
+	}
+}
+
 // TestTitleRoundtrip: a user title persists, is returned by Title/Chats, and an empty title clears it.
 func TestTitleRoundtrip(t *testing.T) {
 	st := openTestStore(t)

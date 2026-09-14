@@ -85,6 +85,11 @@ type ContinuationInfo struct {
 // Event is the unified stream item. Optional fields are populated per Type.
 type Event struct {
 	Type EventType `json:"type"`
+	// Sequence is assigned by the run hub, across all harnesses. Reconnect with
+	// ?after=<sequence> to receive only unseen events. Replay marks buffered events
+	// on an SSE connection; it is never set on newly published activity.
+	Sequence int64 `json:"sequence,omitempty"`
+	Replay   bool  `json:"replay,omitempty"`
 	// ItemID correlates text/thinking snapshots with their streaming item. A non-delta
 	// event replaces that item's text even if other components have arrived since it.
 	ItemID       string            `json:"itemId,omitempty"`

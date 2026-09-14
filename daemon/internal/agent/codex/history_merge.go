@@ -39,7 +39,7 @@ func mergeRecordedHistory(native, recorded []agent.Message) []agent.Message {
 				continue
 			}
 			if stamp, ok := historyTime(candidate.CreatedAt); ok && hasStart {
-				// The stored user timestamp has second precision; the native echo has milliseconds.
+				// Legacy stored user timestamps have second precision; native echoes use milliseconds.
 				if stamp.Before(start.Add(-time.Second)) || end.After(start) && !stamp.Before(end) {
 					continue
 				}

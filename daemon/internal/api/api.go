@@ -537,6 +537,15 @@ func (a *API) doctor(w http.ResponseWriter, r *http.Request) {
 // restart, for which the hub holds no live topic) replays and closes rather than hanging.
 func (a *API) streamRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	var after int64
+	if value := r.URL.Query().Get("after"); value != "" {
+		var err error
+		after, err = strconv.ParseInt(value, 10, 64)
+		if err != nil || after < 0 {
+			badRequest(w, "after must be a non-negative event sequence")
+			return
+		}
+	}
 	run, ok := a.store.GetRun(id)
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -549,7 +558,7 @@ func (a *API) streamRun(w http.ResponseWriter, r *http.Request) {
 	}
 	sseHeaders(w)
 
-	replay, ch, done, cancel := a.hub.Subscribe(id)
+	replay, ch, done, cancel := a.hub.SubscribeAfter(id, after)
 	defer cancel()
 
 	send := func(ev agent.Event) {
@@ -562,14 +571,14 @@ func (a *API) streamRun(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("\n\n"))
 		flusher.Flush()
 	}
-	// Immediate sentinel: a real, decodable event flushed the instant the stream opens, BEFORE any
-	// replay or model output. On a proxy that streams per-event the client sees this in <1s and knows
-	// the transport is live; on a buffering proxy it (like everything else) is withheld until the run
-	// ends, so the client's first-event watchdog correctly flags "not live". The client ignores it.
+	// Connection markers are outside the sequenced run: open confirms the transport,
+	// ready separates previously recorded activity from new live operations.
 	send(agent.Event{Type: agent.EventStatus, Meta: map[string]any{"stream": "open"}})
 	for _, ev := range replay {
+		ev.Replay = true
 		send(ev)
 	}
+	send(agent.Event{Type: agent.EventStatus, Meta: map[string]any{"stream": "ready"}})
 	// Terminal run: nothing more will be published. Close a phantom topic (freshly created
 	// by Subscribe after a restart) so it gets reaped, and end the stream.
 	if done || run.Status != "running" {
@@ -800,6 +809,7 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	before := r.URL.Query().Get("before")
 	recorded := a.store.Messages(chatID)
+	run, hasRun := a.store.LatestRun(chatID)
 	if ag.Adapter.Capabilities().History == agent.SupportNative {
 		// Native transcripts are path-scoped: use the dir this chat actually ran in.
 		cwd := a.store.ChatCWD(chatID)
@@ -812,11 +822,48 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 		}
 		msgs, err := ag.Adapter.History(query)
 		if err == nil && len(msgs) > 0 {
+			if hasRun && run.Status == "running" {
+				msgs = historyBeforeRun(msgs, recorded, run)
+			}
 			writeJSON(w, http.StatusOK, pageWindow(msgs, limit, before, func(m agent.Message) string { return m.ID }))
 			return
 		}
 	}
+	if hasRun && run.Status == "running" {
+		var messages []agent.Message
+		for _, message := range recorded {
+			messages = append(messages, agent.Message(message))
+		}
+		committed := historyBeforeRun(messages, recorded, run)
+		writeJSON(w, http.StatusOK, pageWindow(committed, limit, before, func(m agent.Message) string { return m.ID }))
+		return
+	}
 	writeJSON(w, http.StatusOK, pageWindow(recorded, limit, before, func(m session.Message) string { return m.ID }))
+}
+
+// An active assistant turn belongs only to the run stream. Keep the native prefix
+// (including forked history and its pagination IDs), then the accepted user input.
+// Filtering also excludes a reply saved just before the run's terminal status write.
+func historyBeforeRun(native []agent.Message, recorded []session.Message, run session.Run) []agent.Message {
+	start, err := time.Parse(time.RFC3339Nano, run.CreatedAt)
+	if err != nil {
+		return native
+	}
+	committed := make([]agent.Message, 0, len(native))
+	for _, message := range native {
+		at, err := time.Parse(time.RFC3339Nano, message.CreatedAt)
+		if err == nil && !at.Before(start) {
+			break
+		}
+		committed = append(committed, message)
+	}
+	for _, message := range recorded {
+		at, err := time.Parse(time.RFC3339Nano, message.CreatedAt)
+		if message.Role == "user" && err == nil && !at.Before(start) {
+			committed = append(committed, agent.Message(message))
+		}
+	}
+	return committed
 }
 
 // pageWindow returns the tail window of an oldest→newest message slice: everything strictly BEFORE

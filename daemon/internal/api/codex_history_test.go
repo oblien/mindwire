@@ -12,6 +12,56 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/session"
 )
 
+func TestRunningChatHistoryExcludesNativePartialAssistant(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("CODEX_HOME", base)
+	handler, store := newChatTestEnv(t, t.TempDir())
+	if err := store.SetSession("codex", "chat", "session"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(base, "sessions", "rollout-test-session.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := `{"timestamp":"2026-09-14T09:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"Earlier question from a forked session"}}
+{"timestamp":"2026-09-14T09:00:01Z","type":"event_msg","payload":{"type":"agent_message","message":"Earlier answer"}}
+{"timestamp":"2026-09-14T10:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"Build an app"}}
+{"timestamp":"2026-09-14T10:00:01Z","type":"event_msg","payload":{"type":"agent_message","message":"Creating the files."}}
+`
+	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMessage(session.Message{ID: "user", ChatID: "chat", Role: "user", Text: "Build an app", CreatedAt: "2026-09-14T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	run := session.Run{ID: "run", ChatID: "chat", Agent: "codex", Status: "running", CreatedAt: "2026-09-14T10:00:00Z"}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	read := func() []agent.Message {
+		t.Helper()
+		response := serve(t, handler, "GET", "/chats/chat/messages?agent=codex", "")
+		var messages []agent.Message
+		if response.Code != http.StatusOK {
+			t.Fatalf("history: %d %s", response.Code, response.Body.String())
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &messages); err != nil {
+			t.Fatal(err)
+		}
+		return messages
+	}
+	if messages := read(); len(messages) != 3 || messages[2].ID != "user" || messages[1].Text != "Earlier answer" {
+		t.Fatalf("active output duplicated in history: %+v", messages)
+	}
+	run.Status = "done"
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	if messages := read(); len(messages) != 4 || messages[3].Text != "Creating the files." {
+		t.Fatalf("idle chat must still read native history: %+v", messages)
+	}
+}
+
 func TestCodexMessagesPreserveRecordedWarningsAndErrorsWithNativeHistory(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("CODEX_HOME", base)

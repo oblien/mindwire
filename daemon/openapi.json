@@ -613,6 +613,20 @@
           },
           "at": {
             "type": "string"
+          },
+          "itemId": {
+            "type": "string",
+            "description": "Stable item identity for text and thinking snapshots."
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "Monotonic event sequence within a run. Reconnect using the after query parameter to receive unseen events only. Connection sentinels have no sequence."
+          },
+          "replay": {
+            "type": "boolean",
+            "description": "True for events replayed from the run buffer; absent or false for newly arriving activity."
           }
         },
         "required": [
@@ -3926,10 +3940,21 @@
           "Turns & runs"
         ],
         "summary": "Stream unified events (SSE)",
-        "description": "Server-Sent Events. Each event is `data: <json>\\n\\n` (no `event:`/`id:` lines \u2014 the type is in the payload). On open, a sentinel `{\"type\":\"status\",\"meta\":{\"stream\":\"open\"}}` is sent, then the replay buffer, then live events. A `: ping` comment heartbeat is sent every 25s. The payload schema is one Event per frame.",
+        "description": "Server-Sent Events, one Event JSON payload per data frame. The stream begins with status meta.stream=open, replays events newer than the optional after cursor, then sends status meta.stream=ready before continuing live. Replayed events have replay=true; sequenced events retain their sequence across reconnects. A : ping comment heartbeat is sent every 25s.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "description": "Last event sequence received. Omit or use 0 to replay the whole run."
           }
         ],
         "responses": {
@@ -3945,6 +3970,16 @@
           },
           "404": {
             "description": "Unknown run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid event cursor",
             "content": {
               "application/json": {
                 "schema": {
@@ -4177,7 +4212,7 @@
           "Chats"
         ],
         "summary": "Chat transcript",
-        "description": "Native transcript when the agent supports it, else the recorded fallback.",
+        "description": "Returns the native transcript when supported, enriched with recorded content, or the recorded fallback. While a run is active, returns only the committed history preceding it and the accepted user input; active assistant output belongs to the run stream.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"

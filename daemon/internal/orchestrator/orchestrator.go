@@ -821,7 +821,8 @@ func newID() string {
 	return hex.EncodeToString(b[:])
 }
 
-func nowISO() string { return time.Now().UTC().Format(time.RFC3339) }
+// Sub-second precision keeps consecutive turns distinct when history is reconciled.
+func nowISO() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 // snippet is a short, rune-safe, single-line summary for a notification body.
 func snippet(s string) string {

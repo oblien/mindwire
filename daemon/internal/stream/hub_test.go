@@ -9,6 +9,43 @@ import (
 
 func txt(s string) agent.Event { return agent.Event{Type: agent.EventText, Text: s} }
 
+func TestCursorRecoversRepeatedSlowSubscriberEvictions(t *testing.T) {
+	h := New()
+	var after int64
+	consume := func(ev agent.Event) {
+		t.Helper()
+		if ev.Sequence != after+1 || ev.Replay {
+			t.Fatalf("event after %d = %+v", after, ev)
+		}
+		after = ev.Sequence
+	}
+	for attempt := 0; attempt < 4; attempt++ {
+		replay, ch, done, cancel := h.SubscribeAfter("run", after)
+		if done {
+			t.Fatal("a disconnected subscriber must not complete the run")
+		}
+		for _, ev := range replay {
+			consume(ev)
+		}
+		for i := 0; i < subBuffer+17; i++ {
+			h.Publish("run", txt("file edit"))
+		}
+		for ev := range ch {
+			consume(ev)
+		}
+		cancel()
+	}
+	h.Close("run")
+	replay, _, done, cancel := h.SubscribeAfter("run", after)
+	defer cancel()
+	for _, ev := range replay {
+		consume(ev)
+	}
+	if !done || after != 4*(subBuffer+17) {
+		t.Fatalf("lost events after repeated reconnects: sequence=%d done=%v", after, done)
+	}
+}
+
 // A subscriber that joins mid-run gets the full replay buffer in publish order, then live events on the
 // channel — with no gap or reordering across the boundary.
 func TestSubscribeReplaysThenStreamsLive(t *testing.T) {

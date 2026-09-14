@@ -61,15 +61,15 @@ func (h *Hub) Publish(id string, ev agent.Event) {
 	if t.closed {
 		return
 	}
+	ev.Sequence = int64(len(t.buf)) + 1
+	ev.Replay = false
 	t.buf = append(t.buf, ev)
 	for ch := range t.subs {
 		select {
 		case ch <- ev:
 		default:
-			// Subscriber can't keep up. Dropping the event would lose it with no gap signal
-			// (Event has no sequence id), so instead evict the subscriber: closing its channel
-			// ends its SSE handler, the client reconnects, and Subscribe replays the full
-			// retained buffer — no permanent loss.
+			// Close a slow subscriber so it reconnects from its last delivered sequence.
+			// Unseen events stay in the retained buffer; none is silently dropped.
 			delete(t.subs, ch)
 			close(ch)
 		}
@@ -103,10 +103,17 @@ func (h *Hub) Close(id string) {
 // registers a channel for subsequent events. `done` is true when the run already
 // finished — the caller just sends the replay and stops. Always call cancel().
 func (h *Hub) Subscribe(id string) (replay []agent.Event, ch <-chan agent.Event, done bool, cancel func()) {
+	return h.SubscribeAfter(id, 0)
+}
+
+// SubscribeAfter atomically replays events newer than after and subscribes to live
+// updates. Sequence numbers survive reconnects for the lifetime of the run topic.
+func (h *Hub) SubscribeAfter(id string, after int64) (replay []agent.Event, ch <-chan agent.Event, done bool, cancel func()) {
 	t := h.get(id)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	replay = append([]agent.Event(nil), t.buf...)
+	start := min(max(after, 0), int64(len(t.buf)))
+	replay = append([]agent.Event(nil), t.buf[start:]...)
 	if t.closed {
 		return replay, nil, true, func() {}
 	}
