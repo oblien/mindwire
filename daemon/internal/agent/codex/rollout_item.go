@@ -64,14 +64,9 @@ func rolloutItem(raw json.RawMessage) (normItem, error) {
 		files := make([]normChange, 0, len(paths))
 		for _, path := range paths {
 			change := changes[path]
-			diff := change.Diff
-			switch change.Type {
-			case "add":
-				diff = agent.BuildUnifiedDiff(path, "", change.Content)
-			case "delete":
-				diff = agent.BuildUnifiedDiff(path, change.Content, "")
-			}
-			files = append(files, normChange{Path: path, Kind: change.Type, Diff: diff, MovePath: change.MovePath})
+			file := normChange{Path: path, Kind: change.Type, Diff: change.Diff, MovePath: change.MovePath}
+			file.setContent(change.Content)
+			files = append(files, file)
 		}
 		// The common decoder also accepts normalized string kinds and movePath.
 		converted["changes"], _ = json.Marshal(files)

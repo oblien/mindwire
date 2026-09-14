@@ -3,9 +3,8 @@ package codex
 import "github.com/oblien/mindwire/daemon/internal/agent"
 
 // Notifications declares Codex's inline notification conditions and how each reads. Finished/Errored
-// fire on every turn (the exec hot path runs to completion). WaitingApproval/WaitingFeedback carry
-// their UX so the client and receiver know the shape; they fire on the app-server transport, when a
-// non-`never` approval turn pauses for the user (see appserver.go).
+// describe terminal runs. WaitingApproval/WaitingFeedback carry their UX so the client and receiver
+// can present a paused app-server turn's approval or question (see appserver.go).
 func (adapter) Notifications() agent.NotificationSpec {
 	return agent.NotificationSpec{Conditions: []agent.ConditionUX{
 		{Condition: agent.Finished, Title: "Codex finished"},

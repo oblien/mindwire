@@ -33,8 +33,8 @@ import (
 //
 // Verified on codex-cli 0.146.0: `-p` is accepted before the (optional) `resume` subcommand on
 // `codex exec` and the overlay's fields pass `--strict-config`; a fresh turn loads it and emits
-// `thread.started`. The app-server transport does NOT accept `-p`, so systemPrompt/mcpServers there are
-// rejected honestly (see RunStream) rather than silently dropped.
+// `thread.started`. App-server does not accept `-p`; it carries the same decoded prompt/MCP values
+// directly in thread/start and thread/resume RPCs (appserver_config.go).
 
 // codexMCPServer is the canonical agent.MCPServer under a codex-local alias. It is the subset of a
 // `[mcp_servers.NAME]` table we transcode a client's MCP JSON into — stdio (command/args/env/cwd) and

@@ -1,10 +1,8 @@
 // Package codex is the OpenAI Codex CLI adapter — mindwire's second agent, proving the
 // architecture's promise that adding an agent is one new adapter with zero core or client changes.
-// It declares Codex's capabilities, dynamic settings, install toolchain, and runs a turn via
-// `codex exec --json` (the one-shot hot path), mapping the snake_case NDJSON stream to unified
-// events. A turn that must pause for the user (a non-`never` approval policy with an inbound
-// channel) upgrades to the experimental `codex app-server` JSON-RPC transport — see appserver.go
-// (Stage 5). It registers itself on import (blank-imported by cmd/daemon).
+// Chat turns use `codex app-server` for incremental text, reasoning, tool output and user input.
+// Headless callers without an inbound channel retain `codex exec --json`. Both transports map
+// into the same shared events. It registers itself on import (blank-imported by cmd/daemon).
 package codex
 
 import (
@@ -33,16 +31,14 @@ func (adapter) Meta() agent.CatalogEntry {
 
 func (adapter) Capabilities() agent.Capabilities {
 	return agent.Capabilities{
-		Protocol:   agent.ProtocolCLI,          // driven via `codex exec` (driver.CLI); app-server upgrades a single turn
-		Output:     agent.OutputStructuredJSON, // `--json` emits an NDJSON event stream
-		History:    agent.SupportNative,        // rollout JSONL under $CODEX_HOME/sessions/**
-		Sessions:   agent.SupportNative,        // `codex exec resume <id>` / `--last`
+		Protocol:   agent.ProtocolPersistent, // chat turns hold an app-server connection for live events and input
+		Output:     agent.OutputStructuredJSON,
+		History:    agent.SupportNative, // rollout JSONL under $CODEX_HOME/sessions/**
+		Sessions:   agent.SupportNative, // `codex exec resume <id>` / `--last`
 		Resume:     true,
 		ToolEvents: true,
 		Cancel:     true,
-		// One-shot per turn by default (the exec hot path). A non-`never` approval turn with an inbound
-		// channel upgrades to the persistent app-server transport for that turn — see RunStream.
-		Persistent: false,
+		Persistent: true,
 		// Codex ships no scriptable model list of its own and the daemon no longer stores the models.dev
 		// catalog, so /models returns an empty native list; Codex DECLARES its provider scope (openai) and
 		// the client sources the picker from the live catalog. The settings model field is free text (see
@@ -57,14 +53,8 @@ func (adapter) Capabilities() agent.Capabilities {
 		Interrupt:         true,
 		SetModel:          false,
 		SetPermissionMode: false,
-		// Turn-option support: on the autonomous exec transport codex honors a full system-prompt
-		// override and per-turn MCP servers via a per-run profile overlay (see mcpconfig.go) —
-		// systemPrompt through `model_instructions_file` (a documented full replace, verified on codex
-		// 0.146.0), mcpServers through `[mcp_servers.NAME]`. Both are declared true (api.turn accepts
-		// them). appendSystemPrompt has no clean codex mechanism (only the append-style
-		// `developer_instructions`, out of scope), so it stays false and api.turn returns an honest 400.
-		// The interactive-approval (app-server) transport cannot take the overlay (`-p` is rejected
-		// there); such a turn returns an explicit error rather than silently dropping (see RunStream).
+		// App-server carries full system instructions and MCP config in thread RPCs; exec uses a
+		// temporary profile overlay. Both keep prompt/MCP credentials off the command line.
 		SystemPrompt:       true,
 		AppendSystemPrompt: false,
 		MCPServers:         true,
@@ -82,8 +72,7 @@ func (adapter) Capabilities() agent.Capabilities {
 		// Custom-provider registration (see providers.go): [model_providers.<id>] tables in config.toml,
 		// user scope only. The module type assertion is the authoritative gate.
 		CustomProviders: true,
-		// On-demand compaction (see compact.go): the app-server thread/compact/start RPC. The exec hot
-		// path can't compact, so Compact routes through the app-server transport regardless of approval.
+		// On-demand compaction uses the same connection settings and thread/compact/start RPC.
 		CompactNow: true,
 		// Global-resolve: codex's turn.completed is always fully settled (no subtype), and it resumes via
 		// `codex exec resume` — so a resolve run completes in a single iteration (one probe elicits the
@@ -134,17 +123,17 @@ type fieldSpec struct {
 // (scope custom, canon == key).
 var codexSpecs = []fieldSpec{
 	{key: keyModel, label: "Model", section: "Model & reasoning", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonModel, src: srcModels, emptyLabel: "Default (CLI default)", placeholder: "gpt-5.5", help: "Model the agent should use; leave blank for the CLI default. Free text here (CLI-validated); browse and pick the OpenAI model list in the client's Models surface, sourced from the live models.dev catalog."},
-	{key: keyEffort, label: "Reasoning effort", section: "Model & reasoning", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonReasoningEffort, src: srcNone, placeholder: "medium", help: "How hard the model thinks per turn (e.g. minimal, low, medium, high, xhigh). Sent as -c model_reasoning_effort; Codex has no CLI flag or scriptable list for it."},
+	{key: keyEffort, label: "Reasoning effort", section: "Model & reasoning", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonReasoningEffort, src: srcNone, placeholder: "medium", help: "How much reasoning the model uses per turn (e.g. minimal, low, medium, high, xhigh), depending on the selected model."},
 
-	{key: keyApproval, label: "Approval policy", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonPermissionMode, src: srcApproval, emptyLabel: "Never (autonomous)", help: "When Codex pauses to ask you before running a command. Any mode other than Never needs the approval flow (routed over the app-server transport)."},
+	{key: keyApproval, label: "Approval policy", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonPermissionMode, src: srcApproval, emptyLabel: "Never (autonomous)", help: "When Codex pauses to ask you before running a command."},
 	{key: keySandbox, label: "Sandbox", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeCustom, canon: keySandbox, src: srcSandbox, emptyLabel: "Default (workspace-write)", help: "Filesystem/network isolation for model-run commands — Codex's second permission axis, orthogonal to the approval policy."},
 
-	{key: keyWorkdir, label: "Working directory", section: "Workspace", typ: agent.FieldText, scope: agent.ScopeCustom, canon: keyWorkdir, src: srcNone, placeholder: "/path/to/repo", help: "Directory the agent uses as its working root (-C). Applies to fresh sessions; a resumed session keeps its original directory."},
-	{key: keyAddDir, label: "Extra directory", section: "Workspace", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonExtraDirs, src: srcNone, placeholder: "/path/to/other", help: "Additional directory that should be writable alongside the primary workspace (--add-dir)."},
+	{key: keyWorkdir, label: "Working directory", section: "Workspace", typ: agent.FieldText, scope: agent.ScopeCustom, canon: keyWorkdir, src: srcNone, placeholder: "/path/to/repo", help: "Directory the agent uses as its working root. Applies to fresh sessions; a resumed session keeps its original directory."},
+	{key: keyAddDir, label: "Extra directory", section: "Workspace", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonExtraDirs, src: srcNone, placeholder: "/path/to/other", help: "Additional directory that should be writable alongside the primary workspace."},
 
-	{key: keySystemPrompt, label: "System prompt (override)", section: "Prompt & context", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonSystemPrompt, src: srcNone, placeholder: "You are a terse senior engineer.", help: "Replaces Codex's default instructions entirely (a full override, threaded via model_instructions_file). A per-turn systemPrompt option overrides this. Requires the autonomous exec transport: with any approval policy other than Never, a turn carrying a system prompt is rejected rather than silently dropped."},
+	{key: keySystemPrompt, label: "System prompt (override)", section: "Prompt & context", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonSystemPrompt, src: srcNone, placeholder: "You are a terse senior engineer.", help: "Replaces Codex's default instructions entirely. A per-turn systemPrompt option overrides this."},
 
-	{key: keyAutoCompact, label: "Auto-compact window", section: "Limits", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonAutoCompactTokens, src: srcNone, placeholder: "200000", help: "Auto-compact the conversation once its context reaches this many tokens (sent as -c model_auto_compact_token_limit). Codex takes an integer only — a non-numeric value like 'auto' is ignored. Codex hard-caps the effective limit at ~90% of the model's context window."},
+	{key: keyAutoCompact, label: "Auto-compact window", section: "Limits", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonAutoCompactTokens, src: srcNone, placeholder: "200000", help: "Auto-compact the conversation once its context reaches this many tokens. Enter a positive integer; non-numeric values are ignored. Codex caps the effective limit at about 90% of the model's context window."},
 }
 
 // Settings builds Codex's settings schema. We own the field references; a select whose CLI source
@@ -229,8 +218,8 @@ func (adapter) Doctor(ctx context.Context) []agent.Check {
 
 func (adapter) Auth(store agent.CredStore) agent.AuthModule { return newAuth(store) }
 
-// approvalPolicy is the effective Codex approval policy for a turn (default: never = autonomous, the
-// exec hot path). Any other value means the turn can pause to ask a human.
+// approvalPolicy is the effective Codex approval policy (default: never = autonomous).
+// Other policies let a turn pause for human approval over the same live connection.
 func approvalPolicy(in agent.TurnInput) string {
 	if v := strings.TrimSpace(in.Config[keyApproval]); v != "" {
 		return v
@@ -253,6 +242,8 @@ type materialized struct {
 	outputSchemaPath string   // --output-schema <path> (from Options.OutputSchema)
 	imagePaths       []string // -i <path> per image attachment
 	configProfile    string   // -p <profile>: per-run config overlay carrying systemPrompt/mcpServers
+	systemPrompt     string
+	mcpServers       map[string]codexMCPServer
 }
 
 // buildExecCommand assembles the `codex exec` invocation for a turn from the message, applied
@@ -267,9 +258,6 @@ func buildExecCommand(in agent.TurnInput, files materialized) string {
 	resuming := in.Options.SessionID != "" || in.SessionID != "" || in.Options.ContinueLatest
 
 	cli := "codex exec"
-	if provider := strings.TrimSpace(in.Env[azureProviderMarker]); provider != "" {
-		cli += " -c " + agent.ShellQuote("model_provider="+provider)
-	}
 	// Per-run config overlay (systemPrompt/mcpServers). `-p` must precede the `resume` subcommand —
 	// codex rejects it after `resume` — so it is emitted first, before the fresh-vs-resume branch.
 	if files.configProfile != "" {
@@ -289,6 +277,12 @@ func buildExecCommand(in agent.TurnInput, files materialized) string {
 	}
 	// --json for the structured stream; --skip-git-repo-check because the sandbox cwd may not be a repo.
 	cli += " --json --skip-git-repo-check"
+
+	// Keep every -c override in the same command scope. Codex replaces pre-resume -c values
+	// when resume has its own -c flags; losing this one switches the endpoint and drops its auth.
+	if provider := strings.TrimSpace(in.Env[azureProviderMarker]); provider != "" {
+		cli += " -c " + agent.ShellQuote("model_provider="+provider)
+	}
 
 	// Model (fresh + resume both accept -m).
 	if v := agent.FirstNonEmpty(in.Config[keyModel], in.Env[azureModelMarker]); strings.TrimSpace(v) != "" {
@@ -365,7 +359,7 @@ func materialize(in agent.TurnInput) (files materialized, msgAppend string, clea
 		}
 	}
 
-	if len(opts.OutputSchema) > 0 {
+	if len(opts.OutputSchema) > 0 && in.Inbound == nil {
 		p, e := tmp.Write("mindwire-codex-schema-*.json", opts.OutputSchema)
 		if e != nil {
 			return files, "", cleanup, fmt.Errorf("write output schema: %w", e)
@@ -373,33 +367,35 @@ func materialize(in agent.TurnInput) (files materialized, msgAppend string, clea
 		files.outputSchemaPath = p
 	}
 
-	// systemPrompt / mcpServers → a per-run profile overlay layered via `codex exec -p`. The prompt is
-	// written to its own temp file (referenced by model_instructions_file, so it stays off argv); the
-	// MCP servers are transcoded to `[mcp_servers.NAME]` tables. See mcpconfig.go. The effective system
-	// prompt is the per-turn override falling back to the sticky `system-prompt` config key.
+	// Resolve prompt/MCP options once: app-server sends private RPC values, exec materializes a
+	// temporary profile. The per-turn system prompt takes precedence over the sticky setting.
 	if sp := agent.FirstNonEmpty(opts.SystemPrompt, in.Config[keySystemPrompt]); strings.TrimSpace(sp) != "" || len(opts.MCPServers) > 0 {
 		sp = strings.TrimSpace(sp)
-		base := configBase()
-		if base == "" {
-			return files, "", cleanup, fmt.Errorf("cannot honor systemPrompt/mcpServers: CODEX_HOME is not resolvable")
-		}
-		var sysPromptPath string
-		if sp != "" {
-			p, e := tmp.Write("mindwire-codex-sysprompt-*.md", []byte(sp))
-			if e != nil {
-				return files, "", cleanup, fmt.Errorf("write system prompt: %w", e)
-			}
-			sysPromptPath = p
-		}
 		servers, e := decodeMCPServers(opts.MCPServers)
 		if e != nil {
 			return files, "", cleanup, fmt.Errorf("parse mcpServers: %w", e)
 		}
-		profile, path, e := writeConfigOverlay(base, sysPromptPath, servers)
-		if e != nil {
-			return files, "", cleanup, fmt.Errorf("write codex config overlay: %w", e)
+		files.systemPrompt, files.mcpServers = sp, servers
+		// Live turns send these values directly over the private app-server pipe.
+		if in.Inbound == nil {
+			base := configBase()
+			if base == "" {
+				return files, "", cleanup, fmt.Errorf("cannot honor systemPrompt/mcpServers: CODEX_HOME is not resolvable")
+			}
+			var sysPromptPath string
+			if sp != "" {
+				p, e := tmp.Write("mindwire-codex-sysprompt-*.md", []byte(sp))
+				if e != nil {
+					return files, "", cleanup, fmt.Errorf("write system prompt: %w", e)
+				}
+				sysPromptPath = p
+			}
+			profile, path, e := writeConfigOverlay(base, sysPromptPath, servers)
+			if e != nil {
+				return files, "", cleanup, fmt.Errorf("write codex config overlay: %w", e)
+			}
+			files.configProfile, overlayPath = profile, path
 		}
-		files.configProfile, overlayPath = profile, path
 	}
 
 	var refs []string
@@ -443,22 +439,9 @@ func isImage(at agent.Attachment) bool {
 	return false
 }
 
-// RunStream runs one turn. The default is the one-shot `codex exec --json` hot path (driver.CLI):
-// the adapter supplies the command + the stream parser, the driver owns the process/stderr/error
-// plumbing. Auth env comes from in.Env; settings from in.Config (buildExecCommand). A turn that must
-// PAUSE for the user (a non-`never` approval policy with an inbound channel to answer with) upgrades
-// to the app-server JSON-RPC transport — wired in Stage 5.
+// RunStream uses app-server for every chat turn, including autonomous approvalPolicy=never turns.
+// exec --json is retained for callers without an inbound channel; it may emit only completed blocks.
 func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
-	// systemPrompt/mcpServers ride a `codex exec -p` profile overlay, which the app-server transport
-	// cannot take (`-p` is rejected there). Rather than silently drop them on an interactive-approval
-	// turn — the very dishonesty W1 exists to prevent — reject explicitly and point at the exec path.
-	if in.Inbound != nil && approvalPolicy(in) != "never" &&
-		(agent.FirstNonEmpty(in.Options.SystemPrompt, in.Config[keySystemPrompt]) != "" || len(in.Options.MCPServers) > 0) {
-		msg := "codex: systemPrompt and mcpServers require the autonomous exec transport (set approvalPolicy=never); the interactive-approval transport does not support them"
-		emit(agent.Event{Type: agent.EventError, Error: msg})
-		return agent.TurnResult{Text: msg, IsError: true}, nil
-	}
-
 	files, msgAppend, cleanup, err := materialize(in)
 	defer cleanup()
 	if err != nil {
@@ -467,6 +450,10 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 	}
 	in.Message += msgAppend // path-reference non-image attachments so the CLI can open them
 
+	if in.Inbound != nil {
+		return newAppServer(in, files).Run(ctx, in, emit)
+	}
+
 	env := map[string]string{}
 	for k, v := range in.Env {
 		env[k] = v
@@ -474,37 +461,6 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 	// These are daemon routing hints, not credentials or variables the Codex child needs to inherit.
 	delete(env, azureProviderMarker)
 	delete(env, azureModelMarker)
-
-	// Transport selection (mirrors claude's persistent-vs-oneshot switch): a turn that can pause for
-	// the user (non-`never` approval) and has an inbound channel upgrades to the app-server transport;
-	// everything else — the autonomous default — runs the one-shot exec hot path.
-	if in.Inbound != nil && approvalPolicy(in) != "never" {
-		cmd := "codex app-server"
-		if provider := strings.TrimSpace(in.Env[azureProviderMarker]); provider != "" {
-			cmd = "codex -c " + agent.ShellQuote("model_provider="+provider) + " app-server"
-		}
-		if in.CWD != "" {
-			cmd = "cd " + agent.ShellQuote(in.CWD) + " && " + cmd
-		}
-		// Thread working dir: an explicit working-dir setting, else the run's cwd.
-		workdir := strings.TrimSpace(in.Config[keyWorkdir])
-		if workdir == "" {
-			workdir = in.CWD
-		}
-		// Resume needs a real thread id; "continue latest" has no app-server equivalent (ids are
-		// server-assigned, no `--last`), so it starts a fresh thread — a documented gap.
-		return appServer{
-			command:  cmd,
-			env:      env,
-			message:  in.Message,
-			model:    strings.TrimSpace(agent.FirstNonEmpty(in.Config[keyModel], in.Env[azureModelMarker])),
-			effort:   strings.TrimSpace(in.Config[keyEffort]),
-			sandbox:  sandbox(in),
-			approval: approvalPolicy(in),
-			cwd:      workdir,
-			resumeID: agent.FirstNonEmpty(in.Options.SessionID, in.SessionID),
-		}.Run(ctx, in, emit)
-	}
 
 	full := buildExecCommand(in, files)
 	if in.CWD != "" {

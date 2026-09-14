@@ -1,7 +1,6 @@
 package codex
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -131,30 +130,39 @@ func TestMaterializeOverlay(t *testing.T) {
 	}
 }
 
-// The interactive-approval (app-server) transport can't take the `-p` overlay, so a turn that pairs a
-// non-`never` approval policy + inbound channel with systemPrompt/mcpServers is rejected explicitly
-// (an error result), never silently dropped.
-func TestRunStreamAppServerRejectsOverlayOptions(t *testing.T) {
+// Streaming turns carry prompt/MCP values in native thread RPCs instead of a CLI profile.
+func TestAppServerPreservesPromptAndMCPOptions(t *testing.T) {
 	inbound := make(chan agent.Inbound)
 	in := agent.TurnInput{
 		Message: "hi",
 		Config:  map[string]string{keyApproval: "on-request"},
-		Options: agent.TurnOptions{SystemPrompt: "You are terse."},
+		Options: agent.TurnOptions{
+			SystemPrompt: "You are terse.",
+			MCPServers:   json.RawMessage(`{"demo":{"command":"server","args":["serve"],"env":{"TOKEN":"private-test-value"}},"remote":{"url":"https://mcp.example.test","bearerTokenEnvVar":"REMOTE_TOKEN","httpHeaders":{"X-Client":"mindwire"}}}`),
+		},
 		Inbound: inbound,
 	}
-	var errMsg string
-	res, err := adapter{}.RunStream(context.Background(), in, func(e agent.Event) {
-		if e.Type == agent.EventError {
-			errMsg = e.Error
-		}
-	})
+	files, _, cleanup, err := materialize(in)
+	defer cleanup()
 	if err != nil {
-		t.Fatalf("RunStream returned a transport error: %v", err)
+		t.Fatal(err)
 	}
-	if !res.IsError || !strings.Contains(res.Text, "exec transport") {
-		t.Fatalf("expected an explicit exec-transport error, got %+v", res)
+	server := newAppServer(in, files)
+	if files.configProfile != "" || strings.Contains(server.command, "private-test-value") || strings.Contains(server.command, "You are terse.") {
+		t.Fatal("live options must stay on the RPC pipe, without a CLI profile or secrets on argv")
 	}
-	if !strings.Contains(errMsg, "exec transport") {
-		t.Errorf("expected an error event explaining the limitation, got %q", errMsg)
+	for _, params := range []map[string]any{server.startParams(), server.resumeParams()} {
+		if params["baseInstructions"] != "You are terse." {
+			t.Fatal("system instructions lost on start/resume")
+		}
+		config := params["config"].(map[string]any)
+		servers := config["mcp_servers"].(map[string]any)
+		if servers["demo"].(map[string]any)["env"].(map[string]string)["TOKEN"] != "private-test-value" {
+			t.Fatal("MCP environment lost")
+		}
+		remote := servers["remote"].(map[string]any)
+		if remote["bearer_token_env_var"] != "REMOTE_TOKEN" || remote["http_headers"].(map[string]string)["X-Client"] != "mindwire" {
+			t.Fatal("MCP HTTP authentication metadata lost")
+		}
 	}
 }

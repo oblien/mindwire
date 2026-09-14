@@ -70,6 +70,45 @@ func TestBuildExecCommandResume(t *testing.T) {
 	}
 }
 
+// The CLI replaces repeated global -c values across subcommand boundaries. Provider, approval,
+// sandbox and effort overrides must share a scope (the local CLI test reproduces the resulting 401).
+func TestBuildExecCommandProviderOverridesShareScope(t *testing.T) {
+	for name, in := range map[string]agent.TurnInput{
+		"fresh":    {},
+		"stored":   {SessionID: "stored"},
+		"explicit": {SessionID: "stored", Options: agent.TurnOptions{SessionID: "explicit"}},
+		"latest":   {Options: agent.TurnOptions{ContinueLatest: true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in.Message, in.Config = "hello", fullConfig
+			in.Env = map[string]string{azureProviderMarker: azureProviderID}
+			cmd := buildExecCommand(in, materialized{configProfile: "mindwire-profile"})
+			args := agent.ShellWords(cmd)
+			scope := 1 // exec
+			for i, arg := range args {
+				if arg == "resume" {
+					scope = i
+				}
+			}
+			providerFound := false
+			for i, arg := range args {
+				if arg != "-c" {
+					continue
+				}
+				if i < scope {
+					t.Fatalf("config override precedes the active subcommand: %s", cmd)
+				}
+				if i+1 < len(args) && args[i+1] == "model_provider="+azureProviderID {
+					providerFound = true
+				}
+			}
+			if !providerFound {
+				t.Fatalf("provider selection missing: %s", cmd)
+			}
+		})
+	}
+}
+
 // Session-control precedence: an explicit per-turn id > ContinueLatest > the chat's stored id.
 func TestBuildExecCommandSessionPrecedence(t *testing.T) {
 	pin := buildExecCommand(agent.TurnInput{Message: "x", SessionID: "stored", Options: agent.TurnOptions{SessionID: "explicit"}}, materialized{})

@@ -1,8 +1,7 @@
 package codex
 
-// appserver.go is the codebase's first BESPOKE Driver: a turn that must pause for the user (a
-// non-`never` approval policy) runs over `codex app-server` — an experimental JSON-RPC-style
-// persistent transport spoken over stdio — instead of the one-shot `codex exec` hot path. The
+// appserver.go drives chat turns over `codex app-server`, including autonomous turns, so text,
+// reasoning and tool output arrive incrementally. This JSON-RPC-style transport uses stdio. The
 // architecture sanctions this: "a long-lived process spoken to over a protocol implements Driver
 // directly." driver.Persistent can't be reused because it is a dumb line-pump — it writes a static
 // preamble then relays Inbound and cannot AWAIT a response between writes, whereas Codex's handshake
@@ -19,7 +18,7 @@ package codex
 //
 // Everything is camelCase (the exec `--json` stream is snake_case — a different surface, parse.go).
 //
-// Protocol reference: https://learn.chatgpt.com/docs/app-server. turn/start returns an
+// Protocol reference: https://developers.openai.com/codex/app-server. turn/start returns an
 // inProgress acknowledgement; only a terminal turn status ends the run.
 
 import (
@@ -57,18 +56,24 @@ var errTransportClosed = errors.New("codex app-server transport closed")
 
 // appServer runs one turn over `codex app-server`. RunStream pre-resolves the turn parameters into
 // these fields (mirroring how buildExecCommand resolves the exec flags) so the driver only builds the
-// typed JSON-RPC params. Secrets never appear here — they flow through env, exactly like the CLI path.
+// typed JSON-RPC params. Model credentials use env references; prompt/MCP config stays in private RPCs.
 type appServer struct {
-	command  string            // shell command to launch the server (assembled by RunStream)
-	env      map[string]string // auth/runtime env (from AuthModule.EnvForRun via in.Env)
-	message  string            // the user's turn message
-	model    string            // "" ⇒ omit (CLI default)
-	effort   string            // reasoning effort; "" ⇒ omit
-	sandbox  string            // sandbox posture (enum)
-	approval string            // approval policy (enum)
-	cwd      string            // working directory for the thread
-	resumeID string            // thread id to resume; "" ⇒ start a fresh thread
-	compact  bool              // on-demand compaction: after resume, send thread/compact/start instead of turn/start
+	command        string            // shell command to launch the server (assembled by RunStream)
+	env            map[string]string // auth/runtime env (from AuthModule.EnvForRun via in.Env)
+	message        string            // the user's turn message
+	model          string            // "" ⇒ omit (CLI default)
+	effort         string            // reasoning effort; "" ⇒ omit
+	sandbox        string            // sandbox posture (enum)
+	approval       string            // approval policy (enum)
+	cwd            string            // working directory for the thread
+	resumeID       string            // thread id to resume; "" ⇒ start a fresh thread
+	compact        bool              // on-demand compaction: after resume, send thread/compact/start instead of turn/start
+	provider       string
+	config         map[string]any
+	instructions   string
+	images         []string
+	outputSchema   json.RawMessage
+	continueLatest bool
 }
 
 // Run spawns the app-server process, drives one turn over its stdio, and returns the terminal result.
@@ -643,6 +648,32 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	}
 
 	// 3. start or resume the thread, capturing its id (needed for turn/start).
+	if a.continueLatest {
+		params := map[string]any{"limit": 1, "sortKey": "updated_at", "sourceKinds": []string{"cli", "vscode", "exec", "appServer"}}
+		if a.provider != "" {
+			params["modelProviders"] = []string{a.provider}
+		}
+		if a.cwd != "" {
+			params["cwd"] = a.cwd
+		}
+		ch, err = call("thread/list", params)
+		if err != nil {
+			return agent.TurnResult{Text: "find latest thread: " + err.Error(), IsError: true}, false
+		}
+		data, err := await(ch)
+		if err != nil {
+			return agent.TurnResult{Text: "find latest thread: " + err.Error(), IsError: true}, false
+		}
+		var list struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(data, &list); err != nil || len(list.Data) == 0 {
+			return agent.TurnResult{Text: "No Codex conversation to continue in this directory.", IsError: true}, false
+		}
+		a.resumeID = list.Data[0].ID
+	}
 	if a.resumeID != "" {
 		ch, err = call("thread/resume", a.resumeParams())
 	} else {
@@ -821,6 +852,7 @@ func (a appServer) startParams() map[string]any {
 	if a.cwd != "" {
 		p["cwd"] = a.cwd
 	}
+	a.threadOptions(p)
 	return p
 }
 
@@ -829,17 +861,38 @@ func (a appServer) resumeParams() map[string]any {
 		"threadId":       a.resumeID,
 		"sandbox":        a.sandbox,
 		"approvalPolicy": a.approval,
+		"excludeTurns":   true,
 	}
 	if a.model != "" {
 		p["model"] = a.model
 	}
+	a.threadOptions(p)
 	return p
 }
 
+func (a appServer) threadOptions(p map[string]any) {
+	if a.provider != "" {
+		p["modelProvider"] = a.provider
+	}
+	if len(a.config) > 0 {
+		p["config"] = a.config
+	}
+	if a.instructions != "" {
+		p["baseInstructions"] = a.instructions
+	}
+}
+
 func (a appServer) turnParams(threadID string) map[string]any {
+	input := []any{map[string]any{"type": "text", "text": a.message}}
+	for _, path := range a.images {
+		input = append(input, map[string]any{"type": "localImage", "path": path})
+	}
 	p := map[string]any{
 		"threadId": threadID,
-		"input":    []any{map[string]any{"type": "text", "text": a.message}},
+		"input":    input,
+	}
+	if len(a.outputSchema) > 0 {
+		p["outputSchema"] = a.outputSchema
 	}
 	if a.model != "" {
 		p["model"] = a.model

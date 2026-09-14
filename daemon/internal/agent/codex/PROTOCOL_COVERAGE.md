@@ -2,7 +2,7 @@
 
 Audited against **codex-cli 0.154.0**, its generated app-server JSON schema, and the
 [official OpenAI app-server documentation](https://developers.openai.com/codex/app-server)
-on 2026-09-13. The exec transport also follows the
+on 2026-09-14. The exec transport also follows the
 [official non-interactive documentation](https://developers.openai.com/codex/noninteractive).
 
 Coverage includes authenticated local Codex runs and protocol/client regression tests.
@@ -45,6 +45,19 @@ options; they do not have the RPC identity needed for `/respond` buttons.
 
 ## Streaming, feedback and failures
 
+Normal chat turns use app-server even when approval policy is Never. Headless callers
+without an inbound channel retain exec, whose JSON stream may only publish completed
+blocks. Both paths use the shared item normalizer and the same client components.
+App-server receives provider selection on both start and resume; API-key connections
+use a transient provider with an environment-key reference because CODEX_API_KEY is
+exec-only. Prompt overrides, MCP configuration, images and output schemas travel in
+native thread/turn RPCs instead of unsupported app-server profile flags.
+
+The iOS HTTP channel parses SSE bytes directly. Foundation's AsyncBytes.lines omits
+blank separators, which previously combined multiple JSON events and withheld them
+until EOF. The shared reader preserves LF, CRLF and CR boundaries, UTF-8 and multiline
+data, ignores heartbeats, and refreshes the gateway credential once on HTTP 401.
+
 The versioned fixture file additionally validates **20 activity/problem notifications**
 and **19 error examples**. The latter cover all **18 `CodexErrorInfo` alternatives** plus
 the public misalignment explanation. Error messages, nested/string forms, additional
@@ -56,6 +69,8 @@ Regression tests cover:
   corrections, and an empty final answer that must not resurrect its draft.
 - Command output, legacy patch output, patch updates, aggregate-diff fallback, terminal
   input, MCP progress, final tool corrections, and failed tool/patch/image results.
+  Native add/delete contents become shared unified diffs and old/new text; update
+  patches remain patches, so additions and deletions render correctly while streaming.
 - Warnings, configuration/compatibility notices, hook failures, MCP startup failures,
   model rerouting, authentication recovery, account verification and passive automatic
   approval-review feedback. Injected hook context is excluded from displayed feedback.
@@ -94,11 +109,36 @@ message/tool IDs are different namespaces; matches use text or the shared tool a
 consume components chronologically. Native command argv arrays are decoded without executing
 them, and local file URLs become paths. Repeated history reads must be idempotent.
 
-The same exported events and messages are fixtures for Pocket Agent's iOS `ChatRunTests`.
+The same exported events and messages are fixtures for Mindwire's iOS `ChatRunTests`.
 They exercise the existing text, thinking, tool, file-diff, and interaction components with
 no provider-specific UI. Size tests cover 70 KiB and 1 MiB frames in exec, app-server, and
 native history, a Unicode tool output over 1 MiB in iOS, and an explicit error beyond the
 daemon's 16 MiB frame limit.
+
+`exec_local_test.go` drives three consecutive turns through the production runner and
+installed CLI against a local Responses server, using isolated Codex state and dummy credentials.
+Both Foundry API-key and Entra-token connections must retain their provider, bearer header and
+original thread ID across exec and app-server resume. App-server also exercises API-key
+connections and continue-latest selection. A fallback endpoint returns 401 to detect lost provider selection.
+All `-c` overrides must follow the active subcommand: Codex 0.154.0 drops pre-`resume` overrides when
+later `-c` options are present, which previously sent the second turn to the default provider.
+
+The local options check verifies real model requests on start and resume: system
+instructions, inline image data, reasoning effort, output schema and organization/project
+headers. A local MCP server verifies native initialization, tool discovery and custom headers.
+
+`internal/api/codex_stream_local_test.go` adds the real supervisor, authenticated HTTP API
+and SSE connection. Its model cannot complete a thinking/text block until the client
+acknowledges receiving its partial content; the real command likewise waits between two
+output chunks. The command delays its first output until Codex's process-output watcher
+has attached (very early startup output can appear only in native completed snapshots).
+Three successive turns must stream, execute a file edit and retain one final reply each.
+
+The same fixture serves the iOS `CodexStreamingTests`. Production URLSession transport,
+event decoding, run monitoring, LiveTurn and history reconciliation all participate.
+It forces one expired gateway token and one mid-stream disconnect, checks partial
+thinking/text/tool output before completion, rejects duplicated components, and renders
+the shared TurnPartsView with the real parsed file diff into an image attachment.
 
 ## Scope outside the chat adapter
 
@@ -130,6 +170,26 @@ so new or removed variants are reported rather than silently counted as covered.
 Client checks: `bun test apps/console/test/chat-blocks.test.ts` from the repository root;
 the iOS `ChatRunTests`, `ModelCodableTests` and `TransportTests` suites from the Mindwire
 Xcode scheme. Live provider tests remain explicitly opt-in (`CODEX_LIVE=1`).
+Local CLI, provider, options and HTTP streaming checks need the installed CLI but no
+real credentials or model service:
+
+```sh
+CODEX_LOCAL=1 go test ./internal/agent/codex ./internal/api \
+  -run 'Test(ExecLocalProviderResume|AppServerLocal.*|CodexStreamingHTTP)$' -count=1 -v
+```
+
+For the simulator integration, start the fixture in a separate terminal:
+
+```sh
+CODEX_LOCAL=1 MINDWIRE_STREAM_FIXTURE_FILE=/tmp/mindwire-codex-stream-fixture.json \
+  go test ./internal/api -run '^TestCodexStreamingIOSFixture$' -count=1 -v
+```
+
+Run `MindwireTests/CodexStreamingTests` with `MINDWIRE_CODEX_STREAM_URL` set to the
+JSON file's `url` in the test process environment. With `xcodebuild test-without-building`,
+set it in the generated xctestrun target's `EnvironmentVariables`. The test closes
+the fixture when finished. `DaemonSSETests` run without a fixture and cover separators,
+multiline payloads, comments, incomplete frames, large Unicode output and size limits.
 
 To refresh the normalized consumer fixtures from the saved captures:
 

@@ -98,6 +98,23 @@ func TestToolOutputUsesFinalSnapshotsAndKeepsOmittedOutput(t *testing.T) {
 	}
 }
 
+func TestWholeFileChangesUseSharedDiffFormat(t *testing.T) {
+	for _, kind := range []string{"add", "delete"} {
+		content := "@@ This is file content, not a patch.\n+Keep this literal plus.\n"
+		raw, _ := json.Marshal(map[string]any{"id": "file", "type": "fileChange", "status": "completed",
+			"changes": []any{map[string]any{"path": "notes.txt", "kind": map[string]any{"type": kind}, "diff": content}}})
+		events := &collector{}
+		emitItem(phaseCompleted, raw, events.emit, newStreamState())
+		file := firstOf(events.snapshot(), agent.EventToolResult).Tool.Action.Files[0]
+		if kind == "add" && (file.NewText != content || !strings.Contains(file.Diff, "+@@ This is file content")) {
+			t.Fatalf("new file displayed as patch context: %+v", file)
+		}
+		if kind == "delete" && (file.OldText != content || !strings.Contains(file.Diff, "-@@ This is file content")) {
+			t.Fatalf("deleted file displayed as patch context: %+v", file)
+		}
+	}
+}
+
 func TestReasoningSummariesReplaceRawPreviewsAndAsyncQuestionsStayPassive(t *testing.T) {
 	col, state := &collector{}, newStreamState()
 	state.emitDelta("item/reasoning/textDelta", json.RawMessage(`{"itemId":"reason","contentIndex":0,"delta":"Checking the source."}`), col.emit)

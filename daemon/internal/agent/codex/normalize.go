@@ -132,6 +132,8 @@ type normChange struct {
 	// App-server patches and native rollouts carry per-file diffs; older exec items may omit them.
 	Diff     string `json:"diff"`
 	MovePath string `json:"movePath,omitempty"`
+	OldText  string `json:"oldText,omitempty"`
+	NewText  string `json:"newText,omitempty"`
 }
 
 func (c *normChange) UnmarshalJSON(raw []byte) error {
@@ -140,12 +142,15 @@ func (c *normChange) UnmarshalJSON(raw []byte) error {
 		Kind     json.RawMessage `json:"kind"`
 		Diff     string          `json:"diff"`
 		MovePath string          `json:"movePath"`
+		OldText  string          `json:"oldText"`
+		NewText  string          `json:"newText"`
 	}
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return err
 	}
 	c.Path, c.Diff = wire.Path, wire.Diff
 	c.MovePath = wire.MovePath
+	c.OldText, c.NewText = wire.OldText, wire.NewText
 	if json.Unmarshal(wire.Kind, &c.Kind) == nil {
 		return nil
 	}
@@ -157,7 +162,21 @@ func (c *normChange) UnmarshalJSON(raw []byte) error {
 		return err
 	}
 	c.Kind, c.MovePath = kind.Type, kind.MovePath
+	// Native app-server add/delete "diff" fields contain the entire file, while updates
+	// contain a patch. String kinds above are already-normalized exec/rollout changes.
+	c.setContent(wire.Diff)
 	return nil
+}
+
+func (c *normChange) setContent(content string) {
+	switch c.Kind {
+	case "add":
+		c.NewText = content
+		c.Diff = agent.BuildUnifiedDiff(c.Path, "", content)
+	case "delete":
+		c.OldText = content
+		c.Diff = agent.BuildUnifiedDiff(c.Path, content, "")
+	}
 }
 
 // normItem is a thread item normalized across transports. Only the fields relevant to a given Kind are
@@ -438,7 +457,7 @@ func codexToolAction(n normItem) *agent.ToolAction {
 	case kindFileChange:
 		files := make([]agent.FileChange, 0, len(n.Changes))
 		for _, c := range n.Changes {
-			files = append(files, agent.FileChange{Path: c.Path, Op: agent.MapChangeOp(c.Kind), Diff: c.Diff})
+			files = append(files, agent.FileChange{Path: c.Path, Op: agent.MapChangeOp(c.Kind), Diff: c.Diff, OldText: c.OldText, NewText: c.NewText})
 			if c.MovePath != "" {
 				files[len(files)-1].Path = c.MovePath
 			}
