@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input";
 import type {
   Block,
 } from "@/components/chat/blocks";
-import type { ToolEvent, Interaction, CompactionInfo, RespondInput } from "@shared/api";
+import type { ToolEvent, Interaction, Question, QuestionAnswer, CompactionInfo, RespondInput } from "@shared/api";
 
 export function TurnView({
   blocks,
@@ -255,11 +255,24 @@ function InteractionCard({
   interaction: Interaction;
   onRespond?: (input: RespondInput) => void;
 }) {
-  if (interaction.kind === "todos") {
-    return <Todos interaction={interaction} />;
-  }
-
-  const answerable = Boolean(onRespond && interaction.needsResponse);
+  const [feedback, setFeedback] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  if (interaction.kind === "todos") return <Todos interaction={interaction} />;
+  const live = Boolean(onRespond && interaction.needsResponse && interaction.id);
+  const answerable = live && !submitting;
+  const questions: Question[] = interaction.questions?.length ? interaction.questions
+    : ["choice", "select", "input"].includes(interaction.kind) ? [{
+        id: interaction.id ?? "answer", title: interaction.title ?? "Your answer",
+        options: interaction.options, multiSelect: interaction.kind === "select",
+        allowOther: interaction.kind === "input" || interaction.meta?.allowOther === true,
+        isSecret: interaction.meta?.isSecret === true,
+      }] : [];
+  const submit = async (reply: RespondInput) => {
+    if (!answerable) return;
+    setSubmitting(true);
+    try { await onRespond?.({ ...reply, interactionId: interaction.id }); }
+    finally { setSubmitting(false); }
+  };
 
   return (
     <div className="border border-border p-3">
@@ -273,30 +286,34 @@ function InteractionCard({
         </p>
       )}
 
-      {interaction.options?.length ? (
-        <div className="flex flex-wrap gap-2">
-          {interaction.options.map((opt) => (
-            <Button
-              key={opt.id}
-              size="sm"
-              variant="outline"
-              disabled={!answerable}
-              onClick={() =>
-                onRespond?.({ interactionId: interaction.id, decision: opt.id, options: [opt.id] })
-              }
-            >
-              {opt.label}
-            </Button>
-          ))}
+      {questions.length ? (
+        <QuestionForm questions={questions} readOnly={!live} submitting={submitting} onSubmit={(answers) => {
+          if (interaction.questions?.length) return submit({ answers });
+          const answer = answers[questions[0].id];
+          return submit({ options: answer?.options, text: answer?.text });
+        }} />
+      ) : interaction.options?.length ? (
+        <div className="space-y-2">
+          {interaction.needsResponse && interaction.feedback && (
+            <Input value={feedback} onChange={(e) => setFeedback(e.target.value)} disabled={!answerable}
+              placeholder={interaction.feedback === "rejection" ? "Reason if rejecting (optional)" : "Feedback (optional)"} />
+          )}
+          <div className="flex flex-wrap gap-2">
+            {interaction.options.map((opt) => (
+              <Button key={opt.id} size="sm" variant="outline" disabled={!answerable}
+                className="h-auto whitespace-normal py-2 text-left"
+                onClick={() => void submit({ decision: opt.id,
+                  text: interaction.feedback === "always" || ["deny", "reject", "cancel"].includes(opt.id) ? feedback : undefined,
+                })}>
+                <span>{opt.label}{opt.description && <span className="block text-xs font-normal text-muted-foreground">{opt.description}</span>}</span>
+              </Button>
+            ))}
+          </div>
         </div>
-      ) : interaction.kind === "input" && answerable ? (
-        <TextReply
-          onSubmit={(text) => onRespond?.({ interactionId: interaction.id, text })}
-        />
       ) : null}
 
-      {!answerable && interaction.needsResponse && (
-        <p className="mt-2 text-xs text-muted-foreground">Answered in a previous turn.</p>
+      {!live && interaction.needsResponse && (
+        <p className="mt-2 text-xs text-muted-foreground">This request is no longer accepting replies.</p>
       )}
     </div>
   );
@@ -329,28 +346,50 @@ function Todos({ interaction }: { interaction: Interaction }) {
   );
 }
 
-function TextReply({ onSubmit }: { onSubmit: (text: string) => void }) {
-  const [value, setValue] = useState("");
+function QuestionForm({ questions, readOnly, submitting, onSubmit }: {
+  questions: Question[];
+  readOnly: boolean;
+  submitting: boolean;
+  onSubmit: (answers: Record<string, QuestionAnswer>) => Promise<void>;
+}) {
+  const [answers, setAnswers] = useState<Record<string, QuestionAnswer>>({});
+  const disabled = readOnly || submitting;
+  const complete = questions.every((q) => {
+    const answer = answers[q.id];
+    return (answer?.options?.length ?? 0) > 0 || q.optional
+      || Boolean(answer?.text?.trim() && (q.allowOther || !q.options?.length));
+  });
+  const update = (id: string, value: Partial<QuestionAnswer>) =>
+    setAnswers((old) => ({ ...old, [id]: { ...old[id], ...value } }));
   return (
-    <form
-      className="flex gap-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (value.trim()) {
-          onSubmit(value.trim());
-          setValue("");
-        }
-      }}
-    >
-      <Input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="Your answer…"
-        className="h-8"
-      />
-      <Button size="sm" type="submit">
-        Send
-      </Button>
+    <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (complete && !disabled) void onSubmit(answers); }}>
+      {questions.map((q) => (
+        <fieldset key={q.id} disabled={disabled} className="space-y-2">
+          <legend className="text-sm font-medium">{q.title}</legend>
+          {q.header && <p className="text-xs text-muted-foreground">{q.header}</p>}
+          {q.options?.map((option) => (
+            <div key={option.id}>
+              <label className="flex cursor-pointer items-start gap-2 text-sm">
+                <input className="mt-1" type={q.multiSelect ? "checkbox" : "radio"} name={q.id}
+                  checked={answers[q.id]?.options?.includes(option.id) ?? false}
+                  onChange={(event) => update(q.id, { options: q.multiSelect
+                    ? event.target.checked ? [...(answers[q.id]?.options ?? []), option.id]
+                      : (answers[q.id]?.options ?? []).filter((id) => id !== option.id)
+                    : [option.id] })} />
+                <span>{option.label}{option.description && <span className="block text-xs text-muted-foreground">{option.description}</span>}</span>
+              </label>
+              {option.preview && <details className="mt-1 text-xs text-muted-foreground"><summary>Preview</summary><pre className="whitespace-pre-wrap">{option.preview}</pre></details>}
+            </div>
+          ))}
+          {!readOnly && <>
+            {q.allowOther && Boolean(answers[q.id]?.options?.length) && <button type="button" className="text-xs underline" onClick={() => update(q.id, { options: [] })}>Clear selections</button>}
+            <Input type={q.isSecret ? "password" : "text"} value={answers[q.id]?.text ?? ""}
+              onChange={(event) => update(q.id, { text: event.target.value })}
+              placeholder={!q.options?.length ? "Your answer" : q.allowOther ? "Feedback or another answer" : "Feedback (optional)"} />
+          </>}
+        </fieldset>
+      ))}
+      {!readOnly && <Button size="sm" type="submit" disabled={!complete || submitting}>{submitting ? "Sending…" : "Send answers"}</Button>}
     </form>
   );
 }

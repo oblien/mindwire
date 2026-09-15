@@ -45,6 +45,16 @@ options; they do not have the RPC identity needed for `/respond` buttons.
 
 ## Streaming, feedback and failures
 
+Questions and approvals also use the shared [interaction protocol](../../../INTERACTIONS.md).
+The 2026-09-15 audit verified grouped native question RPCs, descriptions and feedback,
+offered command/session/rule decisions, file and extra-access approvals, reconnects,
+duplicate-answer rejection and cancellation with partial output retained. Native
+automatic review was exercised through Microsoft Foundry using its deployed chat
+model; the temporary catalog override preserves Codex's own review policy.
+
+`ThreadSettingsUpdateParams` describes permission/model changes as affecting subsequent
+turns. Live permission changes are therefore not advertised for Codex.
+
 Normal chat turns use app-server even when approval policy is Never. Headless callers
 without an inbound channel retain exec, whose JSON stream may only publish completed
 blocks. Both paths use the shared item normalizer and the same client components.

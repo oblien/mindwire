@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 
@@ -29,6 +30,7 @@ type streamEnvelope struct {
 	// request_id (the correlator the client must echo in its control_response) and the request body.
 	RequestID string          `json:"request_id"`
 	Request   json.RawMessage `json:"request"`
+	Response  json.RawMessage `json:"response"`
 	// EstimatedTokens is the CUMULATIVE thinking-token estimate on a `system/thinking_tokens` event
 	// (Claude Code's own "thinking preview" counter). Present even on subscription auth where the
 	// thinking TEXT is withheld, so it's the reliable live progress signal for the thinking block.
@@ -50,6 +52,10 @@ type streamEnvelope struct {
 // parseStream scans Claude's NDJSON, emits unified events, and returns the final
 // TurnResult (got=false if no result line was seen).
 func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
+	return parseStreamControlled(r, emit, nil)
+}
+
+func parseStreamControlled(r io.Reader, emit agent.Emit, control func(json.RawMessage, agent.Emit)) (agent.TurnResult, bool) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 1<<20), 16<<20) // assistant messages can be large
 
@@ -59,6 +65,7 @@ func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
 	// Claude's tool_result event carries no tool name (only id+output+isError), so stash each tool_use
 	// block by id to reclassify the result into the same ToolAction with its output folded in.
 	use := map[string]block{}
+	interactions := map[string]agent.Interaction{}
 
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -127,6 +134,9 @@ func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
 				// plan, a multiple-choice question) — surface them as generic interactions
 				// the client renders, not raw tool blobs.
 				if it := interactionFor(b); it != nil {
+					// Only can_use_tool is an actionable request. The assistant tool block is its preview.
+					it.NeedsResponse = false
+					interactions[b.ID] = *it
 					emit(agent.Event{Type: agent.EventInteraction, SessionID: sessionID, Interaction: it})
 					continue
 				}
@@ -139,6 +149,11 @@ func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
 		case "user":
 			for _, b := range contentBlocks(env.Message) {
 				if b.Type == "tool_result" {
+					if it, ok := interactions[b.ToolUseID]; ok {
+						it.NeedsResponse = false
+						emit(agent.Event{Type: agent.EventInteraction, SessionID: sessionID, Interaction: &it})
+						continue
+					}
 					out := rawText(b.Content)
 					// Reclassify from the originating tool_use (which carries the name+input); if it's
 					// missing (out-of-order/id collision) leave Action nil so the runner keeps the
@@ -174,10 +189,23 @@ func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
 			}
 			emit(agent.Event{Type: agent.EventResult, SessionID: sessionID, Result: ri})
 
+		case "control_response":
+			if control != nil {
+				control(env.Response, emit)
+			}
+		case "control_cancel_request":
+			for id, it := range interactions {
+				if it.Meta["requestId"] == env.RequestID {
+					it.NeedsResponse = false
+					interactions[id] = it
+					emit(agent.Event{Type: agent.EventInteraction, SessionID: sessionID, Interaction: &it})
+				}
+			}
 		case "control_request":
 			// The CLI asks the client to authorize a tool (persistent transport, non-bypass mode).
 			// Surface it as a unified approval interaction the user answers via POST /runs/{id}/respond.
 			if it := approvalInteraction(env.RequestID, env.Request); it != nil {
+				interactions[it.ID] = *it
 				emit(agent.Event{Type: agent.EventInteraction, SessionID: sessionID, Interaction: it})
 			}
 		}
@@ -281,6 +309,7 @@ func messageParts(raw json.RawMessage) []agent.Part {
 			// Interaction tools (TodoWrite / ExitPlanMode / AskUserQuestion) reload as interaction
 			// parts so the transcript matches the live stream; ordinary tools stay tool parts.
 			if it := interactionFor(b); it != nil {
+				it.NeedsResponse = false
 				parts = append(parts, agent.Part{Type: "interaction", Interaction: it})
 			} else {
 				// Input-only action now; mergeToolResults (history.go) recomputes it with the folded
@@ -354,53 +383,123 @@ func interactionFor(b block) *agent.Interaction {
 }
 
 // planInteraction maps an ExitPlanMode tool input ({"plan":"…markdown…"}) to a plan
-// interaction the user can approve. Returns nil if there's no plan text.
+// interaction the user can approve. Newer versions may put the plan in earlier text.
 func planInteraction(id string, input json.RawMessage) *agent.Interaction {
 	var in struct {
 		Plan string `json:"plan"`
 	}
-	if json.Unmarshal(input, &in) != nil || strings.TrimSpace(in.Plan) == "" {
+	if json.Unmarshal(input, &in) != nil {
 		return nil
 	}
 	return &agent.Interaction{
-		ID: id, Kind: "plan", Title: "Proposed plan", Detail: in.Plan, NeedsResponse: true,
+		ID: id, Kind: "plan", Title: "Proposed plan", Detail: in.Plan, NeedsResponse: true, Feedback: "rejection",
 		Options: []agent.Action{{ID: "approve", Label: "Approve & continue"}, {ID: "reject", Label: "Reject"}},
-		// ExitPlanMode is a normal tool: the user's answer is injected as a tool_result keyed by this id.
+		// Preview/legacy correlator; an actionable can_use_tool request replaces it with control metadata.
 		Meta: map[string]any{"respondVia": respondViaToolResult, "toolUseId": id},
 	}
 }
 
-// approvalInteraction maps a `can_use_tool` control_request (persistent transport, non-bypass
+// approvalInteraction maps a `can_use_tool` control_request (any interactive
 // permission mode) to a unified approval interaction. The correlators live in Meta and are echoed
 // back on the Inbound so the adapter's Encode can build the control_response without server state:
 // ID is the control-request id the client must echo, and toolUseId ties it to the emitted tool_use.
 // Returns nil for any other control subtype (e.g. the initialize ack, which the parser ignores).
 func approvalInteraction(requestID string, raw json.RawMessage) *agent.Interaction {
 	var req struct {
-		Subtype     string `json:"subtype"`
-		ToolName    string `json:"tool_name"`
-		DisplayName string `json:"display_name"`
-		Description string `json:"description"`
-		ToolUseID   string `json:"tool_use_id"`
+		Subtype     string            `json:"subtype"`
+		ToolName    string            `json:"tool_name"`
+		DisplayName string            `json:"display_name"`
+		Description string            `json:"description"`
+		ToolUseID   string            `json:"tool_use_id"`
+		Input       json.RawMessage   `json:"input"`
+		Suggestions []json.RawMessage `json:"permission_suggestions"`
 	}
-	if len(raw) == 0 || json.Unmarshal(raw, &req) != nil || req.Subtype != "can_use_tool" {
+	if json.Unmarshal(raw, &req) != nil || req.Subtype != "can_use_tool" {
 		return nil
 	}
-	name := req.DisplayName
-	if name == "" {
-		name = req.ToolName
+	id := agent.FirstNonEmpty(req.ToolUseID, requestID)
+	var it *agent.Interaction
+	switch req.ToolName {
+	case "AskUserQuestion":
+		it = questionInteraction(id, req.Input)
+	case "ExitPlanMode":
+		it = planInteraction(id, req.Input)
 	}
-	return &agent.Interaction{
-		ID: requestID, Kind: "approval", Title: "Allow " + name + "?", Detail: req.Description,
-		Options:       []agent.Action{{ID: "allow", Label: "Allow"}, {ID: "deny", Label: "Deny"}},
-		NeedsResponse: true,
-		// can_use_tool is answered over the control channel (control_response), NOT as a tool_result.
-		Meta: map[string]any{"respondVia": respondViaControl, "toolUseId": req.ToolUseID, "toolName": req.ToolName},
+	if it == nil {
+		it = &agent.Interaction{ID: requestID, Kind: "approval", Title: "Allow " + agent.FirstNonEmpty(req.DisplayName, req.ToolName) + "?",
+			Detail: req.Description, Options: []agent.Action{{ID: "allow", Label: "Allow once"}, {ID: "deny", Label: "Reject"}}}
+		var input struct {
+			Command  string `json:"command"`
+			FilePath string `json:"file_path"`
+		}
+		_ = json.Unmarshal(req.Input, &input)
+		if input.Command != "" {
+			it.Title = "Run: " + input.Command
+		}
+		if input.FilePath != "" {
+			it.Detail = strings.TrimSpace(it.Detail + "\nFile: " + input.FilePath)
+		}
 	}
+	it.NeedsResponse = true
+	if it.Kind == "approval" || it.Kind == "plan" {
+		it.Feedback = "rejection"
+	}
+	it.Meta = map[string]any{"respondVia": respondViaControl, "requestId": requestID, "toolUseId": req.ToolUseID, "toolName": req.ToolName, "input": string(req.Input)}
+	if len(req.Suggestions) > 0 && req.ToolName != "AskUserQuestion" {
+		encoded, _ := json.Marshal(req.Suggestions)
+		it.Meta["permissionSuggestions"] = string(encoded)
+		for index, raw := range req.Suggestions {
+			var suggestion struct {
+				Type        string `json:"type"`
+				Mode        string `json:"mode"`
+				Behavior    string `json:"behavior"`
+				Destination string `json:"destination"`
+				Rules       []struct {
+					ToolName    string `json:"toolName"`
+					RuleContent string `json:"ruleContent"`
+				} `json:"rules"`
+				Directories []string `json:"directories"`
+			}
+			if json.Unmarshal(raw, &suggestion) != nil {
+				continue
+			}
+			label := "Apply suggested permission change"
+			switch suggestion.Type {
+			case "setMode":
+				label = agent.PermissionLabel(suggestion.Mode)
+			case "addDirectories":
+				label = "Allow directory access"
+			case "removeDirectories":
+				label = "Remove directory access"
+			case "addRules", "replaceRules":
+				if suggestion.Behavior == "allow" {
+					label = "Allow matching requests"
+				}
+				if suggestion.Behavior == "deny" {
+					label = "Block matching requests"
+				}
+				if suggestion.Behavior == "ask" {
+					label = "Ask before matching requests"
+				}
+			case "removeRules":
+				label = "Remove matching permission rules"
+			}
+			if suggestion.Destination == "session" {
+				label += " for this session"
+			} else {
+				label += " and remember"
+			}
+			details := append([]string{}, suggestion.Directories...)
+			for _, rule := range suggestion.Rules {
+				details = append(details, strings.TrimSpace(rule.ToolName+" "+rule.RuleContent))
+			}
+			it.Options = append(it.Options, agent.Action{ID: fmt.Sprintf("allow_suggestion_%d", index), Label: label, Description: strings.Join(details, "\n")})
+		}
+	}
+	return it
 }
 
-// questionInteraction maps an AskUserQuestion tool input to a choice/select interaction.
-// Claude's shape: {"questions":[{question,header,multiSelect,options:[{label,description}]}]}.
+// One native AskUserQuestion call is one form; answers are returned together.
 func questionInteraction(id string, input json.RawMessage) *agent.Interaction {
 	var in struct {
 		Questions []struct {
@@ -408,29 +507,33 @@ func questionInteraction(id string, input json.RawMessage) *agent.Interaction {
 			Header      string `json:"header"`
 			MultiSelect bool   `json:"multiSelect"`
 			Options     []struct {
-				Label string `json:"label"`
+				Label       string `json:"label"`
+				Description string `json:"description"`
+				Preview     string `json:"preview"`
 			} `json:"options"`
 		} `json:"questions"`
 	}
 	if json.Unmarshal(input, &in) != nil || len(in.Questions) == 0 {
 		return nil
 	}
-	q := in.Questions[0]
-	kind := "choice"
-	if q.MultiSelect {
-		kind = "select"
-	}
-	opts := make([]agent.Action, 0, len(q.Options))
-	for _, o := range q.Options {
-		if o.Label != "" {
-			opts = append(opts, agent.Action{ID: o.Label, Label: o.Label})
+	it := &agent.Interaction{ID: id, Kind: "form", Title: "Your input", NeedsResponse: true}
+	for i, q := range in.Questions {
+		question := agent.Question{ID: fmt.Sprintf("q%d", i+1), Title: q.Question, Header: q.Header, MultiSelect: q.MultiSelect, AllowOther: true}
+		for _, option := range q.Options {
+			question.Options = append(question.Options, agent.Action{ID: option.Label, Label: option.Label, Description: option.Description, Preview: option.Preview})
 		}
+		it.Questions = append(it.Questions, question)
 	}
-	return &agent.Interaction{
-		ID: id, Kind: kind, Title: q.Question, Detail: q.Header, Options: opts, NeedsResponse: true,
-		// AskUserQuestion is a normal tool: the answer is injected as a tool_result keyed by this id.
-		Meta: map[string]any{"respondVia": respondViaToolResult, "toolUseId": id},
+	if len(it.Questions) == 1 {
+		q := it.Questions[0]
+		it.Title, it.Detail, it.Options = q.Title, q.Header, q.Options
+		it.Kind = "choice"
+		if q.MultiSelect {
+			it.Kind = "select"
+		}
+		it.Meta = map[string]any{"allowOther": true}
 	}
+	return it
 }
 
 // todosInteraction maps a TodoWrite tool input ({"todos":[{content,status,…}]}) to a

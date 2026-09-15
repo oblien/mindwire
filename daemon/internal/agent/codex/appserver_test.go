@@ -333,11 +333,9 @@ func TestAppServerAnswersEveryQuestionBeforeResponding(t *testing.T) {
 	}()
 	res, got := (appServer{message: "test"}).converse(ctx, clientW, serverR, inbound, func(ev agent.Event) {
 		if inter := ev.Interaction; inter != nil && inter.NeedsResponse {
-			answer := "/repo"
-			if inter.Kind == "choice" {
-				answer = inter.Options[0].Label
-			}
-			inbound <- agent.Inbound{Kind: "response", InteractionID: inter.ID, Text: answer}
+			inbound <- agent.Inbound{Kind: "response", InteractionID: inter.ID, Answers: map[string]agent.QuestionAnswer{
+				"color": {Options: []string{"Blue"}}, "path": {Text: "/repo"},
+			}}
 		}
 	})
 	if !got || res.IsError || res.Text != "Both answered" {

@@ -138,9 +138,9 @@ export class Run {
   }
 
   /**
-   * Switch the permission mode of the live turn (e.g. `default`, `acceptEdits`, `plan`,
-   * `bypassPermissions`). Only meaningful on a persistent (non-bypass) turn; on a one-shot turn it
-   * is a best-effort no-op. Requires the agent's `setPermissionMode` capability.
+   * Switch the live permission mode using a value from the agent's settings schema.
+   * Resolves after the harness acknowledges the change; rejects if it cannot apply it.
+   * Requires `setPermissionMode`. Codex settings apply on the next turn instead.
    */
   async setPermissionMode(mode: string): Promise<void> {
     await this.http.request<void>("POST", `/runs/${encodeURIComponent(this.id)}/set-permission-mode`, {

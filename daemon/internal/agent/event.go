@@ -43,6 +43,7 @@ type Usage struct {
 type ResultInfo struct {
 	Text      string  `json:"text,omitempty"`
 	IsError   bool    `json:"isError,omitempty"`
+	Cancelled bool    `json:"cancelled,omitempty"`
 	SessionID string  `json:"sessionId,omitempty"`
 	CostUSD   float64 `json:"costUsd,omitempty"`
 	// Usage is best-effort per-turn token accounting, sitting alongside CostUSD. Nil when the agent

@@ -39,15 +39,15 @@ func (adapter) Capabilities() agent.Capabilities {
 		ToolEvents: true,
 		Cancel:     true,
 		Persistent: true,
-		// Codex ships no scriptable model list of its own and the daemon no longer stores the models.dev
-		// catalog, so /models returns an empty native list; Codex DECLARES its provider scope (openai) and
-		// the client sources the picker from the live catalog. The settings model field is free text (see
-		// models.go). Models stays true so the client shows a Models surface for Codex.
+		// Report configured private deployments through /models. Codex's cached metadata catalog
+		// does not enumerate an account's deployments; clients source the public picker separately.
+		// The settings model field remains free text for provider-specific names (see models.go).
 		Models: true,
 		// Codex feeds image attachments to `codex exec -i <file>` natively, so the model sees the image.
 		ImageInput: true,
 		// User-in-loop over the app-server transport: answer approvals (respond), steer mid-turn (input),
-		// and interrupt. Codex has no live model/permission switch, so those two stay off (their routes 400).
+		// and interrupt. Native thread/settings/update only affects subsequent turns, so live
+		// model/permission switches stay off (their routes 400).
 		Respond:           true,
 		Input:             true,
 		Interrupt:         true,
@@ -86,14 +86,16 @@ func (adapter) Capabilities() agent.Capabilities {
 // flag mapping is too irregular to iterate (fresh vs resume take different flags for the same
 // concept), so buildExecCommand switches on these keys explicitly rather than a per-spec flag.
 const (
-	keyModel        = "model"
-	keyEffort       = "reasoning-effort"
-	keyApproval     = "permission-mode" // maps to Codex's approval policy (when to ask a human)
-	keySandbox      = "sandbox"         // Codex's orthogonal second axis (filesystem/network isolation)
-	keyWorkdir      = "working-dir"
-	keyAddDir       = "add-dir"
-	keySystemPrompt = "system-prompt"       // sticky full system-prompt override (canon systemPrompt), threaded into the exec overlay
-	keyAutoCompact  = "auto-compact-tokens" // canon autoCompactTokens → -c model_auto_compact_token_limit
+	keyModel         = "model"
+	keyEffort        = "reasoning-effort"
+	keyReviewer      = "approval-reviewer"
+	keyCollaboration = "collaboration-mode"
+	keyApproval      = "permission-mode" // maps to Codex's approval policy (when to ask a human)
+	keySandbox       = "sandbox"         // Codex's orthogonal second axis (filesystem/network isolation)
+	keyWorkdir       = "working-dir"
+	keyAddDir        = "add-dir"
+	keySystemPrompt  = "system-prompt"       // sticky full system-prompt override (canon systemPrompt), threaded into the exec overlay
+	keyAutoCompact   = "auto-compact-tokens" // canon autoCompactTokens → -c model_auto_compact_token_limit
 )
 
 // optSrc says where a select field's VALUES come from. We never hardcode enum values — they are
@@ -104,7 +106,9 @@ const (
 	srcNone     optSrc = iota // free text (no discoverable source)
 	srcSandbox                // inline `[possible values: …]` from `codex exec --help` (-s/--sandbox)
 	srcApproval               // multi-line `Possible values:` from `codex --help` (-a/--ask-for-approval)
-	srcModels                 // model ids from modelChoices() — empty for Codex (no local list → free text)
+	srcReviewer
+	srcCollaboration
+	srcModels // model ids from modelChoices() — empty for Codex (no local list → free text)
 )
 
 // fieldSpec is a setting we expose. We OWN the references (key, label/help, field TYPE, scope,
@@ -126,6 +130,8 @@ var codexSpecs = []fieldSpec{
 	{key: keyEffort, label: "Reasoning effort", section: "Model & reasoning", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonReasoningEffort, src: srcNone, placeholder: "medium", help: "How much reasoning the model uses per turn (e.g. minimal, low, medium, high, xhigh), depending on the selected model."},
 
 	{key: keyApproval, label: "Approval policy", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonPermissionMode, src: srcApproval, emptyLabel: "Never (autonomous)", help: "When Codex pauses to ask you before running a command."},
+	{key: keyReviewer, label: "Approval reviewer", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonApprovalReviewer, src: srcReviewer, help: "Approve for me uses Codex's native reviewer with Ask when needed. Ask before commands uses manual review. Custom connections use the chat model for automatic review."},
+	{key: keyCollaboration, label: "Mode", section: "Model & reasoning", typ: agent.FieldSelect, scope: agent.ScopeCustom, canon: keyCollaboration, src: srcCollaboration, help: "Planning mode asks questions and prepares a plan before implementation. Applies on the next turn."},
 	{key: keySandbox, label: "Sandbox", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeCustom, canon: keySandbox, src: srcSandbox, emptyLabel: "Default (workspace-write)", help: "Filesystem/network isolation for model-run commands — Codex's second permission axis, orthogonal to the approval policy."},
 
 	{key: keyWorkdir, label: "Working directory", section: "Workspace", typ: agent.FieldText, scope: agent.ScopeCustom, canon: keyWorkdir, src: srcNone, placeholder: "/path/to/repo", help: "Directory the agent uses as its working root. Applies to fresh sessions; a resumed session keeps its original directory."},
@@ -151,9 +157,45 @@ func (adapter) Settings() agent.SettingsSchema {
 		case srcSandbox:
 			f = withChoices(f, sandboxChoices(), s.emptyLabel)
 		case srcApproval:
-			f = withChoices(f, approvalChoices(), s.emptyLabel)
+			values := protocolChoices("AskForApproval")
+			if len(values) == 0 {
+				values = approvalChoices()
+			}
+			f = withChoices(f, values, s.emptyLabel)
+		case srcReviewer:
+			values := protocolChoices("ApprovalsReviewer")
+			if len(values) == 0 {
+				continue
+			}
+			f = withChoices(f, values, "")
+			f.Default = "user"
+		case srcCollaboration:
+			values := protocolChoices("ModeKind")
+			if len(values) == 0 {
+				continue
+			}
+			f = withChoices(f, values, "")
+			f.Default = "default"
+			for i := range f.Options {
+				switch f.Options[i].Value {
+				case "default":
+					f.Options[i].Label = "Build"
+				case "plan":
+					f.Options[i].Label = "Plan first"
+				}
+			}
 		case srcModels:
 			f = withChoices(f, modelChoices(), s.emptyLabel)
+		}
+		if s.key == keyApproval {
+			f.Default = "never"
+		}
+		if s.key == keyApproval || s.key == keySandbox || s.key == keyReviewer {
+			for i := range f.Options {
+				if f.Options[i].Value != "" {
+					f.Options[i].Label = agent.PermissionLabel(f.Options[i].Value)
+				}
+			}
 		}
 		i, ok := idx[s.section]
 		if !ok {

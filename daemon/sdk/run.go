@@ -2,6 +2,8 @@ package mindwire
 
 import (
 	"context"
+	"errors"
+	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"iter"
 	"net/http"
 
@@ -116,12 +118,7 @@ func (r *Run) Subscribe() (replay []Event, ch <-chan Event, done bool, cancel fu
 
 // RespondInput answers a mid-turn interaction: the interaction id, the chosen decision
 // (allow/deny, approve/reject, or a single option id), any multi-select option ids, and free text.
-type RespondInput struct {
-	InteractionID string
-	Decision      string
-	Options       []string
-	Text          string
-}
+type RespondInput = InteractionResponse
 
 // Cancel hard-stops the turn (kills the CLI). APIError{400} if the agent doesn't support cancellation;
 // APIError{404} if no turn is currently running for this id.
@@ -142,8 +139,12 @@ func (r *Run) Respond(in RespondInput) error {
 	if err := r.capGate(func(c Capabilities) bool { return c.Respond }, "this agent does not support responding to interactions", "Run.Respond"); err != nil {
 		return err
 	}
-	if !r.core.sup.Respond(r.data.ID, in.InteractionID, in.Decision, in.Options, in.Text) {
-		return notAccepting("Run.Respond")
+	if err := r.core.sup.RespondInteraction(r.data.ID, in); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, orchestrator.ErrInteractionNotPending) {
+			status = http.StatusConflict
+		}
+		return &APIError{Message: err.Error(), Status: status, Op: "Run.Respond"}
 	}
 	return nil
 }
@@ -188,9 +189,9 @@ func (r *Run) SetModel(model string) error {
 	return nil
 }
 
-// SetPermissionMode switches the permission mode of a live turn (mode required). Same best-effort
-// semantics as SetModel. APIError{400} if unsupported or mode is empty; APIError{404} if no turn is
-// accepting input.
+// SetPermissionMode switches a live turn's permission mode and waits for the native harness
+// to acknowledge it. An unsupported mode, rejected change, or turn no longer accepting input
+// returns an APIError instead of silently accepting the change.
 func (r *Run) SetPermissionMode(mode string) error {
 	if err := r.capGate(func(c Capabilities) bool { return c.SetPermissionMode }, "this agent does not support switching the permission mode mid-turn", "Run.SetPermissionMode"); err != nil {
 		return err
@@ -198,8 +199,8 @@ func (r *Run) SetPermissionMode(mode string) error {
 	if mode == "" {
 		return &APIError{Message: "mode is required", Status: http.StatusBadRequest, Op: "Run.SetPermissionMode"}
 	}
-	if !r.core.sup.SetPermissionMode(r.data.ID, mode) {
-		return notAccepting("Run.SetPermissionMode")
+	if err := r.core.sup.ConfirmPermissionMode(context.Background(), r.data.ID, mode); err != nil {
+		return &APIError{Message: err.Error(), Status: http.StatusBadRequest, Op: "Run.SetPermissionMode"}
 	}
 	return nil
 }

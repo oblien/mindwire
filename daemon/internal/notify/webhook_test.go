@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
@@ -91,5 +92,47 @@ func TestWebhookNotifierNon2xxErrors(t *testing.T) {
 	err := n.Notify(context.Background(), agent.Notification{Condition: agent.Finished, Title: "x"})
 	if err == nil {
 		t.Fatal("expected an error on a non-2xx webhook response, got nil")
+	}
+}
+
+func TestPushRelayDeliveryFailuresDoNotLookSuccessful(t *testing.T) {
+	cases := []struct {
+		name, body string
+		wantError  bool
+		wantDetail string
+	}{
+		{"delivered", `{"success":true,"delivered":1,"failed":0}`, false, ""},
+		{"no devices", `{"success":true,"delivered":0,"devices":0,"detail":"no_active_devices"}`, true, "no_active_devices"},
+		{"unconfigured", `{"success":true,"skipped":true,"reason":"fcm_not_configured"}`, true, "fcm_not_configured"},
+		{"partial failure", `{"success":true,"delivered":1,"failed":1}`, true, "unsuccessful delivery"},
+		{"provider error", `{"success":true,"delivered":0,"failed":1,"errors":[{"code":"messaging/third-party-auth-error","message":"Token private-device-token failed","count":1}]}`, true, "messaging/third-party-auth-error"},
+		{"errors without counters", `{"errors":[{"code":"messaging/invalid-argument","count":1}]}`, true, "messaging/invalid-argument"},
+		{"rejected", `{"success":false}`, true, "unsuccessful delivery"},
+		{"queued", `{"accepted":true}`, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+			n := NewWebhook(func() (string, string, string) { return srv.URL, "workspace", "token" })
+			n.Format = func() agent.NotifyChannelType { return agent.ChannelPush }
+			err := n.Notify(context.Background(), agent.Notification{Condition: agent.Finished, Title: "Done"})
+			if (err != nil) != tc.wantError {
+				t.Fatalf("error=%v, wantError=%v", err, tc.wantError)
+			}
+			if err != nil && (!strings.Contains(err.Error(), tc.wantDetail) || strings.Contains(err.Error(), "private-device-token")) {
+				t.Fatalf("delivery error must retain the reason without provider token data: %v", err)
+			}
+			// The named channel path must interpret the same response identically.
+			err = DeliverOne(context.Background(), nil, agent.NotifyChannel{URL: srv.URL, Type: agent.ChannelPush}, agent.Notification{Title: "Done"})
+			if (err != nil) != tc.wantError {
+				t.Fatalf("named channel error=%v, wantError=%v", err, tc.wantError)
+			}
+			if err != nil && (!strings.Contains(err.Error(), tc.wantDetail) || strings.Contains(err.Error(), "private-device-token")) {
+				t.Fatalf("named channel error must retain the reason without provider token data: %v", err)
+			}
+		})
 	}
 }

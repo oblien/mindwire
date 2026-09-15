@@ -383,16 +383,11 @@ func (a *API) cancelRun(w http.ResponseWriter, r *http.Request) {
 // respondReq is the body of POST /runs/{id}/respond: the user's answer to a mid-turn interaction
 // (a permission approval or an AskUserQuestion/ExitPlanMode reply). interactionId ties the answer to
 // the interaction the turn is waiting on; decision is the approval verdict (allow/deny) and/or text
-// is the free-form answer; options carries a multi-select answer.
-type respondReq struct {
-	InteractionID string   `json:"interactionId,omitempty"`
-	Decision      string   `json:"decision,omitempty"`
-	Options       []string `json:"options,omitempty"`
-	Text          string   `json:"text,omitempty"`
-}
+// is the free-form answer; answers carries a complete form keyed by question ID.
+type respondReq = agent.InteractionResponse
 
-// respondRun feeds the user's answer to a waiting interaction back into the running turn. 404 if no
-// turn is currently accepting ingress for that id; 400 if the run's agent declares no respond capability.
+// respondRun validates and queues one reply. Unknown runs return 404, invalid
+// answers return 400, and already resolved or stale requests return 409.
 func (a *API) respondRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run, ok := a.store.GetRun(id)
@@ -409,8 +404,12 @@ func (a *API) respondRun(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid request body")
 		return
 	}
-	if !a.sup.Respond(id, req.InteractionID, req.Decision, req.Options, req.Text) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no running turn accepting input for that id"})
+	if err := a.sup.RespondInteraction(id, req); err != nil {
+		if errors.Is(err, orchestrator.ErrInteractionNotPending) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		} else {
+			badRequest(w, err.Error())
+		}
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
@@ -507,9 +506,8 @@ type setPermissionModeReq struct {
 	Mode string `json:"mode"`
 }
 
-// setPermissionModeRun switches the permission mode of a live turn over the control channel. Same
-// persistent-only best-effort semantics as setModelRun. 404 if no turn is accepting ingress for that
-// id; 400 if the run's agent declares no set-permission-mode capability, or the mode is empty.
+// setPermissionModeRun waits for the live harness to acknowledge the native mode.
+// Unknown runs return 404; unsupported, rejected or unconfirmed changes return 400.
 func (a *API) setPermissionModeRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run, ok := a.store.GetRun(id)
@@ -526,8 +524,8 @@ func (a *API) setPermissionModeRun(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "mode is required")
 		return
 	}
-	if !a.sup.SetPermissionMode(id, req.Mode) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no running turn accepting input for that id"})
+	if err := a.sup.ConfirmPermissionMode(r.Context(), id, req.Mode); err != nil {
+		badRequest(w, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
@@ -1583,9 +1581,10 @@ func (a *API) authStatusHandler(w http.ResponseWriter, r *http.Request) {
 // ---- notifications ----------------------------------------------------------
 
 type notifyConfigReq struct {
-	URL     string `json:"url"`
-	Channel string `json:"channel"`
-	Token   string `json:"token"`
+	URL     string                  `json:"url"`
+	Channel string                  `json:"channel"`
+	Token   string                  `json:"token"`
+	Format  agent.NotifyChannelType `json:"format"`
 }
 
 // setNotifyConfig stores the notification webhook the client provisioned (daemon-wide).
@@ -1599,7 +1598,11 @@ func (a *API) setNotifyConfig(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "url and channel are required")
 		return
 	}
-	if err := a.store.SetNotifyConfig(req.URL, req.Channel, req.Token); err != nil {
+	if req.Format != "" && !validNotifyType(req.Format) {
+		badRequest(w, "unsupported notification format")
+		return
+	}
+	if err := a.store.SetNotifyConfig(req.URL, req.Channel, req.Token, req.Format); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to persist notification config"})
 		return
 	}
@@ -1608,11 +1611,13 @@ func (a *API) setNotifyConfig(w http.ResponseWriter, r *http.Request) {
 
 // notifyConfig reports whether a channel is wired. The token is never returned.
 func (a *API) notifyConfig(w http.ResponseWriter, _ *http.Request) {
-	url, channel, _ := a.store.NotifyConfig()
+	url, channel, token := a.store.NotifyConfig()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"configured": url != "" && channel != "",
 		"url":        url,
 		"channel":    channel,
+		"format":     a.store.NotifyFormat(),
+		"hasToken":   token != "",
 	})
 }
 
@@ -1813,7 +1818,7 @@ func (req notifyChannelReq) applyTo(c agent.NotifyChannel) agent.NotifyChannel {
 
 func validNotifyType(t agent.NotifyChannelType) bool {
 	switch t {
-	case agent.ChannelWebhook, agent.ChannelSlack, agent.ChannelDiscord, agent.ChannelTelegram:
+	case agent.ChannelWebhook, agent.ChannelPush, agent.ChannelSlack, agent.ChannelDiscord, agent.ChannelTelegram:
 		return true
 	}
 	return false
@@ -1844,7 +1849,7 @@ func (a *API) createNotifyChannel(w http.ResponseWriter, r *http.Request) {
 		c.Enabled = true // a freshly created channel is on unless explicitly disabled
 	}
 	if !validNotifyType(c.Type) {
-		badRequest(w, "type must be one of webhook, slack, discord, telegram")
+		badRequest(w, "type must be one of webhook, push, slack, discord, telegram")
 		return
 	}
 	if c.URL == "" {
@@ -1874,7 +1879,7 @@ func (a *API) setNotifyChannel(w http.ResponseWriter, r *http.Request) {
 	c := req.applyTo(existing)
 	c.ID = existing.ID
 	if !validNotifyType(c.Type) {
-		badRequest(w, "type must be one of webhook, slack, discord, telegram")
+		badRequest(w, "type must be one of webhook, push, slack, discord, telegram")
 		return
 	}
 	if c.URL == "" {

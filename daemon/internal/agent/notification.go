@@ -17,8 +17,10 @@ const (
 
 // Action is a user action surfaced with the notification (e.g. Approve / Reject).
 type Action struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Preview     string `json:"preview,omitempty"`
 }
 
 // Notification is the unified payload the daemon emits; the webhook receiver fans it out.
@@ -38,6 +40,7 @@ type NotifyChannelType string
 
 const (
 	ChannelWebhook  NotifyChannelType = "webhook"  // raw Notification JSON (optionally HMAC-signed)
+	ChannelPush     NotifyChannelType = "push"     // title/body plus string-valued data for push relays
 	ChannelSlack    NotifyChannelType = "slack"    // {"text": "<title>\n<body>"} — Slack incoming webhook
 	ChannelDiscord  NotifyChannelType = "discord"  // {"content": "<title>\n<body>"} — Discord webhook
 	ChannelTelegram NotifyChannelType = "telegram" // {"text": "<title>\n<body>"} — bot sendMessage URL

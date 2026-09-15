@@ -30,7 +30,7 @@ func TestParsePlanInteraction(t *testing.T) {
 	if it == nil || it.Kind != "plan" {
 		t.Fatalf("expected a plan interaction, got %+v", it)
 	}
-	if it.Detail != "1. do X\n2. do Y" || !it.NeedsResponse || len(it.Options) != 2 {
+	if it.Detail != "1. do X\n2. do Y" || it.NeedsResponse || len(it.Options) != 2 {
 		t.Errorf("plan interaction = %+v", it)
 	}
 }

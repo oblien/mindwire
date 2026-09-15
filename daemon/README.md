@@ -39,3 +39,4 @@ lifecycle, the HTTP surface, and how to add an adapter — is documented once, o
 - **[Daemon internals](https://mindwire.sh/docs/concepts/internals)** — the core contracts, drivers, event
   protocol, HTTP endpoints, and turn lifecycle.
 - **[NOTIFICATIONS.md](./NOTIFICATIONS.md)** — the provider-agnostic notification webhook contract.
+- **[INTERACTIONS.md](./INTERACTIONS.md)** — shared question forms, command approvals, permission settings and client lifecycle.

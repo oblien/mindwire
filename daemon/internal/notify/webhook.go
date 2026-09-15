@@ -3,7 +3,6 @@ package notify
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -17,7 +16,8 @@ import (
 // It is provider-agnostic: the daemon just fires the agent.Notification as JSON at whatever
 // endpoint the client provisioned via PUT /notify/config — a serverless function, a Slack/ntfy
 // relay, a push gateway (APNs/FCM), your own backend, anything that speaks HTTP. The daemon holds
-// no device tokens or push credentials; shaping/fan-out is the receiver's job.
+// no device tokens or push credentials. The optional push format wraps routing metadata in
+// string-valued data for a push relay; final FCM/APNs shaping/fan-out is the receiver's job.
 //
 // It reads its target LIVE from a provider on every send, so the client can set or rotate the
 // webhook at runtime. With no URL configured it is a silent no-op — notifications are optional and
@@ -26,6 +26,7 @@ type WebhookNotifier struct {
 	// Config returns (url, channel, token): the webhook endpoint, an optional routing tag sent as
 	// the X-Mindwire-Channel header, and an optional bearer token sent as Authorization.
 	Config func() (url, channel, token string)
+	Format func() agent.NotifyChannelType
 	HTTP   *http.Client
 }
 
@@ -39,7 +40,15 @@ func NewWebhook(config func() (url, channel, token string)) *WebhookNotifier {
 // unconfigured (a no-op then) and honors a later PUT /notify/config without a restart.
 func init() { Register(webhookFactory) }
 
-func webhookFactory(store Store) (Notifier, bool) { return NewWebhook(store.NotifyConfig), true }
+func webhookFactory(store Store) (Notifier, bool) {
+	n := NewWebhook(store.NotifyConfig)
+	if formats, ok := store.(interface {
+		NotifyFormat() agent.NotifyChannelType
+	}); ok {
+		n.Format = formats.NotifyFormat
+	}
+	return n, true
+}
 
 func (w *WebhookNotifier) Notify(ctx context.Context, n agent.Notification) error {
 	url, channel, token := w.Config()
@@ -48,9 +57,11 @@ func (w *WebhookNotifier) Notify(ctx context.Context, n agent.Notification) erro
 	if url == "" {
 		return nil
 	}
-	// The body IS the unified notification — condition, title, body, agent, chatId, runId, actions.
-	// A receiver maps that onto whatever it delivers (APNs alert, Slack message, email, …).
-	body, err := json.Marshal(n)
+	format := agent.ChannelWebhook
+	if w.Format != nil {
+		format = w.Format()
+	}
+	body, err := shape(format, n)
 	if err != nil {
 		return err
 	}
@@ -78,6 +89,9 @@ func (w *WebhookNotifier) Notify(ctx context.Context, n agent.Notification) erro
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// A non-2xx would otherwise look like a successful send.
 		return fmt.Errorf("webhook HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(respBody))
+	}
+	if format == agent.ChannelPush {
+		return checkPushDelivery(respBody)
 	}
 	return nil
 }

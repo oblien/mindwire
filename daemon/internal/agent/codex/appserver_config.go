@@ -15,6 +15,7 @@ func newAppServer(in agent.TurnInput, files materialized) appServer {
 		model:  strings.TrimSpace(agent.FirstNonEmpty(in.Config[keyModel], in.Env[azureModelMarker])),
 		effort: strings.TrimSpace(in.Config[keyEffort]), provider: strings.TrimSpace(in.Env[azureProviderMarker]),
 		sandbox: sandbox(in), approval: approvalPolicy(in),
+		reviewer: strings.TrimSpace(in.Config[keyReviewer]), collaboration: strings.TrimSpace(in.Config[keyCollaboration]),
 		cwd:          strings.TrimSpace(agent.FirstNonEmpty(in.Config[keyWorkdir], in.CWD)),
 		resumeID:     agent.FirstNonEmpty(in.Options.SessionID, in.SessionID),
 		instructions: files.systemPrompt, images: files.imagePaths, outputSchema: in.Options.OutputSchema,

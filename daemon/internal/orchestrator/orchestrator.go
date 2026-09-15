@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -381,18 +382,31 @@ func (s *Supervisor) Cancel(runID string) bool {
 // Inbound so the adapter frames the native wire response statelessly. false = no turn with an open
 // ingress channel for that run id (unknown, finished, or the agent takes no ingress).
 func (s *Supervisor) Respond(runID, interactionID, decision string, options []string, text string) bool {
+	return s.RespondInteraction(runID, agent.InteractionResponse{InteractionID: interactionID, Decision: decision, Options: options, Text: text}) == nil
+}
+
+// RespondInteraction accepts exactly one complete answer for a currently pending request.
+func (s *Supervisor) RespondInteraction(runID string, reply agent.InteractionResponse) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var meta map[string]string
-	if p := s.pending[runID]; p != nil {
-		if it, ok := p[interactionID]; ok {
-			meta = metaStrings(it.Meta)
-		}
+	it, ok := s.pending[runID][reply.InteractionID]
+	if !ok || !it.NeedsResponse {
+		return ErrInteractionNotPending
 	}
-	return s.trySend(runID, agent.Inbound{
-		Kind: "response", InteractionID: interactionID, Decision: decision, Options: options, Text: text, Meta: meta,
-	})
+	reply, err := it.ValidateResponse(reply)
+	if err != nil {
+		return err
+	}
+	if !s.trySend(runID, agent.Inbound{Kind: "response", InteractionID: reply.InteractionID,
+		Decision: reply.Decision, Options: reply.Options, Text: reply.Text, Answers: reply.Answers,
+		Meta: metaStrings(it.Meta), Interaction: &it}) {
+		return ErrInteractionNotPending
+	}
+	delete(s.pending[runID], reply.InteractionID)
+	return nil
 }
+
+var ErrInteractionNotPending = errors.New("interaction is no longer waiting for an answer")
 
 // SendInput queues a follow-up user message into a running turn (steer/append without cancelling).
 // false = no open ingress channel for that run id.
@@ -434,7 +448,11 @@ func (s *Supervisor) recordPending(runID string, it agent.Interaction) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if p := s.pending[runID]; p != nil {
-		p[it.ID] = it
+		if it.NeedsResponse {
+			p[it.ID] = it
+		} else {
+			delete(p, it.ID)
+		}
 	}
 }
 
@@ -517,6 +535,16 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 	turn := runner.Turn{
 		ChatID: run.ChatID, Message: req.Message, RunID: run.ID, CWD: req.CWD, Options: req.Options,
 		Inbound: inbound,
+		BeforePublish: func(ev agent.Event) {
+			if ev.Interaction != nil {
+				s.recordPending(run.ID, *ev.Interaction)
+			}
+			if ev.Type == agent.EventResult {
+				s.mu.Lock()
+				delete(s.pending, run.ID)
+				s.mu.Unlock()
+			}
+		},
 	}
 	var res agent.TurnResult
 	var parts []agent.Part
@@ -536,7 +564,7 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 
 	// A user-initiated cancel surfaces as context.Canceled (vs DeadlineExceeded for the
 	// turn timeout). Record it as cancelled, no error notification.
-	if ctx.Err() == context.Canceled {
+	if ctx.Err() == context.Canceled || res.Cancelled {
 		run.Status = "cancelled"
 		if len(parts) > 0 {
 			s.saveReply(&run, "", parts, "")
@@ -633,7 +661,7 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 		child.EndedAt = nowISO()
 
 		// A parent cancel surfaces as context.Canceled on the child; stop the whole resolve.
-		if ctx.Err() == context.Canceled {
+		if ctx.Err() == context.Canceled || res.Cancelled {
 			child.Status = "cancelled"
 			if len(parts) > 0 {
 				s.saveReply(&child, "", parts, "")
@@ -768,9 +796,6 @@ func (s *Supervisor) watchInteractions(a *Agent, run session.Run) {
 		if ev.Type != agent.EventInteraction || ev.Interaction == nil || !ev.Interaction.NeedsResponse {
 			return
 		}
-		// Record every respondable interaction so Respond can echo its adapter correlators (respondVia,
-		// toolUseId — kept in Interaction.Meta) back on the outbound Inbound, keeping the adapter stateless.
-		s.recordPending(run.ID, *ev.Interaction)
 		if fired {
 			return
 		}

@@ -159,7 +159,13 @@ func (p Persistent) Run(ctx context.Context, _ agent.TurnInput, emit agent.Emit)
 					return
 				}
 				if line, ok := p.Encode(in); ok {
+					if in.Kind == "response" && in.Interaction != nil {
+						resolved := *in.Interaction
+						resolved.NeedsResponse = false
+						emit(agent.Event{Type: agent.EventInteraction, Interaction: &resolved})
+					}
 					if !writeLine(line) {
+						emit(agent.Event{Type: agent.EventError, Error: "Could not send the answer to the agent"})
 						_ = stdin.Close()
 						return
 					}

@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -151,6 +152,9 @@ func DeliverOne(ctx context.Context, hc *http.Client, ch agent.NotifyChannel, n 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(respBody))
 	}
+	if ch.Type == agent.ChannelPush {
+		return checkPushDelivery(respBody)
+	}
 	return nil
 }
 
@@ -160,6 +164,29 @@ func DeliverOne(ctx context.Context, hc *http.Client, ch agent.NotifyChannel, n 
 // bot sendMessage endpoint with no relay in between.
 func shape(t agent.NotifyChannelType, n agent.Notification) ([]byte, error) {
 	switch t {
+	case agent.ChannelPush:
+		data := map[string]string{"condition": string(n.Condition)}
+		if n.Agent != "" {
+			data["agent"] = n.Agent
+		}
+		if n.ChatID != "" {
+			data["chatId"], data["target_type"], data["target_id"] = n.ChatID, "chat", n.ChatID
+		}
+		if n.RunID != "" {
+			data["runId"] = n.RunID
+		}
+		if len(n.Actions) > 0 {
+			actions, err := json.Marshal(n.Actions)
+			if err != nil {
+				return nil, err
+			}
+			data["actions"] = string(actions)
+		}
+		return json.Marshal(struct {
+			Title string            `json:"title"`
+			Body  string            `json:"body"`
+			Data  map[string]string `json:"data"`
+		}{n.Title, n.Body, data})
 	case agent.ChannelSlack, agent.ChannelTelegram:
 		return json.Marshal(map[string]string{"text": messageText(n)})
 	case agent.ChannelDiscord:
@@ -170,6 +197,40 @@ func shape(t agent.NotifyChannelType, n agent.Notification) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("unknown channel type %q", t)
 	}
+}
+
+// Some push relays return HTTP 200 even when no device received anything. Preserve that
+// delivery failure instead of reporting a successful send on the run stream. Relays which
+// only acknowledge queuing (no delivery counters) continue to use their HTTP status.
+func checkPushDelivery(body []byte) error {
+	var result struct {
+		Success   *bool  `json:"success"`
+		Delivered *int   `json:"delivered"`
+		Failed    int    `json:"failed"`
+		Skipped   bool   `json:"skipped"`
+		Reason    string `json:"reason"`
+		Detail    string `json:"detail"`
+		Errors    []struct {
+			Code string `json:"code"`
+		} `json:"errors"`
+	}
+	if json.Unmarshal(body, &result) != nil {
+		return nil
+	}
+	if result.Skipped || (result.Success != nil && !*result.Success) ||
+		(result.Delivered != nil && *result.Delivered == 0) || result.Failed > 0 || len(result.Errors) > 0 {
+		// Preserve the relay's provider error codes without copying arbitrary provider
+		// messages, which can contain the recipient's device token.
+		var codes []string
+		for _, failure := range result.Errors {
+			if failure.Code != "" {
+				codes = append(codes, failure.Code)
+			}
+		}
+		reason := agent.FirstNonEmpty(result.Reason, result.Detail, strings.Join(codes, ", "), "push relay reported unsuccessful delivery")
+		return fmt.Errorf("push delivery: %s", reason)
+	}
+	return nil
 }
 
 // messageText renders a notification as one human-readable string for the chat providers.

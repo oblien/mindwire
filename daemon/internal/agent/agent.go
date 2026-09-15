@@ -52,7 +52,12 @@ type Inbound struct {
 	// Options are the selected option ids for a multi-select question.
 	Options []string `json:"options,omitempty"`
 	// Text is free-text input, a deny reason, or a free-text answer.
-	Text string `json:"text,omitempty"`
+	Text    string                    `json:"text,omitempty"`
+	Answers map[string]QuestionAnswer `json:"answers,omitempty"`
+	// Internal correlators never come from a client's request body.
+	Interaction *Interaction `json:"-"`
+	Ack         chan error   `json:"-"`
+	ControlID   string       `json:"-"`
 	// Meta is the adapter's own correlators, copied verbatim from the interaction's Meta by the
 	// supervisor and handed back so the adapter can encode the native response without server state
 	// (e.g. respondVia, toolUseId).
@@ -117,6 +122,7 @@ type TurnResult struct {
 	Text      string
 	SessionID string
 	IsError   bool
+	Cancelled bool // the harness stopped the turn at the user's request
 	// Subtype is the agent's terminal-result classifier when it has one (Claude's result subtype).
 	// Empty for agents whose terminal event is always settled (Codex). Continuable(Subtype) reports
 	// whether it means "stopped short but resumable" — the signal the resolve loop drives on.

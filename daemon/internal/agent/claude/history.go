@@ -214,6 +214,11 @@ func mergeToolResults(m *agent.Message, results []agent.Part) {
 		}
 		matched := false
 		for i := range m.Parts {
+			if it := m.Parts[i].Interaction; it != nil && it.ID == r.Tool.ID {
+				it.NeedsResponse = false
+				matched = true
+				break // the question/plan already represents this tool; no orphan result card
+			}
 			if m.Parts[i].Type == "tool" && m.Parts[i].Tool != nil && m.Parts[i].Tool.ID == r.Tool.ID {
 				tp := m.Parts[i].Tool
 				tp.Output = r.Tool.Output

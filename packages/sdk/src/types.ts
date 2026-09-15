@@ -143,6 +143,8 @@ export interface Usage {
 export interface ResultInfo {
   text?: string;
   isError?: boolean;
+  /** The harness stopped at the user's request; this is not an error. */
+  cancelled?: boolean;
   sessionId?: string;
   costUsd?: number;
   /** Per-turn token accounting, when the agent reports it. */
@@ -234,6 +236,8 @@ export interface ContinuationInfo {
 export interface Action {
   id: string;
   label: string;
+  description?: string;
+  preview?: string;
 }
 
 export interface TodoItem {
@@ -245,30 +249,52 @@ export interface TodoItem {
  * A structured, self-describing request an agent surfaces mid-turn for the client to render
  * generically — and, when `needsResponse`, for the user to answer.
  */
+export interface Question {
+  id: string;
+  title: string;
+  header?: string;
+  options?: Action[];
+  multiSelect?: boolean;
+  allowOther?: boolean;
+  isSecret?: boolean;
+  optional?: boolean;
+}
+
+export interface QuestionAnswer {
+  options?: string[];
+  text?: string;
+}
+
 export interface Interaction {
   id?: string;
-  kind: "todos" | "approval" | "choice" | "select" | "input" | "plan" | (string & {});
+  kind: "todos" | "approval" | "choice" | "select" | "input" | "form" | "plan" | (string & {});
   title?: string;
   detail?: string;
   /** `kind: "todos"` */
   items?: TodoItem[];
   /** `kind: "approval" | "choice" | "select" | "plan"` */
   options?: Action[];
+  questions?: Question[];
+  blocking?: boolean;
+  /** Whether approval feedback is accepted for all actions, or only a rejection. */
+  feedback?: "always" | "rejection";
   needsResponse?: boolean;
   meta?: Record<string, unknown>;
 }
 
 /**
  * The user's answer to a mid-turn {@link Interaction}, sent via {@link Run.respond}. `interactionId`
- * ties the answer to the interaction the turn paused on; `decision` is the approval verdict
- * (allow/deny) for a permission or plan; `text` is the free-form answer (or deny reason); `options`
- * carries a multi-select answer.
+ * ties the answer to the pending request. `decision` must be an offered action ID. For a form,
+ * `answers` maps every required question ID to its selected option IDs and optional feedback.
+ * Legacy single-question clients may send `options` and `text` at the top level. Incomplete
+ * answers return 400; stale or duplicate submissions return 409.
  */
 export interface RespondInput {
   interactionId?: string;
   decision?: string;
   options?: string[];
   text?: string;
+  answers?: Record<string, QuestionAnswer>;
 }
 
 // ---- capabilities (agent/capabilities.go) ----------------------------------
@@ -917,6 +943,9 @@ export interface NotifyConfigStatus {
   configured: boolean;
   url: string;
   channel: string;
+  /** Absent on older daemons, which always send raw Notification JSON. */
+  format?: NotifyChannelType;
+  hasToken?: boolean;
 }
 
 /** `PUT /notify/config` body. */
@@ -924,6 +953,8 @@ export interface NotifyConfigInput {
   url: string;
   channel: string;
   token?: string;
+  /** "webhook" (default) sends raw Notification JSON; "push" uses title/body/data. */
+  format?: NotifyChannelType;
 }
 
 // ---- daemon-driven notification channels + rules ---------------------------
@@ -934,6 +965,7 @@ export interface NotifyConfigInput {
 /** Delivery payload shape of a channel (selects only how the outgoing POST is framed). */
 export type NotifyChannelType =
   | "webhook"
+  | "push"
   | "slack"
   | "discord"
   | "telegram"

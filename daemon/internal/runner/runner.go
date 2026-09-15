@@ -52,6 +52,8 @@ type Turn struct {
 	// Inbound is the user's mid-turn ingress channel (approval answers, follow-up input, interrupts),
 	// owned by the supervisor. Receive-only for the adapter; nil for a one-shot turn.
 	Inbound <-chan agent.Inbound
+	// Register requests before publishing them, so a fast client can answer immediately.
+	BeforePublish agent.Emit
 }
 
 // RunTurn executes one turn, streaming unified events to the hub under t.RunID and persisting the
@@ -133,6 +135,9 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 		}
 		if ev.SessionID != "" {
 			sessionID = ev.SessionID
+		}
+		if t.BeforePublish != nil {
+			t.BeforePublish(ev)
 		}
 		transcript.Apply(ev)
 		r.hub.Publish(runID, ev)

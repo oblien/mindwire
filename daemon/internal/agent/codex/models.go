@@ -31,7 +31,6 @@ func (adapter) Models(env map[string]string) ([]agent.ModelInfo, error) {
 	return []agent.ModelInfo{}, nil
 }
 
-// modelChoices returns the model ids for the settings model select. Codex has no local list source, so
-// this is always empty and the field degrades to free text (never hardcode a model list); the rich,
-// pickable OpenAI list lives in the client's Models surface, sourced from the live catalog.
+// The settings picker stays free text: Codex's cached metadata catalog does not enumerate private
+// provider deployments. The public OpenAI picker lives in the client's Models surface.
 func modelChoices() []string { return nil }

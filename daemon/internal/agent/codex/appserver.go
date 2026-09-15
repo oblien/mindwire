@@ -64,10 +64,12 @@ type appServer struct {
 	model          string            // "" ⇒ omit (CLI default)
 	effort         string            // reasoning effort; "" ⇒ omit
 	sandbox        string            // sandbox posture (enum)
-	approval       string            // approval policy (enum)
-	cwd            string            // working directory for the thread
-	resumeID       string            // thread id to resume; "" ⇒ start a fresh thread
-	compact        bool              // on-demand compaction: after resume, send thread/compact/start instead of turn/start
+	reviewer       string
+	collaboration  string
+	approval       string // approval policy (enum)
+	cwd            string // working directory for the thread
+	resumeID       string // thread id to resume; "" ⇒ start a fresh thread
+	compact        bool   // on-demand compaction: after resume, send thread/compact/start instead of turn/start
 	provider       string
 	config         map[string]any
 	instructions   string
@@ -79,6 +81,11 @@ type appServer struct {
 // Run spawns the app-server process, drives one turn over its stdio, and returns the terminal result.
 // It owns the process/stderr plumbing (like driver.CLI/Persistent); converse owns the protocol.
 func (a appServer) Run(ctx context.Context, in agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
+	cleanup, err := a.prepareReviewModel(ctx)
+	defer cleanup()
+	if err != nil {
+		return agent.TurnResult{Text: err.Error(), IsError: true}, err
+	}
 	cmd := exec.CommandContext(ctx, "bash", "-lc", a.command)
 	proc.Group(cmd) // cancel/interrupt kills the whole app-server tree, not just the bash parent
 	cmd.Env = os.Environ()
@@ -178,12 +185,12 @@ type pendingResp struct {
 // approval is the correlator for one outstanding server-request, keyed by the interaction id we
 // emitted. It carries the raw JSON-RPC id to echo in the reply and the decision family to encode.
 type approval struct {
-	rawID         json.RawMessage
-	family        string
-	questionID    string // famAnswers only: this prompt's question id
-	questionCount int
-	permissions   json.RawMessage
-	interaction   *agent.Interaction
+	rawID       json.RawMessage
+	family      string
+	questionID  string // famAnswers only: this prompt's question id
+	permissions json.RawMessage
+	interaction *agent.Interaction
+	decisions   map[string]any // only actions actually offered by this server request
 }
 
 // serializeEmit wraps an Emit so it is safe to call from multiple goroutines. The app-server transport
@@ -276,7 +283,6 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	var tokens map[string]any
 	var tokensUsage *agent.Usage // typed mirror of tokens, attached additively to the terminal result
 	approvals := map[string]approval{}
-	questionAnswers := map[string]map[string]any{}
 
 	// compactTrigger tags every compaction boundary this connection surfaces: "manual" when we drove a
 	// thread/compact/start (a.compact), "auto" when Codex compacted mid-turn on its own. A compact turn
@@ -306,7 +312,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		smu.Unlock()
 		if first {
 			ev := agent.Event{Type: agent.EventResult, SessionID: res.SessionID,
-				Result: &agent.ResultInfo{Text: res.Text, IsError: res.IsError, SessionID: res.SessionID}}
+				Result: &agent.ResultInfo{Text: res.Text, IsError: res.IsError, Cancelled: res.Cancelled, SessionID: res.SessionID}}
 			if meta != nil {
 				ev.Meta = meta
 			}
@@ -356,7 +362,9 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 			}
 			st.emitTurnDiff(te.Turn.ID, emit)
 			text, isErr := turnOutcome(raw)
-			if isErr {
+			if st.interrupted {
+				text, isErr = st.finalText, false
+			} else if isErr {
 				text = errorText(te.Turn.Error, agent.FirstNonEmpty(lastError, text, "Codex turn failed."))
 			} else {
 				text = st.finalText
@@ -368,7 +376,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 				}
 			}
 			terminated = true
-			emitTerminal(agent.TurnResult{Text: text, SessionID: sid, IsError: isErr}, tokenMeta())
+			emitTerminal(agent.TurnResult{Text: text, SessionID: sid, IsError: isErr, Cancelled: st.interrupted}, tokenMeta())
 		}
 		for sc.Scan() {
 			if terminated {
@@ -530,7 +538,6 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 								delete(approvals, id)
 							}
 						}
-						delete(questionAnswers, string(p.RequestID))
 						smu.Unlock()
 						for _, inter := range resolved {
 							emit(agent.Event{Type: agent.EventInteraction, Interaction: &inter})
@@ -689,12 +696,16 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		return agent.TurnResult{Text: "thread: " + err.Error(), IsError: true}, false
 	}
 	var ts struct {
+		Model  string `json:"model"`
 		Thread struct {
 			ID        string `json:"id"`
 			SessionID string `json:"sessionId"`
 		} `json:"thread"`
 	}
 	_ = json.Unmarshal(res, &ts)
+	if a.model == "" {
+		a.model = ts.Model
+	}
 	tid := agent.FirstNonEmpty(ts.Thread.ID, a.resumeID)
 	sid := agent.FirstNonEmpty(ts.Thread.SessionID, tid)
 	smu.Lock()
@@ -765,29 +776,28 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 					}
 					delete(approvals, msg.InteractionID)
 					reply := decisionResult(ap, msg)
-					ready := true
-					if ap.family == famAnswers && ap.questionCount > 1 {
-						key := string(ap.rawID)
-						if questionAnswers[key] == nil {
-							questionAnswers[key] = map[string]any{}
+					smu.Unlock()
+					// V2 decisions have no reason field. Native steering carries feedback
+					// into this same turn before releasing the approval gate.
+					if ap.interaction != nil && ap.interaction.Feedback == "always" && strings.TrimSpace(msg.Text) != "" {
+						t, u, ready := awaitTurn()
+						if !ready {
+							return
 						}
-						questionAnswers[key][ap.questionID] = map[string]any{"answers": answerValues(msg)}
-						ready = len(questionAnswers[key]) == ap.questionCount
-						if ready {
-							reply = map[string]any{"answers": questionAnswers[key]}
-							delete(questionAnswers, key)
+						if err := sendRequest("turn/steer", map[string]any{
+							"threadId": t, "expectedTurnId": u,
+							"input": []any{map[string]any{"type": "text", "text": "Feedback on " + ap.interaction.Title + ":\n" + msg.Text}},
+						}); err != nil {
+							emit(agent.Event{Type: agent.EventError, Error: "Could not send approval feedback to Codex: " + err.Error()})
 						}
 					}
-					smu.Unlock()
 					if ap.interaction != nil {
 						resolved := *ap.interaction
 						resolved.NeedsResponse = false
 						emit(agent.Event{Type: agent.EventInteraction, Interaction: &resolved})
 					}
-					if ready {
-						if err := writeJSON(rpcResponse{ID: ap.rawID, Result: reply}); err != nil {
-							emit(agent.Event{Type: agent.EventError, Error: "Could not answer Codex: " + err.Error()})
-						}
+					if err := writeJSON(rpcResponse{ID: ap.rawID, Result: reply}); err != nil {
+						emit(agent.Event{Type: agent.EventError, Error: "Could not answer Codex: " + err.Error()})
 					}
 				case "input":
 					text := strings.TrimSpace(msg.Text)
@@ -873,6 +883,9 @@ func (a appServer) resumeParams() map[string]any {
 }
 
 func (a appServer) threadOptions(p map[string]any) {
+	if a.reviewer != "" {
+		p["approvalsReviewer"] = a.reviewer
+	}
 	if a.provider != "" {
 		p["modelProvider"] = a.provider
 	}
@@ -893,6 +906,13 @@ func (a appServer) turnParams(threadID string) map[string]any {
 		"threadId": threadID,
 		"input":    input,
 	}
+	if a.collaboration != "" {
+		var effort any
+		if a.effort != "" {
+			effort = a.effort
+		}
+		p["collaborationMode"] = map[string]any{"mode": a.collaboration, "settings": map[string]any{"model": a.model, "reasoning_effort": effort, "developer_instructions": nil}}
+	}
 	if len(a.outputSchema) > 0 {
 		p["outputSchema"] = a.outputSchema
 	}
@@ -903,197 +923,6 @@ func (a appServer) turnParams(threadID string) map[string]any {
 		p["effort"] = a.effort
 	}
 	return p
-}
-
-// --- server-request → interaction --------------------------------------------------------------
-
-// serverRequestInteraction maps a server-request (an approval or a user-input ask) to a unified
-// interaction plus the correlator needed to answer it. The interaction id is the raw JSON-RPC id (a
-// string or number) rendered as text; the approval carries that raw id back for the reply. Unknown
-// requests return nil and the reader sends an explicit unsupported-method RPC error.
-func serverRequestInteraction(msg rpcIn) (*agent.Interaction, approval) {
-	id := string(msg.ID)
-	allowDeny := []agent.Action{{ID: "allow", Label: "Approve"}, {ID: "deny", Label: "Reject"}}
-
-	switch msg.Method {
-	case "execCommandApproval", "applyPatchApproval":
-		var p struct {
-			Command string   `json:"command"`
-			Cwd     string   `json:"cwd"`
-			Reason  string   `json:"reason"`
-			Parsed  []string `json:"parsedCmd"`
-		}
-		_ = json.Unmarshal(msg.Params, &p)
-		title := "Approve command?"
-		if msg.Method == "applyPatchApproval" {
-			title = "Apply file changes?"
-		} else if p.Command != "" {
-			title = "Run: " + p.Command
-		}
-		return &agent.Interaction{
-			ID: id, Kind: "approval", Title: title, Detail: p.Reason,
-			Options: allowDeny, NeedsResponse: true,
-			Meta: map[string]any{"method": msg.Method},
-		}, approval{rawID: msg.ID, family: famReviewDecision}
-
-	case "item/commandExecution/requestApproval":
-		var p struct {
-			Command string `json:"command"`
-			Cwd     string `json:"cwd"`
-			Reason  string `json:"reason"`
-		}
-		_ = json.Unmarshal(msg.Params, &p)
-		title := "Approve command?"
-		if p.Command != "" {
-			title = "Run: " + p.Command
-		}
-		return &agent.Interaction{
-			ID: id, Kind: "approval", Title: title, Detail: p.Reason,
-			Options: allowDeny, NeedsResponse: true,
-			Meta: map[string]any{"method": msg.Method},
-		}, approval{rawID: msg.ID, family: famV2Decision}
-
-	case "item/fileChange/requestApproval":
-		var p struct {
-			Reason string `json:"reason"`
-		}
-		_ = json.Unmarshal(msg.Params, &p)
-		return &agent.Interaction{
-			ID: id, Kind: "approval", Title: "Apply file changes?", Detail: p.Reason,
-			Options: allowDeny, NeedsResponse: true,
-			Meta: map[string]any{"method": msg.Method},
-		}, approval{rawID: msg.ID, family: famV2Decision}
-	case "item/permissions/requestApproval":
-		var p struct {
-			Reason      string          `json:"reason"`
-			Permissions json.RawMessage `json:"permissions"`
-		}
-		_ = json.Unmarshal(msg.Params, &p)
-		return &agent.Interaction{ID: id, Kind: "approval", Title: "Allow additional access?", Detail: p.Reason,
-				Options: allowDeny, NeedsResponse: true, Meta: map[string]any{"method": msg.Method, "permissions": p.Permissions}},
-			approval{rawID: msg.ID, family: famPermissions, permissions: p.Permissions}
-
-	case "item/tool/requestUserInput":
-		prompts := questionPrompts(msg)
-		if len(prompts) > 0 {
-			return prompts[0].interaction, prompts[0]
-		}
-		return nil, approval{}
-	case "mcpServer/elicitation/request":
-		var p struct {
-			Mode    string `json:"mode"`
-			Message string `json:"message"`
-			URL     string `json:"url"`
-		}
-		_ = json.Unmarshal(msg.Params, &p)
-		if p.Mode != "url" {
-			return nil, approval{}
-		}
-		return &agent.Interaction{ID: id, Kind: "approval", Title: p.Message, Detail: p.URL,
-			Options: allowDeny, NeedsResponse: true}, approval{rawID: msg.ID, family: famElicitation}
-
-	default:
-		return nil, approval{}
-	}
-}
-
-func serverRequestPrompts(msg rpcIn) []approval {
-	if msg.Method == "item/tool/requestUserInput" {
-		return questionPrompts(msg)
-	}
-	inter, ap := serverRequestInteraction(msg)
-	if inter == nil {
-		return nil
-	}
-	ap.interaction = inter
-	return []approval{ap}
-}
-
-func questionPrompts(msg rpcIn) []approval {
-	var p struct {
-		Questions []struct {
-			ID       string `json:"id"`
-			Header   string `json:"header"`
-			Question string `json:"question"`
-			IsOther  bool   `json:"isOther"`
-			IsSecret bool   `json:"isSecret"`
-			Options  []struct {
-				Label       string `json:"label"`
-				Description string `json:"description"`
-			} `json:"options"`
-		} `json:"questions"`
-	}
-	if json.Unmarshal(msg.Params, &p) != nil {
-		return nil
-	}
-	prompts := make([]approval, 0, len(p.Questions))
-	for _, q := range p.Questions {
-		id := string(msg.ID)
-		if len(p.Questions) > 1 {
-			id += ":" + q.ID
-		}
-		inter := &agent.Interaction{ID: id, Kind: "input", Title: q.Question, Detail: q.Header, NeedsResponse: true,
-			Meta: map[string]any{"method": msg.Method, "allowOther": q.IsOther, "isSecret": q.IsSecret}}
-		for _, option := range q.Options {
-			inter.Options = append(inter.Options, agent.Action{ID: option.Label, Label: option.Label})
-		}
-		if len(inter.Options) > 0 {
-			inter.Kind = "choice"
-		}
-		prompts = append(prompts, approval{rawID: msg.ID, family: famAnswers, questionID: q.ID, questionCount: len(p.Questions), interaction: inter})
-	}
-	return prompts
-}
-
-func answerValues(in agent.Inbound) []string {
-	if strings.TrimSpace(in.Text) != "" {
-		return []string{in.Text}
-	}
-	if len(in.Options) > 0 {
-		return in.Options
-	}
-	if in.Decision != "" {
-		return []string{in.Decision}
-	}
-	return []string{}
-}
-
-// decisionResult encodes an approval answer into the native decision shape for its family.
-func decisionResult(ap approval, in agent.Inbound) any {
-	deny := agent.Denied(in.Decision)
-	switch ap.family {
-	case famReviewDecision:
-		if deny {
-			reason := strings.TrimSpace(in.Text)
-			if reason == "" {
-				reason = "Denied by user"
-			}
-			return map[string]any{"decision": map[string]any{"denied": map[string]any{"rejection": reason}}}
-		}
-		return map[string]any{"decision": "approved"}
-	case famAnswers:
-		answers := map[string]any{}
-		if ap.questionID != "" {
-			answers[ap.questionID] = map[string]any{"answers": answerValues(in)}
-		}
-		return map[string]any{"answers": answers}
-	case famPermissions:
-		permissions := ap.permissions
-		if deny || len(permissions) == 0 || string(permissions) == "null" {
-			permissions = json.RawMessage(`{}`)
-		}
-		return map[string]any{"permissions": permissions, "scope": "turn"}
-	case famElicitation:
-		if deny {
-			return map[string]any{"action": "decline"}
-		}
-		return map[string]any{"action": "accept"}
-	default: // famV2Decision
-		if deny {
-			return map[string]any{"decision": "decline"}
-		}
-		return map[string]any{"decision": "accept"}
-	}
 }
 
 // --- notification item → event -----------------------------------------------------------------

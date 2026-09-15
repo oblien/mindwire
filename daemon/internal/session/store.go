@@ -81,9 +81,10 @@ type SessionRef struct {
 // notifyConfig holds the notification webhook the client provisioned
 // (the client PUTs the webhook to the daemon; the daemon POSTs notifications to it).
 type notifyConfig struct {
-	URL     string `json:"url,omitempty"`
-	Channel string `json:"channel,omitempty"`
-	Token   string `json:"token,omitempty"`
+	URL     string                  `json:"url,omitempty"`
+	Channel string                  `json:"channel,omitempty"`
+	Token   string                  `json:"token,omitempty"`
+	Format  agent.NotifyChannelType `json:"format,omitempty"`
 }
 
 type Store struct {
@@ -470,6 +471,15 @@ func (st *Store) NotifyConfig() (url, channel, token string) {
 	return st.s.Notify.URL, st.s.Notify.Channel, st.s.Notify.Token
 }
 
+func (st *Store) NotifyFormat() agent.NotifyChannelType {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.s.Notify.Format == "" {
+		return agent.ChannelWebhook
+	}
+	return st.s.Notify.Format
+}
+
 // ChatSummary is the daemon's view of a chat, for listing sessions.
 type ChatSummary struct {
 	ChatID     string `json:"chatId"`
@@ -617,10 +627,13 @@ func chatTitle(s string) string {
 }
 
 // SetNotifyConfig stores the notification webhook the client provisioned.
-func (st *Store) SetNotifyConfig(url, channel, token string) error {
+func (st *Store) SetNotifyConfig(url, channel, token string, format ...agent.NotifyChannelType) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.s.Notify = notifyConfig{URL: url, Channel: channel, Token: token}
+	if len(format) > 0 {
+		st.s.Notify.Format = format[0]
+	}
 	return st.save()
 }
 

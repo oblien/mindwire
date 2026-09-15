@@ -18,6 +18,7 @@ const (
 	CanonSystemPrompt       = "systemPrompt"       // full override
 	CanonAppendSystemPrompt = "appendSystemPrompt" // appended to the agent's default
 	CanonPermissionMode     = "permissionMode"
+	CanonApprovalReviewer   = "approvalReviewer"
 	CanonAllowedTools       = "allowedTools"      // restrict to these built-in tools
 	CanonAllowRules         = "allowRules"        // permission allow rules
 	CanonDenyRules          = "denyRules"         // permission deny rules
@@ -37,6 +38,7 @@ var canonRegistry = map[string]bool{
 	CanonSystemPrompt:       true,
 	CanonAppendSystemPrompt: true,
 	CanonPermissionMode:     true,
+	CanonApprovalReviewer:   true,
 	CanonAllowedTools:       true,
 	CanonAllowRules:         true,
 	CanonDenyRules:          true,

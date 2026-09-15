@@ -74,9 +74,12 @@ const (
 
 // Mid-turn interactions the agent surfaces (a question, a plan to approve, todo progress).
 type (
-	Interaction = agent.Interaction
-	TodoItem    = agent.TodoItem
-	Action      = agent.Action
+	Interaction         = agent.Interaction
+	Question            = agent.Question
+	QuestionAnswer      = agent.QuestionAnswer
+	InteractionResponse = agent.InteractionResponse
+	TodoItem            = agent.TodoItem
+	Action              = agent.Action
 )
 
 // Turn inputs.
@@ -192,6 +195,7 @@ type (
 // Notification channel types (delivery payload shape).
 const (
 	ChannelWebhook  = agent.ChannelWebhook
+	ChannelPush     = agent.ChannelPush
 	ChannelSlack    = agent.ChannelSlack
 	ChannelDiscord  = agent.ChannelDiscord
 	ChannelTelegram = agent.ChannelTelegram

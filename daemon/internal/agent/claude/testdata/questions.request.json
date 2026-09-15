@@ -1,0 +1,45 @@
+{
+  "type": "control_request",
+  "request_id": "6518fa20-e85b-4165-af84-2980e3e0b6b5",
+  "request": {
+    "subtype": "can_use_tool",
+    "tool_name": "AskUserQuestion",
+    "display_name": "AskUserQuestion",
+    "input": {
+      "questions": [
+        {
+          "question": "Which theme should the app use by default?",
+          "header": "Theme",
+          "options": [
+            {
+              "label": "Light",
+              "description": "A bright background with dark text. Reads well in daylight and matches most system defaults."
+            },
+            {
+              "label": "Dark",
+              "description": "A dark background with light text. Easier on the eyes at night and in low-light rooms."
+            }
+          ],
+          "multiSelect": false
+        },
+        {
+          "question": "Which features should the app include?",
+          "header": "Features",
+          "options": [
+            {
+              "label": "Search",
+              "description": "Full-text search across the user's content, with filters and recent-query history."
+            },
+            {
+              "label": "Export",
+              "description": "Download content in portable formats such as CSV, JSON, or PDF."
+            }
+          ],
+          "multiSelect": true
+        }
+      ]
+    },
+    "tool_use_id": "toolu_01QfcvosJXF8kQ95U4hmFVyx",
+    "requires_user_interaction": true
+  }
+}

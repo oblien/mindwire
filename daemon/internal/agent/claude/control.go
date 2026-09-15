@@ -5,22 +5,17 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 )
 
-// The Claude stream-json control protocol (used only by the persistent transport, when a turn runs in
-// a non-bypass permission mode). Two response mechanisms exist and the parser tags each interaction's
-// Meta with which one applies, so encodeInbound can stay stateless:
-//
-//   - control  — a `can_use_tool` permission ask is answered with a `control_response` whose
-//     response.request_id echoes the CLI's control_request id (the interaction id).
-//   - tool_result — an AskUserQuestion / ExitPlanMode ask is answered by injecting a user message
-//     carrying a tool_result block keyed by the tool_use id.
-//
-// Both markers are stashed in Interaction.Meta by parse.go and echoed back on Inbound.Meta by the
-// supervisor, so the adapter reads them here without any server-side lookup.
+// The persistent stream-json control protocol carries command approvals, plans,
+// and question forms in every permission mode, including bypassPermissions.
+// Live can_use_tool requests are answered by control_response with the original
+// request ID and updated input. tool_result remains a legacy encoding fallback.
+// Correlators come from the pending server-side interaction, never client metadata.
 const (
 	respondViaControl    = "control"
 	respondViaToolResult = "tool_result"
@@ -31,8 +26,8 @@ const (
 	// One handshake per process, so a fixed id is fine; the CLI's ack echoes it and the parser ignores it.
 	initializeRequestID = "mw-initialize"
 	interruptRequestID  = "mw-interrupt"
-	// Runtime-control request ids. Fire-and-forget like interrupt: the CLI acks each with a
-	// control_response the parser ignores, so a fixed id per subtype is fine.
+	// Fallback IDs for direct encoder callers. Live controls use unique IDs and
+	// acknowledgement routing through controlSession.
 	setModelRequestID          = "mw-set-model"
 	setPermissionModeRequestID = "mw-set-permission-mode"
 )
@@ -158,7 +153,7 @@ func encodeInbound(in agent.Inbound) ([]byte, bool) {
 		}
 		b, err := json.Marshal(map[string]any{
 			"type":       "control_request",
-			"request_id": setModelRequestID,
+			"request_id": agent.FirstNonEmpty(in.ControlID, setModelRequestID),
 			"request":    req,
 		})
 		return b, err == nil
@@ -171,7 +166,7 @@ func encodeInbound(in agent.Inbound) ([]byte, bool) {
 		}
 		b, err := json.Marshal(map[string]any{
 			"type":       "control_request",
-			"request_id": setPermissionModeRequestID,
+			"request_id": agent.FirstNonEmpty(in.ControlID, setPermissionModeRequestID),
 			"request":    map[string]any{"subtype": "set_permission_mode", "mode": mode},
 		})
 		return b, err == nil
@@ -183,24 +178,42 @@ func encodeInbound(in agent.Inbound) ([]byte, bool) {
 // echoes the control_request id (the interaction id); the inner response is the SDK PermissionResult
 // (allow, or deny with a message).
 func encodePermission(in agent.Inbound) ([]byte, bool) {
-	var result map[string]any
-	if agent.Denied(in.Decision) {
-		msg := strings.TrimSpace(in.Text)
-		if msg == "" {
-			msg = "Denied by user"
-		}
-		result = map[string]any{"behavior": "deny", "message": msg}
-	} else {
-		result = map[string]any{"behavior": "allow"}
+	result := map[string]any{"behavior": "deny", "message": agent.FirstNonEmpty(strings.TrimSpace(in.Text), "Denied by user")}
+	var input map[string]any
+	_ = json.Unmarshal([]byte(in.Meta["input"]), &input)
+	if input == nil {
+		input = map[string]any{}
 	}
-	b, err := json.Marshal(map[string]any{
-		"type": "control_response",
-		"response": map[string]any{
-			"subtype":    "success",
-			"request_id": in.InteractionID,
-			"response":   result,
-		},
-	})
+	allowed := in.Decision == "allow" || in.Decision == "approve"
+	if in.Meta["toolName"] == "AskUserQuestion" && in.Interaction != nil {
+		answers := map[string]string{}
+		for _, q := range in.Interaction.Questions {
+			answer := in.Answers[q.ID]
+			selected := strings.Join(answer.Options, ", ")
+			if strings.TrimSpace(answer.Text) != "" {
+				if selected == "" {
+					selected = answer.Text
+				} else {
+					selected += "\nFeedback: " + answer.Text
+				}
+			}
+			answers[q.Title] = selected
+		}
+		input["answers"] = answers
+		allowed = len(answers) > 0
+	}
+	if strings.HasPrefix(in.Decision, "allow_suggestion_") {
+		var suggestions []json.RawMessage
+		index, err := strconv.Atoi(strings.TrimPrefix(in.Decision, "allow_suggestion_"))
+		if json.Unmarshal([]byte(in.Meta["permissionSuggestions"]), &suggestions) == nil && err == nil && index >= 0 && index < len(suggestions) {
+			result = map[string]any{"behavior": "allow", "updatedInput": input, "updatedPermissions": []json.RawMessage{suggestions[index]}}
+		}
+	} else if allowed {
+		result = map[string]any{"behavior": "allow", "updatedInput": input}
+	}
+	b, err := json.Marshal(map[string]any{"type": "control_response", "response": map[string]any{
+		"subtype": "success", "request_id": agent.FirstNonEmpty(in.Meta["requestId"], in.InteractionID), "response": result,
+	}})
 	return b, err == nil
 }
 

@@ -44,11 +44,24 @@ message, an email):
 - **Target** is runtime-configurable via [`PUT /notify/config`](/docs/reference/rest/notifications/put-notify-config/)
   (read *live* on each send, so you can point it somewhere new without a restart), or seeded from the
   `NOTIFY_URL` environment variable for dev / self-host.
-- The request body **is** the notification — `condition`, `title`, `body`, `agent`, `chatId`, `runId`,
-  `actions`.
+- The default `format: "webhook"` sends the notification — `condition`, `title`, `body`, `agent`,
+  `chatId`, `runId`, `actions`.
+- Set `format: "push"` for a relay that accepts `title`, `body`, and string-valued `data`.
+  The data includes `condition`, `agent`, `chatId`, `runId`, and `target_type: "chat"` /
+  `target_id` for navigation. Actions are JSON-encoded in `data.actions`. The relay owns FCM/APNs
+  credentials and native delivery options, including `mutable-content: 1` for an iOS notification
+  service extension. The daemon never needs a device token.
+- `GET /notify/config` reports the selected `format` and `hasToken` without returning credentials.
+  The configuration persists across restarts and changes take effect on the next notification.
 - An optional `token` becomes an `Authorization: Bearer …` header; an optional `channel` (`NOTIFY_CHANNEL`)
   becomes an `X-Mindwire-Channel` routing hint. A non-2xx response is treated as a failed send (not a
   silent success).
+
+For the `push` format, explicit relay failures are also errors even with HTTP 200: zero delivered
+notifications, skipped delivery, or failed recipients. A relay which only acknowledges queuing can
+omit delivery counters; its HTTP status remains the acknowledgment. Provider codes in an
+`errors: [{ code, message, count }]` response are retained in the delivery error; provider messages
+are not copied because they can include a device token.
 
 ## Local channels: file & exec
 
@@ -93,6 +106,7 @@ just wrapped for the destination:
 | `type` | Body POSTed | Typical `url` |
 | --- | --- | --- |
 | `webhook` | The raw `Notification` JSON (same as the built-in webhook). | Your own receiver. |
+| `push` | `{ "title": "…", "body": "…", "data": { "agent": "…", "chatId": "…", "target_id": "…" } }` | An FCM/APNs push relay. |
 | `slack` | `{ "text": "<title>\n<body>" }` | A Slack **incoming webhook** URL. |
 | `discord` | `{ "content": "<title>\n<body>" }` | A Discord **webhook** URL. |
 | `telegram` | `{ "text": "<title>\n<body>" }` | A bot **`sendMessage`** URL (bot token + `chat_id` live in the URL). |

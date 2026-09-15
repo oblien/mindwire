@@ -29,28 +29,26 @@ func (adapter) Meta() agent.CatalogEntry {
 
 func (adapter) Capabilities() agent.Capabilities {
 	return agent.Capabilities{
-		Protocol:   agent.ProtocolCLI,          // driven via the `claude` CLI (driver.CLI or driver.Persistent)
+		Protocol:   agent.ProtocolPersistent,   // driven via the `claude` CLI (driver.CLI or driver.Persistent)
 		Output:     agent.OutputStructuredJSON, // claude emits stream-json
 		History:    agent.SupportNative,        // transcript in ~/.claude/projects/.../<sid>.jsonl
 		Sessions:   agent.SupportNative,        // --session-id / --resume
 		Resume:     true,
 		ToolEvents: true,
 		Cancel:     true,
-		// One-shot per turn by default (bypass mode); a non-bypass turn upgrades to the persistent
-		// stdin transport for that turn so it can pause on approvals — see RunStream.
-		Persistent: false,
+		// Every interactive turn keeps stdin open, including bypass mode: question
+		// tools still need replies even when command approvals are disabled.
+		Persistent: true,
 		Models:     true,
-		// Image attachments are delivered as true vision content blocks over a one-shot stream-json input
-		// transport (the model sees the image), not as path references — see RunStream/materialize.
+		// Image attachments use native vision content blocks over stream-json input.
 		ImageInput: true,
 		// User-in-loop: claude answers permission asks (control_response), takes follow-up input, and
 		// interrupts over the stream-json control protocol on the persistent transport.
 		Respond:   true,
 		Input:     true,
 		Interrupt: true,
-		// Runtime control over the same control protocol: switch the model / permission mode of a live
-		// (persistent) turn. On a one-shot bypass turn the CLI doesn't read stdin, so the call is a
-		// best-effort no-op (still 202) — see the route handlers.
+		// Runtime controls share the bidirectional connection. Permission changes
+		// return only after the CLI acknowledges or rejects them.
 		SetModel:          true,
 		SetPermissionMode: true,
 		// Turn-option support: claude honors a full system-prompt override (--system-prompt), appending to
@@ -112,7 +110,7 @@ var claudeSpecs = []fieldSpec{
 	{key: "effort", flag: "--effort", label: "Reasoning effort", section: "Model & reasoning", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonReasoningEffort, src: srcHelp, emptyLabel: "Default", help: "How hard the model thinks per turn."},
 	{key: "fallback-model", flag: "--fallback-model", label: "Fallback model", section: "Model & reasoning", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonFallbackModel, placeholder: "sonnet,haiku", help: "Comma-separated; used when the primary is overloaded."},
 
-	{key: "permission-mode", flag: "--permission-mode", label: "Permission mode", section: "Permissions & tools", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonPermissionMode, src: srcHelp, emptyLabel: "Default (bypass)", skipFlag: true, help: "Non-bypass modes pause for approval (needs the approval flow)."},
+	{key: "permission-mode", flag: "--permission-mode", label: "Permission mode", section: "Permissions & tools", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonPermissionMode, src: srcHelp, emptyLabel: "Default (bypass)", skipFlag: true, help: "Ask when needed, allow edits, approve for me, or allow all. Questions still wait for your answer. Changes can apply to a running turn."},
 	{key: "tools", flag: "--tools", label: "Allowed built-in tools", section: "Permissions & tools", typ: agent.FieldMulti, scope: agent.ScopeUnified, canon: agent.CanonAllowedTools, src: srcTools, help: "Restrict to these built-in tools (none = all)."},
 	{key: "allowed-tools", flag: "--allowedTools", label: "Allow rules", section: "Permissions & tools", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonAllowRules, placeholder: "Bash(git *) Edit", help: "Permission allow rules (advanced)."},
 	{key: "disallowed-tools", flag: "--disallowedTools", label: "Deny rules", section: "Permissions & tools", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonDenyRules, placeholder: "Bash(rm *)", help: "Permission deny rules (advanced)."},
@@ -169,6 +167,14 @@ func (adapter) Settings() agent.SettingsSchema {
 				// No creds yet / offline → don't guess a list; free text, and say why.
 				f.Type = agent.FieldText
 				f.Help = "Type a model alias or id. Configure auth to pick from your account's models."
+			}
+		}
+		if s.key == "permission-mode" {
+			f.Default = "bypassPermissions"
+			for i := range f.Options {
+				if f.Options[i].Value != "" {
+					f.Options[i].Label = agent.PermissionLabel(f.Options[i].Value)
+				}
 			}
 		}
 		i, ok := idx[s.section]
@@ -268,7 +274,7 @@ func buildCommand(in agent.TurnInput, files materialized, tr transport) string {
 	switch tr {
 	case transportPersistent:
 		cli = "claude -p --input-format stream-json" +
-			" --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio"
+			" --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"
 	case transportStreamInput:
 		cli = "claude -p --input-format stream-json" +
 			" --output-format stream-json --verbose --include-partial-messages"
@@ -422,15 +428,9 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 	}
 	message := in.Message + msgAppend // path-reference attachments so the CLI can open them
 
-	// Transport selection:
-	//   - persistent: a non-bypass permission mode means the turn can PAUSE for the user (approvals), so
-	//     it runs on the persistent stdin transport with an inbound channel to pump answers/input/interrupts.
-	//     A channel is a precondition (without one there's no way to answer a pause), so a non-bypass turn
-	//     lacking it stays one-shot.
-	//   - stream-input: a bypass turn carrying image attachments delivers a single stream-json user message
-	//     with true image content blocks over stdin (no control arming), then EOF.
-	//   - one-shot: the default hot path — the message is a `-p <msg>` argument.
-	persistent := in.Inbound != nil && permissionMode(in) != "bypassPermissions"
+	// Interactive turns always retain bidirectional control. Headless callers
+	// without an inbound channel keep the one-shot or image stream-input path.
+	persistent := in.Inbound != nil
 	tr := transportOneShot
 	switch {
 	case persistent:
@@ -449,12 +449,17 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 		env[k] = v
 	}
 
+	if permissionMode(in) == "bypassPermissions" {
+		env["IS_SANDBOX"] = "1"
+	}
 	if tr == transportPersistent {
+		control := newControlSession()
+		defer control.close()
 		return driver.Persistent{
 			Command:  full,
 			Env:      env,
-			Parse:    parseStream,
-			Encode:   encodeInbound,
+			Parse:    control.parse,
+			Encode:   control.encode,
 			Preamble: persistentPreamble(message, imageBlocks),
 			Inbound:  in.Inbound,
 		}.Run(ctx, in, emit)

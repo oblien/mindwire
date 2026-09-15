@@ -1,0 +1,51 @@
+{
+  "method": "item/tool/requestUserInput",
+  "id": 0,
+  "params": {
+    "threadId": "01a0a640-b11a-7130-9b72-c0fdc1c4a7df",
+    "turnId": "01a0a640-b149-7732-87bd-07466513bde4",
+    "itemId": "call_xwYDxr7su4DdLCRzVBYJ6Uf3",
+    "questions": [
+      {
+        "id": "theme",
+        "header": "Theme",
+        "question": "Which theme would you like for the fictional app?",
+        "isOther": true,
+        "isSecret": false,
+        "options": [
+          {
+            "label": "Light",
+            "description": "Use light backgrounds with dark text."
+          },
+          {
+            "label": "Dark",
+            "description": "Use dark backgrounds with light text."
+          }
+        ]
+      },
+      {
+        "id": "features",
+        "header": "Features",
+        "question": "Which features would you like? This tool supports one choice, so choose Both for multiple features; you can also add feedback in the text field.",
+        "isOther": true,
+        "isSecret": false,
+        "options": [
+          {
+            "label": "Search",
+            "description": "Find content within the app."
+          },
+          {
+            "label": "Export",
+            "description": "Save app content to an external file."
+          },
+          {
+            "label": "Both",
+            "description": "Include both Search and Export."
+          }
+        ]
+      }
+    ],
+    "isBlocking": true,
+    "autoResolutionMs": null
+  }
+}

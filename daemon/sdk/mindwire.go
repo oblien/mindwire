@@ -721,22 +721,26 @@ func (c *Client) Children(parentID string) ([]*Run, error) {
 
 // NotifyConfigStatus reports whether a notification webhook is wired (the token is never returned).
 type NotifyConfigStatus struct {
-	Configured bool   `json:"configured"`
-	URL        string `json:"url"`
-	Channel    string `json:"channel"`
+	Configured bool              `json:"configured"`
+	URL        string            `json:"url"`
+	Channel    string            `json:"channel"`
+	Format     NotifyChannelType `json:"format"`
+	HasToken   bool              `json:"hasToken"`
 }
 
 // NotifyConfigInput provisions the notification webhook the daemon POSTs to.
 type NotifyConfigInput struct {
-	URL     string `json:"url"`
-	Channel string `json:"channel"`
-	Token   string `json:"token,omitempty"`
+	URL     string            `json:"url"`
+	Channel string            `json:"channel"`
+	Token   string            `json:"token,omitempty"`
+	Format  NotifyChannelType `json:"format,omitempty"`
 }
 
 // GetNotifyConfig reports the provisioned notification webhook (without the token).
 func (c *Client) GetNotifyConfig() NotifyConfigStatus {
-	url, channel, _ := c.core.store.NotifyConfig()
-	return NotifyConfigStatus{Configured: url != "" && channel != "", URL: url, Channel: channel}
+	url, channel, token := c.core.store.NotifyConfig()
+	return NotifyConfigStatus{Configured: url != "" && channel != "", URL: url, Channel: channel,
+		Format: c.core.store.NotifyFormat(), HasToken: token != ""}
 }
 
 // SetNotifyConfig provisions the notification webhook (url and channel required, or APIError{400}).
@@ -744,7 +748,12 @@ func (c *Client) SetNotifyConfig(in NotifyConfigInput) error {
 	if in.URL == "" || in.Channel == "" {
 		return &APIError{Message: "url and channel are required", Status: http.StatusBadRequest, Op: "SetNotifyConfig"}
 	}
-	if err := c.core.store.SetNotifyConfig(in.URL, in.Channel, in.Token); err != nil {
+	switch in.Format {
+	case "", ChannelWebhook, ChannelPush, ChannelSlack, ChannelDiscord, ChannelTelegram:
+	default:
+		return &APIError{Message: "unsupported notification format", Status: http.StatusBadRequest, Op: "SetNotifyConfig"}
+	}
+	if err := c.core.store.SetNotifyConfig(in.URL, in.Channel, in.Token, in.Format); err != nil {
 		return &APIError{Message: "failed to persist notification config", Status: http.StatusInternalServerError, Op: "SetNotifyConfig", Cause: err}
 	}
 	return nil

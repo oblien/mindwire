@@ -85,7 +85,8 @@ printf 'tool output two\n'
 		t.Fatal(err)
 	}
 	var err error
-	f.store, err = session.Open(filepath.Join(t.TempDir(), "state.json"))
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	f.store, err = session.Open(statePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,6 +107,20 @@ printf 'tool output two\n'
 	}
 	mux := http.NewServeMux()
 	New(f.store, hub, sup).Register(mux)
+	// Rebuild the read API from disk, as after a daemon restart. Neither the old
+	// store object nor its retained stream buffer can supply these history reads.
+	mux.Handle("GET /fixture/persisted/", http.StripPrefix("/fixture/persisted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		persisted, err := session.Open(statePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		emptyHub := stream.New()
+		reloaded := orchestrator.New(persisted, emptyHub, notify.Fanout(nil), f.cwd, "codex")
+		readAPI := http.NewServeMux()
+		New(persisted, emptyHub, reloaded).Register(readAPI)
+		readAPI.ServeHTTP(w, r)
+	})))
 	mux.HandleFunc("POST /fixture/ack/{phase}", func(w http.ResponseWriter, r *http.Request) {
 		phase := r.PathValue("phase")
 		f.release(phase)
