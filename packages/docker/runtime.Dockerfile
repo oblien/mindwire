@@ -13,12 +13,31 @@ COPY --from=builder /out/mindwired /usr/local/bin/mindwired
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl git ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && npm install -g @anthropic-ai/claude-code @openai/codex @xai-official/grok \
- && curl -fsSL https://opencode.ai/install | bash \
- && install -m 0755 /root/.opencode/bin/opencode /usr/local/bin/opencode \
+ && npm install -g @anthropic-ai/claude-code @openai/codex @xai-official/grok opencode-ai \
  && mkdir -p /home/node/.npm-global /home/node/.mindwire /usr/share/mindwire \
- && printf '{"claudeCode":"%s","codex":"%s","grok":"%s","opencode":"%s"}\n' "$(claude --version | head -n1 | sed 's/"/\\\\"/g')" "$(codex --version | head -n1 | sed 's/"/\\\\"/g')" "$(grok version | head -n1 | sed 's/"/\\\\"/g')" "$(opencode --version | head -n1 | sed 's/"/\\\\"/g')" > /usr/share/mindwire/agents.json \
  && chown -R node:node /home/node
+
+# npm resolves OpenCode's native platform package without the shell installer's
+# unauthenticated GitHub latest-release lookup. Check every CLI on each build arch;
+# command substitutions inside printf previously hid failed version commands.
+RUN node <<'JS'
+const { execFileSync } = require('node:child_process');
+const { writeFileSync } = require('node:fs');
+const commands = {
+  claudeCode: ['claude', '--version'],
+  codex: ['codex', '--version'],
+  grok: ['grok', 'version'],
+  opencode: ['opencode', '--version'],
+};
+const versions = {};
+for (const [name, [command, ...args]] of Object.entries(commands)) {
+  const version = execFileSync(command, args, { encoding: 'utf8', timeout: 30000 }).trim().split(/\r?\n/)[0];
+  if (!version) throw new Error(`${name} returned an empty version`);
+  versions[name] = version;
+  console.log(`${name}: ${version}`);
+}
+writeFileSync('/usr/share/mindwire/agents.json', JSON.stringify(versions) + '\n');
+JS
 ENV HOME=/home/node \
     NPM_CONFIG_PREFIX=/home/node/.npm-global \
     PATH=/home/node/.npm-global/bin:${PATH} \
