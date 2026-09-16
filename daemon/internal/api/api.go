@@ -18,12 +18,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/procmon"
+	"github.com/oblien/mindwire/daemon/internal/projects"
+	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/setup"
 	"github.com/oblien/mindwire/daemon/internal/stream"
@@ -42,9 +45,13 @@ const (
 )
 
 type API struct {
-	store *session.Store
-	hub   *stream.Hub
-	sup   *orchestrator.Supervisor
+	projects   *projects.Service
+	initError  error
+	registry   *registry.Store
+	registryMu sync.Mutex // order registry mutations against starting/deleting a chat
+	store      *session.Store
+	hub        *stream.Hub
+	sup        *orchestrator.Supervisor
 
 	// Per-agent toolchain install state. Setup runs in the BACKGROUND (npm can take minutes) so a
 	// client request never hangs through the proxy; the client polls GET /setup for progress.
@@ -55,8 +62,22 @@ type API struct {
 }
 
 // New builds the HTTP API over the supervisor (which hosts all agents) and the shared store.
-func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor) *API {
-	return &API{store: store, hub: hub, sup: sup, tracker: setup.NewTracker(), started: time.Now()}
+func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, registries ...*registry.Store) *API {
+	a := &API{store: store, hub: hub, sup: sup, tracker: setup.NewTracker(), started: time.Now()}
+	if len(registries) > 0 {
+		a.registry = registries[0]
+		if a.registry != nil {
+			a.projects, a.initError = projects.New(a.registry, sup)
+		}
+	}
+	return a
+}
+
+func (a *API) InitError() error { return a.initError }
+func (a *API) Close() {
+	if a.projects != nil {
+		a.projects.Close()
+	}
 }
 
 // Route is one HTTP route as data (method + Go 1.22 mux pattern + handler). Keeping the surface
@@ -71,6 +92,18 @@ type Route struct {
 // Routes is the full authenticated API surface. Every agent-specific route accepts ?agent=<type>.
 func (a *API) Routes() []Route {
 	return []Route{
+		{"GET", "/workspace", a.workspaceSnapshot},
+		{"GET", "/workspace/changes", a.workspaceSnapshot},
+		{"POST", "/workspace/import", a.workspaceImport},
+		{"POST", "/workspace/projects", a.projectStart},
+		{"POST", "/workspace/projects/{id}/remove", a.projectRemoveFiles},
+		{"GET", "/workspace/operations", a.projectOperations},
+		{"GET", "/workspace/operations/{id}", a.projectOperation},
+		{"GET", "/workspace/operations/{id}/stream", a.projectOperationStream},
+		{"POST", "/workspace/operations/{id}/cancel", a.projectCancel},
+		{"POST", "/workspace/operations/{id}/retry", a.projectRetry},
+		{"PUT", "/workspace/{kind}/{id}", a.workspacePut},
+		{"DELETE", "/workspace/{kind}/{id}", a.workspaceDelete},
 		// Turns + streaming
 		{"POST", "/turns", a.turn},
 		{"GET", "/runs/{id}", a.getRun},
@@ -238,6 +271,36 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 	if err := decode(w, r, &req); err != nil || req.ChatID == "" || req.Message == "" {
 		badRequest(w, "chatId and message are required")
 		return
+	}
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
+	if a.registry != nil {
+		chat, profile, project, err := a.registry.ChatContext(req.ChatID)
+		if err != nil {
+			workspaceError(w, err)
+			return
+		}
+		if chat != nil {
+			if selected := r.URL.Query().Get("agent"); selected != "" && selected != profile.AgentType {
+				badRequest(w, "agent differs from this chat's saved profile")
+				return
+			}
+			var ok bool
+			ag, ok = a.sup.Resolve(profile.AgentType)
+			if !ok {
+				badRequest(w, "saved harness is unavailable")
+				return
+			}
+			req.Cwd = project.Path
+		}
+		path := req.Cwd
+		if path == "" {
+			path = a.sup.CWD()
+		}
+		if err := a.registry.CheckProjectPath(path); err != nil {
+			workspaceError(w, err)
+			return
+		}
 	}
 	// Honest capability gate: reject a turn carrying an option the selected agent can't honor (a 400)
 	// rather than silently dropping it. Covers both entry points for the prompt overrides — the typed
@@ -621,6 +684,14 @@ func (a *API) streamRun(w http.ResponseWriter, r *http.Request) {
 // agents (keyed by chatId); each summary carries the agent that last ran it.
 func (a *API) chats(w http.ResponseWriter, _ *http.Request) {
 	summaries := a.store.Chats()
+	if a.registry != nil {
+		var err error
+		summaries, err = a.registry.MergeSummaries(summaries)
+		if err != nil {
+			workspaceError(w, err)
+			return
+		}
+	}
 	for i := range summaries {
 		a.enrichNativeTitle(&summaries[i])
 	}
@@ -632,6 +703,9 @@ func (a *API) chats(w http.ResponseWriter, _ *http.Request) {
 // which always wins. Precedence: user title > native auto-title > derived first-message snippet.
 // Best-effort — a missing adapter/session/cwd/title leaves the summary's existing title intact.
 func (a *API) enrichNativeTitle(s *session.ChatSummary) {
+	if a.registry != nil && a.registry.OverlaySummary(s) {
+		return
+	}
 	if a.store.Title(s.ChatID) != "" {
 		return // a user rename overrides the agent's native auto-title
 	}
@@ -660,6 +734,8 @@ func (a *API) enrichNativeTitle(s *session.ChatSummary) {
 // over the agent's native auto-title in every listing. An empty title clears the rename (reverting to
 // the native/derived title). Returns the updated summary.
 func (a *API) renameChat(w http.ResponseWriter, r *http.Request) {
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
 	id := r.PathValue("id")
 	var req struct {
 		Title string `json:"title"`
@@ -667,6 +743,12 @@ func (a *API) renameChat(w http.ResponseWriter, r *http.Request) {
 	if err := decode(w, r, &req); err != nil {
 		badRequest(w, "invalid body")
 		return
+	}
+	if a.registry != nil {
+		if err := a.registry.RenameChat(id, req.Title); err != nil {
+			workspaceError(w, err)
+			return
+		}
 	}
 	if err := a.store.SetTitle(id, strings.TrimSpace(req.Title)); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to persist title"})
@@ -691,10 +773,18 @@ type deleteResult struct {
 // if a turn is live. Native deletion is best-effort per agent — an adapter without HistoryDeleter (or a
 // failing remove) still leaves the bookkeeping purged; the response reports what happened.
 func (a *API) deleteChat(w http.ResponseWriter, r *http.Request) {
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
 	id := r.PathValue("id")
 	if a.sup.Busy(id) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "a turn is running for this chat"})
 		return
+	}
+	if a.registry != nil {
+		if err := a.registry.Delete("chats", id, nil, true); err != nil {
+			workspaceError(w, err)
+			return
+		}
 	}
 	refs, err := a.store.DeleteChat(id)
 	if err != nil {
@@ -733,6 +823,8 @@ func (a *API) deleteChat(w http.ResponseWriter, r *http.Request) {
 // (natively on Claude via --fork-session; a fresh session on agents without native fork). 409 if the
 // source has a live turn; 404 if the source is unknown; 400 if the target id is already in use.
 func (a *API) forkChat(w http.ResponseWriter, r *http.Request) {
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
 	src := r.PathValue("id")
 	if a.sup.Busy(src) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "a turn is running for this chat"})
@@ -751,6 +843,23 @@ func (a *API) forkChat(w http.ResponseWriter, r *http.Request) {
 	newID := strings.TrimSpace(req.NewChatID)
 	if newID == "" {
 		newID = newChatID()
+	}
+	if newID == src {
+		badRequest(w, "fork target must differ from the source chat")
+		return
+	}
+	if a.registry != nil {
+		handled, err := a.registry.ForkChat(src, newID, a.store)
+		if err != nil {
+			workspaceError(w, err)
+			return
+		}
+		if handled {
+			summary := a.store.ChatSummaryFor(newID)
+			a.enrichNativeTitle(&summary)
+			writeJSON(w, http.StatusOK, summary)
+			return
+		}
 	}
 	if err := a.store.ForkChat(src, newID); err != nil {
 		// A missing source is a 404; a name clash or other validation is a 400.
@@ -774,18 +883,49 @@ func (a *API) forkChat(w http.ResponseWriter, r *http.Request) {
 // (Claude's `/compact <instructions>`); agents that ignore focus still compact. 202 with the Run, like a
 // turn; 409 if a turn (or another compaction) is already running for the chat.
 func (a *API) compactChat(w http.ResponseWriter, r *http.Request) {
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
 	ag := a.agentFor(w, r)
 	if ag == nil {
 		return
+	}
+	id := r.PathValue("id")
+	if a.registry != nil {
+		chat, profile, _, err := a.registry.ChatContext(id)
+		if err != nil {
+			workspaceError(w, err)
+			return
+		}
+		if chat != nil {
+			if selected := r.URL.Query().Get("agent"); selected != "" && selected != profile.AgentType {
+				badRequest(w, "chat belongs to a different harness")
+				return
+			}
+			var ok bool
+			ag, ok = a.sup.Resolve(profile.AgentType)
+			if !ok {
+				badRequest(w, "unknown harness type")
+				return
+			}
+		}
 	}
 	if _, ok := ag.Adapter.(agent.CompactModule); !ok {
 		badRequest(w, "agent does not support on-demand compaction")
 		return
 	}
-	id := r.PathValue("id")
 	if a.store.Session(ag.ID(), id) == "" {
 		badRequest(w, "no conversation to compact yet (run a turn first)")
 		return
+	}
+	if a.registry != nil {
+		path := a.store.ChatCWD(id)
+		if path == "" {
+			path = a.sup.CWD()
+		}
+		if err := a.registry.CheckProjectPath(path); err != nil {
+			workspaceError(w, err)
+			return
+		}
 	}
 	var req struct {
 		Instructions string `json:"instructions"`

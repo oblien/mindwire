@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"iter"
 	"net/http"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -14,6 +15,8 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
+	"github.com/oblien/mindwire/daemon/internal/projects"
+	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/setup"
 	"github.com/oblien/mindwire/daemon/internal/stream"
@@ -34,6 +37,9 @@ type Options struct {
 	// StatePath is the JSON state file backing sessions, runs, config, and creds. Empty defaults to
 	// "agent-state.json" — the same default the daemon binary uses.
 	StatePath string
+	// WorkspaceDBPath stores authoritative profiles/projects/chat links. Empty uses workspace.db
+	// beside StatePath, matching the standalone daemon.
+	WorkspaceDBPath string
 	// Notifier, if set, receives turn notifications alongside the built-in env-configured channels
 	// (a webhook, notify/file, notify/exec). nil = just the built-ins.
 	Notifier Notifier
@@ -43,11 +49,14 @@ type Options struct {
 // per StatePath, plus the set of run ids this client tree started (so Close can cancel them). It is
 // pointer-shared, never copied, so the mutex and run set stay singular across WithAgent.
 type core struct {
-	store   *session.Store
-	hub     *stream.Hub
-	sup     *orchestrator.Supervisor
-	tracker *setup.Tracker
-	cwd     string
+	store      *session.Store
+	hub        *stream.Hub
+	sup        *orchestrator.Supervisor
+	tracker    *setup.Tracker
+	cwd        string
+	registry   *registry.Store
+	projects   *projects.Service
+	registryMu sync.Mutex
 
 	mu     sync.Mutex
 	runs   map[string]struct{} // run ids started via this client tree, cancelled on Close
@@ -80,6 +89,8 @@ type Client struct {
 	// catalog has never heard of), scoped to this client's default agent and rebound by WithAgent.
 	// Reachable as client.Providers.
 	Providers *Providers
+	// Workspace owns saved workspace metadata shared across all harness views.
+	Workspace *Workspace
 }
 
 // New constructs a Client, wiring the engine exactly as daemon/cmd/daemon/main.go does minus the HTTP
@@ -96,6 +107,14 @@ func New(opts Options) (*Client, error) {
 	if err != nil {
 		return nil, &Error{Message: "open state file: " + err.Error(), Cause: err}
 	}
+	registryPath := opts.WorkspaceDBPath
+	if registryPath == "" {
+		registryPath = filepath.Join(filepath.Dir(statePath), "workspace.db")
+	}
+	workspaceRegistry, err := registry.Open(registryPath)
+	if err != nil {
+		return nil, &Error{Message: "open workspace registry: " + err.Error(), Cause: err}
+	}
 	// A prior process that died mid-turn left runs marked "running" that nothing will ever finish;
 	// mark them errored so a caller reattaching doesn't hang on a topic no one publishes to.
 	_ = store.ReconcileRunning("interrupted by daemon restart")
@@ -109,9 +128,14 @@ func New(opts Options) (*Client, error) {
 	notifier := notify.Fanout(channels)
 
 	sup := orchestrator.New(store, hub, notifier, opts.CWD, opts.Agent)
+	projectService, err := projects.New(workspaceRegistry, sup)
+	if err != nil {
+		workspaceRegistry.Close()
+		return nil, &Error{Message: "recover projects: " + err.Error(), Cause: err}
+	}
 
 	co := &core{
-		store: store, hub: hub, sup: sup, tracker: setup.NewTracker(), cwd: opts.CWD,
+		store: store, hub: hub, sup: sup, tracker: setup.NewTracker(), cwd: opts.CWD, registry: workspaceRegistry, projects: projectService,
 		runs: map[string]struct{}{},
 	}
 	c := &Client{core: co, defaultAgent: opts.Agent}
@@ -119,6 +143,7 @@ func New(opts Options) (*Client, error) {
 	c.Prompts = &Prompts{c: c}
 	c.MCP = &MCP{c: c}
 	c.Providers = &Providers{c: c}
+	c.Workspace = newWorkspace(c)
 	return c, nil
 }
 
@@ -131,6 +156,7 @@ func (c *Client) WithAgent(agentType string) *Client {
 	view.Prompts = &Prompts{c: view}
 	view.MCP = &MCP{c: view}
 	view.Providers = &Providers{c: view}
+	view.Workspace = newWorkspace(view)
 	return view
 }
 
@@ -139,8 +165,8 @@ func (c *Client) WithAgent(agentType string) *Client {
 // is what makes it safe to tear down the state file/working directory right after Close (an embedder's
 // teardown, or a test's TempDir cleanup): without the drain a just-cancelled turn's async SaveRun would
 // race the removal. It is idempotent and safe to call from any WithAgent view (they share one run set).
-// It does NOT close the state store — a process holds one store for its lifetime — it only stops turns
-// this client owns. A second concurrent Close returns immediately; the first one owns the drain.
+// It closes the SQLite registry after draining turns. The JSON state store has no open resources.
+// A second concurrent Close returns immediately; the first one owns the drain.
 func (c *Client) Close() error {
 	c.core.mu.Lock()
 	if c.core.closed {
@@ -158,7 +184,10 @@ func (c *Client) Close() error {
 		c.core.sup.Cancel(id) // no-op/false for already-finished runs
 	}
 	c.core.sup.Wait() // drain: every cancelled turn's final SaveRun lands before we return
-	return nil
+	c.core.projects.Close()
+	c.core.registryMu.Lock()
+	defer c.core.registryMu.Unlock()
+	return c.core.registry.Close()
 }
 
 // ---- agent scoping ---------------------------------------------------------
@@ -192,14 +221,16 @@ func (c *Client) resolve(opts []ScopedOption) (*orchestrator.Agent, error) {
 // Health reports the daemon-level liveness snapshot (the /healthz payload): always ok in-process,
 // plus the default agent type and the core's version.
 type Health struct {
-	OK      bool   `json:"ok"`
-	Agent   string `json:"agent"`
-	Version string `json:"version"`
+	OK                       bool   `json:"ok"`
+	Agent                    string `json:"agent"`
+	Version                  string `json:"version"`
+	WorkspaceMetadataVersion int    `json:"workspaceMetadataVersion"`
+	ProjectOperationsVersion int    `json:"projectOperationsVersion"`
 }
 
 // Health returns the liveness snapshot. It cannot fail in-process.
 func (c *Client) Health() Health {
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package
@@ -402,6 +433,7 @@ func (c *Client) SetConfig(values map[string]string, opts ...ScopedOption) error
 // always wins over the native title.
 func (c *Client) Chats() []ChatSummary {
 	summaries := c.core.store.Chats()
+	summaries, _ = c.core.registry.MergeSummaries(summaries)
 	for i := range summaries {
 		c.enrichNativeTitle(&summaries[i])
 	}
@@ -413,6 +445,9 @@ func (c *Client) Chats() []ChatSummary {
 // auto-title > derived first-message snippet. Best-effort — a missing adapter/session/cwd/title leaves
 // the summary's existing title intact. Mirrors api.go's enrichNativeTitle exactly.
 func (c *Client) enrichNativeTitle(s *ChatSummary) {
+	if c.core.registry.OverlaySummary(s) {
+		return
+	}
 	if c.core.store.Title(s.ChatID) != "" {
 		return // a user rename overrides the agent's native auto-title
 	}
@@ -451,6 +486,11 @@ type DeleteResult struct {
 // agent's native auto-title in every listing; an empty title clears the rename. Returns the updated
 // summary. A persistence failure surfaces as APIError{500}.
 func (c *Client) RenameChat(chatID, title string) (ChatSummary, error) {
+	c.core.registryMu.Lock()
+	defer c.core.registryMu.Unlock()
+	if err := c.core.registry.RenameChat(chatID, title); err != nil {
+		return ChatSummary{}, workspaceError("RenameChat", err)
+	}
 	if err := c.core.store.SetTitle(chatID, strings.TrimSpace(title)); err != nil {
 		return ChatSummary{}, &APIError{Message: "failed to persist title", Status: http.StatusInternalServerError, Op: "RenameChat", Cause: err}
 	}
@@ -465,8 +505,13 @@ func (c *Client) RenameChat(chatID, title string) (ChatSummary, error) {
 // agent — an adapter without HistoryDeleter (or a failing remove) still leaves the bookkeeping purged;
 // the result reports what happened.
 func (c *Client) DeleteChat(chatID string) (DeleteResult, error) {
+	c.core.registryMu.Lock()
+	defer c.core.registryMu.Unlock()
 	if c.core.sup.Busy(chatID) {
 		return DeleteResult{}, &APIError{Message: "a turn is running for this chat", Status: http.StatusConflict, Op: "DeleteChat"}
+	}
+	if err := c.core.registry.Delete("chats", chatID, nil, true); err != nil {
+		return DeleteResult{}, workspaceError("DeleteChat", err)
 	}
 	refs, err := c.core.store.DeleteChat(chatID)
 	if err != nil {
@@ -505,12 +550,23 @@ func (c *Client) DeleteChat(chatID string) (DeleteResult, error) {
 // APIError{409} if the source has a live turn, APIError{404} if the source is unknown, APIError{400} if
 // the target id is already in use. Returns the new chat's summary.
 func (c *Client) ForkChat(srcChatID, newChatID string) (ChatSummary, error) {
+	c.core.registryMu.Lock()
+	defer c.core.registryMu.Unlock()
 	if c.core.sup.Busy(srcChatID) {
 		return ChatSummary{}, &APIError{Message: "a turn is running for this chat", Status: http.StatusConflict, Op: "ForkChat"}
 	}
 	newID := strings.TrimSpace(newChatID)
 	if newID == "" {
 		newID = newChatIDHex()
+	}
+	handled, err := c.core.registry.ForkChat(srcChatID, newID, c.core.store)
+	if err != nil {
+		return ChatSummary{}, workspaceError("ForkChat", err)
+	}
+	if handled {
+		summary := c.core.store.ChatSummaryFor(newID)
+		c.enrichNativeTitle(&summary)
+		return summary, nil
 	}
 	if err := c.core.store.ForkChat(srcChatID, newID); err != nil {
 		status := http.StatusBadRequest
@@ -587,10 +643,12 @@ type TurnRequest struct {
 // APIError{409}. The turn executes on the supervisor's own detached 30-minute context and is NOT bound
 // to ctx — ctx is accepted for call symmetry and future use; stop a turn with Run.Cancel, not ctx.
 func (c *Client) Turn(ctx context.Context, req TurnRequest) (*Run, error) {
+	c.core.registryMu.Lock()
+	defer c.core.registryMu.Unlock()
 	_ = ctx // the turn runs detached; see the doc comment above.
-	ag, ok := c.core.sup.Resolve(orDefault(req.Agent, c.defaultAgent))
-	if !ok {
-		return nil, &APIError{Message: "unknown agent", Status: http.StatusBadRequest, Op: "Turn"}
+	ag, cwd, err := c.resolveChat("Turn", req.ChatID, orDefault(req.Agent, c.defaultAgent), req.CWD)
+	if err != nil {
+		return nil, err
 	}
 	if req.ChatID == "" || req.Message == "" {
 		return nil, &APIError{Message: "chatId and message are required", Status: http.StatusBadRequest, Op: "Turn"}
@@ -599,7 +657,7 @@ func (c *Client) Turn(ctx context.Context, req TurnRequest) (*Run, error) {
 		return nil, &APIError{Message: msg, Status: http.StatusBadRequest, Op: "Turn"}
 	}
 	run, ok := c.core.sup.StartTurn(ag, orchestrator.StartTurnInput{
-		ChatID: req.ChatID, Message: req.Message, CWD: req.CWD, Options: req.Options,
+		ChatID: req.ChatID, Message: req.Message, CWD: cwd, Options: req.Options,
 	})
 	if !ok {
 		return nil, &APIError{Message: "a turn is already running for this chat", Status: http.StatusConflict, Op: "Turn"}
@@ -624,10 +682,12 @@ type CompactRequest struct {
 // chat must already have a session to compact or APIError{400}; a live turn → APIError{409}. Like Turn,
 // the compaction runs on the supervisor's detached context (not bound to ctx — stop it with Run.Cancel).
 func (c *Client) Compact(ctx context.Context, req CompactRequest) (*Run, error) {
+	c.core.registryMu.Lock()
+	defer c.core.registryMu.Unlock()
 	_ = ctx // runs detached; see Turn's doc comment.
-	ag, ok := c.core.sup.Resolve(orDefault(req.Agent, c.defaultAgent))
-	if !ok {
-		return nil, &APIError{Message: "unknown agent", Status: http.StatusBadRequest, Op: "Compact"}
+	ag, _, err := c.resolveChat("Compact", req.ChatID, orDefault(req.Agent, c.defaultAgent), "")
+	if err != nil {
+		return nil, err
 	}
 	if _, ok := ag.Adapter.(agent.CompactModule); !ok {
 		return nil, &APIError{Message: "agent does not support on-demand compaction", Status: http.StatusBadRequest, Op: "Compact"}
@@ -672,10 +732,12 @@ type ResolveRequest struct {
 // turn already in flight → APIError{409}. Like Turn it runs on the supervisor's detached context (bound
 // by the resolve deadline, not ctx — stop it with Run.Cancel).
 func (c *Client) Resolve(ctx context.Context, req ResolveRequest) (*Run, error) {
+	c.core.registryMu.Lock()
+	defer c.core.registryMu.Unlock()
 	_ = ctx // runs detached; see Turn's doc comment.
-	ag, ok := c.core.sup.Resolve(orDefault(req.Agent, c.defaultAgent))
-	if !ok {
-		return nil, &APIError{Message: "unknown agent", Status: http.StatusBadRequest, Op: "Resolve"}
+	ag, cwd, err := c.resolveChat("Resolve", req.ChatID, orDefault(req.Agent, c.defaultAgent), req.CWD)
+	if err != nil {
+		return nil, err
 	}
 	if req.ChatID == "" || req.Message == "" {
 		return nil, &APIError{Message: "chatId and message are required", Status: http.StatusBadRequest, Op: "Resolve"}
@@ -684,7 +746,7 @@ func (c *Client) Resolve(ctx context.Context, req ResolveRequest) (*Run, error) 
 		return nil, &APIError{Message: msg, Status: http.StatusBadRequest, Op: "Resolve"}
 	}
 	run, ok := c.core.sup.StartResolve(ag, orchestrator.StartTurnInput{
-		ChatID: req.ChatID, Message: req.Message, CWD: req.CWD, Options: req.Options,
+		ChatID: req.ChatID, Message: req.Message, CWD: cwd, Options: req.Options,
 	}, orchestrator.ResolveOptions{MaxIterations: req.MaxIterations, Deadline: req.Deadline})
 	if !ok {
 		return nil, &APIError{Message: "a turn is already running for this chat", Status: http.StatusConflict, Op: "Resolve"}

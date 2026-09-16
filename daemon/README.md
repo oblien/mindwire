@@ -13,22 +13,33 @@ Requires Go (see [`go.mod`](./go.mod)) and the agent CLI you want to drive (Clau
 `npm i -g @anthropic-ai/claude-code`).
 
 ```bash
-# Dev run (binds 127.0.0.1:8790, no auth token):
+# Dev run (binds 127.0.0.1:8790):
+export DAEMON_TOKEN="$(openssl rand -hex 32)"
 DEV_CORS=1 AGENT_CWD="$PWD/.." go run ./cmd/daemon
 
-curl -s http://127.0.0.1:8790/healthz    # {"ok":true,"agent":"claude-code","version":"..."}
+curl -s -H "Authorization: Bearer $DAEMON_TOKEN" http://127.0.0.1:8790/healthz
 
-./build.sh   # → dist/<version>/mindwired-<os>-<arch> + catalog.json (release build)
+./build.sh   # → dist/latest/mindwired-<os>-<arch> + catalog.json
 ```
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `ADDR` | `:8790` | Listen address. |
+| `ADDR` | `127.0.0.1:8790` | Listen address. |
 | `AGENT_TYPE` | `claude-code` | Default agent when a request omits `?agent=`. |
 | `AGENT_CWD` | daemon cwd | Project directory turns run in. |
 | `STATE_PATH` | `agent-state.json` | Local JSON state file. |
-| `DAEMON_TOKEN` | *(empty)* | Bearer token; empty = no auth (dev / trusted network). |
+| `WORKSPACE_DB_PATH` | `workspace.db` beside `STATE_PATH` | Authoritative SQLite registry for agent profiles, projects and chat links. |
+| `DAEMON_TOKEN` | *(required)* | Bearer token, also saved privately beside the state file for authorized workspace clients. |
 | `DEV_CORS` | off | `1` allows a cross-origin browser client (e.g. the preview app's dev server). |
+
+## Setup and update status
+
+`POST /setup?agent=<type>` and `POST /update?agent=<type>` share one background job per harness.
+Concurrent requests attach to that job, even across clients; disconnecting does not cancel it.
+Poll `GET /setup?agent=<type>` for `running`, `current`, `steps`, `ok`, and `operation` (`setup` or
+`update`). The operation stays attached to the job that actually started, so a setup request
+joining an update still reports `update`. Older daemons omit `operation`; clients should tolerate
+its absence. A completed or failed job releases its lock and can be explicitly retried.
 
 ## Design & API reference
 
@@ -40,3 +51,4 @@ lifecycle, the HTTP surface, and how to add an adapter — is documented once, o
   protocol, HTTP endpoints, and turn lifecycle.
 - **[NOTIFICATIONS.md](./NOTIFICATIONS.md)** — the provider-agnostic notification webhook contract.
 - **[INTERACTIONS.md](./INTERACTIONS.md)** — shared question forms, command approvals, permission settings and client lifecycle.
+- **[WORKSPACES.md](./WORKSPACES.md)** — workspace ownership, project operations, registry API, cache migration, deletion and sync.

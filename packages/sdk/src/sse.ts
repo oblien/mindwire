@@ -47,6 +47,8 @@ export async function* readSSE<T>(
     if (payload !== undefined) yield JSON.parse(payload) as T;
   } finally {
     if (signal) signal.removeEventListener("abort", onAbort);
+    // Breaking a consumer loop must release the HTTP stream as well as its reader.
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }

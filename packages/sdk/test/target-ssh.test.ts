@@ -21,6 +21,7 @@ function fakeSshClient(opts: { health?: string } = {}) {
     // Order matters: the multi-line launch script contains "mkdir -p" too, so match its own
     // MINDWIRE_READY marker first. A bare `mkdir -p` (from putFile) falls through to "".
     if (command.includes("echo mw_ready")) return "mw_ready";
+    if (command.includes("<<MW_HOME>>")) return "<<MW_HOME>>/root<<MW_HOME>>";
     if (command.includes("MINDWIRE_READY")) return "MINDWIRE_READY";
     if (command.includes("<<MW_H>>")) return `<<MW_H>>${health}<<MW_H>>`;
     if (command.includes("<<ARCH")) return "<<ARCH:x86_64>>";
@@ -113,7 +114,7 @@ test("provisionSsh: ensures the daemon (upload + launch) and points the SDK at t
 
   // Upload: SFTP write of the staged binary at 0755, into the daemon dir.
   expect(calls.writes.length).toBe(1);
-  expect(calls.writes[0]?.path).toBe("/root/.mindwire/mindwired.new");
+  expect(calls.writes[0]?.path).toMatch(/^\/root\/\.mindwire\/mindwired\.new-[0-9a-f-]{36}$/);
   expect(calls.writes[0]?.mode).toBe(0o755);
   expect(calls.writes[0]?.size).toBe("fake-daemon-binary".length);
   // The parent dir was created before the SFTP write (Risk 7).
@@ -143,7 +144,7 @@ test("provisionSsh: the multi-line, single-quoted ensure scripts survive reassem
   expect(launch).toContain("\n"); // the joined script survived as one argument
   expect(launch!.startsWith("'bash' '-lc'")).toBe(true);
   expect(launch).toContain('ADDR=":8790"');
-  expect(launch).toContain('AGENT_TYPE="claude-code"');
+  expect(launch).toContain("AGENT_TYPE='\\''claude-code'\\''");
 });
 
 test("provisionSsh: skips deploy when a healthy, current daemon is already reachable", async () => {

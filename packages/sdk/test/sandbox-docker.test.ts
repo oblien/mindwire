@@ -31,6 +31,7 @@ function fakeDocker(
     const script = argv[2] ?? argv.join(" ");
     if (argv[0] === "mkdir") return "";
     if (script.includes("echo mw_ready")) return "mw_ready";
+    if (script.includes("<<MW_HOME>>")) return "<<MW_HOME>>/root<<MW_HOME>>";
     if (script.includes("<<MW_H>>")) return `<<MW_H>>${health}<<MW_H>>`;
     if (script.includes("<<ARCH")) return "<<ARCH:x86_64>>";
     if (script.includes("MINDWIRE_READY")) return "MINDWIRE_READY";

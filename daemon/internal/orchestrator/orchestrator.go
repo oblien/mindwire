@@ -25,6 +25,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/runner"
 	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/stream"
+	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 )
 
 // maxTurn bounds a single turn so a stuck CLI can't run forever.
@@ -146,7 +147,7 @@ type Supervisor struct {
 	def    string            // default agent type when a request omits ?agent=
 
 	mu      sync.Mutex
-	active  map[string]bool               // chatId -> a turn is currently running
+	active  map[string]string             // chatId -> active turn's working directory
 	cancels map[string]context.CancelFunc // runId -> cancel the running turn
 	// User-in-loop ingress, parallel to cancels (same register-before-return + defer close). inputs
 	// holds each running turn's inbound channel (present only for agents declaring an ingress
@@ -169,7 +170,7 @@ func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, d
 	s := &Supervisor{
 		store: store, hub: hub, notifier: notifier, notes: notify.NewStream(), mon: procmon.NewMonitor(), cwd: cwd,
 		agents: map[string]*Agent{}, def: defaultAgent,
-		active: map[string]bool{}, cancels: map[string]context.CancelFunc{},
+		active: map[string]string{}, cancels: map[string]context.CancelFunc{},
 		inputs: map[string]chan agent.Inbound{}, pending: map[string]map[string]agent.Interaction{},
 	}
 	s.idle = sync.NewCond(&s.mu)
@@ -254,11 +255,11 @@ func (s *Supervisor) StartResolve(a *Agent, req StartTurnInput, ro ResolveOption
 		ro.Deadline = resolveDeadline
 	}
 	s.mu.Lock()
-	if s.active[req.ChatID] {
+	if _, busy := s.active[req.ChatID]; busy {
 		s.mu.Unlock()
 		return session.Run{}, false
 	}
-	s.active[req.ChatID] = true
+	s.active[req.ChatID] = s.activePath(req.CWD)
 	// The parent context bounds the WHOLE resolve (overall deadline); each child turn derives a 30-min
 	// timeout from it. Register the cancel under the parent id BEFORE returning, so an immediate cancel
 	// can't race an unregistered run into a 404 (same anti-race as start()).
@@ -284,11 +285,11 @@ func (s *Supervisor) StartResolve(a *Agent, req StartTurnInput, ro ResolveOption
 // start is the shared launch path for StartTurn (compact=false) and StartCompact (compact=true).
 func (s *Supervisor) start(a *Agent, req StartTurnInput, compact bool) (session.Run, bool) {
 	s.mu.Lock()
-	if s.active[req.ChatID] {
+	if _, busy := s.active[req.ChatID]; busy {
 		s.mu.Unlock()
 		return session.Run{}, false
 	}
-	s.active[req.ChatID] = true
+	s.active[req.ChatID] = s.activePath(req.CWD)
 	// Create + register the cancel func BEFORE returning the run id, so a client that
 	// cancels immediately after POST /turns can't race an unregistered run into a 404.
 	ctx, cancel := context.WithTimeout(context.Background(), maxTurn)
@@ -335,7 +336,31 @@ func (s *Supervisor) start(a *Agent, req StartTurnInput, compact bool) (session.
 func (s *Supervisor) Busy(chatID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.active[chatID]
+	_, busy := s.active[chatID]
+	return busy
+}
+
+func (s *Supervisor) activePath(path string) string {
+	if path == "" {
+		path = s.cwd
+	}
+	if canonical, err := workspacepath.WorkingDirectory(path); err == nil {
+		return canonical
+	}
+	return path
+}
+
+// BusyPath prevents removing files underneath any live turn, even one started
+// through the legacy API without a saved project/chat relationship.
+func (s *Supervisor) BusyPath(path string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, cwd := range s.active {
+		if workspacepath.Overlaps(path, cwd) {
+			return true
+		}
+	}
+	return false
 }
 
 // runDone marks one supervised run goroutine finished and wakes any Wait once the last one exits.

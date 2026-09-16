@@ -9,9 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/api"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
+	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/stream"
 
@@ -59,6 +62,28 @@ func main() {
 	if err != nil {
 		log.Fatalf("open state: %v", err)
 	}
+	workspaceRegistry, err := registry.Open(env("WORKSPACE_DB_PATH", filepath.Join(filepath.Dir(statePath), "workspace.db")))
+	if err != nil {
+		log.Fatalf("open workspace registry: %v", err)
+	}
+	defer workspaceRegistry.Close()
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+	// Authorized workspace connections can recover this credential on another device. Never
+	// return it from the registry API, put it in snapshots, or rotate it when a client reconnects.
+	tokenPath := filepath.Join(filepath.Dir(statePath), "daemon.token")
+	if err := os.WriteFile(tokenPath+".tmp", []byte(token), 0600); err != nil {
+		log.Fatalf("persist daemon credential: %v", err)
+	}
+	if err := os.Chmod(tokenPath+".tmp", 0600); err != nil {
+		log.Fatalf("protect daemon credential: %v", err)
+	}
+	if err := os.Rename(tokenPath+".tmp", tokenPath); err != nil {
+		log.Fatalf("persist daemon credential: %v", err)
+	}
 	// A restart abandons any in-flight turn (it ran on the old process's context). Mark such runs
 	// errored so a client reattaching doesn't hang forever on a stream nothing will publish to.
 	_ = store.ReconcileRunning("interrupted by daemon restart")
@@ -80,17 +105,22 @@ func main() {
 
 	// The orchestrator hosts every adapter and supervises turns; the API is glue over it.
 	sup := orchestrator.New(store, hub, notifier, cwd, defaultAgent)
+	workspaceAPI := api.New(store, hub, sup, workspaceRegistry)
+	if err := workspaceAPI.InitError(); err != nil {
+		log.Fatalf("recover project operations: %v", err)
+	}
+	defer workspaceAPI.Close()
 
 	root := http.NewServeMux()
 	health := http.NewServeMux()
 	health.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"agent":"` + sup.Default() + `","version":"` + agent.Version + `"}`))
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "workspaceMetadataVersion": registry.Version, "projectOperationsVersion": registry.ProjectOperationsVersion})
 	})
 	root.Handle("/healthz", api.Auth(token, health))
 
 	apiMux := http.NewServeMux()
-	api.New(store, hub, sup).Register(apiMux)
+	workspaceAPI.Register(apiMux)
 	root.Handle("/", api.Auth(token, apiMux))
 
 	// DEV_CORS=1 allows a cross-origin browser app (e.g. the preview app's Vite dev server) to
@@ -109,16 +139,16 @@ func main() {
 	}
 
 	log.Printf("agent-daemon: default-agent=%s addr=%s state=%s", sup.Default(), addr, statePath)
-	serve(srv)
+	serve(srv, listener)
 }
 
 // serve runs the HTTP server until SIGINT/SIGTERM, then drains connections gracefully.
 // In-flight turns run on the supervisor's own background contexts, so they continue
 // regardless; this just lets active HTTP requests (incl. SSE) finish before exit.
-func serve(srv *http.Server) {
+func serve(srv *http.Server, listener net.Listener) {
 	errCh := make(chan error, 1)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()

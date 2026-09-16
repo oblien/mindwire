@@ -3,7 +3,7 @@
   "info": {
     "title": "Mindwire daemon API",
     "version": "0.4.0",
-    "description": "One protocol over every coding-agent harness. The daemon hosts every registered adapter; a request selects one with `?agent=<type>` (falling back to the default). `GET /healthz` is public; everything else sits behind a bearer token (empty token = no auth, for dev/trusted networks). Turns/runs/chats are shared (keyed by chatId); auth, config, and creds are isolated per agent type."
+    "description": "One protocol over every coding-agent harness. The daemon hosts every registered adapter; a request selects one with `?agent=<type>` (falling back to the default). All endpoints, including `GET /healthz`, require the daemon bearer token. Workspace registry metadata is shared across harnesses. Turns/runs/chats are shared (keyed by chatId); auth, config, and creds are isolated per agent type."
   },
   "servers": [
     {
@@ -43,6 +43,10 @@
     {
       "name": "Providers",
       "description": "Custom OpenAI-compatible LLM providers the agent can register and route runs to."
+    },
+    {
+      "name": "Workspace",
+      "description": "Authoritative agent profiles, projects and chat relationships in the workspace SQLite registry."
     }
   ],
   "components": {
@@ -50,7 +54,7 @@
       "bearer": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Set `DAEMON_TOKEN` on the daemon; empty = no auth."
+        "description": "Set DAEMON_TOKEN on the daemon (required). Authorized runtime/SSH clients can recover it from the private daemon.token file beside STATE_PATH."
       }
     },
     "parameters": {
@@ -100,6 +104,24 @@
       }
     },
     "schemas": {
+      "ProjectRemoveRequest": {
+        "type": "object",
+        "required": [
+          "operationId",
+          "expectedRevision"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "description": "Stable ID for this confirmed deletion; reuse it after a lost acknowledgement."
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The project record revision confirmed by the user."
+          }
+        }
+      },
       "RunSnapshot": {
         "type": "object",
         "required": [
@@ -157,6 +179,14 @@
           "version": {
             "type": "string",
             "description": "agent.Version — the definitions/protocol version."
+          },
+          "workspaceMetadataVersion": {
+            "type": "integer",
+            "description": "Absent on daemons predating the workspace registry."
+          },
+          "projectOperationsVersion": {
+            "type": "integer",
+            "description": "Durable project-operation protocol version; absent on older daemons."
           }
         },
         "required": [
@@ -2362,6 +2392,472 @@
             "type": "string"
           }
         }
+      },
+      "WorkspaceAgent": {
+        "type": "object",
+        "required": [
+          "id",
+          "workspaceId",
+          "createdAt",
+          "revision",
+          "name",
+          "agentType"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string",
+            "description": "Registry identity, independent of the hosting provider ID."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "agentType": {
+            "type": "string"
+          },
+          "agentTypeName": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceAgentInput": {
+        "type": "object",
+        "required": [
+          "name",
+          "agentType"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "agentType": {
+            "type": "string"
+          },
+          "agentTypeName": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceProject": {
+        "type": "object",
+        "required": [
+          "id",
+          "workspaceId",
+          "createdAt",
+          "revision",
+          "name",
+          "path"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string",
+            "description": "Registry identity, independent of the hosting provider ID."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "repoUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceProjectInput": {
+        "type": "object",
+        "required": [
+          "name",
+          "path"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "repoUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceChat": {
+        "type": "object",
+        "required": [
+          "id",
+          "workspaceId",
+          "createdAt",
+          "revision",
+          "agentId",
+          "projectId",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string",
+            "description": "Registry identity, independent of the hosting provider ID."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "titleIsUserSet": {
+            "type": "boolean"
+          },
+          "sessionId": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceChatInput": {
+        "type": "object",
+        "required": [
+          "agentId",
+          "projectId",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "titleIsUserSet": {
+            "type": "boolean"
+          },
+          "sessionId": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceDeletion": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "revision"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "agents",
+              "projects",
+              "chats"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        }
+      },
+      "WorkspaceImport": {
+        "type": "object",
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceAgentInput"
+            }
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceProjectInput"
+            }
+          },
+          "chats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceChatInput"
+            }
+          }
+        }
+      },
+      "WorkspaceSnapshot": {
+        "type": "object",
+        "required": [
+          "version",
+          "workspaceId",
+          "revision",
+          "full",
+          "agents",
+          "projects",
+          "chats",
+          "deleted"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "workspaceId": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "full": {
+            "type": "boolean",
+            "description": "Replace this workspace cache when true; otherwise apply rows and tombstones as a delta."
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceAgent"
+            }
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceProject"
+            }
+          },
+          "chats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceChat"
+            }
+          },
+          "deleted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceDeletion"
+            }
+          }
+        }
+      },
+      "ProjectCloneAuth": {
+        "type": "object",
+        "writeOnly": true,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "token",
+              "ssh",
+              "gh"
+            ]
+          },
+          "username": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "writeOnly": true
+          },
+          "privateKey": {
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "ProjectCreateRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "name",
+          "path"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable request idempotency key."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "folder",
+              "create",
+              "clone"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute path or ~/...; resolved on the workspace."
+          },
+          "repoUrl": {
+            "type": "string",
+            "description": "Credential-free repository URL, only for clone."
+          },
+          "branch": {
+            "type": "string"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/ProjectCloneAuth"
+          }
+        }
+      },
+      "ProjectOperation": {
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "name",
+          "path",
+          "status",
+          "phase",
+          "createdAt",
+          "updatedAt",
+          "sequence",
+          "attempt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable request idempotency key."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "folder",
+              "create",
+              "clone",
+              "delete"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute path or ~/...; resolved on the workspace."
+          },
+          "repoUrl": {
+            "type": "string",
+            "description": "Credential-free repository URL, only for clone."
+          },
+          "branch": {
+            "type": "string"
+          },
+          "authKind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "cancelling",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted"
+            ]
+          },
+          "phase": {
+            "type": "string"
+          },
+          "progress": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "log": {
+            "type": "string",
+            "description": "Bounded, redacted output tail."
+          },
+          "error": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Created project ID, or the target project ID for removal."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "attempt": {
+            "type": "integer"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "description": "Confirmed project revision for a file-removal operation."
+          }
+        }
       }
     }
   },
@@ -2371,6 +2867,142 @@
     }
   ],
   "paths": {
+    "/workspace/projects/{id}/remove": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Delete a confirmed project directory and its registry membership",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Current durable operation snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRemoveRequest"
+              }
+            }
+          }
+        },
+        "description": "Explicit filesystem deletion, separate from metadata-only DELETE /workspace/projects/{id}. The daemon checks the project revision, running chats and overlapping projects, reserves the directory, and moves it into an owned quarantine. Membership tombstones commit atomically with the deleting phase. Recovery then cleans only the quarantine, preserving a new directory at the original path. Native harness transcripts are retained. Disconnecting never cancels work; cancellation is rejected after the deleting boundary.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/runs/{id}/snapshot": {
       "get": {
         "tags": [
@@ -2413,8 +3045,7 @@
           "Health"
         ],
         "summary": "Liveness check",
-        "security": [],
-        "description": "Public (no auth). Resolves when the daemon is up.",
+        "description": "Authenticated daemon liveness, version and optional workspace registry capability.",
         "responses": {
           "200": {
             "description": "Up",
@@ -4893,6 +5524,1328 @@
             }
           }
         }
+      }
+    },
+    "/workspace": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read workspace metadata",
+        "description": "A consistent full snapshot of saved agent profiles, projects, and chat links. Native transcripts and credentials are not included.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authoritative workspace metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid record or request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale revision, different registry identity, or a running chat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Record has been deleted; cached copies cannot recreate it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/changes": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read workspace changes",
+        "description": "Apply changed records and deletion tombstones since the previous revision. Fetch a full snapshot after 409.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authoritative workspace metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid record or request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale revision, different registry identity, or a running chat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Record has been deleted; cached copies cannot recreate it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspaceId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Previous registry identity; detects a restored/replaced database."
+          }
+        ]
+      }
+    },
+    "/workspace/import": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Import legacy app metadata",
+        "description": "Insert only missing records, preserving IDs. Existing records and tombstones win. Each batch is transactional; send agents, then projects, then chats when batching.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authoritative workspace metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid record or request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale revision, different registry identity, or a running chat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Record has been deleted; cached copies cannot recreate it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceImport"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/{kind}/{id}": {
+      "put": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Create or update a workspace record",
+        "description": "Omit expectedRevision to create. Supply the current record revision to update. Retrying the same value is idempotent. A chat references existing agent and project records; its parents and an agent profile's harness are immutable. Project creation through this metadata endpoint requires an existing directory; use POST /workspace/projects for folder/create/clone workflows. Project directories are immutable through metadata edits. Directory aliases cannot create duplicate projects.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authoritative workspace metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid record or request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale revision, different registry identity, or a running chat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Record has been deleted; cached copies cannot recreate it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agents",
+                "projects",
+                "chats"
+              ]
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "record"
+                ],
+                "properties": {
+                  "record": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/WorkspaceAgentInput"
+                      },
+                      {
+                        "$ref": "#/components/schemas/WorkspaceProjectInput"
+                      },
+                      {
+                        "$ref": "#/components/schemas/WorkspaceChatInput"
+                      }
+                    ]
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Remove a workspace record",
+        "description": "Remove registry membership and dependent chat links atomically. Files and native transcripts stay on disk. Use DELETE /chats/{id} for transcript deletion. Running chats block removal.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authoritative workspace metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid record or request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale revision, different registry identity, or a running chat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Record has been deleted; cached copies cannot recreate it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agents",
+                "projects",
+                "chats"
+              ]
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Required when deleting an existing record."
+          }
+        ]
+      }
+    },
+    "/workspace/projects": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Start a durable project operation",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Current durable operation snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreateRequest"
+              }
+            }
+          }
+        },
+        "description": "The daemon owns folder validation, directory creation, and cloning. Reuse the same id/payload after a lost acknowledgement. Work continues after client disconnect. Project registration and successful operation status commit atomically; files use recoverable owned staging. Credentials are write-only and new credentials can be supplied on explicit retry."
+      }
+    },
+    "/workspace/operations": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "List all active and up to 100 recent completed project operations",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current durable operation snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "operations"
+                  ],
+                  "properties": {
+                    "operations": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ProjectOperation"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "active",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ]
+      }
+    },
+    "/workspace/operations/{id}": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read current project operation",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current durable operation snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workspace/operations/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Cancel a project operation before its commit boundary",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current durable operation snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Returns 409 if folder deletion has already reached the deleting phase. Closing an observer never cancels work."
+      }
+    },
+    "/workspace/operations/{id}/retry": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Retry an interrupted, failed, or cancelled project operation",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current durable operation snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "auth": {
+                    "$ref": "#/components/schemas/ProjectCloneAuth"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/operations/{id}/stream": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Observe current project operation and live snapshots",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE project_operation events. Each event is a complete ProjectOperation snapshot; id is its sequence. A reconnect receives the latest snapshot immediately. Disconnect detaches only this observer. The stream ends on a terminal status.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     }
   }

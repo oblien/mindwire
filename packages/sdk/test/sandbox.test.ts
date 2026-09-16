@@ -189,6 +189,7 @@ function fakeOblien(cfg: { health?: string; proxyStatuses?: number[] } = {}) {
         const script = cmd[2] ?? "";
         calls.exec.push(script);
         if (script.includes("echo mw_ready")) return { stdout: "mw_ready", exit_code: 0 };
+        if (script.includes("<<MW_HOME>>")) return { stdout: "<<MW_HOME>>/root<<MW_HOME>>", exit_code: 0 };
         if (script.includes("<<MW_H>>")) return { stdout: `<<MW_H>>${health}<<MW_H>>`, exit_code: 0 };
         if (script.includes("<<ARCH")) return { stdout: "<<ARCH:x86_64>>", exit_code: 0 };
         if (script.includes("MINDWIRE_READY")) return { stdout: "MINDWIRE_READY", exit_code: 0 };
@@ -325,7 +326,7 @@ test("provisionOblien: uploads (base64) + launches the daemon when the VM isn't 
 
   expect(d.baseUrl).toBe("http://mindwire-sandbox.local");
   expect(calls.write.length).toBe(1);
-  expect(calls.write[0]?.fullPath.endsWith("mindwired.new.b64")).toBe(true); // staged at the .new path
+  expect(calls.write[0]?.fullPath).toMatch(/mindwired\.new-[0-9a-f-]{36}\.b64$/); // isolated upload staging
   expect(calls.write[0]?.createDirs).toBe(true);
   expect(calls.write[0]?.content).toBe(Buffer.from("fake-daemon-binary").toString("base64"));
   expect(calls.exec.some((s) => s.includes("base64 -d"))).toBe(true); // in-VM decode of the upload

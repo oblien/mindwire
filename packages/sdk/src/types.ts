@@ -936,6 +936,8 @@ export interface SetupStatus {
   started: boolean;
   current?: string;
   steps: StepResult[];
+  /** The shared job's operation, including when another client started it. Older daemons omit it. */
+  operation?: "setup" | "update";
 }
 
 /** `GET /notify/config` — the token is never returned. */
@@ -1038,6 +1040,10 @@ export interface NotifyChannelTestResult {
 
 /** `GET /healthz` — the daemon's liveness probe. */
 export interface Health {
+  /** Workspace registry protocol version; absent on daemons predating workspace metadata. */
+  workspaceMetadataVersion?: number;
+  /** Durable project creation/clone operations; absent on older daemons. */
+  projectOperationsVersion?: number;
   ok: boolean;
   agent: string;
   version: string;

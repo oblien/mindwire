@@ -61,6 +61,79 @@ setTimeout(() => run.cancel(), 5_000);
 for await (const ev of run) { /* … */ }
 ```
 
+## Saved workspace data
+
+`mw.workspace` manages named agent profiles, projects and chat links in the
+workspace's SQLite registry. It is shared by every `withAgent()` view. Harness
+configuration/history remain in their existing harness stores; credentials still
+use the daemon's existing auth adapters and credential store.
+
+```ts
+const profileId = crypto.randomUUID();
+const projectId = crypto.randomUUID();
+const chatId = crypto.randomUUID();
+await mw.workspace.agents.put(profileId, { name: "My Codex", agentType: "codex" });
+// This metadata API opens an existing directory. See createProject below for cloning.
+await mw.workspace.projects.put(projectId, { name: "App", path: "/work/app" });
+const saved = await mw.workspace.chats.put(chatId, {
+  agentId: profileId, projectId, title: "Build app",
+});
+
+// A second client can reconstruct all saved navigation links.
+const snapshot = await mw.workspace.snapshot();
+const updates = await mw.workspace.changes(saved.revision, saved.workspaceId);
+const project = snapshot.projects.find(p => p.id === projectId)!;
+await mw.workspace.projects.put(projectId, { ...project, name: "Renamed" }, project.revision);
+```
+
+Use stable IDs when retrying creates and the latest record revision when updating
+or deleting. Conflicts return `ApiError` with status 409; a removed ID returns 410.
+Collection deletion removes membership and dependent chat links, retaining files
+and native transcripts. Use `deleteChat()` for an explicit transcript purge.
+
+Check `health().workspaceMetadataVersion` before enabling registry features on an
+older daemon. `workspace.import()` imports legacy IDs once; existing records and
+deletion markers win. See the [registry contract](../../daemon/WORKSPACES.md) for
+migration and recovery. The embedded Go SDK exposes the same operations through
+`client.Workspace`, using the same SQLite implementation.
+
+Project workflows run in the daemon, including directory validation, clone output,
+cancellation, retries, registration and folder removal. Check `health().projectOperationsVersion`.
+
+```ts
+const operation = await mw.workspace.createProject({
+  id: crypto.randomUUID(), // retain this ID when retrying a lost acknowledgement
+  source: "clone",        // or "folder" (existing) / "create" (new directory)
+  name: "My app",
+  path: "~/projects/my-app", // parent exists; destination must be absent for cloning
+  repoUrl: "https://github.com/owner/repo.git",
+  // auth: { kind: "token", token: installationToken } — write-only, never in origin
+});
+for await (const snapshot of mw.workspace.operations.watch(operation.id)) {
+  console.log(snapshot.status, snapshot.phase, snapshot.progress);
+}
+// A new client can list/observe the same operation, including after disconnect.
+await mw.workspace.operations.list(true);
+// Explicit cancellation/retry; breaking a watch loop only detaches that observer.
+// await mw.workspace.operations.cancel(operation.id);
+// await mw.workspace.operations.retry(operation.id, freshAuth);
+```
+
+In Go, use `client.Workspace.CreateProject(ProjectRequest{...})` and
+`client.Workspace.Operations.Get/List/Watch/Cancel/Retry`. These call the same
+project service as HTTP. Active destination reservations prevent duplicate clones;
+the final project and successful operation status commit in one SQLite transaction.
+An interrupted daemon reconciles a staged commit or marks earlier work retryable.
+
+`workspace.projects.delete(id, revision)` removes registry membership while retaining
+files and native transcripts. Explicit folder deletion uses
+`workspace.removeProjectFiles(id, { operationId, expectedRevision })` (Go:
+`Workspace.RemoveProjectFiles`). Confirm it with the user first, retain the operation
+ID for transport retries, and observe the returned operation as above. The daemon
+blocks running chats/overlapping projects and recovers removal across restarts.
+Cancellation returns 409 after the `deleting` phase; cleanup then affects only the
+owned quarantine, even if someone recreates the original directory.
+
 ## Targets — where the daemon runs
 
 **One `new Mindwire` = one instance = one daemon = one environment.** Every agent that instance runs

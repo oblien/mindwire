@@ -101,13 +101,15 @@ function makeEmit(cfg: EnsureDaemonConfig): (e: Omit<EnsureEvent, "target">) => 
   };
 }
 
-// A fixed, root-writable home for the deployed daemon + its state/log. Sandbox images for coding
-// agents conventionally run as root; the launch also `mkdir -p`s it defensively.
-const DAEMON_DIR = "/root/.mindwire";
-const BIN = `${DAEMON_DIR}/mindwired`;
-const BIN_NEW = `${BIN}.new`;
-const STATE = `${DAEMON_DIR}/agent-state.json`;
-const LOG = `${DAEMON_DIR}/daemon.log`;
+// Match the app's ~/.mindwire for the runtime user; images and SSH hosts may run without root.
+async function daemonDirectory(host: SandboxHost): Promise<string> {
+  const result = await host.exec(["sh", "-lc", 'printf "<<MW_HOME>>%s<<MW_HOME>>" "$HOME"'], { timeoutSeconds: 15 });
+  const runtimeHome = result.stdout?.match(/<<MW_HOME>>([\s\S]*?)<<MW_HOME>>/)?.[1];
+  if (!runtimeHome?.startsWith("/") || runtimeHome.length > 4096 || /[\x00-\x1f\x7f]/.test(runtimeHome)) {
+    throw new MindwireError("mindwire: cannot resolve the runtime user's home directory");
+  }
+  return runtimeHome.replace(/\/+$/, "") + "/.mindwire";
+}
 
 /**
  * Make sure a healthy `mindwired` of the desired version is reachable at `127.0.0.1:<port>` inside the
@@ -117,10 +119,16 @@ const LOG = `${DAEMON_DIR}/daemon.log`;
  */
 export async function ensureDaemon(host: SandboxHost, cfg: EnsureDaemonConfig): Promise<string> {
   const emit = makeEmit(cfg);
-  const token = cfg.token ?? (await import("node:crypto")).randomBytes(32).toString("hex");
+  let token = cfg.token ?? (await import("node:crypto")).randomBytes(32).toString("hex");
   try {
     await waitHostReady(host);
     emit({ phase: "connect", message: "runtime ready" });
+    const directory = await daemonDirectory(host);
+    if (!cfg.token) {
+      // Reconnecting a second client must reuse the workspace credential rather than replacing
+      // the daemon with a new random token. This read uses the owner's SSH/runtime connection.
+      token = (await readWorkspaceToken(host, directory)) ?? token;
+    }
 
     const desired = cfg.desiredVersion ?? SDK_VERSION;
     const health = await probeHealth(host, cfg.port, token);
@@ -146,12 +154,20 @@ export async function ensureDaemon(host: SandboxHost, cfg: EnsureDaemonConfig): 
       emit({ phase: "probe", message: "no daemon reachable; deploying" });
     }
 
-    await deploy(host, cfg, emit, token);
+    await deploy(host, cfg, emit, token, directory);
+    // A concurrent installer may have won the workspace lock and chosen its credential first.
+    if (!cfg.token) token = (await readWorkspaceToken(host, directory)) ?? token;
     return token;
   } catch (err) {
     emit({ phase: "error", message: "ensure failed", error: err instanceof Error ? err.message : String(err) });
     throw err;
   }
+}
+
+async function readWorkspaceToken(host: SandboxHost, directory: string): Promise<string | undefined> {
+  const saved = await host.exec(["sh", "-lc", `cat ${shellQuote(directory + "/daemon.token")} 2>/dev/null || true`], { timeoutSeconds: 15 });
+  const candidate = saved.stdout?.trim();
+  return candidate && candidate.length <= 4096 && /^[\x21-\x7e]+$/.test(candidate) ? candidate : undefined;
 }
 
 /** Resolve + upload the Linux daemon, then launch it detached and health-poll from inside the VM. */
@@ -160,16 +176,24 @@ async function deploy(
   cfg: EnsureDaemonConfig,
   emit: (e: Omit<EnsureEvent, "target">) => void,
   token: string,
+  directory: string,
 ): Promise<void> {
+  const newPath = directory + "/mindwired.new";
+  const BIN = shellQuote(directory + "/mindwired"), BIN_NEW = shellQuote(newPath);
+  const STATE = shellQuote(directory + "/agent-state.json"), LOG = shellQuote(directory + "/daemon.log");
+  const TOKEN = shellQuote(directory + "/daemon.token");
   const arch = await probeArch(host);
   const desired = cfg.desiredVersion ?? SDK_VERSION;
   let acquire = "";
+  let stagedUpload: string | undefined;
   if (cfg.daemonBin) {
     const binPath = await resolveLinuxDaemon(cfg.daemonBin, arch);
     const bytes = await readBytes(binPath);
     emit({ phase: "upload", message: `uploading daemon (${arch}, ${formatMiB(bytes.length)})`, arch, bytes: bytes.length });
     // An explicit local binary is the one intentional upload path (air-gapped destinations).
-    await host.putFile(BIN_NEW, bytes, { mode: "0755" });
+    stagedUpload = `${newPath}-${(await import("node:crypto")).randomUUID()}`;
+    await host.putFile(stagedUpload, bytes, { mode: "0755" });
+    acquire = `mv -f ${shellQuote(stagedUpload)} ${BIN_NEW}`;
   } else {
     if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(desired)) {
       throw new MindwireError(`mindwire: cannot download daemon for non-release SDK version ${desired}`);
@@ -203,28 +227,49 @@ async function deploy(
 
   const script = [
     "set -e",
-    `mkdir -p ${DAEMON_DIR}`,
+    `mkdir -p ${shellQuote(directory)}`,
+    // iOS takes this same workspace lock. Unique staging also protects concurrent local uploads.
+    stagedUpload ? `trap ${shellQuote(`rm -f ${shellQuote(stagedUpload)}`)} EXIT` : "",
+    'command -v flock >/dev/null 2>&1 || { echo "MINDWIRE_FAIL flock is required to lock daemon updates"; exit 1; }',
+    `exec 9>${shellQuote(directory + "/daemon-install.lock")}`,
+    'flock -w 360 9 || { echo "MINDWIRE_FAIL another daemon update is still running"; exit 1; }',
+    `mw_token=${shellQuote(token)}`,
+    !cfg.token ? `if [ -s ${TOKEN} ]; then mw_token=$(cat ${TOKEN}); fi` : "",
+    !cfg.forceDeploy ? [
+      `mw_health=$(curl -fsS --max-time 3 -H "Authorization: Bearer $mw_token" http://127.0.0.1:${cfg.port}/healthz 2>/dev/null || true)`,
+      `mw_version=$(printf '%s' "$mw_health" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\\([^" ]*\\)".*/\\1/p')`,
+      `if [ -n "$mw_health" ] && ${cfg.autoUpdate ? `[ "$mw_version" = ${shellQuote(desired)} ]` : "true"}; then echo MINDWIRE_READY; exit 0; fi`,
+    ].join("\n") : "",
     acquire,
     // Stop a prior daemon by exact process NAME, never `pkill -f <path>`: this whole script (which
     // contains `${BIN}` several times) is the argv of the `bash -lc` shell running it, so a full-cmdline
     // match would SIGTERM our own deploying shell before the daemon ever launches. `-x mindwired` matches
     // only the daemon's comm (`bash`/`pkill` never match), leaving this shell alive.
-    `pkill -x mindwired 2>/dev/null || true`,
+    'if command -v pkill >/dev/null 2>&1; then',
+    '  pkill -x mindwired 2>/dev/null || true',
+    'else',
+    '  for mw_proc in /proc/[0-9]*/comm; do',
+    '    IFS= read -r mw_name 2>/dev/null < "$mw_proc" || continue',
+    '    [ "$mw_name" = mindwired ] || continue',
+    '    mw_pid=${mw_proc#/proc/}; mw_pid=${mw_pid%/comm}',
+    '    kill "$mw_pid" 2>/dev/null || true',
+    '  done',
+    'fi',
     "sleep 0.3",
     `mv -f ${BIN_NEW} ${BIN}`,
     `chmod +x ${BIN}`,
     // Detach so the daemon survives this exec's shell exiting. ADDR=":<port>" binds 0.0.0.0.
-    `setsid nohup env ADDR=":${cfg.port}" AGENT_TYPE="${cfg.agent}" AGENT_CWD="${cfg.agentCwd}" ` +
-      `STATE_PATH="${STATE}" DAEMON_TOKEN=${shellQuote(token)} ${BIN} > ${LOG} 2>&1 < /dev/null &`,
+    `setsid nohup env ADDR=":${cfg.port}" AGENT_TYPE=${shellQuote(cfg.agent)} AGENT_CWD=${shellQuote(cfg.agentCwd)} ` +
+      `STATE_PATH=${STATE} DAEMON_TOKEN="$mw_token" ${BIN} > ${LOG} 2>&1 < /dev/null 9>&- &`,
     // Health-poll from inside the VM (loopback) and emit a marker — exit codes are unreliable here.
-      `for i in $(seq 1 60); do curl -fsS --max-time 2 -H ${shellQuote(`Authorization: Bearer ${token}`)} http://127.0.0.1:${cfg.port}/healthz >/dev/null 2>&1 ` +
+      `for i in $(seq 1 60); do curl -fsS --max-time 2 -H "Authorization: Bearer $mw_token" http://127.0.0.1:${cfg.port}/healthz >/dev/null 2>&1 ` +
       `&& { echo MINDWIRE_READY; exit 0; }; sleep 0.25; done`,
     "echo MINDWIRE_FAIL",
     `tail -n 40 ${LOG} 2>/dev/null || true`,
   ].join("\n");
 
   emit({ phase: "launch", message: "launching daemon" });
-  const res = await host.exec(["bash", "-lc", script], { timeoutSeconds: 45 });
+  const res = await host.exec(["bash", "-lc", script], { timeoutSeconds: 420 });
   const out = res.stdout ?? "";
   if (!out.includes("MINDWIRE_READY")) {
     throw new MindwireError(

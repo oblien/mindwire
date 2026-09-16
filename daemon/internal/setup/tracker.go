@@ -13,20 +13,22 @@ import (
 // per-step results appended as the install progresses. JSON tags match the shape the HTTP layer emits
 // so callers marshal it unchanged; the Go SDK returns it directly.
 type Status struct {
-	Running bool         `json:"running"`
-	OK      bool         `json:"ok"`
-	Started bool         `json:"started"`
-	Current string       `json:"current"`
-	Steps   []StepResult `json:"steps"`
+	Running   bool         `json:"running"`
+	OK        bool         `json:"ok"`
+	Started   bool         `json:"started"`
+	Current   string       `json:"current"`
+	Steps     []StepResult `json:"steps"`
+	Operation string       `json:"operation,omitempty"` // "setup" or "update"; shared by all clients
 }
 
 // job is one agent's in-flight install state, mutated under Tracker.mu.
 type job struct {
-	running bool
-	ok      bool
-	started bool
-	current string
-	steps   []StepResult
+	running   bool
+	ok        bool
+	started   bool
+	current   string
+	steps     []StepResult
+	operation string
 }
 
 // Tracker runs per-agent toolchain installs in the BACKGROUND (an `npm i -g` can take minutes) so a
@@ -63,6 +65,10 @@ func (t *Tracker) Start(agentID string, steps []agent.Step, force bool, timeout 
 	j.ok = false
 	j.steps = nil
 	j.current = ""
+	j.operation = "setup"
+	if force {
+		j.operation = "update"
+	}
 	st := snapshot(j) // taken under the lock, before the goroutine below mutates j
 	t.mu.Unlock()
 
@@ -106,9 +112,6 @@ func (t *Tracker) Status(agentID string) Status {
 
 // snapshot copies a job to the wire shape (steps never nil). Caller holds t.mu.
 func snapshot(j *job) Status {
-	steps := j.steps
-	if steps == nil {
-		steps = []StepResult{}
-	}
-	return Status{Running: j.running, OK: j.ok, Started: j.started, Current: j.current, Steps: steps}
+	steps := append([]StepResult{}, j.steps...)
+	return Status{Running: j.running, OK: j.ok, Started: j.started, Current: j.current, Steps: steps, Operation: j.operation}
 }

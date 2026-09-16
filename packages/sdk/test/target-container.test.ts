@@ -43,8 +43,8 @@ function fakeHost(
           : "MW_DOCKER=running:27.0.1";
 
   const innerScript = (argv: string[]): string | undefined => {
-    if (argv[0] === "docker" && argv[1] === "exec" && argv[3] === "bash" && argv[4] === "-lc") return argv[5];
-    if (argv[0] === "bash" && argv[1] === "-lc") return argv[2];
+    if (argv[0] === "docker" && argv[1] === "exec" && (argv[3] === "bash" || argv[3] === "sh") && argv[4] === "-lc") return argv[5];
+    if ((argv[0] === "bash" || argv[0] === "sh") && argv[1] === "-lc") return argv[2];
     return undefined;
   };
 
@@ -70,6 +70,7 @@ function fakeHost(
           return { exitCode: 0, stdout: "" };
         }
         if (script.includes("echo mw_ready")) return { exitCode: 0, stdout: "mw_ready" };
+        if (script.includes("<<MW_HOME>>")) return { exitCode: 0, stdout: "<<MW_HOME>>/root<<MW_HOME>>" };
         if (script.includes("MINDWIRE_READY")) return { exitCode: 0, stdout: "MINDWIRE_READY" };
         if (script.includes("<<MW_H>>")) return { exitCode: 0, stdout: `<<MW_H>>${health}<<MW_H>>` };
         if (script.includes("<<ARCH")) return { exitCode: 0, stdout: "<<ARCH:x86_64>>" };
@@ -144,8 +145,10 @@ test("provisionContainer: putFile stages on the base host, `docker cp`s in, then
   const { host, calls, cid } = fakeHost({ docker: "running", health: "" });
   await provisionContainer(host, cfg(), () => {});
 
-  const tmp = `/tmp/.mw-${cid.slice(0, 12)}-mindwired.new`;
-  const dest = "/root/.mindwire/mindwired.new";
+  const prefix = `/tmp/.mw-${cid.slice(0, 12)}-`;
+  const tmp = calls.puts[0]!.path;
+  expect(tmp).toStartWith(prefix + "mindwired.new-");
+  const dest = "/root/.mindwire/" + tmp.slice(prefix.length);
 
   // 1. Base-host upload of the staged binary at 0755 (the base's own putFile — SFTP over SSH in prod).
   expect(calls.puts.length).toBe(1);
@@ -254,6 +257,7 @@ function fakeSshDockerClient(opts: { cid?: string; hostPort?: number } = {}) {
 
   const stdoutFor = (c: string): string => {
     if (c.includes("echo mw_ready")) return "mw_ready";
+    if (c.includes("<<MW_HOME>>")) return "<<MW_HOME>>/root<<MW_HOME>>";
     if (c.includes("MINDWIRE_READY")) return "MINDWIRE_READY";
     if (c.includes("<<MW_H>>")) return "<<MW_H>><<MW_H>>"; // unreachable ⇒ deploy
     if (c.includes("<<ARCH")) return "<<ARCH:x86_64>>";

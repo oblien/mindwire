@@ -17,6 +17,7 @@ function fakeHost(opts: { health?: string } = {}) {
       const script = argv[2] ?? argv.join(" ");
       execs.push(script);
       if (script.includes("echo mw_ready")) return { stdout: "mw_ready" };
+      if (script.includes("<<MW_HOME>>")) return { stdout: "<<MW_HOME>>/root<<MW_HOME>>" };
       if (script.includes("<<MW_H>>")) return { stdout: `<<MW_H>>${health}<<MW_H>>` };
       if (script.includes("<<ARCH")) return { stdout: "<<ARCH:x86_64>>" };
       if (script.includes("MINDWIRE_READY")) return { stdout: "MINDWIRE_READY" };
@@ -51,12 +52,14 @@ test("ensureDaemon: an unreachable daemon is deployed (upload + launch)", async 
   await ensureDaemon(host, cfg({ daemonBin: tempBin() }));
 
   expect(puts.length).toBe(1);
-  expect(puts[0]?.path).toBe("/root/.mindwire/mindwired.new"); // staged at the .new path, never the busy inode
+  expect(puts[0]?.path).toStartWith("/root/.mindwire/mindwired.new-"); // unique staging while another installer holds the lock
   expect(puts[0]?.mode).toBe("0755");
   const launch = execs.find((s) => s.includes("MINDWIRE_READY"));
   expect(launch).toBeDefined();
   expect(launch).toContain('ADDR=":8790"'); // binds 0.0.0.0 so a published port can route in
-  expect(launch).toContain('AGENT_TYPE="claude-code"');
+  expect(launch).toContain("AGENT_TYPE='claude-code'");
+  expect(launch).toContain("daemon-install.lock");
+  expect(launch).toContain("9>&-"); // the daemon must not inherit its installer's lock
 });
 
 test("ensureDaemon: remote destinations download the matching release themselves", async () => {
@@ -141,6 +144,7 @@ test("ensureDaemon: emits an error event and rethrows when a phase fails", async
     async exec(argv) {
       const script = argv[2] ?? argv.join(" ");
       if (script.includes("echo mw_ready")) return { stdout: "mw_ready" };
+      if (script.includes("<<MW_HOME>>")) return { stdout: "<<MW_HOME>>/root<<MW_HOME>>" };
       if (script.includes("<<MW_H>>")) return { stdout: "<<MW_H>><<MW_H>>" }; // unreachable → deploy
       if (script.includes("<<ARCH")) return { stdout: "<<ARCH:x86_64>>" };
       return { stdout: "" };
