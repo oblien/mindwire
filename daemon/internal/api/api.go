@@ -28,17 +28,14 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/projects"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/session"
-	"github.com/oblien/mindwire/daemon/internal/setup"
 	"github.com/oblien/mindwire/daemon/internal/stream"
+	"github.com/oblien/mindwire/daemon/internal/surface"
 )
 
 const (
 	// maxBody caps request bodies (turn messages / config are small); guards against an
 	// oversized or slow-streamed body exhausting daemon memory.
 	maxBody = 1 << 20 // 1 MiB
-	// maxSetup bounds a toolchain install run. Setup runs on a DETACHED context so a client
-	// disconnect can't abort a long `npm i -g` mid-write; only this timeout stops it.
-	maxSetup = 20 * time.Minute
 	// sseHeartbeat keeps idle SSE connections alive through intermediaries and lets a dead
 	// client be detected on the next write.
 	sseHeartbeat = 25 * time.Second
@@ -46,6 +43,7 @@ const (
 
 type API struct {
 	projects   *projects.Service
+	surfaces   *surface.Service
 	initError  error
 	registry   *registry.Store
 	registryMu sync.Mutex // order registry mutations against starting/deleting a chat
@@ -53,21 +51,23 @@ type API struct {
 	hub        *stream.Hub
 	sup        *orchestrator.Supervisor
 
-	// Per-agent toolchain install state. Setup runs in the BACKGROUND (npm can take minutes) so a
-	// client request never hangs through the proxy; the client polls GET /setup for progress.
-	tracker *setup.Tracker
-
 	// started stamps daemon boot so GET /stats can report uptime without any external timer.
 	started time.Time
 }
 
 // New builds the HTTP API over the supervisor (which hosts all agents) and the shared store.
 func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, registries ...*registry.Store) *API {
-	a := &API{store: store, hub: hub, sup: sup, tracker: setup.NewTracker(), started: time.Now()}
+	a := &API{store: store, hub: hub, sup: sup, started: time.Now()}
 	if len(registries) > 0 {
 		a.registry = registries[0]
 		if a.registry != nil {
 			a.projects, a.initError = projects.New(a.registry, sup)
+			if a.initError == nil {
+				a.surfaces, a.initError = surface.NewConfigured(a.registry, store)
+				if a.initError == nil {
+					sup.SetSurfaces(a.surfaces)
+				}
+			}
 		}
 	}
 	return a
@@ -75,6 +75,9 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 
 func (a *API) InitError() error { return a.initError }
 func (a *API) Close() {
+	if a.surfaces != nil {
+		a.surfaces.Close()
+	}
 	if a.projects != nil {
 		a.projects.Close()
 	}
@@ -92,6 +95,18 @@ type Route struct {
 // Routes is the full authenticated API surface. Every agent-specific route accepts ?agent=<type>.
 func (a *API) Routes() []Route {
 	return []Route{
+		{"GET", "/surfaces", a.surfacesList},
+		{"GET", "/surfaces/desktop", a.surfaceStatus},
+		{"PUT", "/surfaces/desktop/binding", a.surfaceBind},
+		{"GET", "/surfaces/desktop/events", a.surfaceEvents},
+		{"POST", "/surfaces/desktop/sessions", a.surfaceOpen},
+		{"POST", "/surfaces/desktop/sessions/{id}/control", a.surfaceControl},
+		{"DELETE", "/surfaces/desktop/sessions/{id}", a.surfaceClose},
+		{"POST", "/surfaces/desktop/sessions/{id}/captures", a.surfaceCapture},
+		{"POST", "/surfaces/desktop/actions", a.surfaceAction},
+		{"GET", "/surfaces/desktop/actions/{id}", a.surfaceReceipt},
+		{"GET", "/artifacts/{id}", a.artifact},
+
 		{"GET", "/workspace", a.workspaceSnapshot},
 		{"GET", "/workspace/changes", a.workspaceSnapshot},
 		{"POST", "/workspace/import", a.workspaceImport},
@@ -318,7 +333,7 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 	case "", "turn":
 		run, ok := a.sup.StartTurn(ag, in)
 		if !ok {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "a turn is already running for this chat"})
+			writeJSON(w, http.StatusConflict, map[string]string{"error": a.sup.StartConflict(ag)})
 			return
 		}
 		writeJSON(w, http.StatusAccepted, run)
@@ -330,7 +345,7 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 		}
 		run, ok := a.sup.StartResolve(ag, in, ro)
 		if !ok {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "a turn is already running for this chat"})
+			writeJSON(w, http.StatusConflict, map[string]string{"error": a.sup.StartConflict(ag)})
 			return
 		}
 		writeJSON(w, http.StatusAccepted, run)
@@ -791,6 +806,12 @@ func (a *API) deleteChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to delete chat"})
 		return
 	}
+	if a.surfaces != nil {
+		if err := a.surfaces.Artifacts().DeleteChat(id); err != nil {
+			surfaceError(w, err)
+			return
+		}
+	}
 	res := deleteResult{Deleted: true, Sessions: len(refs)}
 	for _, ref := range refs {
 		ag, ok := a.sup.Resolve(ref.Agent)
@@ -941,7 +962,7 @@ func (a *API) compactChat(w http.ResponseWriter, r *http.Request) {
 		ChatID: id, Message: strings.TrimSpace(req.Instructions), CWD: a.store.ChatCWD(id),
 	})
 	if !ok {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "a turn is already running for this chat"})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": a.sup.StartConflict(ag)})
 		return
 	}
 	writeJSON(w, http.StatusAccepted, run)
@@ -1107,12 +1128,16 @@ func (a *API) runSetup(w http.ResponseWriter, r *http.Request, force bool) {
 	if ag == nil {
 		return
 	}
-	steps, err := setup.Plan(ag.Adapter.InstallSteps())
+	status, err := a.sup.Setup(ag, force)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		code := http.StatusInternalServerError
+		if errors.Is(err, orchestrator.ErrAgentBusy) {
+			code = http.StatusConflict
+		}
+		writeJSON(w, code, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusAccepted, a.tracker.Start(ag.ID(), steps, force, maxSetup))
+	writeJSON(w, http.StatusAccepted, status)
 }
 
 // setupStatus reports the current toolchain install state for the agent (polled by the client).
@@ -1121,7 +1146,7 @@ func (a *API) setupStatus(w http.ResponseWriter, r *http.Request) {
 	if ag == nil {
 		return
 	}
-	writeJSON(w, http.StatusOK, a.tracker.Status(ag.ID()))
+	writeJSON(w, http.StatusOK, a.sup.SetupStatus(ag))
 }
 
 // setConfig merges ONLY recognized settings keys into the agent's namespaced config.

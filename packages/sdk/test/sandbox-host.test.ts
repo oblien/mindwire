@@ -7,7 +7,7 @@ import { ensureDaemon, type SandboxHost, type EnsureDaemonConfig, type EnsureEve
 // A fake SandboxHost: it scripts `exec` responses by matching the marker each phase of the
 // ensure-cycle emits, and captures every `putFile`. `health` is the JSON body the in-VM /healthz
 // probe "returns" (empty string ⇒ unreachable ⇒ deploy). No real process/network/sleep.
-function fakeHost(opts: { health?: string } = {}) {
+function fakeHost(opts: { health?: string; os?: string; arch?: string } = {}) {
   const health = opts.health ?? "";
   const execs: string[] = [];
   const puts: { path: string; mode?: string; size: number }[] = [];
@@ -19,7 +19,7 @@ function fakeHost(opts: { health?: string } = {}) {
       if (script.includes("echo mw_ready")) return { stdout: "mw_ready" };
       if (script.includes("<<MW_HOME>>")) return { stdout: "<<MW_HOME>>/root<<MW_HOME>>" };
       if (script.includes("<<MW_H>>")) return { stdout: `<<MW_H>>${health}<<MW_H>>` };
-      if (script.includes("<<ARCH")) return { stdout: "<<ARCH:x86_64>>" };
+      if (script.includes("<<ARCH")) return { stdout: `<<OS:${opts.os ?? "Linux"}>><<ARCH:${opts.arch ?? "x86_64"}>>` };
       if (script.includes("MINDWIRE_READY")) return { stdout: "MINDWIRE_READY" };
       return { stdout: "" };
     },
@@ -73,6 +73,37 @@ test("ensureDaemon: remote destinations download the matching release themselves
   expect(launch).toContain("releases/download/v1.2.3");
   expect(launch).toContain("checksums.txt");
   expect(launch).toContain("mindwired-v1.2.3-linux-amd64");
+});
+
+test.each(["arm64", "x86_64"])("ensureDaemon: macOS %s downloads its native release", async (arch) => {
+  const { host, execs, puts } = fakeHost({ os: "Darwin", arch });
+  const events: EnsureEvent[] = [];
+  await ensureDaemon(host, cfg({ onLog: (e) => events.push(e) }));
+
+  const launch = execs.find((s) => s.includes("MINDWIRE_READY")) ?? "";
+  expect(puts).toHaveLength(0);
+  expect(launch).toContain(`mindwired-v1.2.3-darwin-${arch === "arm64" ? "arm64" : "amd64"}`);
+  expect(launch).not.toContain("-linux-");
+  expect(events.find((e) => e.phase === "download")?.platform).toBe("darwin");
+});
+
+test("ensureDaemon: explicit binary templates resolve the destination OS and architecture", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mw-host-platform-"));
+  writeFileSync(join(dir, "mindwired-darwin-arm64"), "mac-daemon");
+  const { host, puts } = fakeHost({ os: "Darwin", arch: "arm64" });
+  await ensureDaemon(host, cfg({ daemonBin: join(dir, "mindwired-{os}-{arch}") }));
+  expect(puts[0]?.size).toBe("mac-daemon".length);
+});
+
+test.each([
+  { os: "FreeBSD", arch: "x86_64" },
+  { os: "Linux", arch: "riscv64" },
+  { os: "", arch: "" },
+])("ensureDaemon: refuses unsupported or unreadable destinations before modifying binaries (%j)", async (platform) => {
+  const { host, execs, puts } = fakeHost(platform);
+  await expect(ensureDaemon(host, cfg({ daemonBin: tempBin() }))).rejects.toThrow("unsupported workspace platform");
+  expect(puts).toHaveLength(0);
+  expect(execs.some((s) => s.includes("MINDWIRE_READY"))).toBe(false);
 });
 
 test("ensureDaemon: a healthy daemon at the desired version is kept (no upload, no launch)", async () => {
@@ -146,7 +177,7 @@ test("ensureDaemon: emits an error event and rethrows when a phase fails", async
       if (script.includes("echo mw_ready")) return { stdout: "mw_ready" };
       if (script.includes("<<MW_HOME>>")) return { stdout: "<<MW_HOME>>/root<<MW_HOME>>" };
       if (script.includes("<<MW_H>>")) return { stdout: "<<MW_H>><<MW_H>>" }; // unreachable → deploy
-      if (script.includes("<<ARCH")) return { stdout: "<<ARCH:x86_64>>" };
+      if (script.includes("<<ARCH")) return { stdout: "<<OS:Linux>><<ARCH:x86_64>>" };
       return { stdout: "" };
     },
     async putFile() {

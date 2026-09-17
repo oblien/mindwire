@@ -44,11 +44,13 @@ func New(store *session.Store, adapter agent.Adapter, auth agent.AuthModule, cre
 // Turn is one turn's request as assembled by the supervisor and handed to the runner. Bundled so
 // the signature doesn't grow per-field as per-turn options expand.
 type Turn struct {
-	ChatID  string
-	Message string
-	RunID   string
-	CWD     string // run this turn in a specific dir (a project workdir); empty = daemon default
-	Options agent.TurnOptions
+	ChatID        string
+	Message       string
+	RunID         string
+	CWD           string // run this turn in a specific dir (a project workdir); empty = daemon default
+	Options       agent.TurnOptions
+	Environment   map[string]string // private service credentials, never turn API input
+	AttachEmitter func(agent.Emit) func()
 	// Inbound is the user's mid-turn ingress channel (approval answers, follow-up input, interrupts),
 	// owned by the supervisor. Receive-only for the adapter; nil for a one-shot turn.
 	Inbound <-chan agent.Inbound
@@ -118,6 +120,13 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 		Inbound:   t.Inbound,
 	}
 
+	if in.Env == nil {
+		in.Env = map[string]string{}
+	}
+	for k, v := range t.Environment {
+		in.Env[k] = v
+	}
+
 	// Persistence and reattachment use the same reducer. A resolve child keeps its own
 	// transcript while the hub accumulates every iteration on the parent's topic.
 	var sessionID string
@@ -139,10 +148,15 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 		if t.BeforePublish != nil {
 			t.BeforePublish(ev)
 		}
+		agent.NormalizeSurfaceTool(ev.Tool)
 		transcript.Apply(ev)
 		r.hub.Publish(runID, ev)
 	}
 
+	if t.AttachEmitter != nil {
+		detach := t.AttachEmitter(emit)
+		defer detach()
+	}
 	res, err := fn(ctx, in, emit)
 	if err != nil {
 		if !res.IsError || res.Text == "" {

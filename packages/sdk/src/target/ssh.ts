@@ -1,5 +1,5 @@
 // The SSH target. mindwire connects to a box over SSH, **ensures the daemon** there exactly like any
-// other backend (upload the Linux `mindwired`, launch it detached, health-poll on the remote loopback),
+// other backend (deploy the matching `mindwired`, launch it detached, health-poll on the remote loopback),
 // then reaches it over a **local port-forward tunnel**: a `127.0.0.1` listener whose every inbound TCP
 // connection is forwarded — over the one SSH connection — to the daemon's loopback port on the remote.
 // So the SDK's `baseUrl` is a real `http://127.0.0.1:<localPort>` and plain **global fetch** carries
@@ -41,7 +41,7 @@ export interface SshOptions {
   agentType?: string;
   /** `AGENT_CWD` — working directory agents run in, on the remote. Defaults to `/root`. */
   agentCwd?: string;
-  /** Explicit path to a Linux `mindwired` to deploy (else resolved from the platform package). */
+  /** Explicit local `mindwired` to deploy; `{os}`/`{arch}` expand to the destination platform. Otherwise downloaded from GitHub Releases. */
   daemonBin?: string;
   /** Redeploy when the running daemon's version differs from the SDK's bundled binary. */
   autoUpdate?: boolean;

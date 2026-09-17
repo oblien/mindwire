@@ -24,7 +24,7 @@ function fakeSshClient(opts: { health?: string } = {}) {
     if (command.includes("<<MW_HOME>>")) return "<<MW_HOME>>/root<<MW_HOME>>";
     if (command.includes("MINDWIRE_READY")) return "MINDWIRE_READY";
     if (command.includes("<<MW_H>>")) return `<<MW_H>>${health}<<MW_H>>`;
-    if (command.includes("<<ARCH")) return "<<ARCH:x86_64>>";
+    if (command.includes("<<ARCH")) return "<<OS:Linux>><<ARCH:x86_64>>";
     return "";
   };
 

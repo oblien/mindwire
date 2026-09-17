@@ -35,13 +35,14 @@ const (
 // the rest stay nil/empty. It attaches to both ToolEvent (live stream) and ToolPart (transcript) as the
 // same pointer type, so use and result carry the progressively-completed same shape.
 type ToolAction struct {
-	Kind   ToolKind      `json:"kind"`
-	Title  string        `json:"title,omitempty"` // short human label (e.g. the command, the path)
-	Files  []FileChange  `json:"files,omitempty"`
-	Shell  *ShellCommand `json:"shell,omitempty"`
-	Search *SearchQuery  `json:"search,omitempty"`
-	Web    *WebSearch    `json:"web,omitempty"`
-	MCP    *MCPCall      `json:"mcp,omitempty"`
+	Surface *SurfaceToolAction `json:"surface,omitempty"`
+	Kind    ToolKind           `json:"kind"`
+	Title   string             `json:"title,omitempty"` // short human label (e.g. the command, the path)
+	Files   []FileChange       `json:"files,omitempty"`
+	Shell   *ShellCommand      `json:"shell,omitempty"`
+	Search  *SearchQuery       `json:"search,omitempty"`
+	Web     *WebSearch         `json:"web,omitempty"`
+	MCP     *MCPCall           `json:"mcp,omitempty"`
 }
 
 // FileChange is one file touched by a file_edit action. Op is "create" | "edit" | "delete". Diff (a

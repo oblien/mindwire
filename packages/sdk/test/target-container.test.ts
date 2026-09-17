@@ -73,7 +73,7 @@ function fakeHost(
         if (script.includes("<<MW_HOME>>")) return { exitCode: 0, stdout: "<<MW_HOME>>/root<<MW_HOME>>" };
         if (script.includes("MINDWIRE_READY")) return { exitCode: 0, stdout: "MINDWIRE_READY" };
         if (script.includes("<<MW_H>>")) return { exitCode: 0, stdout: `<<MW_H>>${health}<<MW_H>>` };
-        if (script.includes("<<ARCH")) return { exitCode: 0, stdout: "<<ARCH:x86_64>>" };
+        if (script.includes("<<ARCH")) return { exitCode: 0, stdout: "<<OS:Linux>><<ARCH:x86_64>>" };
       }
       return { exitCode: 0, stdout: "" };
     },
@@ -260,7 +260,7 @@ function fakeSshDockerClient(opts: { cid?: string; hostPort?: number } = {}) {
     if (c.includes("<<MW_HOME>>")) return "<<MW_HOME>>/root<<MW_HOME>>";
     if (c.includes("MINDWIRE_READY")) return "MINDWIRE_READY";
     if (c.includes("<<MW_H>>")) return "<<MW_H>><<MW_H>>"; // unreachable ⇒ deploy
-    if (c.includes("<<ARCH")) return "<<ARCH:x86_64>>";
+    if (c.includes("<<ARCH")) return "<<OS:Linux>><<ARCH:x86_64>>";
     if (c.includes("MW_DOCKER=absent")) return "MW_DOCKER=running:27.0.1"; // detect script
     if (c.startsWith("'docker' 'run'")) return cid;
     if (c.startsWith("'docker' 'port'")) return `127.0.0.1:${hostPort}`;

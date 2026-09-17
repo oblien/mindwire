@@ -22,7 +22,7 @@ import (
 )
 
 const Version = 1
-const schemaVersion = 2
+const schemaVersion = 3
 
 var (
 	ErrConflict = errors.New("record changed on another client; refresh and try again")
@@ -154,7 +154,9 @@ CREATE TABLE IF NOT EXISTS project_operations (id TEXT PRIMARY KEY, path TEXT NO
  updated_at TEXT NOT NULL, data BLOB NOT NULL);
 CREATE UNIQUE INDEX IF NOT EXISTS project_operation_destination ON project_operations(path)
  WHERE status IN ('queued','running','cancelling');
-PRAGMA user_version=2;`); err != nil {
+CREATE TABLE IF NOT EXISTS surface_records (kind TEXT NOT NULL, id TEXT NOT NULL, data BLOB NOT NULL,
+ updated_at TEXT NOT NULL, PRIMARY KEY(kind,id));
+PRAGMA user_version=3;`); err != nil {
 		return err
 	}
 	identity := make([]byte, 16)

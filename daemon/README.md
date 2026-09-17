@@ -52,3 +52,4 @@ lifecycle, the HTTP surface, and how to add an adapter — is documented once, o
 - **[NOTIFICATIONS.md](./NOTIFICATIONS.md)** — the provider-agnostic notification webhook contract.
 - **[INTERACTIONS.md](./INTERACTIONS.md)** — shared question forms, command approvals, permission settings and client lifecycle.
 - **[WORKSPACES.md](./WORKSPACES.md)** — workspace ownership, project operations, registry API, cache migration, deletion and sync.
+- **[DESKTOP.md](./DESKTOP.md)** — shared desktop control protocol, native VNC transports, SDKs and verification.

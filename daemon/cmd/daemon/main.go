@@ -115,7 +115,7 @@ func main() {
 	health := http.NewServeMux()
 	health.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "workspaceMetadataVersion": registry.Version, "projectOperationsVersion": registry.ProjectOperationsVersion})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "workspaceMetadataVersion": registry.Version, "projectOperationsVersion": registry.ProjectOperationsVersion, "surfaceProtocolVersion": 1})
 	})
 	root.Handle("/healthz", api.Auth(token, health))
 

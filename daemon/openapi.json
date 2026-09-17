@@ -47,6 +47,10 @@
     {
       "name": "Workspace",
       "description": "Authoritative agent profiles, projects and chat relationships in the workspace SQLite registry."
+    },
+    {
+      "name": "Surfaces",
+      "description": "Workspace desktop sessions, one controller shared across harnesses, and durable screenshot artifacts."
     }
   ],
   "components": {
@@ -187,6 +191,10 @@
           "projectOperationsVersion": {
             "type": "integer",
             "description": "Durable project-operation protocol version; absent on older daemons."
+          },
+          "surfaceProtocolVersion": {
+            "type": "integer",
+            "description": "1 when the shared desktop protocol is available."
           }
         },
         "required": [
@@ -769,6 +777,9 @@
           "mcp": {
             "$ref": "#/components/schemas/MCPCall",
             "description": "Present for kind=mcp."
+          },
+          "surface": {
+            "$ref": "#/components/schemas/SurfaceToolAction"
           }
         },
         "required": [
@@ -1403,6 +1414,16 @@
               "type": "string"
             },
             "description": "HTTP: static headers sent with each request."
+          },
+          "defaultToolsApprovalMode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "prompt",
+              "writes",
+              "approve"
+            ],
+            "description": "Codex native approval behavior for this MCP server."
           }
         }
       },
@@ -2022,6 +2043,24 @@
             "items": {
               "$ref": "#/components/schemas/StepResult"
             }
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "setup",
+              "update"
+            ],
+            "description": "The shared job operation, including jobs started by another client."
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "checking",
+              "waiting",
+              "installing",
+              "verifying"
+            ],
+            "description": "Live phase of the current step. Completion is reported only after its check passes."
           }
         },
         "required": [
@@ -2858,6 +2897,681 @@
             "description": "Confirmed project revision for a file-removal operation."
           }
         }
+      },
+      "ArtifactContent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "chatId": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "data": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "description": "Base64 PNG bytes, at most 8 MiB decoded. Private authenticated resource; not a provider URL."
+          }
+        },
+        "required": [
+          "id",
+          "mime",
+          "bytes",
+          "width",
+          "height",
+          "createdAt",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "SurfaceActionRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "controlGeneration": {
+            "type": "integer"
+          },
+          "frameId": {
+            "type": "string"
+          },
+          "geometryRevision": {
+            "type": "integer"
+          },
+          "action": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "description": "pointer, click, drag, scroll, key, text, clipboard_read, clipboard_write, release"
+              },
+              "x": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "y": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "toX": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "toY": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "buttons": {
+                "type": "integer"
+              },
+              "button": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer"
+              },
+              "deltaX": {
+                "type": "integer"
+              },
+              "deltaY": {
+                "type": "integer"
+              },
+              "keys": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "requestId",
+          "sessionId",
+          "controlGeneration",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "SurfaceBinding": {
+        "type": "object",
+        "properties": {
+          "registryId": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          },
+          "gatewayToken": {
+            "type": "string"
+          },
+          "connection": {
+            "type": "object",
+            "properties": {
+              "expires_at": {
+                "type": "string"
+              },
+              "ssh": {
+                "type": "object",
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "port": {
+                    "type": "integer"
+                  },
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  },
+                  "host_key_fingerprint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "host",
+                  "port",
+                  "username",
+                  "password",
+                  "host_key_fingerprint"
+                ],
+                "additionalProperties": false
+              },
+              "vnc": {
+                "type": "object",
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "port": {
+                    "type": "integer"
+                  },
+                  "authentication": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "host",
+                  "port",
+                  "authentication"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "expires_at",
+              "ssh",
+              "vnc"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "registryId",
+          "workspaceId",
+          "connection"
+        ],
+        "additionalProperties": false,
+        "description": "Write-only workspace-scoped authorization. Never include an owner session JWT. Provider passwords are stored only in the existing private credential store.",
+        "writeOnly": true
+      },
+      "SurfaceCapture": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "surfaceId": {
+            "type": "string"
+          },
+          "artifactId": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "geometry": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              },
+              "revision": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "width",
+              "height",
+              "revision"
+            ],
+            "additionalProperties": false
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "surfaceId",
+          "artifactId",
+          "mime",
+          "geometry",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "SurfaceControlRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "SurfaceOpenRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "SurfaceReceipt": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "surfaceId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sessionId",
+          "surfaceId",
+          "kind",
+          "status",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "description": "A dispatched receipt acknowledges sending input to VNC, not an application outcome. Observe the desktop to verify. An outcome_unknown action must not be repeated blindly. Request IDs are retained for at least 24 hours."
+      },
+      "SurfaceSession": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "surfaceId": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "chatId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "controller": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "runId": {
+                "type": "string"
+              },
+              "chatId": {
+                "type": "string"
+              },
+              "generation": {
+                "type": "integer"
+              },
+              "expiresAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId",
+              "actor",
+              "name",
+              "generation",
+              "expiresAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "surfaceId",
+          "actor",
+          "name",
+          "mode",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "SurfaceSnapshot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "observedAt": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "credentials": {
+            "type": "boolean"
+          },
+          "os": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "object",
+            "properties": {
+              "view": {
+                "type": "boolean"
+              },
+              "capture": {
+                "type": "boolean"
+              },
+              "pointer": {
+                "type": "boolean"
+              },
+              "keyboard": {
+                "type": "boolean"
+              },
+              "text": {
+                "type": "boolean"
+              },
+              "clipboardRead": {
+                "type": "boolean"
+              },
+              "clipboardWrite": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "view",
+              "capture",
+              "pointer",
+              "keyboard",
+              "text",
+              "clipboardRead",
+              "clipboardWrite"
+            ],
+            "additionalProperties": false
+          },
+          "geometry": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              },
+              "revision": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "width",
+              "height",
+              "revision"
+            ],
+            "additionalProperties": false
+          },
+          "controller": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "runId": {
+                "type": "string"
+              },
+              "chatId": {
+                "type": "string"
+              },
+              "generation": {
+                "type": "integer"
+              },
+              "expiresAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId",
+              "actor",
+              "name",
+              "generation",
+              "expiresAt"
+            ],
+            "additionalProperties": false
+          },
+          "authorizationExpiresAt": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "error": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "kind",
+          "provider",
+          "version",
+          "revision",
+          "instanceId",
+          "state",
+          "supported",
+          "enabled",
+          "available",
+          "credentials",
+          "capabilities"
+        ],
+        "additionalProperties": false
+      },
+      "SurfaceToolAction": {
+        "type": "object",
+        "properties": {
+          "surfaceId": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "receiptId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "capture": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "artifactId": {
+                "type": "string"
+              },
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "artifactId",
+              "width",
+              "height"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "surfaceId",
+          "operation"
+        ],
+        "additionalProperties": false
       }
     }
   },
@@ -3225,7 +3939,7 @@
           "Agent"
         ],
         "summary": "Install the agent toolchain (async)",
-        "description": "Kicks off the install on a detached context and returns immediately. Poll `GET /setup` for progress.",
+        "description": "Starts one detached, shared job for the harness. Concurrent setup/update requests join it. Poll GET /setup for live steps and verification. Package-manager writes are serialized across harnesses. Returns 409 while this harness has running chats; new turns are rejected while its setup is running.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -3238,6 +3952,21 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SetupStatus"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The harness has running chats; wait for them to finish before setup or update.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
                 }
               }
             }
@@ -3289,8 +4018,24 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "The harness has running chats; wait for them to finish before setup or update.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
           }
-        }
+        },
+        "description": "Starts one detached, shared job for the harness. Concurrent setup/update requests join it. Poll GET /setup for live steps and verification. Package-manager writes are serialized across harnesses. Returns 409 while this harness has running chats; new turns are rejected while its setup is running."
       }
     },
     "/config": {
@@ -4415,7 +5160,7 @@
             }
           },
           "409": {
-            "description": "A turn is already running for this chat",
+            "description": "A turn is already running for this chat, or the harness is being installed or updated.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5044,7 +5789,7 @@
             }
           },
           "409": {
-            "description": "A turn is already running for this chat",
+            "description": "A turn is already running for this chat, or the harness is being installed or updated.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6840,6 +7585,915 @@
           {
             "in": "path",
             "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/surfaces": {
+      "get": {
+        "operationId": "listSurfaces",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "listSurfaces",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SurfaceSnapshot"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/surfaces/desktop": {
+      "get": {
+        "operationId": "getDesktop",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "getDesktop",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceSnapshot"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Desktop session or receipt capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Workspace image storage is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Explicitly check provider availability. Otherwise return the cached service snapshot."
+          }
+        ]
+      }
+    },
+    "/surfaces/desktop/binding": {
+      "put": {
+        "operationId": "bindDesktop",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "Authorize or refresh the workspace desktop",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceSnapshot"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Desktop session or receipt capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Workspace image storage is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurfaceBinding"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/surfaces/desktop/events": {
+      "get": {
+        "operationId": "watchDesktop",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "Current desktop snapshot, followed by changes",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceSnapshot"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Desktop session or receipt capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Workspace image storage is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/surfaces/desktop/sessions": {
+      "post": {
+        "operationId": "openDesktop",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "openDesktop",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Desktop session or receipt capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Workspace image storage is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurfaceOpenRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/surfaces/desktop/sessions/{id}/control": {
+      "post": {
+        "operationId": "controlDesktop",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "controlDesktop",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Desktop session or receipt capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Workspace image storage is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurfaceControlRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/surfaces/desktop/sessions/{id}": {
+      "delete": {
+        "operationId": "closeDesktop",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "closeDesktop",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "closed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "closed"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Desktop session or receipt capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Workspace image storage is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/surfaces/desktop/sessions/{id}/captures": {
+      "post": {
+        "operationId": "captureDesktop",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "captureDesktop",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceCapture"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Desktop session or receipt capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Workspace image storage is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/surfaces/desktop/actions": {
+      "post": {
+        "operationId": "desktopAction",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "Send input once and persist its receipt",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceReceipt"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Desktop session or receipt capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Workspace image storage is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurfaceActionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/surfaces/desktop/actions/{id}": {
+      "get": {
+        "operationId": "getDesktopReceipt",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "getDesktopReceipt",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceReceipt"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Desktop session or receipt capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Workspace image storage is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/artifacts/{id}": {
+      "get": {
+        "operationId": "getArtifact",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "getArtifact",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactContent"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
             "required": true,
             "schema": {
               "type": "string"

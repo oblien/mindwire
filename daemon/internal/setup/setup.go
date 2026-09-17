@@ -14,8 +14,10 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/proc"
 )
 
 // StepResult reports the outcome of one toolchain step.
@@ -125,42 +127,108 @@ func requiredBy(path []string) string {
 // called as each step finishes, so a caller can report live progress while the run is in flight
 // (the API serves it over GET /setup while the install runs in the background).
 func Run(ctx context.Context, steps []agent.Step, force bool, onStart func(name string), onStep func(StepResult)) []StepResult {
+	return run(ctx, steps, force, nil, func(name, stage string) {
+		if stage == "checking" && onStart != nil {
+			onStart(name)
+		}
+	}, onStep)
+}
+
+// A tracker shares mutation across harnesses: package managers and shared prerequisites must not
+// write over each other. Probes remain concurrent; checks are repeated after acquiring the lock.
+func run(ctx context.Context, steps []agent.Step, force bool, mutation chan struct{}, onProgress func(name, stage string), onStep func(StepResult)) []StepResult {
 	results := make([]StepResult, 0, len(steps))
 	for _, s := range steps {
-		if onStart != nil {
-			onStart(s.Name) // report the step about to run, so the client shows "Installing X…" live
+		progress := func(stage string) {
+			if onProgress != nil {
+				onProgress(s.Name, stage)
+			}
 		}
-		r := runStep(ctx, s, force)
+		progress("checking")
+		r := runStep(ctx, s, force, mutation, progress)
 		results = append(results, r)
 		if onStep != nil {
 			onStep(r)
+		}
+		if r.Status == "failed" {
+			break // never run dependents after a failed prerequisite
 		}
 	}
 	return results
 }
 
 // runStep runs one toolchain step to a result.
-func runStep(ctx context.Context, s agent.Step, force bool) StepResult {
+func runStep(ctx context.Context, s agent.Step, force bool, mutation chan struct{}, progress func(string)) StepResult {
+	fail := func(output string, err error) StepResult {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		if err != nil {
+			output = strings.TrimSpace(output + "\n" + err.Error())
+		}
+		return StepResult{Name: s.Name, Status: "failed", Output: output}
+	}
+	check := func() (string, error) {
+		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		return command(checkCtx, s.Check)
+	}
 	// Check-only step (no installer): the Check IS the step. Verify it — even under force there's
 	// nothing to reinstall — and report satisfied/failed. (This is why force must not treat an
 	// empty Install as a failure.)
 	if s.Install == "" {
-		if s.Check == "" || exec.CommandContext(ctx, "bash", "-lc", s.Check).Run() == nil {
+		if err := ctx.Err(); err != nil {
+			return fail("", err)
+		}
+		if s.Check == "" {
 			return StepResult{Name: s.Name, Status: "satisfied"}
 		}
-		return StepResult{Name: s.Name, Status: "failed", Output: "check failed and no installer"}
+		out, err := check()
+		if err != nil {
+			return fail("check failed and no installer\n"+out, err)
+		}
+		return StepResult{Name: s.Name, Status: "satisfied"}
 	}
 	// Installable step: unless forced, a passing Check short-circuits (idempotent ensure).
 	if !force && s.Check != "" {
-		if exec.CommandContext(ctx, "bash", "-lc", s.Check).Run() == nil {
+		if _, err := check(); err == nil {
 			return StepResult{Name: s.Name, Status: "satisfied"}
 		}
 	}
-	out, err := exec.CommandContext(ctx, "bash", "-lc", s.Install).CombinedOutput()
+	if mutation != nil {
+		progress("waiting")
+		select {
+		case mutation <- struct{}{}:
+			defer func() { <-mutation }()
+		case <-ctx.Done():
+			return fail("", ctx.Err())
+		}
+		if !force && s.Check != "" {
+			if _, err := check(); err == nil {
+				return StepResult{Name: s.Name, Status: "satisfied"}
+			}
+		}
+	}
+	progress("installing")
+	out, err := command(ctx, s.Install)
 	if err != nil {
-		return StepResult{Name: s.Name, Status: "failed", Output: strings.TrimSpace(string(out))}
+		return fail(out, err)
+	}
+	if s.Check != "" {
+		progress("verifying")
+		out, err := check()
+		if err != nil {
+			return fail("installer finished but verification failed\n"+out, err)
+		}
 	}
 	return StepResult{Name: s.Name, Status: "installed"}
+}
+
+func command(ctx context.Context, script string) (string, error) {
+	cmd := exec.CommandContext(ctx, "bash", "-lc", script)
+	proc.Group(cmd) // timeout must stop npm/its children too, so they cannot keep writing after unlock
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
 }
 
 // OK reports whether every step ended satisfied or installed.

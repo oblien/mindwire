@@ -57,3 +57,5 @@ export { WorkspaceApi, WorkspaceCollection, ProjectOperationsApi } from "./works
 export type { ProjectRequest, ProjectAuth, ProjectOperation, ProjectRemoveRequest } from "./workspace.js";
 export type { WorkspaceRecord, WorkspaceAgent, WorkspaceProject, WorkspaceChat, WorkspaceKind,
   WorkspaceInput, WorkspaceImport, WorkspaceSnapshot } from "./workspace.js";
+
+export * from "./surfaces.js";

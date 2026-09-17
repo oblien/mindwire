@@ -3,7 +3,7 @@
 // the first half, factored out so no adapter re-implements it. An adapter supplies a tiny
 // {@link SandboxHost} — two primitives, `exec` and `putFile` — and {@link ensureDaemon} does the rest:
 // wait for the runtime, probe `/healthz`, reconcile the running version against the SDK's bundled
-// binary, and deploy (or redeploy, when `autoUpdate` is on) the Linux `mindwired` when needed.
+// binary, and deploy (or redeploy, when `autoUpdate` is on) the matching `mindwired` when needed.
 //
 // The daemon wire protocol is untouched — this only changes *where* the daemon runs and how its bytes
 // get there. The launch is byte-for-byte the loopback daemon, just inside the sandbox.
@@ -41,9 +41,9 @@ export interface EnsureDaemonConfig {
   /** `AGENT_CWD` — working directory agents run in, inside the sandbox. */
   agentCwd: string;
   /**
-   * Explicit path to a Linux `mindwired` to deploy (else downloaded from the matching GitHub Release).
-   * `{arch}` is expanded to the destination architecture (`amd64` or `arm64`), allowing a development
-   * launcher to build both artifacts without guessing the sandbox architecture in advance.
+   * Explicit path to a `mindwired` to deploy (else downloaded from the matching GitHub Release).
+   * `{os}` and `{arch}` expand to the destination (`linux`/`darwin` and `amd64`/`arm64`), allowing a
+   * development launcher to build artifacts without guessing the sandbox platform in advance.
    */
   daemonBin?: string;
   /** Redeploy when the running daemon's version differs from `desiredVersion`. Off by default. */
@@ -82,6 +82,8 @@ export interface EnsureEvent {
   version?: string;
   /** Target architecture the daemon was resolved for (on `upload`). */
   arch?: "amd64" | "arm64";
+  /** Destination operating system (on `download` / `upload`). */
+  platform?: "linux" | "darwin";
   /** Size of the uploaded daemon binary in bytes (on `upload`). */
   bytes?: number;
   /** Error message (on `error`). */
@@ -170,7 +172,7 @@ async function readWorkspaceToken(host: SandboxHost, directory: string): Promise
   return candidate && candidate.length <= 4096 && /^[\x21-\x7e]+$/.test(candidate) ? candidate : undefined;
 }
 
-/** Resolve + upload the Linux daemon, then launch it detached and health-poll from inside the VM. */
+/** Resolve the destination's daemon, then launch it detached and health-poll from inside the VM. */
 async function deploy(
   host: SandboxHost,
   cfg: EnsureDaemonConfig,
@@ -182,35 +184,39 @@ async function deploy(
   const BIN = shellQuote(directory + "/mindwired"), BIN_NEW = shellQuote(newPath);
   const STATE = shellQuote(directory + "/agent-state.json"), LOG = shellQuote(directory + "/daemon.log");
   const TOKEN = shellQuote(directory + "/daemon.token");
-  const arch = await probeArch(host);
+  const { platform, arch } = await probePlatform(host);
   const desired = cfg.desiredVersion ?? SDK_VERSION;
   let acquire = "";
   let stagedUpload: string | undefined;
   if (cfg.daemonBin) {
-    const binPath = await resolveLinuxDaemon(cfg.daemonBin, arch);
+    const binPath = await resolveHostDaemon(cfg.daemonBin, platform, arch);
     const bytes = await readBytes(binPath);
-    emit({ phase: "upload", message: `uploading daemon (${arch}, ${formatMiB(bytes.length)})`, arch, bytes: bytes.length });
+    emit({ phase: "upload", message: `uploading daemon (${platform}-${arch}, ${formatMiB(bytes.length)})`, platform, arch, bytes: bytes.length });
     // An explicit local binary is the one intentional upload path (air-gapped destinations).
     stagedUpload = `${newPath}-${(await import("node:crypto")).randomUUID()}`;
+    await host.exec(["sh", "-lc", `mkdir -p ${shellQuote(directory)}`], { timeoutSeconds: 15 });
     await host.putFile(stagedUpload, bytes, { mode: "0755" });
     acquire = `mv -f ${shellQuote(stagedUpload)} ${BIN_NEW}`;
   } else {
     if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(desired)) {
       throw new MindwireError(`mindwire: cannot download daemon for non-release SDK version ${desired}`);
     }
-    const asset = `mindwired-v${desired}-linux-${arch === "arm64" ? "arm64" : "amd64"}`;
+    const asset = `mindwired-v${desired}-${platform}-${arch}`;
     const release = `https://github.com/oblien/mindwire/releases/download/v${desired}`;
-    emit({ phase: "download", message: `downloading daemon v${desired} on the destination (${arch})`, arch });
+    emit({ phase: "download", message: `downloading daemon v${desired} on the destination (${platform}-${arch})`, platform, arch });
     // Download and verify *inside* the destination. This avoids an SDK-host upload and works for every
     // remote target that can execute commands. BIN_NEW is only renamed into place after verification.
     acquire = [
       `release=${shellQuote(release)}`,
       `asset=${shellQuote(asset)}`,
+      'if command -v sha256sum >/dev/null 2>&1; then mw_sha256=(sha256sum);',
+      'elif command -v shasum >/dev/null 2>&1; then mw_sha256=(shasum -a 256);',
+      'else echo "MINDWIRE_FAIL SHA-256 verification requires sha256sum or shasum"; exit 1; fi',
       "download() {",
       '  expected=$(curl -fsSL "$release/checksums.txt" | awk -v asset="$asset" \'$2 == asset { print $1; exit }\') || return 1',
       '  [ -n "$expected" ] || return 1',
       `  curl -fsSL "$release/$asset" -o ${BIN_NEW} || return 1`,
-      `  actual=$(sha256sum ${BIN_NEW} | awk '{print $1}')`,
+      `  actual=$("\${mw_sha256[@]}" ${BIN_NEW} | awk '{print $1}') || return 1`,
       '  [ "$actual" = "$expected" ] || return 2',
       "}",
       "if download; then :; else",
@@ -218,7 +224,7 @@ async function deploy(
       '  latest=$(curl -fsSL https://api.github.com/repos/oblien/mindwire/releases/latest | sed -n \'s/.*"tag_name"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p\')',
       '  case "$latest" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "MINDWIRE_FAIL no matching or latest release"; exit 1 ;; esac',
       '  release="https://github.com/oblien/mindwire/releases/download/$latest"',
-      `  asset="mindwired-$latest-linux-${arch === "arm64" ? "arm64" : "amd64"}"`,
+      `  asset="mindwired-$latest-${platform}-${arch}"`,
       '  download || { echo "MINDWIRE_FAIL latest release download failed"; exit 1; }',
       "fi",
       `chmod +x ${BIN_NEW}`,
@@ -226,13 +232,16 @@ async function deploy(
   }
 
   const script = [
-    "set -e",
+    "set -eo pipefail",
     `mkdir -p ${shellQuote(directory)}`,
     // iOS takes this same workspace lock. Unique staging also protects concurrent local uploads.
     stagedUpload ? `trap ${shellQuote(`rm -f ${shellQuote(stagedUpload)}`)} EXIT` : "",
-    'command -v flock >/dev/null 2>&1 || { echo "MINDWIRE_FAIL flock is required to lock daemon updates"; exit 1; }',
     `exec 9>${shellQuote(directory + "/daemon-install.lock")}`,
-    'flock -w 360 9 || { echo "MINDWIRE_FAIL another daemon update is still running"; exit 1; }',
+    'if command -v flock >/dev/null 2>&1; then',
+    '  flock -w 360 9 || { echo "MINDWIRE_FAIL another daemon update is still running"; exit 1; }',
+    'elif command -v lockf >/dev/null 2>&1; then',
+    '  lockf -s -t 360 9 || { echo "MINDWIRE_FAIL another daemon update is still running"; exit 1; }',
+    'else echo "MINDWIRE_FAIL No supported update lock is available (flock on Linux, lockf on macOS)."; exit 1; fi',
     `mw_token=${shellQuote(token)}`,
     !cfg.token ? `if [ -s ${TOKEN} ]; then mw_token=$(cat ${TOKEN}); fi` : "",
     !cfg.forceDeploy ? [
@@ -240,6 +249,10 @@ async function deploy(
       `mw_version=$(printf '%s' "$mw_health" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\\([^" ]*\\)".*/\\1/p')`,
       `if [ -n "$mw_health" ] && ${cfg.autoUpdate ? `[ "$mw_version" = ${shellQuote(desired)} ]` : "true"}; then echo MINDWIRE_READY; exit 0; fi`,
     ].join("\n") : "",
+    // macOS ships POSIX setsid in Perl, but does not include Linux's setsid executable.
+    'if command -v setsid >/dev/null 2>&1; then mw_detach=(setsid);',
+    `elif command -v perl >/dev/null 2>&1; then mw_detach=(perl -MPOSIX -e 'defined(my $sid = POSIX::setsid()) && $sid >= 0 or die "setsid: $!"; exec @ARGV; die "exec: $!";');`,
+    'else echo "MINDWIRE_FAIL Cannot start the Mindwire service: setsid or Perl is required."; exit 1; fi',
     acquire,
     // Stop a prior daemon by exact process NAME, never `pkill -f <path>`: this whole script (which
     // contains `${BIN}` several times) is the argv of the `bash -lc` shell running it, so a full-cmdline
@@ -259,10 +272,10 @@ async function deploy(
     `mv -f ${BIN_NEW} ${BIN}`,
     `chmod +x ${BIN}`,
     // Detach so the daemon survives this exec's shell exiting. ADDR=":<port>" binds 0.0.0.0.
-    `setsid nohup env ADDR=":${cfg.port}" AGENT_TYPE=${shellQuote(cfg.agent)} AGENT_CWD=${shellQuote(cfg.agentCwd)} ` +
+    `"\${mw_detach[@]}" nohup env ADDR=":${cfg.port}" AGENT_TYPE=${shellQuote(cfg.agent)} AGENT_CWD=${shellQuote(cfg.agentCwd)} ` +
       `STATE_PATH=${STATE} DAEMON_TOKEN="$mw_token" ${BIN} > ${LOG} 2>&1 < /dev/null 9>&- &`,
     // Health-poll from inside the VM (loopback) and emit a marker — exit codes are unreliable here.
-      `for i in $(seq 1 60); do curl -fsS --max-time 2 -H "Authorization: Bearer $mw_token" http://127.0.0.1:${cfg.port}/healthz >/dev/null 2>&1 ` +
+      `for ((mw_attempt=0; mw_attempt<60; mw_attempt++)); do curl -fsS --max-time 2 -H "Authorization: Bearer $mw_token" http://127.0.0.1:${cfg.port}/healthz >/dev/null 2>&1 ` +
       `&& { echo MINDWIRE_READY; exit 0; }; sleep 0.25; done`,
     "echo MINDWIRE_FAIL",
     `tail -n 40 ${LOG} 2>/dev/null || true`,
@@ -297,10 +310,16 @@ async function probeHealth(host: SandboxHost, port: number, token: string): Prom
   }
 }
 
-async function probeArch(host: SandboxHost): Promise<"amd64" | "arm64"> {
-  const res = await host.exec(["bash", "-lc", `printf '<<ARCH:%s>>' "$(uname -m)"`], { timeoutSeconds: 15 });
-  const raw = ((res.stdout ?? "").match(/<<ARCH:([^>]*)>>/)?.[1] ?? "").trim();
-  return raw === "aarch64" || raw === "arm64" ? "arm64" : "amd64";
+async function probePlatform(host: SandboxHost): Promise<{ platform: "linux" | "darwin"; arch: "amd64" | "arm64" }> {
+  const res = await host.exec(["bash", "-lc", `printf '<<OS:%s>><<ARCH:%s>>' "$(uname -s)" "$(uname -m)"`], { timeoutSeconds: 15 });
+  const os = ((res.stdout ?? "").match(/<<OS:([^>]*)>>/)?.[1] ?? "").trim().toLowerCase();
+  const rawArch = ((res.stdout ?? "").match(/<<ARCH:([^>]*)>>/)?.[1] ?? "").trim();
+  const arch = rawArch === "aarch64" || rawArch === "arm64" ? "arm64"
+    : rawArch === "x86_64" || rawArch === "amd64" ? "amd64" : undefined;
+  if ((os !== "linux" && os !== "darwin") || !arch) {
+    throw new MindwireError(`mindwire: unsupported workspace platform ${os || "unknown"}/${rawArch || "unknown"}; expected Linux or macOS on amd64 or arm64`);
+  }
+  return { platform: os, arch };
 }
 
 /** Wait until the sandbox can execute commands (covers VM/container cold-start). */
@@ -330,15 +349,23 @@ export async function resolveLinuxDaemon(
   explicit: string | undefined,
   arch: "amd64" | "arm64",
 ): Promise<string> {
+  return resolveHostDaemon(explicit, "linux", arch);
+}
+
+async function resolveHostDaemon(
+  explicit: string | undefined,
+  platform: "linux" | "darwin",
+  arch: "amd64" | "arm64",
+): Promise<string> {
   const fs = await import("node:fs");
   if (explicit) {
-    const resolved = explicit.replaceAll("{arch}", arch);
+    const resolved = explicit.replaceAll("{os}", platform).replaceAll("{arch}", arch);
     if (!fs.existsSync(resolved)) {
       throw new MindwireError(`mindwire: sandbox daemonBin not found at ${resolved}`);
     }
     return resolved;
   }
-  return ensureDaemonBinary({ platform: "linux", arch: arch === "arm64" ? "arm64" : "x64" });
+  return ensureDaemonBinary({ platform, arch: arch === "arm64" ? "arm64" : "x64" });
 }
 
 async function readBytes(p: string): Promise<Uint8Array> {

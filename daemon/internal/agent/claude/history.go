@@ -108,7 +108,7 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 		// so the caller falls back to the recorded log rather than serving a partial history.
 		return nil, err
 	}
-	return out, nil
+	return agent.MergeRecordedHistory(agent.NormalizeSurfaceHistory(out), agent.SurfaceRecords(q.Recorded)), nil
 }
 
 // DeleteHistory removes Claude Code's native transcript for a session — the projects/<slug>/<sid>.jsonl

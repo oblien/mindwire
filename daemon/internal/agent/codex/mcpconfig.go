@@ -90,6 +90,9 @@ func buildConfigOverlay(sysPromptPath string, servers map[string]codexMCPServer)
 		if s.BearerTokenEnvVar != "" {
 			b.WriteString("bearer_token_env_var = " + tomlString(s.BearerTokenEnvVar) + "\n")
 		}
+		if s.DefaultToolsApprovalMode != "" {
+			b.WriteString("default_tools_approval_mode = " + tomlString(s.DefaultToolsApprovalMode) + "\n")
+		}
 		if len(s.Env) > 0 {
 			b.WriteString("\n[" + hdr + ".env]\n")
 			for _, k := range slices.Sorted(maps.Keys(s.Env)) {

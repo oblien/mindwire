@@ -181,6 +181,8 @@ func parseMCPServers(content string) map[string]agent.MCPServer {
 				s.URL = parseTOMLValue(val)
 			case "bearer_token_env_var":
 				s.BearerTokenEnvVar = parseTOMLValue(val)
+			case "default_tools_approval_mode":
+				s.DefaultToolsApprovalMode = parseTOMLValue(val)
 			}
 		case "env":
 			if s.Env == nil {

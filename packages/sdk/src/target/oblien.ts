@@ -33,7 +33,7 @@ export interface OblienConfig {
   agentCwd?: string;
   /** Loopback port the in-workspace daemon listens on. */
   port?: number;
-  /** Explicit local Linux `mindwired` to deploy. `{arch}` expands to the workspace architecture. */
+  /** Explicit local `mindwired` to deploy. `{os}`/`{arch}` expand to the workspace platform. */
   daemonBin?: string;
   /** Redeploy the daemon when the running version differs from the SDK's bundled binary. Off by default. */
   autoUpdate?: boolean;

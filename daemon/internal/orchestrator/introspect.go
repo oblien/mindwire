@@ -5,8 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/proc"
 )
 
 // DoctorReport is the daemon-level health snapshot for one agent: daemon-generic checks (workspace,
@@ -54,7 +56,11 @@ func (s *Supervisor) Doctor(ctx context.Context, ag *Agent) DoctorReport {
 // CLIVersion runs the agent's version command and returns the trimmed output ("" on any error). Used
 // to report the installed CLI version alongside agent info.
 func (s *Supervisor) CLIVersion(ctx context.Context, ag *Agent) string {
-	out, err := exec.CommandContext(ctx, "bash", "-lc", ag.Adapter.VersionCommand()).Output()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "-lc", ag.Adapter.VersionCommand())
+	proc.Group(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}

@@ -56,6 +56,7 @@ export type ToolKind =
  * apply_patch/shell).
  */
 export interface ToolAction {
+  surface?: import("./surfaces.js").SurfaceToolAction;
   kind: ToolKind;
   /** Short human label (e.g. the command or the path). */
   title?: string;
@@ -594,6 +595,8 @@ export interface MCPServer {
   bearerTokenEnvVar?: string;
   /** HTTP transport: literal headers sent with each request. */
   httpHeaders?: Record<string, string>;
+  /** Codex's native approval behavior for this MCP server. */
+  defaultToolsApprovalMode?: "auto" | "prompt" | "writes" | "approve";
 }
 
 /**
@@ -938,6 +941,8 @@ export interface SetupStatus {
   steps: StepResult[];
   /** The shared job's operation, including when another client started it. Older daemons omit it. */
   operation?: "setup" | "update";
+  /** Current step phase, reported by the daemon rather than inferred from elapsed time. */
+  stage?: "checking" | "waiting" | "installing" | "verifying" | (string & {});
 }
 
 /** `GET /notify/config` — the token is never returned. */
@@ -1040,6 +1045,7 @@ export interface NotifyChannelTestResult {
 
 /** `GET /healthz` — the daemon's liveness probe. */
 export interface Health {
+  surfaceProtocolVersion?: number;
   /** Workspace registry protocol version; absent on daemons predating workspace metadata. */
   workspaceMetadataVersion?: number;
   /** Durable project creation/clone operations; absent on older daemons. */

@@ -24,7 +24,9 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/procmon"
 	"github.com/oblien/mindwire/daemon/internal/runner"
 	"github.com/oblien/mindwire/daemon/internal/session"
+	"github.com/oblien/mindwire/daemon/internal/setup"
 	"github.com/oblien/mindwire/daemon/internal/stream"
+	"github.com/oblien/mindwire/daemon/internal/surface"
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 )
 
@@ -146,9 +148,11 @@ type Supervisor struct {
 	agents map[string]*Agent // by agent type
 	def    string            // default agent type when a request omits ?agent=
 
-	mu      sync.Mutex
-	active  map[string]string             // chatId -> active turn's working directory
-	cancels map[string]context.CancelFunc // runId -> cancel the running turn
+	mu           sync.Mutex
+	active       map[string]string // chatId -> active turn's working directory
+	activeAgents map[string]int    // harness -> live turns, under the same lock as setup admission
+	setup        *setup.Tracker
+	cancels      map[string]context.CancelFunc // runId -> cancel the running turn
 	// User-in-loop ingress, parallel to cancels (same register-before-return + defer close). inputs
 	// holds each running turn's inbound channel (present only for agents declaring an ingress
 	// capability); pending records the run's respondable interactions so Respond can echo their
@@ -159,8 +163,11 @@ type Supervisor struct {
 	// defer that runs AFTER its terminal SaveRun), and idle broadcasts when it reaches zero. Wait()
 	// parks on idle so a caller can Cancel every run and then tear down the state directory without
 	// racing a late persist. Guarded by mu, like the maps above.
-	inflight int
-	idle     *sync.Cond
+	surfaces       *surface.Service
+	serviceReplies map[string]map[string]chan agent.InteractionResponse
+	serviceEmit    map[string]agent.Emit
+	inflight       int
+	idle           *sync.Cond
 }
 
 // New builds a supervisor over EVERY registered adapter (each with its own auth + runner +
@@ -170,7 +177,9 @@ func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, d
 	s := &Supervisor{
 		store: store, hub: hub, notifier: notifier, notes: notify.NewStream(), mon: procmon.NewMonitor(), cwd: cwd,
 		agents: map[string]*Agent{}, def: defaultAgent,
+		serviceReplies: map[string]map[string]chan agent.InteractionResponse{}, serviceEmit: map[string]agent.Emit{},
 		active: map[string]string{}, cancels: map[string]context.CancelFunc{},
+		activeAgents: map[string]int{}, setup: setup.NewTracker(),
 		inputs: map[string]chan agent.Inbound{}, pending: map[string]map[string]agent.Interaction{},
 	}
 	s.idle = sync.NewCond(&s.mu)
@@ -223,7 +232,7 @@ type StartTurnInput struct {
 
 // StartTurn records the user message, creates a running Run, registers cancellation, and
 // launches execution on a DETACHED context (survives app disconnect). It guards one turn
-// per chat: ok=false means a turn is already running for that chat.
+// per chat: ok=false means that chat is busy or this harness is being installed/updated.
 func (s *Supervisor) StartTurn(a *Agent, req StartTurnInput) (session.Run, bool) {
 	return s.start(a, req, false)
 }
@@ -232,8 +241,8 @@ func (s *Supervisor) StartTurn(a *Agent, req StartTurnInput) (session.Run, bool)
 // a turn, so the compaction boundary streams and records exactly like an auto-compaction. It differs
 // from StartTurn in two ways: it records no user message (the /compact trigger isn't a user turn) and
 // allocates no ingress channel (a compaction never pauses for the user). It still takes the per-chat
-// turn lock — a compaction is mutually exclusive with a turn. ok=false ⇒ a turn is already running for
-// that chat. The API gates this on the adapter implementing agent.CompactModule.
+// turn lock — a compaction is mutually exclusive with a turn. ok=false ⇒ that chat is busy or the
+// harness is being installed/updated. The API gates this on agent.CompactModule.
 func (s *Supervisor) StartCompact(a *Agent, req StartTurnInput) (session.Run, bool) {
 	return s.start(a, req, true)
 }
@@ -255,11 +264,12 @@ func (s *Supervisor) StartResolve(a *Agent, req StartTurnInput, ro ResolveOption
 		ro.Deadline = resolveDeadline
 	}
 	s.mu.Lock()
-	if _, busy := s.active[req.ChatID]; busy {
+	if _, busy := s.active[req.ChatID]; busy || s.setup.Status(a.ID()).Running {
 		s.mu.Unlock()
 		return session.Run{}, false
 	}
 	s.active[req.ChatID] = s.activePath(req.CWD)
+	s.activeAgents[a.ID()]++
 	// The parent context bounds the WHOLE resolve (overall deadline); each child turn derives a 30-min
 	// timeout from it. Register the cancel under the parent id BEFORE returning, so an immediate cancel
 	// can't race an unregistered run into a 404 (same anti-race as start()).
@@ -285,11 +295,12 @@ func (s *Supervisor) StartResolve(a *Agent, req StartTurnInput, ro ResolveOption
 // start is the shared launch path for StartTurn (compact=false) and StartCompact (compact=true).
 func (s *Supervisor) start(a *Agent, req StartTurnInput, compact bool) (session.Run, bool) {
 	s.mu.Lock()
-	if _, busy := s.active[req.ChatID]; busy {
+	if _, busy := s.active[req.ChatID]; busy || s.setup.Status(a.ID()).Running {
 		s.mu.Unlock()
 		return session.Run{}, false
 	}
 	s.active[req.ChatID] = s.activePath(req.CWD)
+	s.activeAgents[a.ID()]++
 	// Create + register the cancel func BEFORE returning the run id, so a client that
 	// cancels immediately after POST /turns can't race an unregistered run into a 404.
 	ctx, cancel := context.WithTimeout(context.Background(), maxTurn)
@@ -422,6 +433,12 @@ func (s *Supervisor) RespondInteraction(runID string, reply agent.InteractionRes
 	if err != nil {
 		return err
 	}
+	if response := s.serviceReplies[runID][reply.InteractionID]; response != nil {
+		response <- reply
+		delete(s.pending[runID], reply.InteractionID)
+		delete(s.serviceReplies[runID], reply.InteractionID)
+		return nil
+	}
 	if !s.trySend(runID, agent.Inbound{Kind: "response", InteractionID: reply.InteractionID,
 		Decision: reply.Decision, Options: reply.Options, Text: reply.Text, Answers: reply.Answers,
 		Meta: metaStrings(it.Meta), Interaction: &it}) {
@@ -524,6 +541,7 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 	defer func() {
 		s.mu.Lock()
 		delete(s.active, run.ChatID)
+		s.activeAgents[a.ID()]--
 		delete(s.cancels, run.ID)
 		// Tear down ingress under the same lock that Respond/SendInput/Interrupt send under: once the
 		// channel is out of s.inputs, a concurrent send sees nil and returns false, so we never send on
@@ -583,7 +601,13 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 			res = agent.TurnResult{Text: "agent does not support compaction", IsError: true}
 		}
 	} else {
-		res, parts = a.Runner.RunTurn(ctx, turn)
+		prepared, cleanup, err := s.desktopTurn(ctx, a, turn)
+		if err != nil {
+			res = agent.TurnResult{Text: "Could not prepare desktop tools: " + err.Error(), IsError: true}
+		} else {
+			defer cleanup()
+			res, parts = a.Runner.RunTurn(ctx, prepared)
+		}
 	}
 	run.EndedAt = nowISO()
 
@@ -628,6 +652,7 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 	defer func() {
 		s.mu.Lock()
 		delete(s.active, parent.ChatID)
+		s.activeAgents[a.ID()]--
 		delete(s.cancels, parent.ID)
 		s.mu.Unlock()
 		s.mon.Untrack(parent.ID) // PID lifecycle == resolve lifecycle
@@ -646,6 +671,8 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 			s.emit(a, parent, agent.Errored, snippet(parent.Error))
 		}
 	}()
+
+	go s.watchInteractions(a, parent)
 
 	var lastText, lastReplyID, stopReason string
 	iterations := 0
@@ -678,9 +705,22 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 		}
 
 		childCtx, childCancel := context.WithTimeout(ctx, maxTurn)
-		res, parts := a.Runner.RunTurn(childCtx, runner.Turn{
+		turn, cleanup, prepareErr := s.desktopTurn(childCtx, a, runner.Turn{
 			ChatID: parent.ChatID, Message: msg, RunID: parent.ID, CWD: req.CWD, Options: opts,
+			BeforePublish: func(ev agent.Event) {
+				if ev.Interaction != nil {
+					s.recordPending(parent.ID, *ev.Interaction)
+				}
+			},
 		})
+		var res agent.TurnResult
+		var parts []agent.Part
+		if prepareErr != nil {
+			res = agent.TurnResult{Text: prepareErr.Error(), IsError: true}
+		} else {
+			res, parts = a.Runner.RunTurn(childCtx, turn)
+			cleanup()
+		}
 		childCancel()
 		iterations = i + 1
 		child.EndedAt = nowISO()

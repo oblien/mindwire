@@ -2,6 +2,7 @@ import { Http, type FetchLike } from "./http.js";
 import { readSSE } from "./sse.js";
 import { Run } from "./run.js";
 import { WorkspaceApi } from "./workspace.js";
+import { SurfacesApi } from "./surfaces.js";
 import { local, type Target, type TargetHandle, type ConnectSpec } from "./target/index.js";
 import type { EnsureEvent } from "./target/host.js";
 import type {
@@ -110,6 +111,7 @@ export interface AgentScoped {
 export class Mindwire {
   /** Workspace registry: saved agent profiles, projects and chat relationships. */
   readonly workspace: WorkspaceApi;
+  readonly surfaces: SurfacesApi;
   readonly http: Http;
   /** The default agent type applied to agent-scoped calls, if set. */
   readonly defaultAgent: string | undefined;
@@ -149,6 +151,7 @@ export class Mindwire {
     });
     this.defaultAgent = opts.agent;
     this.workspace = new WorkspaceApi(this);
+    this.surfaces = new SurfacesApi(this);
     this.auth = new AuthApi(this);
     this.prompts = new PromptsApi(this);
     this.mcp = new McpApi(this);
@@ -172,6 +175,7 @@ export class Mindwire {
     clone.http = this.http;
     clone.defaultAgent = agent;
     clone.workspace = new WorkspaceApi(clone as Mindwire);
+    clone.surfaces = new SurfacesApi(clone as Mindwire);
     clone.auth = new AuthApi(clone as Mindwire);
     clone.prompts = new PromptsApi(clone as Mindwire);
     clone.mcp = new McpApi(clone as Mindwire);

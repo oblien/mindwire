@@ -191,7 +191,7 @@ function fakeOblien(cfg: { health?: string; proxyStatuses?: number[] } = {}) {
         if (script.includes("echo mw_ready")) return { stdout: "mw_ready", exit_code: 0 };
         if (script.includes("<<MW_HOME>>")) return { stdout: "<<MW_HOME>>/root<<MW_HOME>>", exit_code: 0 };
         if (script.includes("<<MW_H>>")) return { stdout: `<<MW_H>>${health}<<MW_H>>`, exit_code: 0 };
-        if (script.includes("<<ARCH")) return { stdout: "<<ARCH:x86_64>>", exit_code: 0 };
+        if (script.includes("<<ARCH")) return { stdout: "<<OS:Linux>><<ARCH:x86_64>>", exit_code: 0 };
         if (script.includes("MINDWIRE_READY")) return { stdout: "MINDWIRE_READY", exit_code: 0 };
         return { stdout: "", exit_code: 0 };
       },

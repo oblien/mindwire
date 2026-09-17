@@ -19,6 +19,7 @@ type Status struct {
 	Current   string       `json:"current"`
 	Steps     []StepResult `json:"steps"`
 	Operation string       `json:"operation,omitempty"` // "setup" or "update"; shared by all clients
+	Stage     string       `json:"stage,omitempty"`     // "checking", "waiting", "installing", "verifying"
 }
 
 // job is one agent's in-flight install state, mutated under Tracker.mu.
@@ -29,20 +30,24 @@ type job struct {
 	current   string
 	steps     []StepResult
 	operation string
+	stage     string
 }
 
 // Tracker runs per-agent toolchain installs in the BACKGROUND (an `npm i -g` can take minutes) so a
 // caller's request never hangs while it installs; the caller polls Status for progress + completion.
 // Only one install runs at a time per agent — a concurrent Start re-attaches to the in-flight job
-// (idempotent, atomic) rather than starting a second run. Both the HTTP surface and the in-process Go
-// SDK hold one Tracker; the semantics are identical.
+// (idempotent, atomic) rather than starting a second run. The supervisor owns this Tracker for both
+// the HTTP surface and the in-process Go SDK, and gates turns against it.
 type Tracker struct {
-	mu   sync.Mutex
-	jobs map[string]*job
+	mu       sync.Mutex
+	jobs     map[string]*job
+	mutation chan struct{} // shared package-manager writes, including prerequisites for other harnesses
 }
 
 // NewTracker builds an empty tracker.
-func NewTracker() *Tracker { return &Tracker{jobs: map[string]*job{}} }
+func NewTracker() *Tracker {
+	return &Tracker{jobs: map[string]*job{}, mutation: make(chan struct{}, 1)}
+}
 
 // Start plans have already been resolved by the caller (via Plan). It launches the install for
 // agentID in the background and returns immediately with a snapshot: a fresh {running:true,…} for a
@@ -65,6 +70,7 @@ func (t *Tracker) Start(agentID string, steps []agent.Step, force bool, timeout 
 	j.ok = false
 	j.steps = nil
 	j.current = ""
+	j.stage = "checking"
 	j.operation = "setup"
 	if force {
 		j.operation = "update"
@@ -76,10 +82,11 @@ func (t *Tracker) Start(agentID string, steps []agent.Step, force bool, timeout 
 		// Detached context: a client disconnect can't abort the install mid-write; bounded by timeout.
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		results := Run(ctx, steps, force,
-			func(name string) { // step started → live "Installing X…"
+		results := run(ctx, steps, force, t.mutation,
+			func(name, stage string) {
 				t.mu.Lock()
 				j.current = name
+				j.stage = stage
 				t.mu.Unlock()
 			},
 			func(sr StepResult) { // step finished → live checklist
@@ -90,6 +97,7 @@ func (t *Tracker) Start(agentID string, steps []agent.Step, force bool, timeout 
 		t.mu.Lock()
 		j.running = false
 		j.current = ""
+		j.stage = ""
 		j.ok = OK(results)
 		j.steps = results
 		t.mu.Unlock()
@@ -113,5 +121,5 @@ func (t *Tracker) Status(agentID string) Status {
 // snapshot copies a job to the wire shape (steps never nil). Caller holds t.mu.
 func snapshot(j *job) Status {
 	steps := append([]StepResult{}, j.steps...)
-	return Status{Running: j.running, OK: j.ok, Started: j.started, Current: j.current, Steps: steps, Operation: j.operation}
+	return Status{Running: j.running, OK: j.ok, Started: j.started, Current: j.current, Steps: steps, Operation: j.operation, Stage: j.stage}
 }

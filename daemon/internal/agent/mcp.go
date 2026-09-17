@@ -31,6 +31,9 @@ type MCPServer struct {
 	URL               string            `json:"url,omitempty"`
 	BearerTokenEnvVar string            `json:"bearerTokenEnvVar,omitempty"`
 	HTTPHeaders       map[string]string `json:"httpHeaders,omitempty"`
+	// Codex's per-server native approval mode: auto, prompt, writes, or approve.
+	// Other adapters retain their native permission rules.
+	DefaultToolsApprovalMode string `json:"defaultToolsApprovalMode,omitempty"`
 }
 
 // MCPServerModule is an OPTIONAL adapter capability (type-asserted like MemoryModule): list, set, and

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"iter"
 	"net/http"
 	"path/filepath"
@@ -18,12 +19,9 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/projects"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/session"
-	"github.com/oblien/mindwire/daemon/internal/setup"
 	"github.com/oblien/mindwire/daemon/internal/stream"
+	"github.com/oblien/mindwire/daemon/internal/surface"
 )
-
-// maxSetup bounds a background toolchain install, matching the HTTP daemon's own cap (api.maxSetup).
-const maxSetup = 20 * time.Minute
 
 // Options configures a Client. The zero value is usable: it opens "agent-state.json" in the current
 // directory and drives the daemon's default agent with no extra notifier.
@@ -52,10 +50,10 @@ type core struct {
 	store      *session.Store
 	hub        *stream.Hub
 	sup        *orchestrator.Supervisor
-	tracker    *setup.Tracker
 	cwd        string
 	registry   *registry.Store
 	projects   *projects.Service
+	surfaces   *surface.Service
 	registryMu sync.Mutex
 
 	mu     sync.Mutex
@@ -91,6 +89,7 @@ type Client struct {
 	Providers *Providers
 	// Workspace owns saved workspace metadata shared across all harness views.
 	Workspace *Workspace
+	Surfaces  *Surfaces
 }
 
 // New constructs a Client, wiring the engine exactly as daemon/cmd/daemon/main.go does minus the HTTP
@@ -134,8 +133,15 @@ func New(opts Options) (*Client, error) {
 		return nil, &Error{Message: "recover projects: " + err.Error(), Cause: err}
 	}
 
+	surfaceService, err := surface.NewConfigured(workspaceRegistry, store)
+	if err != nil {
+		projectService.Close()
+		workspaceRegistry.Close()
+		return nil, err
+	}
+	sup.SetSurfaces(surfaceService)
 	co := &core{
-		store: store, hub: hub, sup: sup, tracker: setup.NewTracker(), cwd: opts.CWD, registry: workspaceRegistry, projects: projectService,
+		store: store, hub: hub, sup: sup, cwd: opts.CWD, registry: workspaceRegistry, projects: projectService, surfaces: surfaceService,
 		runs: map[string]struct{}{},
 	}
 	c := &Client{core: co, defaultAgent: opts.Agent}
@@ -144,6 +150,7 @@ func New(opts Options) (*Client, error) {
 	c.MCP = &MCP{c: c}
 	c.Providers = &Providers{c: c}
 	c.Workspace = newWorkspace(c)
+	c.Surfaces = &Surfaces{c: c}
 	return c, nil
 }
 
@@ -157,6 +164,7 @@ func (c *Client) WithAgent(agentType string) *Client {
 	view.MCP = &MCP{c: view}
 	view.Providers = &Providers{c: view}
 	view.Workspace = newWorkspace(view)
+	view.Surfaces = &Surfaces{c: view}
 	return view
 }
 
@@ -187,6 +195,7 @@ func (c *Client) Close() error {
 	c.core.projects.Close()
 	c.core.registryMu.Lock()
 	defer c.core.registryMu.Unlock()
+	c.core.surfaces.Close()
 	return c.core.registry.Close()
 }
 
@@ -226,11 +235,12 @@ type Health struct {
 	Version                  string `json:"version"`
 	WorkspaceMetadataVersion int    `json:"workspaceMetadataVersion"`
 	ProjectOperationsVersion int    `json:"projectOperationsVersion"`
+	SurfaceProtocolVersion   int    `json:"surfaceProtocolVersion"`
 }
 
 // Health returns the liveness snapshot. It cannot fail in-process.
 func (c *Client) Health() Health {
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package
@@ -369,11 +379,15 @@ func (c *Client) runSetup(force bool, opts []ScopedOption) (SetupStatus, error) 
 	if err != nil {
 		return SetupStatus{}, err
 	}
-	steps, perr := setup.Plan(ag.Adapter.InstallSteps())
-	if perr != nil {
-		return SetupStatus{}, &APIError{Message: perr.Error(), Status: http.StatusInternalServerError, Op: "Setup", Cause: perr}
+	status, err := c.core.sup.Setup(ag, force)
+	if err != nil {
+		code := http.StatusInternalServerError
+		if errors.Is(err, orchestrator.ErrAgentBusy) {
+			code = http.StatusConflict
+		}
+		return SetupStatus{}, &APIError{Message: err.Error(), Status: code, Op: "Setup", Cause: err}
 	}
-	return c.core.tracker.Start(ag.ID(), steps, force, maxSetup), nil
+	return status, nil
 }
 
 // SetupStatus reports the scoped agent's current install job (running/ok/steps). A never-started
@@ -383,7 +397,7 @@ func (c *Client) SetupStatus(opts ...ScopedOption) (SetupStatus, error) {
 	if err != nil {
 		return SetupStatus{}, err
 	}
-	return c.core.tracker.Status(ag.ID()), nil
+	return c.core.sup.SetupStatus(ag), nil
 }
 
 // GetConfig returns the scoped agent's declared, non-secret settings (for prefilling a form). Secret
@@ -513,6 +527,9 @@ func (c *Client) DeleteChat(chatID string) (DeleteResult, error) {
 	if err := c.core.registry.Delete("chats", chatID, nil, true); err != nil {
 		return DeleteResult{}, workspaceError("DeleteChat", err)
 	}
+	if err := c.core.surfaces.Artifacts().DeleteChat(chatID); err != nil {
+		return DeleteResult{}, err
+	}
 	refs, err := c.core.store.DeleteChat(chatID)
 	if err != nil {
 		return DeleteResult{}, &APIError{Message: "failed to delete chat", Status: http.StatusInternalServerError, Op: "DeleteChat", Cause: err}
@@ -603,8 +620,12 @@ func (c *Client) Messages(chatID string, opts MessagesOptions) ([]Message, error
 		if cwd == "" {
 			cwd = c.core.sup.CWD()
 		}
+		recorded := []agent.Message{}
+		for _, message := range c.core.store.Messages(chatID) {
+			recorded = append(recorded, agent.Message(message))
+		}
 		msgs, err := ag.Adapter.History(agent.HistoryQuery{
-			ChatID: chatID, SessionID: c.core.store.Session(ag.ID(), chatID), CWD: cwd,
+			ChatID: chatID, SessionID: c.core.store.Session(ag.ID(), chatID), CWD: cwd, Recorded: recorded,
 		})
 		if err == nil && len(msgs) > 0 {
 			return pageWindow(msgs, opts.Limit, opts.Before, func(m Message) string { return m.ID }), nil
@@ -660,7 +681,7 @@ func (c *Client) Turn(ctx context.Context, req TurnRequest) (*Run, error) {
 		ChatID: req.ChatID, Message: req.Message, CWD: cwd, Options: req.Options,
 	})
 	if !ok {
-		return nil, &APIError{Message: "a turn is already running for this chat", Status: http.StatusConflict, Op: "Turn"}
+		return nil, &APIError{Message: c.core.sup.StartConflict(ag), Status: http.StatusConflict, Op: "Turn"}
 	}
 	c.core.track(run.ID)
 	return &Run{core: c.core, data: run}, nil
@@ -702,7 +723,7 @@ func (c *Client) Compact(ctx context.Context, req CompactRequest) (*Run, error) 
 		ChatID: req.ChatID, Message: strings.TrimSpace(req.Instructions), CWD: c.core.store.ChatCWD(req.ChatID),
 	})
 	if !ok {
-		return nil, &APIError{Message: "a turn is already running for this chat", Status: http.StatusConflict, Op: "Compact"}
+		return nil, &APIError{Message: c.core.sup.StartConflict(ag), Status: http.StatusConflict, Op: "Compact"}
 	}
 	c.core.track(run.ID)
 	return &Run{core: c.core, data: run}, nil
@@ -749,7 +770,7 @@ func (c *Client) Resolve(ctx context.Context, req ResolveRequest) (*Run, error) 
 		ChatID: req.ChatID, Message: req.Message, CWD: cwd, Options: req.Options,
 	}, orchestrator.ResolveOptions{MaxIterations: req.MaxIterations, Deadline: req.Deadline})
 	if !ok {
-		return nil, &APIError{Message: "a turn is already running for this chat", Status: http.StatusConflict, Op: "Resolve"}
+		return nil, &APIError{Message: c.core.sup.StartConflict(ag), Status: http.StatusConflict, Op: "Resolve"}
 	}
 	c.core.track(run.ID)
 	return &Run{core: c.core, data: run}, nil

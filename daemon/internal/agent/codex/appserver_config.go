@@ -81,7 +81,8 @@ func mcpConfigValues(servers map[string]codexMCPServer) map[string]any {
 		fields := map[string]any{}
 		for key, value := range map[string]string{
 			"command": server.Command, "cwd": server.Cwd, "url": server.URL,
-			"bearer_token_env_var": server.BearerTokenEnvVar,
+			"bearer_token_env_var":        server.BearerTokenEnvVar,
+			"default_tools_approval_mode": server.DefaultToolsApprovalMode,
 		} {
 			if value != "" {
 				fields[key] = value

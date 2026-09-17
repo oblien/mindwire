@@ -51,9 +51,10 @@ func TestCodexMCPModule(t *testing.T) {
 		t.Fatalf("Set(local): %v", err)
 	}
 	http := agent.MCPServer{
-		URL:               "https://mcp.example.com",
-		BearerTokenEnvVar: "EXAMPLE_TOKEN",
-		HTTPHeaders:       map[string]string{"X-Trace": "on"},
+		URL:                      "https://mcp.example.com",
+		BearerTokenEnvVar:        "EXAMPLE_TOKEN",
+		HTTPHeaders:              map[string]string{"X-Trace": "on"},
+		DefaultToolsApprovalMode: "writes",
 	}
 	if err := a.SetMCPServer(agent.MemoryUser, "", "remote", http); err != nil {
 		t.Fatalf("Set(remote): %v", err)
