@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/session"
 )
 
@@ -23,7 +24,7 @@ func (s *Supervisor) SetInteractionContext(provider InteractionContext) {
 	s.mu.Unlock()
 }
 
-func (s *Supervisor) respondMessageQuestion(runID string, reply agent.InteractionResponse) error {
+func (s *Supervisor) respondMessageQuestion(runID string, reply agent.InteractionResponse, gitAuth *gitaccess.Auth) error {
 	key := runID + "\x1f" + reply.InteractionID
 	s.mu.Lock()
 	q, ok := s.store.MessageQuestion(runID, reply.InteractionID)
@@ -81,7 +82,7 @@ func (s *Supervisor) respondMessageQuestion(runID string, reply agent.Interactio
 		closed := s.runClosed[latest.ID]
 		if !busy {
 			s.mu.Unlock()
-			_, err := s.startChecked(a, StartTurnInput{ChatID: q.ChatID, Message: text, CWD: cwd, reply: &ref}, false)
+			_, err := s.startChecked(a, StartTurnInput{ChatID: q.ChatID, Message: text, CWD: cwd, reply: &ref, GitAuth: gitAuth}, false)
 			return err
 		}
 		if latest.Agent != source.Agent || closed == nil {

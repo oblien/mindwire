@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/proc"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // server.go is opencode's transport — the analogue of codex/appserver.go, adapted from
@@ -63,12 +63,12 @@ func (s server) Run(ctx context.Context, in agent.TurnInput, emit agent.Emit) (a
 	defer cancel()
 
 	cmdline := fmt.Sprintf("opencode serve --hostname 127.0.0.1 --port %d", port)
-	cmd := exec.CommandContext(runCtx, "bash", "-lc", cmdline)
+	cmd := exec.CommandContext(runCtx, "bash", "-lc", toolchain.Shell(cmdline))
 	proc.Group(cmd) // whole-tree SIGKILL on cancel
 	if s.cwd != "" {
 		cmd.Dir = s.cwd
 	}
-	cmd.Env = os.Environ()
+	cmd.Env = toolchain.Environment()
 	for k, v := range s.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

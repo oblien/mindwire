@@ -3,6 +3,8 @@ package mindwire
 import (
 	"context"
 	"net/http"
+
+	"github.com/oblien/mindwire/daemon/internal/agent"
 )
 
 // Auth is the step-flow authentication sub-API, reachable as Client.Auth. It drives the same generic
@@ -50,6 +52,16 @@ func (a *Auth) Step(ctx context.Context, input map[string]string, opts ...Scoped
 		return AuthState{}, &APIError{Message: serr.Error(), Status: http.StatusBadRequest, Op: "Auth.Step", Cause: serr}
 	}
 	return st, nil
+}
+
+// Poll reads one interactive attempt without accepting a newer attempt's state.
+func (a *Auth) Poll(ctx context.Context, flowID string, opts ...ScopedOption) (AuthState, error) {
+	return a.Step(ctx, map[string]string{agent.AuthFlowIDKey: flowID}, opts...)
+}
+
+// Cancel stops the native login represented by AuthState.FlowID.
+func (a *Auth) Cancel(ctx context.Context, flowID string, opts ...ScopedOption) (AuthState, error) {
+	return a.Step(ctx, map[string]string{agent.AuthFlowIDKey: flowID, agent.AuthActionKey: "cancel"}, opts...)
 }
 
 // Status reports the scoped agent's resting auth state: whether it's configured, and via which method.

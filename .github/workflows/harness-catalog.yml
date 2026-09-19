@@ -1,0 +1,31 @@
+name: Harness compatibility catalog
+
+on:
+  pull_request:
+    paths:
+      - 'daemon/internal/toolchain/**'
+      - 'daemon/internal/agent/**'
+      - 'daemon/cmd/daemon/toolchains_test.go'
+      - '.github/workflows/harness-catalog.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'daemon/internal/toolchain/catalog.json'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: daemon/go.mod
+      - name: Validate policy, managed installation and adapter contracts
+        working-directory: daemon
+        run: go test -race ./internal/toolchain ./internal/setup ./internal/agent/... ./cmd/daemon
+      - name: Verify the runtime image has an approved version for every CLI
+        working-directory: daemon
+        run: go run ./cmd/daemon --print-toolchains

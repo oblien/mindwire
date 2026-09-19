@@ -16,13 +16,13 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/proc"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // Driver runs one turn to unified events, however the agent is best driven.
@@ -45,12 +45,12 @@ type CLI struct {
 var _ Driver = CLI{}
 
 func (c CLI) Run(ctx context.Context, _ agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
-	cmd := exec.CommandContext(ctx, "bash", "-lc", c.Command)
+	cmd := exec.CommandContext(ctx, "bash", "-lc", toolchain.Shell(c.Command))
 	// Cancel/timeout must kill the whole tree — bash spawns the real agent (node/claude/codex);
 	// killing only bash would leave it running, burning budget and mutating the workspace.
 	proc.Group(cmd)
 	// Auth/env goes through the process environment, not the shell string — no quoting, no injection.
-	cmd.Env = os.Environ()
+	cmd.Env = toolchain.Environment()
 	for k, v := range c.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -100,9 +100,9 @@ type Persistent struct {
 var _ Driver = Persistent{}
 
 func (p Persistent) Run(ctx context.Context, _ agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
-	cmd := exec.CommandContext(ctx, "bash", "-lc", p.Command)
+	cmd := exec.CommandContext(ctx, "bash", "-lc", toolchain.Shell(p.Command))
 	proc.Group(cmd) // kill the whole tree on cancel/interrupt, not just the bash parent
-	cmd.Env = os.Environ()
+	cmd.Env = toolchain.Environment()
 	for k, v := range p.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

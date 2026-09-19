@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 )
@@ -23,12 +25,7 @@ const maxDuration = 60 * time.Minute
 
 // Auth is write-only, held in memory for an attempt. It is never part of a
 // snapshot, operation record, command argument, or the repository's origin URL.
-type Auth struct {
-	Kind       string `json:"kind,omitempty"`
-	Username   string `json:"username,omitempty"`
-	Token      string `json:"token,omitempty"`
-	PrivateKey string `json:"privateKey,omitempty"`
-}
+type Auth = gitaccess.Auth
 
 type Request struct {
 	registry.ProjectSpec
@@ -52,11 +49,18 @@ type Service struct {
 	pulseMu sync.Mutex
 	pulse   chan struct{}
 	// Test seam at the process boundary; production always uses gitClone.
-	clone func(context.Context, registry.ProjectOperation, Auth, string, func(string)) error
+	clone     func(context.Context, registry.ProjectOperation, Auth, string, func(string)) error
+	gitAccess *gitaccess.Service
 }
 
-func New(store *registry.Store, runs RunGuard) (*Service, error) {
+func New(store *registry.Store, runs RunGuard, access ...*gitaccess.Service) (*Service, error) {
 	s := &Service{store: store, runs: runs, active: map[string]context.CancelFunc{}, pulse: make(chan struct{}), clone: gitClone}
+	if len(access) > 0 {
+		s.gitAccess = access[0]
+	}
+	if s.gitAccess != nil {
+		s.clone = s.authenticatedClone
+	}
 	if err := s.recover(); err != nil {
 		s.Close()
 		return nil, err
@@ -97,6 +101,9 @@ func (s *Service) List(activeOnly bool) ([]registry.ProjectOperation, error) {
 }
 
 func (s *Service) Start(req Request) (registry.ProjectOperation, error) {
+	if req.GitConnection != nil && s.gitAccess == nil {
+		return registry.ProjectOperation{}, invalid("managed GitHub connections require the daemon HTTP API")
+	}
 	spec, err := normalize(req)
 	if err != nil {
 		return registry.ProjectOperation{}, err
@@ -111,6 +118,17 @@ func (s *Service) Start(req Request) (registry.ProjectOperation, error) {
 		return o, err
 	}
 	if start {
+		if spec.GitConnection != nil && s.gitAccess != nil {
+			var auth *Auth
+			if req.Auth != (Auth{}) {
+				auth = &req.Auth
+			}
+			if err := s.gitAccess.Save(*spec.GitConnection, auth); err != nil {
+				o, _ = s.store.ChangeProjectOperation(o.ID, func(v *registry.ProjectOperation) error { v.Status = "failed"; v.Error = err.Error(); return nil })
+				s.notify()
+				return o, err
+			}
+		}
 		s.launch(o, req.Auth)
 	}
 	s.notify()
@@ -147,6 +165,11 @@ func (s *Service) Retry(id string, auth Auth) (registry.ProjectOperation, error)
 		return o, err
 	}
 	if auth.Kind == "" {
+		if o.Source == "clone" && o.GitConnection != nil && s.gitAccess != nil {
+			if resolved, resolveErr := s.gitAccess.Resolve(o.GitConnection, nil); resolveErr == nil {
+				auth = resolved
+			}
+		}
 		auth.Kind = o.AuthKind
 	}
 	if auth.Kind != o.AuthKind {
@@ -155,6 +178,9 @@ func (s *Service) Retry(id string, auth Auth) (registry.ProjectOperation, error)
 	// A failure after publishing the owned directory can be completed without
 	// cloning again. Never delete a destination merely because a retry was requested.
 	if markerMatches(o.Path, o) {
+		if err := s.configureGit(context.Background(), o); err != nil {
+			return o, err
+		}
 		o, err = s.store.ChangeProjectOperation(id, func(v *registry.ProjectOperation) error {
 			v.Status = "running"
 			v.Phase = "registering"
@@ -177,6 +203,18 @@ func (s *Service) Retry(id string, auth Auth) (registry.ProjectOperation, error)
 	}
 	if err := validateAuth(o.RepoURL, auth); err != nil {
 		return o, err
+	}
+	if o.GitConnection != nil && s.gitAccess != nil {
+		var supplied *Auth
+		if o.Source == "clone" {
+			if err := auth.Validate(*o.GitConnection); err != nil {
+				return o, err
+			}
+			supplied = &auth
+		}
+		if err := s.gitAccess.Save(*o.GitConnection, supplied); err != nil {
+			return o, err
+		}
 	}
 	o, err = s.store.RetryProject(id)
 	if err != nil {
@@ -221,6 +259,9 @@ func (s *Service) Save(id string, data []byte, expected *int64) error {
 	if err := json.Unmarshal(data, &p); err != nil {
 		return invalid("invalid project")
 	}
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(data, &fields)
+	_, connectionSupplied := fields["gitConnection"]
 	path, err := workspacepath.Canonical(p.Path)
 	if err != nil {
 		return invalid(err.Error())
@@ -230,6 +271,9 @@ func (s *Service) Save(id string, data []byte, expected *int64) error {
 		oldPath, pathErr := workspacepath.Canonical(previous.Path)
 		if pathErr != nil || oldPath != path {
 			return invalid("a project's directory cannot change through a metadata edit")
+		}
+		if !connectionSupplied {
+			p.GitConnection = previous.GitConnection
 		}
 	} else if errors.Is(err, registry.ErrNotFound) {
 		if err = directory(path); err != nil {
@@ -248,7 +292,52 @@ func (s *Service) Save(id string, data []byte, expected *int64) error {
 	if err != nil {
 		return err
 	}
-	return s.store.Put("projects", id, data, expected)
+	if connectionSupplied && p.GitConnection == nil {
+		// Preserve an explicit reset through the canonicalization above. An
+		// omitted field from an older client must still preserve its binding.
+		_ = json.Unmarshal(data, &fields)
+		fields["gitConnection"] = json.RawMessage("null")
+		data, _ = json.Marshal(fields)
+	}
+	changed := previous == nil || !reflect.DeepEqual(previous.GitConnection, p.GitConnection)
+	if !changed || s.gitAccess == nil {
+		if changed && p.GitConnection != nil && s.gitAccess == nil {
+			return invalid("managed GitHub connections require the daemon HTTP API")
+		}
+		return s.store.Put("projects", id, data, expected)
+	}
+	if previous != nil && (expected == nil || *expected != previous.Revision) {
+		return registry.ErrConflict
+	}
+	if s.runs != nil && s.runs.BusyPath(path) {
+		return registry.ErrConflict
+	}
+	if p.GitConnection != nil {
+		if err := s.gitAccess.Save(*p.GitConnection, nil); err != nil {
+			return err
+		}
+	}
+	ctx := context.Background()
+	repo, err := gitaccess.RemoteURL(ctx, path, false)
+	if err != nil {
+		return err
+	}
+	if repo != "" {
+		if err := s.gitAccess.ConfigureRepository(ctx, path, repo, s.gitAccess.EffectiveConnection(p.GitConnection, repo)); err != nil {
+			return err
+		}
+	}
+	if err := s.store.Put("projects", id, data, expected); err != nil {
+		var old *gitaccess.Connection
+		if previous != nil {
+			old = previous.GitConnection
+		}
+		if repo != "" {
+			_ = s.gitAccess.ConfigureRepository(ctx, path, repo, s.gitAccess.EffectiveConnection(old, repo))
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Service) Remove(id string, expected *int64) error {
@@ -292,6 +381,19 @@ func normalize(req Request) (registry.ProjectSpec, error) {
 		return spec, invalid("creation does not use an expected revision")
 	}
 	spec.AuthKind = req.Auth.Kind
+	if spec.GitConnection != nil {
+		if err := spec.GitConnection.Validate(); err != nil {
+			return spec, invalid(err.Error())
+		}
+		if spec.Source == "clone" && spec.GitConnection.Mode != "native" {
+			if _, err := gitaccess.Repository(spec.RepoURL); err != nil {
+				return spec, invalid(err.Error())
+			}
+			if err := req.Auth.Validate(*spec.GitConnection); err != nil {
+				return spec, invalid(err.Error())
+			}
+		}
+	}
 	if spec.Source == "clone" {
 		if err = validateRepo(spec.RepoURL); err != nil {
 			return spec, err
@@ -401,6 +503,9 @@ func (s *Service) run(ctx context.Context, o registry.ProjectOperation, auth Aut
 		if err := directory(o.Path); err != nil {
 			return err
 		}
+		if err := s.configureGit(ctx, o); err != nil {
+			return err
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if err := ctx.Err(); err != nil {
@@ -487,12 +592,26 @@ func (s *Service) run(ctx context.Context, o registry.ProjectOperation, auth Aut
 	if err = publish(repo, o); err != nil {
 		return err
 	}
+	if err = s.configureGit(ctx, o); err != nil {
+		return err
+	}
 	if _, err = s.store.CompleteProject(o.ID); err != nil {
 		return err
 	}
 	removeMarker(o.Path, o)
 	_ = cleanupStage(o)
 	return nil
+}
+
+func (s *Service) configureGit(ctx context.Context, o registry.ProjectOperation) error {
+	if s.gitAccess == nil {
+		return nil
+	}
+	repo, err := gitaccess.RemoteURL(ctx, o.Path, false)
+	if err != nil || repo == "" {
+		return err
+	}
+	return s.gitAccess.ConfigureRepository(ctx, o.Path, repo, s.gitAccess.EffectiveConnection(o.GitConnection, repo))
 }
 
 func operationHash(o registry.ProjectOperation) string {
@@ -602,7 +721,11 @@ func (s *Service) recover() error {
 				err = publish(filepath.Join(stagePath(o), "project"), o)
 			}
 			if markerMatches(o.Path, o) {
-				if _, err = s.store.CompleteProject(o.ID); err == nil {
+				err = s.configureGit(context.Background(), o)
+				if err == nil {
+					_, err = s.store.CompleteProject(o.ID)
+				}
+				if err == nil {
 					removeMarker(o.Path, o)
 					_ = cleanupStage(o)
 					continue

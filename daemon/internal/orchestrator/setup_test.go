@@ -13,13 +13,38 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/session"
+	"github.com/oblien/mindwire/daemon/internal/setup"
 	"github.com/oblien/mindwire/daemon/internal/stream"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 type setupAdapter struct {
 	fakeAdapter
 	steps    []agent.Step
 	turnGate chan struct{}
+}
+
+type managedSetupAdapter struct{ setupAdapter }
+
+func (f *managedSetupAdapter) Toolchain() toolchain.Spec {
+	return toolchain.Spec{ID: f.ID(), Name: "Managed CLI", Binary: "mindwire-test-cli", VersionArgs: []string{"--version"}}
+}
+
+func TestManagedSetupPreservesDeclaredDependenciesAndOtherSteps(t *testing.T) {
+	base, _, _ := newSetupSup(t, nil)
+	fake := &managedSetupAdapter{setupAdapter: setupAdapter{fakeAdapter: fakeAdapter{id: "managed-dependencies"}, steps: []agent.Step{
+		{Name: "sandbox dependency", Check: "false"},
+		{Name: "Managed CLI", Requires: []string{"sandbox dependency"}},
+	}}}
+	plan, err := base.setupPlan(&Agent{Adapter: fake}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := setup.Run(context.Background(), plan, false, nil, nil)
+	last := results[len(results)-1]
+	if last.Name != "sandbox dependency" || last.Status != "failed" {
+		t.Fatalf("managed installation bypassed a failed prerequisite: %+v", results)
+	}
 }
 
 func (f *setupAdapter) InstallSteps() []agent.Step { return f.steps }

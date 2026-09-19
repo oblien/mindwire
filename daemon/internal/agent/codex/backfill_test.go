@@ -286,8 +286,11 @@ func TestRunStreamMaterializeError(t *testing.T) {
 // declares every credential method with its input fields.
 func TestAuthBeginAndMethods(t *testing.T) {
 	m := newAuth(mapStore{})
-	if len(m.Methods()) != 3 {
-		t.Fatalf("Methods = %d, want 3 (apiKey + accessToken + azureFoundry)", len(m.Methods()))
+	if len(m.Methods()) != 4 {
+		t.Fatalf("Methods = %d, want login + apiKey + accessToken + azureFoundry", len(m.Methods()))
+	}
+	if first := m.Methods()[0]; first.ID != "login" || !first.Interactive || first.Label != "Continue with ChatGPT" {
+		t.Fatalf("subscription sign-in must be first: %+v", first)
 	}
 	for _, id := range []string{"apiKey", "accessToken", "azureFoundry"} {
 		st, err := m.Begin(context.Background(), id)

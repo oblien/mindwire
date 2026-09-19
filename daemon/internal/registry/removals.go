@@ -22,6 +22,9 @@ func checkProjectRemoval(q queryer, data []byte) error {
 }
 
 func checkRemovalAtPath(q queryer, path string) error {
+	if err := checkGitAtPath(q, path); err != nil {
+		return err
+	}
 	o, err := conflictingOperation(q, path, false, "")
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return err
@@ -65,6 +68,9 @@ func removalTarget(tx *sql.Tx, o ProjectOperation) error {
 }
 
 func removalReservation(tx *sql.Tx, o ProjectOperation) error {
+	if err := checkGitAtPath(tx, o.Path); err != nil {
+		return err
+	}
 	if _, err := conflictingOperation(tx, o.Path, true, o.ID); err == nil {
 		return fmt.Errorf("%w: another project operation uses this directory", ErrConflict)
 	} else if !errors.Is(err, ErrNotFound) {

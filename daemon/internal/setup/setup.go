@@ -1,6 +1,6 @@
 // Package setup runs an agent's install toolchain inside the sandbox. The daemon
-// owns this — the app just asks it to ensure/update the agent; new agents or CLI
-// versions ship with the daemon binary, not an app release.
+// owns this — the app just asks it to ensure/update the agent. Adapter changes ship
+// with the daemon; compatible CLI releases can also be approved through its catalog.
 //
 // Toolchain steps form a small dependency graph. A shared catalog holds reusable,
 // cross-stack tools (git, node, …) that any agent references by name via Step.Requires;
@@ -37,8 +37,9 @@ var baseRequirements = []string{"git"}
 // when a tool is already present (the common case on a real dev image).
 func catalog() map[string]agent.Step {
 	return map[string]agent.Step{
-		"git":  {Name: "git", Check: "git --version", Install: gitInstall},
-		"node": {Name: "node", Check: "node --version", Install: nodeInstall},
+		"git":        {Name: "git", Check: "git --version", Install: gitInstall},
+		"node":       {Name: "node", Check: "node --version", Install: nodeInstall},
+		"bubblewrap": {Name: "bubblewrap", Check: bubblewrapCheck, Install: bubblewrapInstall},
 	}
 }
 
@@ -171,16 +172,19 @@ func runStep(ctx context.Context, s agent.Step, force bool, mutation chan struct
 	check := func() (string, error) {
 		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
+		if s.CheckFunc != nil {
+			return s.CheckFunc(checkCtx)
+		}
 		return command(checkCtx, s.Check)
 	}
 	// Check-only step (no installer): the Check IS the step. Verify it — even under force there's
 	// nothing to reinstall — and report satisfied/failed. (This is why force must not treat an
 	// empty Install as a failure.)
-	if s.Install == "" {
+	if s.Install == "" && s.InstallFunc == nil {
 		if err := ctx.Err(); err != nil {
 			return fail("", err)
 		}
-		if s.Check == "" {
+		if s.Check == "" && s.CheckFunc == nil {
 			return StepResult{Name: s.Name, Status: "satisfied"}
 		}
 		out, err := check()
@@ -190,7 +194,7 @@ func runStep(ctx context.Context, s agent.Step, force bool, mutation chan struct
 		return StepResult{Name: s.Name, Status: "satisfied"}
 	}
 	// Installable step: unless forced, a passing Check short-circuits (idempotent ensure).
-	if !force && s.Check != "" {
+	if !force && (s.Check != "" || s.CheckFunc != nil) {
 		if _, err := check(); err == nil {
 			return StepResult{Name: s.Name, Status: "satisfied"}
 		}
@@ -203,18 +207,24 @@ func runStep(ctx context.Context, s agent.Step, force bool, mutation chan struct
 		case <-ctx.Done():
 			return fail("", ctx.Err())
 		}
-		if !force && s.Check != "" {
+		if !force && (s.Check != "" || s.CheckFunc != nil) {
 			if _, err := check(); err == nil {
 				return StepResult{Name: s.Name, Status: "satisfied"}
 			}
 		}
 	}
 	progress("installing")
-	out, err := command(ctx, s.Install)
+	var out string
+	var err error
+	if s.InstallFunc != nil {
+		out, err = s.InstallFunc(ctx)
+	} else {
+		out, err = command(ctx, s.Install)
+	}
 	if err != nil {
 		return fail(out, err)
 	}
-	if s.Check != "" {
+	if s.Check != "" || s.CheckFunc != nil {
 		progress("verifying")
 		out, err := check()
 		if err != nil {
@@ -262,4 +272,21 @@ elif command -v apk >/dev/null 2>&1; then $SUDO apk add --no-cache nodejs npm
 elif command -v pacman >/dev/null 2>&1; then $SUDO pacman -Sy --noconfirm nodejs npm
 elif command -v brew >/dev/null 2>&1; then brew install node
 else echo "no supported package manager to install node"; exit 1
+fi`
+
+// Use distribution packages so bwrap has the host's supported permissions/profile. Never
+// disable Codex's sandbox or change system-wide user-namespace/AppArmor policy to hide a warning.
+const bubblewrapCheck = `if [ "$(uname -s)" != "Linux" ]; then exit 0; fi
+bwrap --version`
+
+const bubblewrapInstall = `if [ "$(uname -s)" != "Linux" ]; then exit 0; fi
+if bwrap --version >/dev/null 2>&1; then exit 0; fi
+SUDO=""; if [ "$(id -u)" != "0" ] && command -v sudo >/dev/null 2>&1; then SUDO="sudo -n"; fi
+if command -v apt-get >/dev/null 2>&1; then $SUDO apt-get update -y && $SUDO apt-get install -y bubblewrap
+elif command -v dnf >/dev/null 2>&1; then $SUDO dnf install -y bubblewrap
+elif command -v yum >/dev/null 2>&1; then $SUDO yum install -y bubblewrap
+elif command -v apk >/dev/null 2>&1; then $SUDO apk add --no-cache bubblewrap
+elif command -v pacman >/dev/null 2>&1; then $SUDO pacman -Sy --noconfirm bubblewrap
+elif command -v zypper >/dev/null 2>&1; then $SUDO zypper --non-interactive install bubblewrap
+else echo "Install the bubblewrap package in this Linux workspace, then retry setup. No supported package manager was found."; exit 1
 fi`

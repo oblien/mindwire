@@ -106,7 +106,7 @@ export class Run {
    * after completion; the daemon steers or resumes the conversation. Read the chat's latest
    * run after replying to a completed run. Requires the agent's `respond` capability.
    */
-  async respond(input: RespondInput = {}): Promise<void> {
+  async respond(input: RespondInput & { gitAuth?: import("./workspace.js").ProjectAuth } = {}): Promise<void> {
     await this.http.request<void>("POST", `/runs/${encodeURIComponent(this.id)}/respond`, { body: input });
   }
 

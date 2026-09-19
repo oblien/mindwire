@@ -595,9 +595,8 @@ func TestUnknownAgent(t *testing.T) {
 	}
 }
 
-// TestSDKRouteParity asserts every HTTP route the daemon serves has a corresponding SDK method (and no
-// coverage entry is stale) — the Go analogue of the OpenAPI parity test, so the SDK surface can't
-// silently drift from the wire surface.
+// TestSDKRouteParity accounts for every HTTP route through a Go method or an
+// explicit transport-only exception. Entries may not silently disappear or drift.
 func TestSDKRouteParity(t *testing.T) {
 	dir := t.TempDir()
 	store, err := session.Open(filepath.Join(dir, "s.json"))
@@ -610,6 +609,21 @@ func TestSDKRouteParity(t *testing.T) {
 	// Each HTTP route → the SDK method covering it. A new route with no entry (or an entry naming a
 	// route that no longer exists) fails the test.
 	coverage := map[string]string{
+		// Managed Git invokes the daemon executable as its credential helper. An
+		// arbitrary program embedding this library cannot handle those invocations;
+		// the HTTP/TypeScript API covers it. See GIT_ACCESS.md for this boundary.
+		"GET /workspace/git":                            "HTTP/TypeScript: workspace.git.state; daemon helper required",
+		"PUT /workspace/git":                            "HTTP/TypeScript: workspace.git.setDefault; daemon helper required",
+		"DELETE /workspace/git/connections/{id}":        "HTTP/TypeScript: workspace.git.forget; daemon helper required",
+		"GET /workspace/projects/{id}/git":              "HTTP/TypeScript: workspace.git.project; daemon helper required",
+		"PUT /workspace/projects/{id}/git":              "HTTP/TypeScript: workspace.git.setProject; daemon helper required",
+		"POST /workspace/projects/{id}/git/{operation}": "HTTP/TypeScript: workspace.git.run; daemon helper required",
+		"POST /workspace/projects/{id}/git/operations":  "HTTP/TypeScript: workspace.git.start; daemon Git service required",
+		"GET /workspace/projects/{id}/git/operations":   "HTTP/TypeScript: workspace.git.operations; daemon Git service required",
+		"GET /workspace/git/operations/{id}":            "HTTP/TypeScript: workspace.git.operation; daemon Git service required",
+		"POST /workspace/git/operations/{id}/cancel":    "HTTP/TypeScript: workspace.git.cancel; daemon Git service required",
+		"GET /workspace/git/operations/{id}/stream":     "HTTP/TypeScript: workspace.git.watch; daemon Git service required",
+		"GET /agent/software":                           "Client.Software",
 		"POST /turns":                                   "Client.Turn",
 		"GET /runs/{id}":                                "Client.Run",
 		"GET /runs/{id}/snapshot":                       "Run.Snapshot",

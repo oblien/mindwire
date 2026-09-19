@@ -34,6 +34,10 @@ curl -s -H "Authorization: Bearer $DAEMON_TOKEN" http://127.0.0.1:8790/healthz
 
 ## Setup and update status
 
+Harness installs and updates use exact versions approved by the daemon's compatibility catalog.
+See [HARNESSES.md](./HARNESSES.md) for independent catalog publication, supported daemon ranges,
+cached fallback, managed executable selection, and the app/SDK contract.
+
 `POST /setup?agent=<type>` and `POST /update?agent=<type>` share one background job per harness.
 Concurrent requests attach to that job, even across clients; disconnecting does not cancel it.
 Poll `GET /setup?agent=<type>` for `running`, `current`, `steps`, `ok`, and `operation` (`setup` or
@@ -51,5 +55,7 @@ lifecycle, the HTTP surface, and how to add an adapter — is documented once, o
   protocol, HTTP endpoints, and turn lifecycle.
 - **[NOTIFICATIONS.md](./NOTIFICATIONS.md)** — the provider-agnostic notification webhook contract.
 - **[INTERACTIONS.md](./INTERACTIONS.md)** — shared question forms, command approvals, permission settings and client lifecycle.
+- **[AUTHENTICATION.md](./AUTHENTICATION.md)** — native subscription sign-in, device codes, browser code handoff, and shared auth lifecycle.
 - **[WORKSPACES.md](./WORKSPACES.md)** — workspace ownership, project operations, registry API, cache migration, deletion and sync.
+- **[GIT_ACCESS.md](./GIT_ACCESS.md)** — independent GitHub connections, operation/run credentials, saved workspace access, and Git endpoints.
 - **[DESKTOP.md](./DESKTOP.md)** — shared desktop control protocol, native VNC transports, SDKs and verification.

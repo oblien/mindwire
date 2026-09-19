@@ -4,6 +4,8 @@ import (
 	"context"
 	"os/exec"
 	"strings"
+
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // Check is one diagnostic result. The daemon's doctor aggregates generic daemon-level
@@ -23,13 +25,13 @@ const (
 
 // CLIDoctor is the health check shared by every npm-distributed CLI adapter: is the CLI installed
 // (and which version, via versionCmd), and is Node present (needed to install/update it via the
-// toolchain). name is the CLI's display label ("Claude CLI"); npmPkg is the global package the setup
-// hint names. Adapters whose Doctor differs beyond these two checks append their own.
-func CLIDoctor(ctx context.Context, name, versionCmd, npmPkg string) []Check {
+// toolchain). Installation hints use the daemon's tested policy, never an unversioned npm command.
+// Adapters whose Doctor differs beyond these two checks append their own.
+func CLIDoctor(ctx context.Context, name, versionCmd, _ string) []Check {
 	checks := []Check{}
-	if out, err := exec.CommandContext(ctx, "bash", "-lc", versionCmd).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(ctx, "bash", "-lc", toolchain.Shell(versionCmd)).CombinedOutput(); err != nil {
 		checks = append(checks, Check{Name: name, Status: CheckFail,
-			Detail: "not installed — run setup (npm i -g " + npmPkg + ")"})
+			Detail: "not installed — run Mindwire setup to install a supported version"})
 	} else {
 		checks = append(checks, Check{Name: name, Status: CheckOK, Detail: strings.TrimSpace(string(out))})
 	}

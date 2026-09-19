@@ -31,6 +31,9 @@ func newAppServer(in agent.TurnInput, files materialized) appServer {
 	}
 	if a.provider != "" {
 		a.command += " -c " + agent.ShellQuote("model_provider="+a.provider)
+		if a.provider == "openai" {
+			a.command = "(" + subscriptionShell + a.command + ")"
+		}
 	} else if keyName := apiKeyEnv(in.Env); keyName != "" {
 		// CODEX_API_KEY is exec-only. Give app-server the same key through a transient provider
 		// env reference, without logging in or replacing the user's native auth/config files.

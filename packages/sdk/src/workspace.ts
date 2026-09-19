@@ -1,11 +1,59 @@
 import type { Mindwire } from "./client.js";
 import { readSSE } from "./sse.js";
 
-/** Write-only credentials for one clone attempt. Never persisted in operation snapshots. */
-export type ProjectAuth =
+/** Write-only credentials. Never persisted in operation snapshots or conversation state. */
+export type ProjectAuth = (
   | { kind: "token"; token: string; username?: string }
   | { kind: "ssh"; privateKey: string }
-  | { kind: "gh" };
+  | { kind: "gh" }
+) & { connectionId?: string; expiresAt?: string; readOnly?: boolean };
+
+export interface GitConnection {
+  id: string;
+  login: string;
+  mode: "token" | "oblienApp" | "sshKey" | "ghCli" | "native";
+  lifetime: "run" | "workspace";
+}
+
+export interface GitAccessState {
+  default?: GitConnection;
+  storedConnectionIds: string[];
+  storedConnections: GitConnection[];
+  activeOperations: number;
+}
+
+export interface ProjectGitState {
+  connection?: GitConnection;
+  inherited: boolean;
+  stored: boolean;
+  repoUrl?: string;
+}
+
+export type GitAction = "stage" | "unstage" | "discard" | "commit" | "fetch" | "pull" | "push";
+
+export interface GitOperationRequest {
+  /** Stable ID. Reuse this exact intent after a lost acknowledgement. */
+  id: string;
+  action: GitAction;
+  /** Literal repository-relative paths, required for stage/unstage/discard. */
+  paths?: string[];
+  /** Required for commit. Git uses the server's configured author identity. */
+  message?: string;
+  /** Write-only, for network operations only. Never part of an operation snapshot. */
+  auth?: ProjectAuth;
+}
+
+export interface GitOperation extends Omit<GitOperationRequest, "auth"> {
+  projectId: string;
+  /** Canonical repository root resolved by the daemon. */
+  path: string;
+  status: "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
+  output?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+  sequence: number;
+}
 
 export interface ProjectRequest {
   /** Stable idempotency key. Keep the same ID if the acknowledgement is lost. */
@@ -17,6 +65,7 @@ export interface ProjectRequest {
   repoUrl?: string;
   branch?: string;
   auth?: ProjectAuth;
+  gitConnection?: GitConnection;
 }
 
 export interface ProjectRemoveRequest {
@@ -104,6 +153,8 @@ export interface WorkspaceProject extends WorkspaceRecord {
   name: string;
   path: string;
   repoUrl?: string;
+  /** Omit on edits to preserve; explicitly null restores the workspace default. */
+  gitConnection?: GitConnection | null;
 }
 
 /** Chat membership; transcript content continues to come from /chats/:id/messages. */
@@ -163,12 +214,14 @@ export class WorkspaceCollection<T extends WorkspaceRecord> {
 
 /** Workspace metadata is shared by all harnesses; withAgent() never scopes these requests. */
 export class WorkspaceApi {
+  readonly git: GitAccessApi;
   readonly operations: ProjectOperationsApi;
   readonly agents: WorkspaceCollection<WorkspaceAgent>;
   readonly projects: WorkspaceCollection<WorkspaceProject>;
   readonly chats: WorkspaceCollection<WorkspaceChat>;
 
   constructor(private readonly mw: Mindwire) {
+    this.git = new GitAccessApi(mw);
     this.operations = new ProjectOperationsApi(mw);
     this.agents = new WorkspaceCollection(mw, "agents");
     this.projects = new WorkspaceCollection(mw, "projects");
@@ -199,5 +252,68 @@ export class WorkspaceApi {
   /** Import legacy metadata before replacing a local cache. Safe to repeat after interruption. */
   import(records: WorkspaceImport): Promise<WorkspaceSnapshot> {
     return this.mw.http.request("POST", "/workspace/import", { body: records });
+  }
+}
+
+/** Account preferences and authenticated Git on the daemon hosting each repository. */
+export class GitAccessApi {
+  constructor(private readonly mw: Mindwire) {}
+  state(): Promise<GitAccessState> {
+    return this.mw.http.request("GET", "/workspace/git");
+  }
+  setDefault(connection: GitConnection | null, auth?: ProjectAuth): Promise<GitAccessState> {
+    return this.mw.http.request("PUT", "/workspace/git", { body: { connection, auth } });
+  }
+  forget(connectionId: string): Promise<GitAccessState> {
+    return this.mw.http.request("DELETE", `/workspace/git/connections/${encodeURIComponent(connectionId)}`);
+  }
+  project(projectId: string): Promise<ProjectGitState> {
+    return this.mw.http.request("GET", `/workspace/projects/${encodeURIComponent(projectId)}/git`);
+  }
+  setProject(projectId: string, connection: GitConnection | null, expectedRevision: number, auth?: ProjectAuth): Promise<WorkspaceSnapshot> {
+    return this.mw.http.request("PUT", `/workspace/projects/${encodeURIComponent(projectId)}/git`, {
+      body: { connection, expectedRevision, auth },
+    });
+  }
+  /** Compatibility call. Prefer start() and operation()/watch() for reconnectable writes. */
+  run(projectId: string, operation: "fetch" | "pull" | "push", auth?: ProjectAuth): Promise<{ output: string }> {
+    return this.mw.http.request("POST", `/workspace/projects/${encodeURIComponent(projectId)}/git/${operation}`, { body: { auth } });
+  }
+
+  /** Requires health.gitOperationsVersion >= 1. Acceptance persists before Git runs;
+   * disconnecting only detaches the client. The same ID/intent never runs twice.
+   */
+  start(projectId: string, request: GitOperationRequest): Promise<GitOperation> {
+    return this.mw.http.request("POST", `/workspace/projects/${encodeURIComponent(projectId)}/git/operations`, { body: request });
+  }
+  async operations(projectId: string, activeOnly = false): Promise<GitOperation[]> {
+    const result = await this.mw.http.request<{ operations: GitOperation[] }>("GET",
+      `/workspace/projects/${encodeURIComponent(projectId)}/git/operations`, { query: { active: activeOnly } });
+    return result.operations;
+  }
+  operation(id: string): Promise<GitOperation> {
+    return this.mw.http.request("GET", `/workspace/git/operations/${encodeURIComponent(id)}`);
+  }
+  cancel(id: string): Promise<GitOperation> {
+    return this.mw.http.request("POST", `/workspace/git/operations/${encodeURIComponent(id)}/cancel`);
+  }
+  /** Current snapshot followed by state changes. Aborting observation never cancels the operation. */
+  async *watch(id: string, opts: { signal?: AbortSignal } = {}): AsyncGenerator<GitOperation> {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    opts.signal?.addEventListener("abort", abort, { once: true });
+    if (opts.signal?.aborted) controller.abort();
+    try {
+      const response = await this.mw.http.open("GET", `/workspace/git/operations/${encodeURIComponent(id)}/stream`, {
+        signal: controller.signal,
+      });
+      let sequence = -1;
+      for await (const operation of readSSE<GitOperation>(response.body!, controller.signal)) {
+        if (operation.sequence > sequence) { sequence = operation.sequence; yield operation; }
+      }
+    } finally {
+      controller.abort();
+      opts.signal?.removeEventListener("abort", abort);
+    }
   }
 }

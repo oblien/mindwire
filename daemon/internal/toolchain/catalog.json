@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "harnesses": {
+    "codex": {
+      "releases": [
+        { "version": "0.155.0", "daemon": [{ "min": "0.1.15", "maxExclusive": "0.2.0" }] }
+      ]
+    },
+    "claude-code": {
+      "releases": [
+        { "version": "2.1.246", "daemon": [{ "min": "0.1.15", "maxExclusive": "0.2.0" }] }
+      ]
+    },
+    "grok": {
+      "releases": [
+        { "version": "1.0.5", "daemon": [{ "min": "0.1.15", "maxExclusive": "0.2.0" }] }
+      ]
+    },
+    "opencode": {
+      "releases": [
+        { "version": "1.18.19", "daemon": [{ "min": "0.1.15", "maxExclusive": "0.2.0" }] }
+      ]
+    }
+  }
+}

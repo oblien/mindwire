@@ -53,8 +53,9 @@ export type { CatalogOptions } from "./catalog/index.js";
 export { MindwireError, ApiError, RunFailedError, TimeoutError } from "./errors.js";
 
 export * from "./types.js";
-export { WorkspaceApi, WorkspaceCollection, ProjectOperationsApi } from "./workspace.js";
-export type { ProjectRequest, ProjectAuth, ProjectOperation, ProjectRemoveRequest } from "./workspace.js";
+export { WorkspaceApi, WorkspaceCollection, ProjectOperationsApi, GitAccessApi } from "./workspace.js";
+export type { ProjectRequest, ProjectAuth, ProjectOperation, ProjectRemoveRequest,
+  GitConnection, GitAccessState, ProjectGitState, GitAction, GitOperationRequest, GitOperation } from "./workspace.js";
 export type { WorkspaceRecord, WorkspaceAgent, WorkspaceProject, WorkspaceChat, WorkspaceKind,
   WorkspaceInput, WorkspaceImport, WorkspaceSnapshot } from "./workspace.js";
 

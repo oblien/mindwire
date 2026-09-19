@@ -182,7 +182,7 @@
           },
           "version": {
             "type": "string",
-            "description": "agent.Version — the definitions/protocol version."
+            "description": "agent.Version \u2014 the definitions/protocol version."
           },
           "workspaceMetadataVersion": {
             "type": "integer",
@@ -199,6 +199,18 @@
           "notificationPreferencesVersion": {
             "type": "integer",
             "description": "1 when workspace-owned profile/chat notification mutes are enforced; absent on older daemons."
+          },
+          "harnessPolicyVersion": {
+            "type": "integer",
+            "description": "1 when exact approved harness versions are selected by the daemon; absent on older binaries."
+          },
+          "gitAccessVersion": {
+            "type": "integer",
+            "description": "1 supports workspace/project GitHub bindings and Git credential forwarding."
+          },
+          "gitOperationsVersion": {
+            "type": "integer",
+            "description": "1 or later supports durable Git mutations, stable request IDs, shared coordination, status, cancellation, and streaming."
           }
         },
         "required": [
@@ -229,7 +241,7 @@
           },
           "numGoroutine": {
             "type": "integer",
-            "description": "Live goroutines — a rough concurrency gauge."
+            "description": "Live goroutines \u2014 a rough concurrency gauge."
           },
           "memAllocBytes": {
             "type": "integer",
@@ -265,7 +277,7 @@
       },
       "ProcessSample": {
         "type": "object",
-        "description": "One running turn's live resource use at a single sampling tick. Labels and numbers only — never a secret. A turn runs in its own process group; the figures are summed over that whole group (bash → node → the agent).",
+        "description": "One running turn's live resource use at a single sampling tick. Labels and numbers only \u2014 never a secret. A turn runs in its own process group; the figures are summed over that whole group (bash \u2192 node \u2192 the agent).",
         "properties": {
           "agent": {
             "type": "string",
@@ -281,12 +293,12 @@
           },
           "pid": {
             "type": "integer",
-            "description": "Group-leader pid — the whole turn's process tree."
+            "description": "Group-leader pid \u2014 the whole turn's process tree."
           },
           "cpuPercent": {
             "type": "number",
             "format": "double",
-            "description": "CPU% over the last sampling window (delta of cumulative CPU seconds ÷ wall-clock). 0 on the first tick a group is seen."
+            "description": "CPU% over the last sampling window (delta of cumulative CPU seconds \u00f7 wall-clock). 0 on the first tick a group is seen."
           },
           "rssBytes": {
             "type": "integer",
@@ -351,6 +363,11 @@
           "resolve": {
             "$ref": "#/components/schemas/ResolveOptions",
             "description": "Optional bounds for a resolve-mode run (ignored unless mode is \"resolve\")."
+          },
+          "gitAuth": {
+            "$ref": "#/components/schemas/ProjectCloneAuth",
+            "writeOnly": true,
+            "description": "Fresh authorization for this turn or for a completed message question that starts another turn. Never placed in the transcript."
           }
         },
         "required": [
@@ -381,7 +398,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Per-turn setting overrides addressed by canonical key (see Field.canon). Resolved canon→the selected agent's key and filtered to declared non-secret keys server-side; overrides win over the sticky config."
+            "description": "Per-turn setting overrides addressed by canonical key (see Field.canon). Resolved canon\u2192the selected agent's key and filtered to declared non-secret keys server-side; overrides win over the sticky config."
           },
           "systemPrompt": {
             "type": "string",
@@ -498,7 +515,7 @@
               "error",
               "cancelled"
             ],
-            "description": "Parent-only: why the resolve loop ended — \"done\" (the agent signalled completion), \"capped\" (hit the iteration/deadline bound), \"error\", or \"cancelled\"."
+            "description": "Parent-only: why the resolve loop ended \u2014 \"done\" (the agent signalled completion), \"capped\" (hit the iteration/deadline bound), \"error\", or \"cancelled\"."
           },
           "iterations": {
             "type": "integer",
@@ -574,7 +591,7 @@
           },
           "subtype": {
             "type": "string",
-            "description": "The agent's own terminal-result classifier when it distinguishes one (Claude's result subtype: \"success\", \"error_max_turns\", \"error_max_budget_usd\", …). Absent for agents whose terminal event is always fully settled (Codex)."
+            "description": "The agent's own terminal-result classifier when it distinguishes one (Claude's result subtype: \"success\", \"error_max_turns\", \"error_max_budget_usd\", \u2026). Absent for agents whose terminal event is always fully settled (Codex)."
           },
           "incomplete": {
             "type": "boolean",
@@ -603,7 +620,7 @@
               "max_turns",
               "max_budget"
             ],
-            "description": "Why this iteration is running: \"start\" (first), \"max_turns\"/\"max_budget\" (resuming a continuable stop), or \"probe\" (a clean settle with no completion sentinel — probing for done)."
+            "description": "Why this iteration is running: \"start\" (first), \"max_turns\"/\"max_budget\" (resuming a continuable stop), or \"probe\" (a clean settle with no completion sentinel \u2014 probing for done)."
           },
           "childRunId": {
             "type": "string",
@@ -1006,7 +1023,7 @@
       },
       "ForkRequest": {
         "type": "object",
-        "description": "Fork a chat. newChatId is optional — a random id is generated when omitted.",
+        "description": "Fork a chat. newChatId is optional \u2014 a random id is generated when omitted.",
         "properties": {
           "newChatId": {
             "type": "string"
@@ -1015,7 +1032,7 @@
       },
       "CompactRequest": {
         "type": "object",
-        "description": "On-demand compaction. instructions is optional — when present it focuses the continuation summary (Claude's `/compact <instructions>`); agents that don't honor focus still compact.",
+        "description": "On-demand compaction. instructions is optional \u2014 when present it focuses the continuation summary (Claude's `/compact <instructions>`); agents that don't honor focus still compact.",
         "properties": {
           "instructions": {
             "type": "string"
@@ -1083,6 +1100,12 @@
             "items": {
               "$ref": "#/components/schemas/CatalogEntry"
             }
+          },
+          "harnessCompatibility": {
+            "$ref": "#/components/schemas/HarnessCatalog"
+          },
+          "harnessPolicyVersion": {
+            "type": "integer"
           }
         },
         "required": [
@@ -1177,7 +1200,7 @@
           },
           "resolve": {
             "type": "boolean",
-            "description": "Agent supports global-resolve runs (POST /turns {mode:\"resolve\"}). Unlike the other switches this is NOT gated in the daemon — resolve is pure daemon logic over the existing resume path, so every agent that can resume can be resolved; the flag is a UI hint only."
+            "description": "Agent supports global-resolve runs (POST /turns {mode:\"resolve\"}). Unlike the other switches this is NOT gated in the daemon \u2014 resolve is pure daemon logic over the existing resume path, so every agent that can resume can be resolved; the flag is a UI hint only."
           },
           "protocol": {
             "type": "string",
@@ -1287,7 +1310,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Resolved absolute path — always set, even when the file is absent."
+            "description": "Resolved absolute path \u2014 always set, even when the file is absent."
           },
           "exists": {
             "type": "boolean",
@@ -1331,7 +1354,7 @@
       },
       "SubagentMeta": {
         "type": "object",
-        "description": "Best-effort parsed view of a subagent definition's frontmatter. A convenience only — the raw `content` is canonical. Every field is optional; absent frontmatter yields no meta object.",
+        "description": "Best-effort parsed view of a subagent definition's frontmatter. A convenience only \u2014 the raw `content` is canonical. Every field is optional; absent frontmatter yields no meta object.",
         "properties": {
           "name": {
             "type": "string"
@@ -1433,7 +1456,7 @@
       },
       "CustomProvider": {
         "type": "object",
-        "description": "One registered custom OpenAI-compatible LLM provider. SECURITY: the API key is NEVER part of this shape — it is supplied write-only on PUT and reported only as `hasKey`. The harness config references the key solely through an env-var placeholder; the value lives in the daemon and enters a run only via the auth env path.",
+        "description": "One registered custom OpenAI-compatible LLM provider. SECURITY: the API key is NEVER part of this shape \u2014 it is supplied write-only on PUT and reported only as `hasKey`. The harness config references the key solely through an env-var placeholder; the value lives in the daemon and enters a run only via the auth env path.",
         "properties": {
           "id": {
             "type": "string",
@@ -1554,6 +1577,11 @@
               "$ref": "#/components/schemas/QuestionAnswer"
             },
             "description": "Answers keyed by native question ID, including selections and feedback."
+          },
+          "gitAuth": {
+            "$ref": "#/components/schemas/ProjectCloneAuth",
+            "writeOnly": true,
+            "description": "Fresh authorization for this turn or for a completed message question that starts another turn. Never placed in the transcript."
           }
         },
         "required": [
@@ -1661,7 +1689,7 @@
       },
       "Interaction": {
         "type": "object",
-        "description": "A structured, self-describing request the agent surfaces mid-turn for the client to render generically — and, when needsResponse, for the user to answer.",
+        "description": "A structured, self-describing request the agent surfaces mid-turn for the client to render generically \u2014 and, when needsResponse, for the user to answer.",
         "properties": {
           "id": {
             "type": "string"
@@ -1693,7 +1721,9 @@
           },
           "responseMode": {
             "type": "string",
-            "enum": ["message"],
+            "enum": [
+              "message"
+            ],
             "description": "A native async question answered as a user message. Omitted for native control requests."
           },
           "runId": {
@@ -1875,7 +1905,7 @@
       },
       "AuthMethod": {
         "type": "object",
-        "description": "One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin→step→status flow.",
+        "description": "One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin\u2192step\u2192status flow.",
         "properties": {
           "id": {
             "type": "string"
@@ -1920,6 +1950,10 @@
         "type": "object",
         "description": "The current step of an in-progress auth flow.",
         "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "Interactive attempt ID. Echo as _flowId in step inputs, polls, and cancellation."
+          },
           "method": {
             "type": "string"
           },
@@ -2124,6 +2158,10 @@
           },
           "configPath": {
             "type": "string"
+          },
+          "software": {
+            "$ref": "#/components/schemas/HarnessSoftware",
+            "nullable": true
           }
         }
       },
@@ -2228,7 +2266,7 @@
       },
       "NotifyChannelMasked": {
         "type": "object",
-        "description": "The read-side view of a notification channel. Secrets are never returned — the URL, token, HMAC secret, and header values are all withheld; only their presence (and the URL host, as a display hint) is reported.",
+        "description": "The read-side view of a notification channel. Secrets are never returned \u2014 the URL, token, HMAC secret, and header values are all withheld; only their presence (and the URL host, as a display hint) is reported.",
         "properties": {
           "id": {
             "type": "string",
@@ -2305,7 +2343,7 @@
           },
           "url": {
             "type": "string",
-            "description": "Destination URL. Required (on create). For slack/discord this is the incoming-webhook URL; for telegram the full bot `sendMessage` URL. Write-only — never returned."
+            "description": "Destination URL. Required (on create). For slack/discord this is the incoming-webhook URL; for telegram the full bot `sendMessage` URL. Write-only \u2014 never returned."
           },
           "headers": {
             "type": "object",
@@ -2330,7 +2368,7 @@
       },
       "NotifyChannelTestResult": {
         "type": "object",
-        "description": "Outcome of a synthetic delivery to one channel. The send result is DATA — a failed delivery still returns HTTP 200 with `ok:false` and an `error` message.",
+        "description": "Outcome of a synthetic delivery to one channel. The send result is DATA \u2014 a failed delivery still returns HTTP 200 with `ok:false` and an `error` message.",
         "properties": {
           "ok": {
             "type": "boolean"
@@ -2555,6 +2593,11 @@
           },
           "repoUrl": {
             "type": "string"
+          },
+          "gitConnection": {
+            "$ref": "#/components/schemas/GitConnection",
+            "description": "Omit to inherit the workspace default on creation. On metadata edits omission preserves the binding; explicit null restores inheritance.",
+            "nullable": true
           }
         }
       },
@@ -2580,6 +2623,11 @@
           },
           "repoUrl": {
             "type": "string"
+          },
+          "gitConnection": {
+            "$ref": "#/components/schemas/GitConnection",
+            "description": "Omit to inherit the workspace default on creation. On metadata edits omission preserves the binding; explicit null restores inheritance.",
+            "nullable": true
           }
         }
       },
@@ -2791,11 +2839,23 @@
           "privateKey": {
             "type": "string",
             "writeOnly": true
+          },
+          "connectionId": {
+            "type": "string",
+            "description": "The selected connection ID. Rejects an account change between reading project state and starting an operation."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "readOnly": {
+            "type": "boolean"
           }
         },
         "required": [
           "kind"
-        ]
+        ],
+        "description": "Write-only Git credentials, separate from messages and settings. Run credentials expire with the operation or agent run. Only explicit workspace lifetime stores them. Oblien grants are read-only and cannot be saved for future runs."
       },
       "ProjectCreateRequest": {
         "type": "object",
@@ -2834,6 +2894,11 @@
           },
           "auth": {
             "$ref": "#/components/schemas/ProjectCloneAuth"
+          },
+          "gitConnection": {
+            "$ref": "#/components/schemas/GitConnection",
+            "description": "Omit to inherit the workspace default on creation. On metadata edits omission preserves the binding; explicit null restores inheritance.",
+            "nullable": true
           }
         }
       },
@@ -2930,6 +2995,11 @@
           "expectedRevision": {
             "type": "integer",
             "description": "Confirmed project revision for a file-removal operation."
+          },
+          "gitConnection": {
+            "$ref": "#/components/schemas/GitConnection",
+            "description": "Omit to inherit the workspace default on creation. On metadata edits omission preserves the binding; explicit null restores inheritance.",
+            "nullable": true
           }
         }
       },
@@ -3620,6 +3690,405 @@
           "operation"
         ],
         "additionalProperties": false
+      },
+      "HarnessDaemonRange": {
+        "type": "object",
+        "required": [
+          "min"
+        ],
+        "properties": {
+          "min": {
+            "type": "string"
+          },
+          "maxExclusive": {
+            "type": "string"
+          }
+        }
+      },
+      "HarnessRelease": {
+        "type": "object",
+        "required": [
+          "version",
+          "daemon"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "Exact approved version; npm tags and ranges are not accepted."
+          },
+          "daemon": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/HarnessDaemonRange"
+            }
+          }
+        }
+      },
+      "HarnessExclusion": {
+        "type": "object",
+        "required": [
+          "min",
+          "maxExclusive",
+          "daemon",
+          "reason"
+        ],
+        "properties": {
+          "min": {
+            "type": "string"
+          },
+          "maxExclusive": {
+            "type": "string"
+          },
+          "daemon": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HarnessDaemonRange"
+            }
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "HarnessCatalog": {
+        "type": "object",
+        "required": [
+          "schemaVersion",
+          "revision",
+          "harnesses"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "type": "integer"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "harnesses": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "releases"
+              ],
+              "properties": {
+                "releases": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HarnessRelease"
+                  }
+                },
+                "excluded": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HarnessExclusion"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "HarnessSoftware": {
+        "type": "object",
+        "required": [
+          "policyVersion",
+          "installedVersion",
+          "compatibility",
+          "managed",
+          "updateAvailable",
+          "requiresDaemonUpdate",
+          "catalogRevision",
+          "catalogSource",
+          "catalogStale"
+        ],
+        "properties": {
+          "policyVersion": {
+            "type": "integer"
+          },
+          "catalogRevision": {
+            "type": "integer"
+          },
+          "installedVersion": {
+            "type": "string"
+          },
+          "recommendedVersion": {
+            "type": "string"
+          },
+          "latestVersion": {
+            "type": "string",
+            "description": "Latest approved catalog entry, which may require a newer daemon; not npm latest."
+          },
+          "compatibility": {
+            "type": "string",
+            "description": "supported, untested, incompatible, or not_installed. Unknown versions are untested, never implicitly approved for installation."
+          },
+          "requiredDaemonVersion": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "catalogSource": {
+            "type": "string"
+          },
+          "managed": {
+            "type": "boolean"
+          },
+          "updateAvailable": {
+            "type": "boolean"
+          },
+          "requiresDaemonUpdate": {
+            "type": "boolean"
+          },
+          "catalogStale": {
+            "type": "boolean"
+          },
+          "missingDependencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Missing shared tools. Run setup to repair them even when the CLI is already installed."
+          }
+        }
+      },
+      "GitConnection": {
+        "type": "object",
+        "required": [
+          "id",
+          "login",
+          "mode",
+          "lifetime"
+        ],
+        "description": "Non-secret account reference. A missing project binding inherits the workspace default. Native uses existing server Git configuration. Workspace lifetime explicitly permits storing a credential on this server.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "login": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "token",
+              "oblienApp",
+              "sshKey",
+              "ghCli",
+              "native"
+            ]
+          },
+          "lifetime": {
+            "type": "string",
+            "enum": [
+              "run",
+              "workspace"
+            ]
+          }
+        }
+      },
+      "GitAccessState": {
+        "type": "object",
+        "required": [
+          "storedConnectionIds",
+          "activeOperations",
+          "storedConnections"
+        ],
+        "properties": {
+          "default": {
+            "$ref": "#/components/schemas/GitConnection"
+          },
+          "storedConnectionIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "activeOperations": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Active fetch/pull/push requests. Daemon updates must wait until zero."
+          },
+          "storedConnections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitConnection"
+            },
+            "description": "Saved account references without secrets, available to another device."
+          }
+        }
+      },
+      "ProjectGitState": {
+        "type": "object",
+        "required": [
+          "inherited",
+          "stored"
+        ],
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/GitConnection"
+          },
+          "inherited": {
+            "type": "boolean"
+          },
+          "stored": {
+            "type": "boolean"
+          },
+          "repoUrl": {
+            "type": "string",
+            "description": "The actual origin resolved by Git, including URL rewrites, with embedded credentials removed."
+          }
+        }
+      },
+      "GitRemoteResult": {
+        "type": "object",
+        "required": [
+          "output"
+        ],
+        "properties": {
+          "output": {
+            "type": "string",
+            "description": "Bounded, redacted Git output."
+          }
+        }
+      },
+      "GitOperationRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "action"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "description": "Stable client request ID. Reuse the same ID and intent after a lost acknowledgement."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "stage",
+              "unstage",
+              "discard",
+              "commit",
+              "fetch",
+              "pull",
+              "push"
+            ]
+          },
+          "paths": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "Literal paths relative to the repository root. Required for stage/unstage/discard; absolute paths, traversal, and .git internals are rejected."
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 65536,
+            "description": "Required only for commit. Uses the existing server Git author identity."
+          },
+          "auth": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ProjectCloneAuth"
+              }
+            ],
+            "writeOnly": true,
+            "description": "Network operations only; held in memory for this operation and never included in its receipt."
+          }
+        }
+      },
+      "GitOperation": {
+        "type": "object",
+        "required": [
+          "id",
+          "projectId",
+          "path",
+          "action",
+          "status",
+          "createdAt",
+          "updatedAt",
+          "sequence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "description": "Stable client request ID. Reuse the same ID and intent after a lost acknowledgement."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "stage",
+              "unstage",
+              "discard",
+              "commit",
+              "fetch",
+              "pull",
+              "push"
+            ]
+          },
+          "paths": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "Literal paths relative to the repository root. Required for stage/unstage/discard; absolute paths, traversal, and .git internals are rejected."
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 65536,
+            "description": "Required only for commit. Uses the existing server Git author identity."
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "Canonical repository root resolved by the daemon."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "cancelling",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted"
+            ]
+          },
+          "output": {
+            "type": "string",
+            "description": "Bounded, redacted Git output."
+          },
+          "error": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       }
     }
   },
@@ -3937,7 +4406,7 @@
           "Health"
         ],
         "summary": "Daemon process resource snapshot",
-        "description": "The daemon PROCESS's own runtime stats (heap in use, memory reserved from the OS, goroutines, GC cycles) plus host facts (cores, platform, uptime). Cheap and on-demand — a single runtime.ReadMemStats, no background sampling. Not the whole machine's RAM/CPU.",
+        "description": "The daemon PROCESS's own runtime stats (heap in use, memory reserved from the OS, goroutines, GC cycles) plus host facts (cores, platform, uptime). Cheap and on-demand \u2014 a single runtime.ReadMemStats, no background sampling. Not the whole machine's RAM/CPU.",
         "responses": {
           "200": {
             "description": "Snapshot",
@@ -3958,7 +4427,7 @@
           "Health"
         ],
         "summary": "Stream live per-turn CPU/memory (SSE)",
-        "description": "Server-Sent Events of live resource use for currently-running turns, grouped by agent. On-demand and refcounted: the daemon starts sampling only while at least one client is connected and stops the instant the last one disconnects — zero background work when nothing is watching. Each turn runs in its own process group; a sample is the whole group's summed RSS and its CPU% over the sampling window. Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream; one ProcessFrame per frame. Optional `?agent=` filters each frame's samples to one agent. Payload carries labels and numbers only — no secrets.",
+        "description": "Server-Sent Events of live resource use for currently-running turns, grouped by agent. On-demand and refcounted: the daemon starts sampling only while at least one client is connected and stops the instant the last one disconnects \u2014 zero background work when nothing is watching. Each turn runs in its own process group; a sample is the whole group's summed RSS and its CPU% over the sampling window. Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream; one ProcessFrame per frame. Optional `?agent=` filters each frame's samples to one agent. Payload carries labels and numbers only \u2014 no secrets.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -4083,7 +4552,7 @@
             }
           }
         },
-        "description": "Starts one detached, shared job for the harness. Concurrent setup/update requests join it. Poll GET /setup for live steps and verification. Package-manager writes are serialized across harnesses. Returns 409 while this harness has running chats; new turns are rejected while its setup is running."
+        "description": "Installs the newest exact catalog version approved for this daemon. Preserves external installations, never silently downgrades, and shares the idle-harness admission lock with setup and turns. Poll GET /setup for progress."
       }
     },
     "/config": {
@@ -4235,7 +4704,7 @@
           "Prompts"
         ],
         "summary": "Delete a persistent memory file",
-        "description": "Removes one scope's memory file (?scope=, default user) and returns the resulting doc (exists:false). Idempotent — deleting an absent file still succeeds.",
+        "description": "Removes one scope's memory file (?scope=, default user) and returns the resulting doc (exists:false). Idempotent \u2014 deleting an absent file still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -4413,7 +4882,7 @@
           "Prompts"
         ],
         "summary": "Delete a prompt template",
-        "description": "Removes one template by name at a scope (?scope=, default user). Idempotent — deleting an absent template still succeeds.",
+        "description": "Removes one template by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent template still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -4604,7 +5073,7 @@
           "Prompts"
         ],
         "summary": "Delete a subagent definition",
-        "description": "Removes one definition by name at a scope (?scope=, default user). Idempotent — deleting an absent definition still succeeds.",
+        "description": "Removes one definition by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent definition still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -4657,7 +5126,7 @@
           "MCP"
         ],
         "summary": "List persistent MCP servers",
-        "description": "Returns the agent's persistent MCP-server config across every supported scope, keyed scope→name→server. A missing config file yields an empty object for that scope. 400 if the agent has no persistent MCP-config module. Carries only an env-var NAME for HTTP auth (bearerTokenEnvVar), never a secret value; on Claude only the mcpServers subtree of the config is ever read.",
+        "description": "Returns the agent's persistent MCP-server config across every supported scope, keyed scope\u2192name\u2192server. A missing config file yields an empty object for that scope. 400 if the agent has no persistent MCP-config module. Carries only an env-var NAME for HTTP auth (bearerTokenEnvVar), never a secret value; on Claude only the mcpServers subtree of the config is ever read.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -4798,7 +5267,7 @@
           "MCP"
         ],
         "summary": "Delete a persistent MCP server",
-        "description": "Removes one MCP server by name at a scope (?scope=, default user). Idempotent — deleting an absent server still succeeds.",
+        "description": "Removes one MCP server by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent server still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -4851,7 +5320,7 @@
           "Providers"
         ],
         "summary": "List custom LLM providers",
-        "description": "Returns the agent's registered custom LLM providers across every supported scope, keyed scope→id→provider. A missing config file yields an empty object for that scope. 400 if the agent has no custom-provider module. `hasKey` reports whether a secret is stored; the key is never returned.",
+        "description": "Returns the agent's registered custom LLM providers across every supported scope, keyed scope\u2192id\u2192provider. A missing config file yields an empty object for that scope. 400 if the agent has no custom-provider module. `hasKey` reports whether a secret is stored; the key is never returned.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -4939,7 +5408,7 @@
           "Providers"
         ],
         "summary": "Register a custom LLM provider",
-        "description": "Registers one custom provider at a scope (?scope=, default user), writing the harness's native custom-endpoint config and preserving all sibling config. The write-only apiKey (when supplied) is stored in the daemon and referenced only via an env-var placeholder — never written literally. Echoes the stored provider back (hasKey reflects whether a key is stored; the key itself is never returned).",
+        "description": "Registers one custom provider at a scope (?scope=, default user), writing the harness's native custom-endpoint config and preserving all sibling config. The write-only apiKey (when supplied) is stored in the daemon and referenced only via an env-var placeholder \u2014 never written literally. Echoes the stored provider back (hasKey reflects whether a key is stored; the key itself is never returned).",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -4992,7 +5461,7 @@
           "Providers"
         ],
         "summary": "Delete a custom LLM provider",
-        "description": "Removes one custom provider by id at a scope (?scope=, default user) and clears its stored key. Idempotent — deleting an absent provider still succeeds.",
+        "description": "Removes one custom provider by id at a scope (?scope=, default user) and clears its stored key. Idempotent \u2014 deleting an absent provider still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5116,7 +5585,7 @@
           "Auth"
         ],
         "summary": "Advance an auth method",
-        "description": "Submit field values, or poll an interactive login to completion.",
+        "description": "Submit field values, or poll an interactive login. Echo AuthState.flowId as _flowId when provided. Send {_flowId: id, _action: cancel} to cancel that native attempt. For browser code handoff, submit the declared authorizationCode field with _flowId. Empty polls remain supported for older clients.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5261,7 +5730,7 @@
           "Turns & runs"
         ],
         "summary": "List a resolve run's child iterations",
-        "description": "Returns the child runs of a global-resolve parent, oldest→newest — the per-iteration turns of a resolve run (each streams onto the parent's topic). An ordinary turn (or a parent with no iterations yet) returns an empty list.",
+        "description": "Returns the child runs of a global-resolve parent, oldest\u2192newest \u2014 the per-iteration turns of a resolve run (each streams onto the parent's topic). An ordinary turn (or a parent with no iterations yet) returns an empty list.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -5446,7 +5915,7 @@
           "Turns & runs"
         ],
         "summary": "Soft-stop a running turn",
-        "description": "Ask the agent to halt its current work WITHOUT the hard context kill `/cancel` does — the turn stays active for a follow-up over `/input`. Requires the agent's `interrupt` capability.",
+        "description": "Ask the agent to halt its current work WITHOUT the hard context kill `/cancel` does \u2014 the turn stays active for a follow-up over `/input`. Requires the agent's `interrupt` capability.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -5993,7 +6462,7 @@
           "Notifications"
         ],
         "summary": "List notification channels",
-        "description": "Returns every configured channel, masked. Secrets (URL, token, HMAC secret, header values) are never returned — only their presence and the URL host.",
+        "description": "Returns every configured channel, masked. Secrets (URL, token, HMAC secret, header values) are never returned \u2014 only their presence and the URL host.",
         "responses": {
           "200": {
             "description": "Channels (masked)",
@@ -6110,7 +6579,7 @@
           "Notifications"
         ],
         "summary": "Delete a notification channel",
-        "description": "Removes a channel by id. Idempotent — deleting an absent channel still succeeds.",
+        "description": "Removes a channel by id. Idempotent \u2014 deleting an absent channel still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -6294,7 +6763,7 @@
           "Notifications"
         ],
         "summary": "Delete a routing rule",
-        "description": "Removes a rule by id. Idempotent — deleting an absent rule still succeeds.",
+        "description": "Removes a rule by id. Idempotent \u2014 deleting an absent rule still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -8542,6 +9011,1503 @@
           {
             "name": "id",
             "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/agent/software": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Installed CLI compatibility and approved updates",
+        "description": "The daemon evaluates its cached compatibility catalog. refresh=true requests a bounded refresh; failed or incompatible-schema fetches retain the last accepted policy. No CLI installation happens here.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Daemon-owned software decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HarnessSoftware"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Adapter does not support managed CLI updates"
+          }
+        }
+      }
+    },
+    "/workspace/git": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read workspace GitHub access metadata",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitAccessState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Set or clear the workspace GitHub default",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitAccessState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "connection"
+                ],
+                "properties": {
+                  "connection": {
+                    "$ref": "#/components/schemas/GitConnection",
+                    "nullable": true
+                  },
+                  "auth": {
+                    "$ref": "#/components/schemas/ProjectCloneAuth"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "Applies to inheriting GitHub repositories. Other hosts retain server credentials. Refuses changes while affected projects are running. Run lifetime accepts no saved token; workspace lifetime requires a supplied or previously saved credential."
+      }
+    },
+    "/workspace/git/connections/{id}": {
+      "delete": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Forget a saved workspace credential and invalidate its active leases",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitAccessState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Does not revoke the original credential at GitHub. Keeps non-secret project bindings so another account cannot be substituted silently."
+      }
+    },
+    "/workspace/projects/{id}/git": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read effective project GitHub access",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectGitState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Set a project GitHub override or restore inheritance",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "connection",
+                  "expectedRevision"
+                ],
+                "properties": {
+                  "connection": {
+                    "$ref": "#/components/schemas/GitConnection",
+                    "nullable": true
+                  },
+                  "auth": {
+                    "$ref": "#/components/schemas/ProjectCloneAuth"
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workspace/projects/{id}/git/{operation}": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Fetch, fast-forward pull, or push the project origin",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRemoteResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "auth": {
+                    "$ref": "#/components/schemas/ProjectCloneAuth"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "operation",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "fetch",
+                "pull",
+                "push"
+              ]
+            }
+          }
+        ],
+        "description": "Compatibility response for older clients. Executes through the same durable Git service; disconnecting detaches the observer. Use POST /workspace/projects/{id}/git/operations with a stable ID for safe request retries. Pull only fast-forwards and push never forces. Network operations are bounded to 15 minutes."
+      }
+    },
+    "/workspace/git/operations/{id}": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read the durable outcome of a Git operation",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current durable operation snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workspace/git/operations/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Cancel an active Git operation",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current durable operation snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Cancellation may interrupt a write after some effects have completed. Refresh the repository before submitting another write. Completed operations retain their actual outcome."
+      }
+    },
+    "/workspace/projects/{id}/git/operations": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Start an idempotent workspace Git mutation",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Current durable operation snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitOperation"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitOperationRequest"
+              }
+            }
+          }
+        },
+        "description": "Requires gitOperationsVersion >= 1. Persists the intent before executing native Git. The same ID and intent returns the existing operation, even after completion or restart; a different intent with that ID returns 409. Network writes use the selected project connection. Local mutations need no GitHub credential. Disconnecting only detaches the observer. Active Git, project, and agent work in overlapping directories conflicts. After a daemon restart, unfinished operations become interrupted and are never replayed automatically. Operations are bounded to 15 minutes."
+      },
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "List recent or active Git operations for a project",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current durable operation snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "operations"
+                  ],
+                  "properties": {
+                    "operations": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GitOperation"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "active",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Only active operations. Otherwise returns the 50 most recently updated operations."
+          }
+        ]
+      }
+    },
+    "/workspace/git/operations/{id}/stream": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Observe current Git operation and subsequent state changes",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE git_operation events containing complete GitOperation snapshots; event IDs are sequences. Reconnecting receives the current snapshot. Closing the stream never cancels the operation. The stream ends on a terminal status.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
             "required": true,
             "schema": {
               "type": "string"

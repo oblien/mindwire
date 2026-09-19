@@ -13,6 +13,7 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/driver"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 func init() { agent.Register(adapter{}) }
@@ -201,8 +202,12 @@ func (adapter) InstallSteps() []agent.Step {
 	// as a base requirement. The resolver orders node → Claude Code and dedups shared tools.
 	return []agent.Step{{
 		Name: "Claude Code", Check: "claude --version",
-		Install: "npm i -g @anthropic-ai/claude-code", Requires: []string{"node"},
+		Requires: []string{"node"},
 	}}
+}
+
+func (adapter) Toolchain() toolchain.Spec {
+	return toolchain.Spec{ID: "claude-code", Name: "Claude Code", Binary: "claude", Package: "@anthropic-ai/claude-code", VersionArgs: []string{"--version"}, Environment: map[string]string{"DISABLE_AUTOUPDATER": "1"}}
 }
 
 func (adapter) VersionCommand() string { return "claude --version" }
@@ -416,6 +421,12 @@ func materialize(opts agent.TurnOptions) (files materialized, msgAppend string, 
 // process/stderr/error plumbing. Auth env comes from in.Env; settings from in.Config (buildCommand).
 func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
 	go ensureModels(in.Env) // opportunistic, non-blocking refresh of the model list
+	options, err := subscriptionTurnSettings(in.Options, in.Env)
+	if err != nil {
+		emit(agent.Event{Type: agent.EventError, Error: "Invalid Claude settings: " + err.Error()})
+		return agent.TurnResult{Text: err.Error(), IsError: true}, err
+	}
+	in.Options = options
 
 	// Materialize structured per-turn options (output schema, MCP config, inline attachments) to temp
 	// files, cleaned up when the process exits. buildCommand consumes the resolved paths and stays pure.
@@ -441,6 +452,9 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 
 	in.Message = message
 	full := buildCommand(in, files, tr)
+	if in.Env[subscriptionMarker] != "" {
+		full = "(" + subscriptionShell(in.Env) + full + ")"
+	}
 	if in.CWD != "" {
 		full = "cd " + agent.ShellQuote(in.CWD) + " && " + full
 	}

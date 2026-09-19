@@ -21,6 +21,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/stream"
 	"github.com/oblien/mindwire/daemon/internal/surface"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // Options configures a Client. The zero value is usable: it opens "agent-state.json" in the current
@@ -239,11 +240,12 @@ type Health struct {
 	ProjectOperationsVersion       int    `json:"projectOperationsVersion"`
 	SurfaceProtocolVersion         int    `json:"surfaceProtocolVersion"`
 	NotificationPreferencesVersion int    `json:"notificationPreferencesVersion"`
+	HarnessPolicyVersion           int    `json:"harnessPolicyVersion"`
 }
 
 // Health returns the liveness snapshot. It cannot fail in-process.
 func (c *Client) Health() Health {
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package
@@ -284,13 +286,22 @@ func (c *Client) Stats() Stats {
 
 // Catalog is the picker payload: the core version plus every agent this build supports.
 type Catalog struct {
-	Version string         `json:"version"`
-	Agents  []CatalogEntry `json:"agents"`
+	Version              string         `json:"version"`
+	Agents               []CatalogEntry `json:"agents"`
+	HarnessCompatibility HarnessCatalog `json:"harnessCompatibility"`
+	HarnessPolicyVersion int            `json:"harnessPolicyVersion"`
 }
+
+type HarnessCatalog = toolchain.Catalog
+type HarnessSoftware = toolchain.Software
+type HarnessRelease = toolchain.Release
+type HarnessDaemonRange = toolchain.DaemonRange
+type HarnessPolicy = toolchain.Harness
+type HarnessExclusion = toolchain.Exclusion
 
 // Catalog lists every registered agent (ID-ordered) with the core version.
 func (c *Client) Catalog() Catalog {
-	return Catalog{Version: agent.Version, Agents: agent.Catalog()}
+	return Catalog{Version: agent.Version, Agents: agent.Catalog(), HarnessCompatibility: c.core.sup.CompatibilityCatalog(), HarnessPolicyVersion: toolchain.PolicyVersion}
 }
 
 // Models lists the models available to the scoped agent (mirrors GET /models). Only agents that
@@ -321,16 +332,17 @@ func (c *Client) Models(opts ...ScopedOption) ([]ModelInfo, error) {
 // schema, auth methods + resting status, installed CLI version, whether it's configured, and its
 // user-editable config path. JSON tags match the HTTP /agent payload exactly.
 type AgentInfo struct {
-	Version          string         `json:"version"`
-	AgentType        string         `json:"agentType"`
-	Name             string         `json:"name"`
-	Capabilities     Capabilities   `json:"capabilities"`
-	Schema           SettingsSchema `json:"schema"`
-	AuthMethods      []AuthMethod   `json:"authMethods"`
-	AuthStatus       AuthStatus     `json:"authStatus"`
-	InstalledVersion string         `json:"installedVersion"`
-	Configured       bool           `json:"configured"`
-	ConfigPath       string         `json:"configPath"`
+	Version          string           `json:"version"`
+	AgentType        string           `json:"agentType"`
+	Name             string           `json:"name"`
+	Capabilities     Capabilities     `json:"capabilities"`
+	Schema           SettingsSchema   `json:"schema"`
+	AuthMethods      []AuthMethod     `json:"authMethods"`
+	AuthStatus       AuthStatus       `json:"authStatus"`
+	InstalledVersion string           `json:"installedVersion"`
+	Software         *HarnessSoftware `json:"software,omitempty"`
+	Configured       bool             `json:"configured"`
+	ConfigPath       string           `json:"configPath"`
 }
 
 // Agent returns the full descriptor for the scoped agent. ctx bounds the auth-status probe and the
@@ -351,9 +363,24 @@ func (c *Client) Agent(ctx context.Context, opts ...ScopedOption) (AgentInfo, er
 		AuthMethods:      ag.Auth.Methods(),
 		AuthStatus:       status,
 		InstalledVersion: c.core.sup.CLIVersion(ctx, ag),
+		Software:         c.core.sup.Software(ctx, ag, false),
 		Configured:       status.Configured && agent.Configured(ag.Adapter.Settings(), ag.Creds.All()),
 		ConfigPath:       ag.Adapter.ConfigPath(),
 	}, nil
+}
+
+// Software returns the daemon's compatibility decision. forceRefresh bypasses the catalog TTL
+// (bounded by a short retry backoff); an unavailable catalog retains the last verified policy.
+func (c *Client) Software(ctx context.Context, forceRefresh bool, opts ...ScopedOption) (HarnessSoftware, error) {
+	ag, err := c.resolve(opts)
+	if err != nil {
+		return HarnessSoftware{}, err
+	}
+	info := c.core.sup.RefreshSoftware(ctx, ag, forceRefresh)
+	if info == nil {
+		return HarnessSoftware{}, &APIError{Message: "agent does not support managed CLI updates", Status: http.StatusBadRequest, Op: "Software"}
+	}
+	return *info, nil
 }
 
 // Doctor runs daemon-level health checks (workspace, auth) plus the scoped agent's own checks.

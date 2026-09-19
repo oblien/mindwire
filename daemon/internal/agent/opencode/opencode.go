@@ -10,11 +10,11 @@ package opencode
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 func init() { agent.Register(adapter{}) }
@@ -169,12 +169,16 @@ func withChoices(f agent.Field, vals []string, emptyLabel string) agent.Field {
 }
 
 func (adapter) InstallSteps() []agent.Step {
-	// opencode ships its own installer (not npm-first), so there is no node dependency: a single
-	// curl-piped install with no Requires.
+	// npm selects the native platform package, with the same pinned installation policy as
+	// the other harnesses. Never pipe an unversioned remote installer into a shell.
 	return []agent.Step{{
-		Name: "opencode", Check: "opencode --version",
-		Install: "curl -fsSL https://opencode.ai/install | bash",
+		Name: "OpenCode", Check: "opencode --version",
+		Requires: []string{"node"},
 	}}
+}
+
+func (adapter) Toolchain() toolchain.Spec {
+	return toolchain.Spec{ID: "opencode", Name: "OpenCode", Binary: "opencode", Package: "opencode-ai", VersionArgs: []string{"--version"}, Environment: map[string]string{"OPENCODE_DISABLE_AUTOUPDATE": "true"}}
 }
 
 func (adapter) VersionCommand() string { return "opencode --version" }
@@ -202,15 +206,8 @@ func (adapter) ConfigPath() string {
 	return filepath.Join(base, "opencode.json")
 }
 
-// Doctor is bespoke (NOT agent.CLIDoctor, which appends a Node check): opencode installs via its own
-// curl script with no node dependency, so the only check is whether the binary is present.
 func (adapter) Doctor(ctx context.Context) []agent.Check {
-	if out, err := exec.CommandContext(ctx, "bash", "-lc", "opencode --version").CombinedOutput(); err != nil {
-		return []agent.Check{{Name: "opencode", Status: agent.CheckFail,
-			Detail: "not installed — run setup (curl -fsSL https://opencode.ai/install | bash)"}}
-	} else {
-		return []agent.Check{{Name: "opencode", Status: agent.CheckOK, Detail: strings.TrimSpace(string(out))}}
-	}
+	return agent.CLIDoctor(ctx, "OpenCode", "opencode --version", "opencode-ai")
 }
 
 func (adapter) Auth(store agent.CredStore) agent.AuthModule { return newAuth(store) }

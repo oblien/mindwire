@@ -9,6 +9,7 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/proc"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // DoctorReport is the daemon-level health snapshot for one agent: daemon-generic checks (workspace,
@@ -43,6 +44,20 @@ func (s *Supervisor) Doctor(ctx context.Context, ag *Agent) DoctorReport {
 	}
 
 	checks = append(checks, ag.Adapter.Doctor(ctx)...)
+	if info := s.Software(ctx, ag, false); info != nil {
+		status, detail := agent.CheckOK, "Tested with this Mindwire service"
+		if info.Compatibility == "incompatible" {
+			status, detail = agent.CheckFail, info.Message
+		}
+		if info.Compatibility == "untested" {
+			status, detail = agent.CheckWarn, info.Message
+		}
+		checks = append(checks, agent.Check{Name: "CLI compatibility", Status: status, Detail: detail})
+		if len(info.MissingDependencies) > 0 {
+			checks = append(checks, agent.Check{Name: "Required tools", Status: agent.CheckFail,
+				Detail: "Run Mindwire setup to install: " + strings.Join(info.MissingDependencies, ", ")})
+		}
+	}
 
 	ok := true
 	for _, c := range checks {
@@ -56,9 +71,12 @@ func (s *Supervisor) Doctor(ctx context.Context, ag *Agent) DoctorReport {
 // CLIVersion runs the agent's version command and returns the trimmed output ("" on any error). Used
 // to report the installed CLI version alongside agent info.
 func (s *Supervisor) CLIVersion(ctx context.Context, ag *Agent) string {
+	if mod, ok := ag.Adapter.(agent.ToolchainModule); ok {
+		return s.toolchain.Version(ctx, mod.Toolchain())
+	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "bash", "-lc", ag.Adapter.VersionCommand())
+	cmd := exec.CommandContext(ctx, "bash", "-lc", toolchain.Shell(ag.Adapter.VersionCommand()))
 	proc.Group(cmd)
 	out, err := cmd.Output()
 	if err != nil {

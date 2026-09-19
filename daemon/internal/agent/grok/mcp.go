@@ -1,13 +1,14 @@
 package grok
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"sort"
 	"strings"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // Grok owns its MCP config and OAuth credential store. Use its documented CLI
@@ -33,7 +34,7 @@ func runGrokMCP(scope agent.MemoryScope, args ...string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command("grok", args...)
+	cmd := toolchain.CommandContext(context.Background(), "grok", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("grok %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))

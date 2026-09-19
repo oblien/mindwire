@@ -670,6 +670,8 @@ export interface AuthMethod {
 export interface AuthState {
   method: string;
   status: "needs_input" | "pending" | "complete" | "error" | (string & {});
+  /** Echo as `_flowId` in step inputs, or use auth.poll/auth.cancel. */
+  flowId?: string;
   url?: string;
   code?: string;
   message?: string;
@@ -895,6 +897,39 @@ export interface DeleteResult {
 export interface Catalog {
   version: string;
   agents: CatalogEntry[];
+  harnessPolicyVersion?: number;
+  harnessCompatibility?: HarnessCatalog;
+}
+
+/** Published independently of daemon releases. Entries approve exact CLI/daemon combinations. */
+export interface HarnessCatalog {
+  schemaVersion: number;
+  revision: number;
+  harnesses: Record<string, {
+    releases: Array<{ version: string; daemon: HarnessDaemonRange[] }>;
+    excluded?: Array<{ min: string; maxExclusive: string; daemon: HarnessDaemonRange[]; reason: string }>;
+  }>;
+}
+
+export interface HarnessDaemonRange { min: string; maxExclusive?: string }
+
+/** GET /agent/software. Version selection is enforced by the daemon, never by a client. */
+export interface HarnessSoftware {
+  policyVersion: number;
+  installedVersion: string;
+  recommendedVersion?: string;
+  latestVersion?: string;
+  compatibility: "supported" | "untested" | "incompatible" | "not_installed" | (string & {});
+  managed: boolean;
+  updateAvailable: boolean;
+  requiresDaemonUpdate: boolean;
+  requiredDaemonVersion?: string;
+  message?: string;
+  catalogRevision: number;
+  catalogSource: "bundled" | "cached" | "remote" | (string & {});
+  catalogStale: boolean;
+  /** Missing shared tools; run setup even if the CLI itself is already installed. */
+  missingDependencies?: string[];
 }
 
 /** `GET /agent` — everything the client needs to render one agent's screen. */
@@ -907,6 +942,7 @@ export interface AgentInfo {
   authMethods: AuthMethod[];
   authStatus: AuthStatus;
   installedVersion: string;
+  software?: HarnessSoftware;
   configured: boolean;
   configPath: string;
   /**
@@ -1057,8 +1093,13 @@ export interface Health {
   workspaceMetadataVersion?: number;
   /** Durable project creation/clone operations; absent on older daemons. */
   projectOperationsVersion?: number;
+  /** Workspace/project GitHub bindings and operation/run credential forwarding. */
+  gitAccessVersion?: number;
+  /** Durable, coordinated Git mutations with idempotent submission and reconnectable status. */
+  gitOperationsVersion?: number;
   /** Persistent profile/chat mutes enforced before every notification delivery. */
   notificationPreferencesVersion?: number;
+  harnessPolicyVersion?: number;
   ok: boolean;
   agent: string;
   version: string;

@@ -29,7 +29,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -37,6 +36,7 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/proc"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 const (
@@ -86,9 +86,9 @@ func (a appServer) Run(ctx context.Context, in agent.TurnInput, emit agent.Emit)
 	if err != nil {
 		return agent.TurnResult{Text: err.Error(), IsError: true}, err
 	}
-	cmd := exec.CommandContext(ctx, "bash", "-lc", a.command)
+	cmd := exec.CommandContext(ctx, "bash", "-lc", toolchain.Shell(a.command))
 	proc.Group(cmd) // cancel/interrupt kills the whole app-server tree, not just the bash parent
-	cmd.Env = os.Environ()
+	cmd.Env = toolchain.Environment()
 	for k, v := range a.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

@@ -81,7 +81,12 @@ func (s *Supervisor) desktopTurn(ctx context.Context, a *Agent, turn runner.Turn
 	}
 	turn.Options.MCPServers = overlay
 	turn.Options.ClaudeSettings = settings
-	turn.Environment = env
+	if turn.Environment == nil {
+		turn.Environment = map[string]string{}
+	}
+	for key, value := range env {
+		turn.Environment[key] = value
+	}
 	turn.AttachEmitter = func(emit agent.Emit) func() {
 		s.mu.Lock()
 		s.serviceEmit[turn.RunID] = emit

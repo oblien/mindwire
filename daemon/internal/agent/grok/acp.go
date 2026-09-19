@@ -12,8 +12,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,6 +20,7 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/proc"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 type rpcError struct {
@@ -169,11 +168,11 @@ func runACP(ctx context.Context, in agent.TurnInput, emit agent.Emit) (agent.Tur
 	if err := validateACPInput(in); err != nil {
 		return agent.TurnResult{SessionID: agent.FirstNonEmpty(in.Options.SessionID, in.SessionID), Text: err.Error(), IsError: true}, err
 	}
-	cmd := exec.CommandContext(ctx, "grok", acpCommand(in)...)
+	cmd := toolchain.CommandContext(ctx, "grok", acpCommand(in)...)
 	if in.CWD != "" {
 		cmd.Dir = in.CWD
 	}
-	cmd.Env = os.Environ()
+	cmd.Env = toolchain.Environment()
 	for k, v := range in.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

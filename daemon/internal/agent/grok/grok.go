@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 func init() { agent.Register(adapter{}) }
@@ -70,7 +71,11 @@ func (adapter) Settings() agent.SettingsSchema {
 }
 
 func (adapter) InstallSteps() []agent.Step {
-	return []agent.Step{{Name: "Grok Build", Check: "grok version", Install: "npm i -g @xai-official/grok", Requires: []string{"node"}}}
+	return []agent.Step{{Name: "Grok Build", Check: "grok --no-auto-update version", Requires: []string{"node"}}}
+}
+
+func (adapter) Toolchain() toolchain.Spec {
+	return toolchain.Spec{ID: "grok", Name: "Grok Build", Binary: "grok", Package: "@xai-official/grok", VersionArgs: []string{"--no-auto-update", "version"}}
 }
 
 func (adapter) VersionCommand() string { return "grok version" }
@@ -95,9 +100,9 @@ func configBase() string {
 }
 
 func (adapter) Doctor(ctx context.Context) []agent.Check {
-	out, err := exec.CommandContext(ctx, "bash", "-lc", "grok version").CombinedOutput()
+	out, err := exec.CommandContext(ctx, "bash", "-lc", toolchain.Shell("grok --no-auto-update version")).CombinedOutput()
 	if err != nil {
-		return []agent.Check{{Name: "Grok Build", Status: agent.CheckFail, Detail: "not installed — run setup (npm i -g @xai-official/grok)"}}
+		return []agent.Check{{Name: "Grok Build", Status: agent.CheckFail, Detail: "not installed — run Mindwire setup to install a supported version"}}
 	}
 	return []agent.Check{{Name: "Grok Build", Status: agent.CheckOK, Detail: strings.TrimSpace(string(out))}}
 }

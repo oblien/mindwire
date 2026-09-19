@@ -6,13 +6,15 @@ package agent
 // vocabulary superset) is a parameter.
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // ShellQuote single-quotes a string for POSIX sh, escaping embedded single quotes. Used to build the
@@ -158,9 +160,10 @@ type HelpCache struct {
 	Command string   // binary to exec, e.g. "claude" or "codex"
 	Args    []string // arguments, e.g. {"--help"} or {"exec", "--help"}
 
-	mu  sync.Mutex
-	val string
-	at  time.Time
+	mu   sync.Mutex
+	val  string
+	at   time.Time
+	path string
 }
 
 // Get returns the cached help text, refreshing it if the TTL has elapsed. A failed refresh leaves the
@@ -168,10 +171,17 @@ type HelpCache struct {
 func (c *HelpCache) Get() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	path := toolchain.Executable(c.Command)
+	if path != c.path {
+		c.val = ""
+		c.path = path
+	}
 	if c.val != "" && time.Since(c.at) < HelpCacheTTL {
 		return c.val
 	}
-	if out, err := exec.Command(c.Command, c.Args...).CombinedOutput(); err == nil && len(out) > 0 {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if out, err := toolchain.CommandContext(ctx, c.Command, c.Args...).CombinedOutput(); err == nil && len(out) > 0 {
 		c.val = string(out)
 		c.at = time.Now()
 	}

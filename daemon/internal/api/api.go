@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/gitaccess"
+	"github.com/oblien/mindwire/daemon/internal/gitops"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/procmon"
@@ -30,6 +32,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/stream"
 	"github.com/oblien/mindwire/daemon/internal/surface"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 const (
@@ -42,6 +45,8 @@ const (
 )
 
 type API struct {
+	gitAccess  *gitaccess.Service
+	gitJobs    *gitops.Service
 	projects   *projects.Service
 	surfaces   *surface.Service
 	initError  error
@@ -63,7 +68,14 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 		if a.registry != nil {
 			sup.SetNotificationPreferences(a.registry)
 			sup.SetInteractionContext(a.registry)
-			a.projects, a.initError = projects.New(a.registry, sup)
+			a.gitAccess, a.initError = gitaccess.New(a.registry.Directory())
+			if a.initError == nil {
+				a.gitJobs, a.initError = gitops.New(a.registry, a.gitAccess)
+			}
+			if a.initError == nil {
+				sup.SetGitPreparation(a.prepareGitRun)
+				a.projects, a.initError = projects.New(a.registry, a, a.gitAccess)
+			}
 			if a.initError == nil {
 				a.surfaces, a.initError = surface.NewConfigured(a.registry, store)
 				if a.initError == nil {
@@ -77,11 +89,17 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 
 func (a *API) InitError() error { return a.initError }
 func (a *API) Close() {
+	if a.gitJobs != nil {
+		a.gitJobs.Close()
+	}
 	if a.surfaces != nil {
 		a.surfaces.Close()
 	}
 	if a.projects != nil {
 		a.projects.Close()
+	}
+	if a.gitAccess != nil {
+		a.gitAccess.Close()
 	}
 }
 
@@ -112,6 +130,17 @@ func (a *API) Routes() []Route {
 		{"GET", "/workspace", a.workspaceSnapshot},
 		{"GET", "/workspace/changes", a.workspaceSnapshot},
 		{"POST", "/workspace/import", a.workspaceImport},
+		{"GET", "/workspace/git", a.gitState},
+		{"PUT", "/workspace/git", a.gitDefault},
+		{"DELETE", "/workspace/git/connections/{id}", a.gitForget},
+		{"GET", "/workspace/projects/{id}/git", a.projectGit},
+		{"PUT", "/workspace/projects/{id}/git", a.projectGitSet},
+		{"POST", "/workspace/projects/{id}/git/{operation}", a.projectGitRun},
+		{"POST", "/workspace/projects/{id}/git/operations", a.projectGitStart},
+		{"GET", "/workspace/projects/{id}/git/operations", a.projectGitOperations},
+		{"GET", "/workspace/git/operations/{id}", a.gitOperation},
+		{"POST", "/workspace/git/operations/{id}/cancel", a.gitOperationCancel},
+		{"GET", "/workspace/git/operations/{id}/stream", a.gitOperationStream},
 		{"POST", "/workspace/projects", a.projectStart},
 		{"POST", "/workspace/projects/{id}/remove", a.projectRemoveFiles},
 		{"GET", "/workspace/operations", a.projectOperations},
@@ -149,6 +178,7 @@ func (a *API) Routes() []Route {
 		// Agent lifecycle (daemon owns it; app fetches/triggers).
 		{"GET", "/catalog", a.catalog},
 		{"GET", "/agent", a.agentInfo},
+		{"GET", "/agent/software", a.agentSoftware},
 		{"GET", "/models", a.models},
 		{"POST", "/setup", a.setup},
 		{"POST", "/update", a.update},
@@ -257,6 +287,7 @@ func (a *API) agentFor(w http.ResponseWriter, r *http.Request) *orchestrator.Age
 // ---- turns -----------------------------------------------------------------
 
 type turnReq struct {
+	GitAuth *gitaccess.Auth   `json:"gitAuth,omitempty"`
 	ChatID  string            `json:"chatId"`
 	Message string            `json:"message"`
 	Cwd     string            `json:"cwd,omitempty"`     // run this turn in a specific dir (a project workdir); else the daemon default
@@ -318,6 +349,10 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 			workspaceError(w, err)
 			return
 		}
+		if a.gitBusyPath(path) {
+			workspaceError(w, registry.ErrConflict)
+			return
+		}
 	}
 	// Honest capability gate: reject a turn carrying an option the selected agent can't honor (a 400)
 	// rather than silently dropping it. Covers both entry points for the prompt overrides — the typed
@@ -327,14 +362,18 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in := orchestrator.StartTurnInput{
-		ChatID: req.ChatID, Message: req.Message, CWD: req.Cwd, Options: req.Options,
+		ChatID: req.ChatID, Message: req.Message, CWD: req.Cwd, Options: req.Options, GitAuth: req.GitAuth,
 	}
 	// Mode routing: "resolve" holds the run open and auto-continues to global completion (a parent Run);
 	// "" / "turn" is the unchanged single-turn path. Any other value is a caller error.
 	switch req.Mode {
 	case "", "turn":
-		run, ok := a.sup.StartTurn(ag, in)
-		if !ok {
+		run, err := a.sup.StartTurnChecked(ag, in)
+		if err != nil {
+			if isGitError(err) {
+				gitError(w, err)
+				return
+			}
 			writeJSON(w, http.StatusConflict, map[string]string{"error": a.sup.StartConflict(ag)})
 			return
 		}
@@ -345,8 +384,12 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 			ro.MaxIterations = req.Resolve.MaxIterations
 			ro.Deadline = time.Duration(req.Resolve.DeadlineSeconds) * time.Second
 		}
-		run, ok := a.sup.StartResolve(ag, in, ro)
-		if !ok {
+		run, err := a.sup.StartResolveChecked(ag, in, ro)
+		if err != nil {
+			if isGitError(err) {
+				gitError(w, err)
+				return
+			}
 			writeJSON(w, http.StatusConflict, map[string]string{"error": a.sup.StartConflict(ag)})
 			return
 		}
@@ -483,13 +526,16 @@ func (a *API) respondRun(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "this agent does not support responding to interactions")
 		return
 	}
-	var req respondReq
+	var req struct {
+		respondReq
+		GitAuth *gitaccess.Auth `json:"gitAuth,omitempty"`
+	}
 	if err := decode(w, r, &req); err != nil {
 		badRequest(w, "invalid request body")
 		return
 	}
-	if err := a.sup.RespondInteraction(id, req); err != nil {
-		if errors.Is(err, orchestrator.ErrInteractionNotPending) || errors.Is(err, orchestrator.ErrInteractionSending) || errors.Is(err, orchestrator.ErrChatBusy) {
+	if err := a.sup.RespondInteractionWithGitAuth(id, req.respondReq, req.GitAuth); err != nil {
+		if errors.Is(err, orchestrator.ErrInteractionNotPending) || errors.Is(err, orchestrator.ErrInteractionSending) || errors.Is(err, orchestrator.ErrChatBusy) || errors.Is(err, registry.ErrConflict) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		} else {
 			badRequest(w, err.Error())
@@ -1066,7 +1112,7 @@ func pageWindow[T any](msgs []T, limit int, before string, id func(T) string) []
 // ---- agent lifecycle -------------------------------------------------------
 
 func (a *API) catalog(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"version": agent.Version, "agents": agent.Catalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"version": agent.Version, "agents": agent.Catalog(), "harnessCompatibility": a.sup.CompatibilityCatalog(), "harnessPolicyVersion": toolchain.PolicyVersion})
 }
 
 func (a *API) agentInfo(w http.ResponseWriter, r *http.Request) {
@@ -1095,10 +1141,24 @@ func (a *API) agentInfo(w http.ResponseWriter, r *http.Request) {
 		"authMethods":      ag.Auth.Methods(),
 		"authStatus":       status,
 		"installedVersion": a.sup.CLIVersion(r.Context(), ag),
+		"software":         a.sup.Software(r.Context(), ag, false),
 		"configured":       status.Configured && agent.Configured(ag.Adapter.Settings(), ag.Creds.All()),
 		"configPath":       ag.Adapter.ConfigPath(),
 		"modelProviders":   modelProviders,
 	})
+}
+
+func (a *API) agentSoftware(w http.ResponseWriter, r *http.Request) {
+	ag := a.agentFor(w, r)
+	if ag == nil {
+		return
+	}
+	info := a.sup.RefreshSoftware(r.Context(), ag, r.URL.Query().Get("refresh") == "true")
+	if info == nil {
+		badRequest(w, "agent does not support managed CLI updates")
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 // models lists the models the selected agent can run for the configured account. 400 when the agent

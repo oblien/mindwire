@@ -4,16 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 var protocolEnums struct {
 	sync.Mutex
 	loaded time.Time
 	values map[string][]string
+	path   string
 }
 
 // These options are absent from --help. Discover them from the installed server,
@@ -21,10 +23,12 @@ var protocolEnums struct {
 func protocolChoices(name string) []string {
 	protocolEnums.Lock()
 	defer protocolEnums.Unlock()
-	if time.Since(protocolEnums.loaded) < 5*time.Minute {
+	path := toolchain.Executable("codex")
+	if protocolEnums.path == path && time.Since(protocolEnums.loaded) < 5*time.Minute {
 		return protocolEnums.values[name]
 	}
 	protocolEnums.loaded, protocolEnums.values = time.Now(), map[string][]string{}
+	protocolEnums.path = path
 	dir, err := os.MkdirTemp("", "mindwire-protocol-")
 	if err != nil {
 		return nil
@@ -32,7 +36,7 @@ func protocolChoices(name string) []string {
 	defer os.RemoveAll(dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if exec.CommandContext(ctx, "codex", "app-server", "generate-json-schema", "--experimental", "--out", dir).Run() != nil {
+	if toolchain.CommandContext(ctx, "codex", "app-server", "generate-json-schema", "--experimental", "--out", dir).Run() != nil {
 		return nil
 	}
 	for _, file := range []string{"ThreadStartParams.json", "TurnStartParams.json"} {

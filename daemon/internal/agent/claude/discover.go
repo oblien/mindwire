@@ -15,6 +15,7 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/proc"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // This file makes Claude's settings VALUES come from the CLI, not hardcoded constants.
@@ -156,7 +157,7 @@ func knownModels() []ModelOpt {
 // exported in the user's shell profile and resolved by the CLI itself — never stored in the daemon.
 // `claude auth status` already trusts that resolution (it runs through a `bash -lc` login shell), so
 // "Signed in" is reported while the daemon cred store is empty. A real turn authenticates the same way
-// (driver runs `bash -lc` with os.Environ() + EnvForRun). The models fetch must trust the SAME source,
+// (driver runs `bash -lc` with toolchain.Environment() + EnvForRun). The models fetch must trust the SAME source,
 // or the picker stays empty while the agent is plainly signed in.
 //
 // hostCredVars are the credential + request-shaping vars the fetch understands — the SAME set Claude
@@ -197,9 +198,9 @@ func loginShellCreds() map[string]string {
 		sb.WriteString(name)
 		sb.WriteString(`"`)
 	}
-	cmd := exec.CommandContext(ctx, "bash", "-lc", sb.String())
+	cmd := exec.CommandContext(ctx, "bash", "-lc", toolchain.Shell(sb.String()))
 	proc.Group(cmd) // timeout kills the whole shell tree
-	cmd.Env = os.Environ()
+	cmd.Env = toolchain.Environment()
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if cmd.Run() != nil {
@@ -275,6 +276,9 @@ func resolveModelEnv(env map[string]string) map[string]string {
 		if strings.HasPrefix(k, "CLAUDE_CODE_USE_") && v != "" {
 			return out // a cloud backend is selected; leave its env alone
 		}
+	}
+	if out[subscriptionMarker] != "" {
+		return out // native OAuth refresh stays in Claude; never resurrect an old host API key
 	}
 	// Daemon already carries a usable first-party credential → trust it as-is, no host lookup.
 	if out["ANTHROPIC_API_KEY"] != "" || out["CLAUDE_CODE_OAUTH_TOKEN"] != "" || out["ANTHROPIC_AUTH_TOKEN"] != "" {

@@ -37,13 +37,22 @@ type AuthMethod struct {
 // AuthState is the current step of an in-progress auth flow.
 type AuthState struct {
 	Method   string        `json:"method"`
-	Status   string        `json:"status"` // "needs_input" | "pending" | "complete" | "error"
+	Status   string        `json:"status"`           // "needs_input" | "pending" | "complete" | "error"
+	FlowID   string        `json:"flowId,omitempty"` // echo as _flowId when polling, submitting, or canceling
 	URL      string        `json:"url,omitempty"`
 	Code     string        `json:"code,omitempty"`
 	Message  string        `json:"message,omitempty"`
 	Fields   []Field       `json:"fields,omitempty"` // inputs the client should collect next
 	Sections []AuthSection `json:"sections,omitempty"`
 }
+
+// Interactive auth uses the same step endpoint as field forms. These reserved
+// keys scope a request to one attempt; cancellation must always include its ID.
+const (
+	AuthFlowIDKey = "_flowId"
+	AuthActionKey = "_action"
+	AuthCodeKey   = "authorizationCode"
+)
 
 // AuthStatus is the resting state: is the agent authenticated, and via which method.
 type AuthStatus struct {

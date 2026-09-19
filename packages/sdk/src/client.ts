@@ -1,7 +1,7 @@
 import { Http, type FetchLike } from "./http.js";
 import { readSSE } from "./sse.js";
 import { Run } from "./run.js";
-import { WorkspaceApi } from "./workspace.js";
+import { WorkspaceApi, type ProjectAuth } from "./workspace.js";
 import { SurfacesApi } from "./surfaces.js";
 import { local, type Target, type TargetHandle, type ConnectSpec } from "./target/index.js";
 import type { EnsureEvent } from "./target/host.js";
@@ -34,6 +34,7 @@ import type {
   ResolveOptions,
   Run as RunData,
   SetupStatus,
+  HarnessSoftware,
   Stats,
   Subagent,
   TurnOptions,
@@ -232,6 +233,13 @@ export class Mindwire {
     return this.http.request<AgentInfo>("GET", "/agent", { query: this.agentParam(scoped) });
   }
 
+  /** `GET /agent/software` — installed version, compatibility and approved update target. */
+  software(opts: AgentScoped & { refresh?: boolean } = {}): Promise<HarnessSoftware> {
+    return this.http.request<HarnessSoftware>("GET", "/agent/software", {
+      query: { ...this.agentParam(opts), ...(opts.refresh ? { refresh: "true" } : {}) },
+    });
+  }
+
   /**
    * `GET /models` — the models the selected agent can run for the configured account. An empty array
    * is valid (no credentials yet / offline). Throws a 400 {@link ApiError} for an agent whose model is
@@ -253,7 +261,7 @@ export class Mindwire {
     return this.http.request<SetupStatus>("POST", "/setup", { query: this.agentParam(scoped) });
   }
 
-  /** `POST /update` — re-run the toolchain, forcing reinstall of installable steps. */
+  /** `POST /update` — install the catalog's newest tested version compatible with this daemon. */
   update(scoped?: AgentScoped): Promise<SetupStatus> {
     return this.http.request<SetupStatus>("POST", "/update", { query: this.agentParam(scoped) });
   }
@@ -365,6 +373,7 @@ export class Mindwire {
       options?: TurnOptions;
       mode?: "turn" | "resolve";
       resolve?: ResolveOptions;
+      gitAuth?: ProjectAuth;
     } & AgentScoped,
   ): Promise<Run> {
     const body: {
@@ -374,6 +383,7 @@ export class Mindwire {
       options?: TurnOptions;
       mode?: "turn" | "resolve";
       resolve?: ResolveOptions;
+      gitAuth?: ProjectAuth;
     } = {
       chatId: input.chatId,
       message: input.message,
@@ -382,6 +392,7 @@ export class Mindwire {
     if (input.options !== undefined) body.options = input.options;
     if (input.mode !== undefined) body.mode = input.mode;
     if (input.resolve !== undefined) body.resolve = input.resolve;
+    if (input.gitAuth !== undefined) body.gitAuth = input.gitAuth;
     const data = await this.http.request<RunData>("POST", "/turns", {
       query: this.agentParam(input),
       body,
@@ -408,6 +419,7 @@ export class Mindwire {
       cwd?: string;
       options?: TurnOptions;
       resolve?: ResolveOptions;
+      gitAuth?: ProjectAuth;
     } & AgentScoped,
   ): Promise<Run> {
     return this.turn({ ...input, mode: "resolve" });
@@ -507,6 +519,16 @@ export class AuthApi {
       query: this.mw.agentParam(scoped),
       body: input,
     });
+  }
+
+  /** Read one interactive attempt, scoped by the returned AuthState.flowId. */
+  poll(flowId: string, scoped?: AgentScoped): Promise<AuthState> {
+    return this.step({ _flowId: flowId }, scoped);
+  }
+
+  /** Cancel this native login without affecting a newer sign-in attempt. */
+  cancel(flowId: string, scoped?: AgentScoped): Promise<AuthState> {
+    return this.step({ _flowId: flowId, _action: "cancel" }, scoped);
   }
 
   /** `GET /auth/status` — is the agent authenticated, and via which method. */

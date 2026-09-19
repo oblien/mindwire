@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
+	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 )
 
@@ -17,14 +19,15 @@ var ErrNotFound = errors.New("workspace record not found")
 // ProjectSpec is the durable, non-secret intent. ID is also the idempotency key.
 // Credentials are deliberately absent; retrying after a restart can supply fresh auth.
 type ProjectSpec struct {
-	ID               string `json:"id"`
-	Source           string `json:"source"` // folder, create, clone, delete
-	Name             string `json:"name"`
-	Path             string `json:"path"`
-	RepoURL          string `json:"repoUrl,omitempty"`
-	Branch           string `json:"branch,omitempty"`
-	AuthKind         string `json:"authKind,omitempty"`         // token, ssh, gh; empty uses native git auth
-	ExpectedRevision int64  `json:"expectedRevision,omitempty"` // deletion's confirmed project version
+	ID               string                `json:"id"`
+	Source           string                `json:"source"` // folder, create, clone, delete
+	Name             string                `json:"name"`
+	Path             string                `json:"path"`
+	RepoURL          string                `json:"repoUrl,omitempty"`
+	Branch           string                `json:"branch,omitempty"`
+	AuthKind         string                `json:"authKind,omitempty"` // token, ssh, gh; empty uses native git auth
+	GitConnection    *gitaccess.Connection `json:"gitConnection,omitempty"`
+	ExpectedRevision int64                 `json:"expectedRevision,omitempty"` // deletion's confirmed project version
 }
 
 type ProjectOperation struct {
@@ -135,7 +138,7 @@ func projectAtPath(q queryer, path, except string) (*Project, error) {
 	return nil, rows.Err()
 }
 
-func sameProjectIntent(a, b ProjectSpec) bool { a.ID = ""; b.ID = ""; return a == b }
+func sameProjectIntent(a, b ProjectSpec) bool { a.ID = ""; b.ID = ""; return reflect.DeepEqual(a, b) }
 
 // ReserveProject atomically resolves idempotency and claims the destination. The
 // claim and final record use the same database, including across two HTTP clients.
@@ -157,6 +160,9 @@ func (st *Store) ReserveProject(spec ProjectSpec) (ProjectOperation, bool, error
 		return ProjectOperation{}, false, err
 	} else if gone {
 		return ProjectOperation{}, false, ErrDeleted
+	}
+	if err := checkGitAtPath(tx, spec.Path); err != nil {
+		return ProjectOperation{}, false, err
 	}
 	if old, err := activeAtPath(tx, spec.Path); err == nil {
 		if !sameProjectIntent(old.ProjectSpec, spec) {
@@ -305,7 +311,7 @@ func (st *Store) CompleteProject(id string) (ProjectOperation, error) {
 		} else if old != nil {
 			return false, ErrConflict
 		}
-		p := Project{Record: Record{ID: id, CreatedAt: o.CreatedAt}, Name: o.Name, Path: o.Path, RepoURL: o.RepoURL}
+		p := Project{Record: Record{ID: id, CreatedAt: o.CreatedAt}, Name: o.Name, Path: o.Path, RepoURL: o.RepoURL, GitConnection: o.GitConnection}
 		data, _ := json.Marshal(p)
 		data, _, _, err = st.normalize("projects", id, data, revision)
 		if err != nil {

@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/driver"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 func init() { agent.Register(adapter{}) }
@@ -228,12 +230,23 @@ func withChoices(f agent.Field, vals []string, emptyLabel string) agent.Field {
 }
 
 func (adapter) InstallSteps() []agent.Step {
-	// The CLI ships via npm, so it requires node (a shared catalog tool) first. The resolver orders
-	// node → Codex CLI and dedups shared tools.
+	return installSteps(runtime.GOOS)
+}
+
+func installSteps(goos string) []agent.Step {
+	requires := []string{"node"}
+	if goos == "linux" {
+		// Codex uses the distribution's bwrap on Linux. macOS uses built-in Seatbelt.
+		requires = append(requires, "bubblewrap")
+	}
 	return []agent.Step{{
 		Name: "Codex CLI", Check: "codex --version",
-		Install: "npm i -g @openai/codex", Requires: []string{"node"},
+		Requires: requires,
 	}}
+}
+
+func (adapter) Toolchain() toolchain.Spec {
+	return toolchain.Spec{ID: "codex", Name: "Codex CLI", Binary: "codex", Package: "@openai/codex", VersionArgs: []string{"--version"}}
 }
 
 func (adapter) VersionCommand() string { return "codex --version" }
@@ -380,6 +393,9 @@ func buildExecCommand(in agent.TurnInput, files materialized) string {
 	// Prompt argument last, if non-empty (a resume with no new prompt is valid).
 	if strings.TrimSpace(in.Message) != "" {
 		cli += " " + agent.ShellQuote(in.Message)
+	}
+	if in.Env[azureProviderMarker] == "openai" {
+		cli = "(" + subscriptionShell + cli + ")"
 	}
 	return cli
 }

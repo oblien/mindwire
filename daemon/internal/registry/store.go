@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 
 	_ "modernc.org/sqlite"
@@ -23,7 +24,7 @@ import (
 
 const Version = 1
 const NotificationPreferencesVersion = 1
-const schemaVersion = 3
+const schemaVersion = 4
 
 var (
 	ErrConflict = errors.New("record changed on another client; refresh and try again")
@@ -49,9 +50,10 @@ type Agent struct {
 
 type Project struct {
 	Record
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	RepoURL string `json:"repoUrl,omitempty"`
+	Name          string                `json:"name"`
+	Path          string                `json:"path"`
+	RepoURL       string                `json:"repoUrl,omitempty"`
+	GitConnection *gitaccess.Connection `json:"gitConnection,omitempty"`
 }
 
 type Chat struct {
@@ -161,7 +163,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS project_operation_destination ON project_opera
  WHERE status IN ('queued','running','cancelling');
 CREATE TABLE IF NOT EXISTS surface_records (kind TEXT NOT NULL, id TEXT NOT NULL, data BLOB NOT NULL,
  updated_at TEXT NOT NULL, PRIMARY KEY(kind,id));
-PRAGMA user_version=3;`); err != nil {
+CREATE TABLE IF NOT EXISTS git_operations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, path TEXT NOT NULL,
+ status TEXT NOT NULL, updated_at TEXT NOT NULL, data BLOB NOT NULL);
+CREATE INDEX IF NOT EXISTS git_operations_project ON git_operations(project_id,updated_at);
+PRAGMA user_version=4;`); err != nil {
 		return err
 	}
 	identity := make([]byte, 16)
@@ -233,6 +238,11 @@ func (st *Store) normalize(kind, id string, data []byte, revision int64) ([]byte
 		row.Record = base
 		row.Name = strings.TrimSpace(row.Name)
 		row.Path = strings.TrimSpace(row.Path)
+		if row.GitConnection != nil {
+			if err := row.GitConnection.Validate(); err != nil {
+				return nil, "", "", invalid(err.Error())
+			}
+		}
 		if row.Name == "" || len(row.Name) > 512 || row.Path == "" || len(row.Path) > 4096 || strings.ContainsRune(row.Path, 0) || len(row.RepoURL) > 4096 {
 			return nil, "", "", invalid("project name, path or repository")
 		}
@@ -338,6 +348,17 @@ func (st *Store) Put(kind, id string, data []byte, expected *int64) error {
 				if _, present := incoming["notificationsMuted"]; !present {
 					if muted, exists := previous["notificationsMuted"]; exists {
 						incoming["notificationsMuted"] = muted
+					}
+				}
+			}
+			if kind == "projects" {
+				// Old clients omit this field while renaming a project. Only an
+				// explicit null clears the override and restores the workspace default.
+				var raw map[string]json.RawMessage
+				_ = json.Unmarshal(data, &raw)
+				if _, supplied := raw["gitConnection"]; !supplied {
+					if connection, exists := previous["gitConnection"]; exists {
+						incoming["gitConnection"] = connection
 					}
 				}
 			}

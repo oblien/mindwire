@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // Version identifies this daemon binary's agent definitions. The app caches the
@@ -211,6 +213,11 @@ type Adapter interface {
 	// Doctor runs agent-specific health checks (CLI installed, toolchain, …) that the
 	// daemon's generic doctor appends to its own checks.
 	Doctor(ctx context.Context) []Check
+}
+
+// ToolchainModule opts a CLI adapter into the shared, versioned installation policy.
+type ToolchainModule interface {
+	Toolchain() toolchain.Spec
 }
 
 // Titler is an OPTIONAL adapter capability: the agent owns an auto-generated chat title in its

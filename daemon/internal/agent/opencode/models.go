@@ -1,14 +1,14 @@
 package opencode
 
 import (
-	"os"
-	"os/exec"
+	"context"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // Model listing for opencode. `opencode models` prints one `provider/model` id per line (verified
@@ -58,14 +58,14 @@ var (
 // the raw output, memoized per provider-set. nil/empty env → the bare ambient list (the default for
 // callers with no run credentials, e.g. the settings schema field).
 func listModels(env map[string]string) string {
-	key := envKey(env)
+	key := toolchain.Executable("opencode") + "\n" + envKey(env)
 	modelListMu.Lock()
 	defer modelListMu.Unlock()
 	prev := modelListCache[key]
 	if prev.val != "" && time.Since(prev.at) < modelListTTL {
 		return prev.val
 	}
-	cmd := exec.Command("opencode", "models")
+	cmd := toolchain.CommandContext(context.Background(), "opencode", "models")
 	cmd.Env = mergeEnv(env)
 	if out, err := cmd.CombinedOutput(); err == nil && len(out) > 0 {
 		e := modelListEntry{val: string(out), at: time.Now()}
@@ -91,12 +91,12 @@ func envKey(env map[string]string) string {
 
 // mergeEnv overlays env onto the daemon's ambient os.Environ so opencode sees both the daemon's own
 // environment (PATH, ambient keys) and the connected-provider keys. nil/empty env → nil, so the child
-// inherits os.Environ() unchanged.
+// inherits toolchain.Environment() unchanged.
 func mergeEnv(env map[string]string) []string {
 	if len(env) == 0 {
-		return nil
+		return toolchain.Environment()
 	}
-	base := os.Environ()
+	base := toolchain.Environment()
 	over := make(map[string]bool, len(env))
 	for k := range env {
 		over[k] = true

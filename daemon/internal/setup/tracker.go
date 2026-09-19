@@ -39,9 +39,11 @@ type job struct {
 // (idempotent, atomic) rather than starting a second run. The supervisor owns this Tracker for both
 // the HTTP surface and the in-process Go SDK, and gates turns against it.
 type Tracker struct {
-	mu       sync.Mutex
-	jobs     map[string]*job
-	mutation chan struct{} // shared package-manager writes, including prerequisites for other harnesses
+	mu           sync.Mutex
+	jobs         map[string]*job
+	mutation     chan struct{} // shared package-manager writes, including prerequisites for other harnesses
+	dependencyMu sync.Mutex
+	dependencies map[string]dependencyProbe
 }
 
 // NewTracker builds an empty tracker.
@@ -94,6 +96,9 @@ func (t *Tracker) Start(agentID string, steps []agent.Step, force bool, timeout 
 				j.steps = append(j.steps, sr)
 				t.mu.Unlock()
 			})
+		t.dependencyMu.Lock()
+		t.dependencies = nil // Completed setup must not reuse a pre-install missing-tool result.
+		t.dependencyMu.Unlock()
 		t.mu.Lock()
 		j.running = false
 		j.current = ""

@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/proc"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // A custom provider's selected deployment is known to work; Codex's stock review
@@ -54,10 +53,10 @@ func (a *appServer) prepareReviewModel(ctx context.Context) (func(), error) {
 
 	readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(readCtx, "codex", "debug", "models")
+	cmd := toolchain.CommandContext(readCtx, "codex", "debug", "models")
 	proc.Group(cmd)
 	cmd.Dir = a.cwd
-	cmd.Env = os.Environ()
+	cmd.Env = toolchain.Environment()
 	for key, value := range a.env {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}

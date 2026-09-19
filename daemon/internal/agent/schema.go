@@ -1,5 +1,7 @@
 package agent
 
+import "context"
+
 // Settings schema is owned by this Go binary and served to the app, which
 // renders it dynamically — the app hardcodes nothing about any agent. Adding a
 // field or an agent means shipping a new daemon, not an app release.
@@ -82,10 +84,12 @@ type CatalogEntry struct {
 // resolver can order dependencies-first and dedup shared tools across agents.
 // Shell commands aren't serialized to the app — install is the daemon's job.
 type Step struct {
-	Name     string   `json:"name"`
-	Check    string   `json:"-"`
-	Install  string   `json:"-"`
-	Requires []string `json:"-"`
+	Name        string                                `json:"name"`
+	Check       string                                `json:"-"`
+	Install     string                                `json:"-"`
+	Requires    []string                              `json:"-"`
+	CheckFunc   func(context.Context) (string, error) `json:"-"`
+	InstallFunc func(context.Context) (string, error) `json:"-"`
 }
 
 // SettingsKeys is the allow-list of NON-secret setting keys an agent declares. It is the

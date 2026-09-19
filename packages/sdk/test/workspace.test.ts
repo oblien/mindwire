@@ -6,6 +6,55 @@ const snapshot: WorkspaceSnapshot = {
   agents: [], projects: [], chats: [], deleted: [],
 };
 
+test("durable Git writes keep stable IDs and observers do not cancel server work", async () => {
+  const calls: { path: string; method: string; body: any }[] = [];
+  const operation = { id: "stable-id", projectId: "project", path: "/work", action: "push", status: "succeeded",
+    createdAt: "2026-09-19T00:00:00Z", updatedAt: "2026-09-19T00:00:01Z", sequence: 3 };
+  const mw = new Mindwire({ target: remote("http://registry"), fetch: async (url, init) => {
+    const path = new URL(url).pathname;
+    calls.push({ path, method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (path.endsWith("/stream")) return new Response(`event: git_operation\ndata: ${JSON.stringify(operation)}\n\n`, { headers: { "content-type": "text/event-stream" } });
+    if (path.endsWith("/git/operations") && init?.method === "GET") return Response.json({ operations: [operation] });
+    return Response.json(operation);
+  } });
+  const request = { id: "stable-id", action: "push", auth: { kind: "token", token: "write-only-fixture" } } as const;
+  await mw.workspace.git.start("project", request);
+  await mw.workspace.git.start("project", request);
+  expect(calls[0]?.body).toEqual(calls[1]?.body);
+  expect(await mw.workspace.git.operations("project", true)).toEqual([operation]);
+  expect(await mw.workspace.git.operation("stable-id")).toEqual(operation);
+  for await (const state of mw.workspace.git.watch("stable-id")) { expect(state).toEqual(operation); break; }
+  expect(calls.some(c => c.path.endsWith("/cancel"))).toBe(false);
+  await mw.workspace.git.cancel("stable-id");
+  expect(calls.at(-1)?.path).toBe("/workspace/git/operations/stable-id/cancel");
+  expect(calls.filter(c => c.path.endsWith("/git/operations") && c.method === "POST")).toHaveLength(2);
+});
+
+test("GitHub connections and run credentials stay on their explicit wire fields", async () => {
+  const calls: { path: string; body: any }[] = [];
+  const mw = new Mindwire({ target: remote("http://registry"), agent: "codex", fetch: async (url, init) => {
+    calls.push({ path: new URL(url).pathname, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    return Response.json({ id: "run", chatId: "chat", status: "running", createdAt: "2026-09-19T00:00:00Z" });
+  } });
+  const connection = { id: "work", login: "octocat", mode: "token", lifetime: "workspace" } as const;
+  const auth = { kind: "token", connectionId: connection.id, token: "fixture-secret" } as const;
+  await mw.workspace.git.setDefault(connection, auth);
+  await mw.withAgent("claude-code").workspace.git.setProject("project", null, 4);
+  const run = await mw.turn({ chatId: "chat", message: "Commit the fix", gitAuth: auth });
+  await run.respond({ interactionId: "question", text: "Continue", gitAuth: auth });
+  await mw.workspace.git.run("project", "push", auth);
+  await mw.workspace.git.forget(connection.id);
+  expect(calls.map(c => c.path)).toEqual([
+    "/workspace/git", "/workspace/projects/project/git", "/turns", "/runs/run/respond",
+    "/workspace/projects/project/git/push", "/workspace/git/connections/work",
+  ]);
+  expect(calls[0]?.body).toEqual({ connection, auth });
+  expect(calls[1]?.body).toEqual({ connection: null, expectedRevision: 4 });
+  expect(calls[2]?.body).toEqual({ chatId: "chat", message: "Commit the fix", gitAuth: auth });
+  expect(calls[3]?.body.gitAuth).toEqual(auth);
+  expect(calls[4]?.body).toEqual({ auth });
+});
+
 test("workspace registry shares transport and is independent of harness selection", async () => {
   const calls: { path: string; method?: string; body: any; authorization: string | null }[] = [];
   const mw = new Mindwire({

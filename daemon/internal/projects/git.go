@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/proc"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 )
@@ -96,12 +97,43 @@ func validateAuth(repo string, auth Auth) error {
 }
 
 func gitClone(ctx context.Context, o registry.ProjectOperation, auth Auth, destination string, output func(string)) error {
+	return cloneWithEnvironment(ctx, o, auth, destination, output, nil)
+}
+
+func (s *Service) authenticatedClone(ctx context.Context, o registry.ProjectOperation, auth Auth, destination string, output func(string)) error {
+	if o.GitConnection == nil || o.GitConnection.Mode == "native" {
+		return gitClone(ctx, o, auth, destination, output)
+	}
+	// Resolve Git's URL rewriting before handing a connection to the helper.
+	resolved, err := exec.CommandContext(ctx, "git", "ls-remote", "--get-url", "--", o.RepoURL).Output()
+	if err != nil {
+		return fmt.Errorf("could not resolve the repository URL")
+	}
+	url := strings.TrimSpace(string(resolved))
+	wanted, err := gitaccess.Repository(o.RepoURL)
+	actual, actualErr := gitaccess.Repository(url)
+	if err != nil || actualErr != nil || wanted != actual {
+		return invalid("Git URL rewriting changes the selected GitHub repository")
+	}
+	lease, err := s.gitAccess.Prepare(ctx, url, o.GitConnection, &auth)
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	return cloneWithEnvironment(ctx, o, auth, destination, output, lease.Environment)
+}
+
+func cloneWithEnvironment(ctx context.Context, o registry.ProjectOperation, auth Auth, destination string, output func(string), forwarded map[string]string) error {
 	args := []string{}
 	env := os.Environ()
 	env = setEnv(env, "GIT_TERMINAL_PROMPT", "0")
 	env = setEnv(env, "LC_ALL", "C")
 	// Git helpers and local configuration remain native when no auth was supplied.
-	if auth.Kind == "token" {
+	if forwarded != nil {
+		for key, value := range forwarded {
+			env = setEnv(env, key, value)
+		}
+	} else if auth.Kind == "token" {
 		username := auth.Username
 		if username == "" {
 			username = "x-access-token"

@@ -4,26 +4,13 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 )
 
-// auth.go is Codex's AuthModule. Codex authenticates a headless run entirely from the process
-// environment — new secrets are never written to a config file,
-// which is exactly the security posture mindwire wants: secrets enter a run ONLY through EnvForRun,
-// never via TurnInput.Config or the shell string.
-//
-// Three field-based methods (all non-interactive — the ChatGPT `localhost:1455` OAuth loopback is not
-// headless-compatible, so it is deliberately not offered):
-//   - "apiKey":      an OpenAI/Codex API key → CODEX_API_KEY (+ OPENAI_API_KEY for pre-Rust builds),
-//                    with optional base URL / organization / project.
-//   - "accessToken": a ChatGPT/PAT access token → CODEX_ACCESS_TOKEN.
-//   - "azureFoundry": Microsoft Foundry/Azure OpenAI v1 via native Codex provider configuration;
-//     the API key or Entra token still enters the process through an env-var reference only.
-//
-// Status is presence-based: daemon credentials do not appear in `codex login
-// status`. An existing selected native provider can also authenticate a run;
-// recognize its bearer token or populated env_key without copying the secret.
+// Subscription sign-in uses native app-server device auth: Codex owns the OAuth
+// cache and refresh tokens. Field credentials enter runs only through EnvForRun.
 
 // Cred-store keys.
 const (
@@ -45,7 +32,11 @@ const (
 	azureModelMarker    = "MINDWIRE_CODEX_MODEL"
 )
 
-type authModule struct{ store agent.CredStore }
+type authModule struct {
+	store agent.CredStore
+	mu    sync.Mutex
+	login *agent.AuthFlow
+}
 
 var azureAuthSpec = agent.FoundryAuthSpec{
 	Prefix: "azure", ResourceDomain: "openai.azure.com", APIPath: "/openai/v1", ModelPlaceholder: "my-codex-deployment",
@@ -63,6 +54,10 @@ func newAuth(store agent.CredStore) *authModule { return &authModule{store: stor
 
 func (m *authModule) Methods() []agent.AuthMethod {
 	return []agent.AuthMethod{
+		{
+			ID: "login", Label: "Continue with ChatGPT", Scope: agent.ScopeUnified, Interactive: true,
+			Help: "Use the Codex access included with your ChatGPT plan. Open the sign-in page and enter the device code. If prompted, enable Codex device-code sign-in in your ChatGPT security settings.",
+		},
 		{
 			ID: "apiKey", Label: "API key", Scope: agent.ScopeUnified,
 			Help: "An OpenAI/Codex API key (platform.openai.com). Sent to a run as CODEX_API_KEY — env-only, no config file is written.",
@@ -89,8 +84,10 @@ func (m *authModule) Methods() []agent.AuthMethod {
 	}
 }
 
-func (m *authModule) Begin(_ context.Context, methodID string) (agent.AuthState, error) {
+func (m *authModule) Begin(ctx context.Context, methodID string) (agent.AuthState, error) {
 	switch methodID {
+	case "login":
+		return m.beginLogin(ctx), nil
 	case "apiKey":
 		return agent.AuthState{Method: "apiKey", Status: "needs_input",
 			Fields: agent.MethodFields(m, "apiKey"), Message: "Enter your OpenAI/Codex API key."}, nil
@@ -107,6 +104,17 @@ func (m *authModule) Begin(_ context.Context, methodID string) (agent.AuthState,
 }
 
 func (m *authModule) Step(_ context.Context, input map[string]string) (agent.AuthState, error) {
+	if len(input) == 0 || input[agent.AuthFlowIDKey] != "" || input[agent.AuthActionKey] != "" {
+		m.mu.Lock()
+		flow := m.login
+		m.mu.Unlock()
+		if flow != nil {
+			return flow.Step(input)
+		}
+		return agent.AuthState{Method: "login", Status: "error", Message: "No sign-in in progress. Start again."}, nil
+	}
+	// Choosing another connection supersedes any unfinished subscription login.
+	m.cancelLogin()
 	if hasAzureInput(input) {
 		resolved, err := azureAuthSpec.NormalizeInput(input)
 		if err != nil {
@@ -171,9 +179,12 @@ func (m *authModule) Step(_ context.Context, input map[string]string) (agent.Aut
 	return agent.AuthState{Status: "error", Message: "no credential provided"}, nil
 }
 
-// Status reports credential presence in the daemon or the selected native provider.
-// This does not make an inference request or verify that a credential is unexpired.
-func (m *authModule) Status(_ context.Context) agent.AuthStatus {
+// Status uses native account/read for subscription accounts and credential
+// presence for field-based providers. It never makes an inference request.
+func (m *authModule) Status(ctx context.Context) agent.AuthStatus {
+	if m.store.Get(ckMethod) == "login" {
+		return nativeSubscriptionStatus(ctx)
+	}
 	switch {
 	case m.store.Get(ckMethod) == "azureFoundry" && strings.TrimSpace(m.store.Get(agent.ProviderCredKey(azureProviderID))) != "":
 		return agent.AuthStatus{Configured: true, Method: "azureFoundry", Detail: "Microsoft Foundry connected"}
@@ -190,15 +201,20 @@ func (m *authModule) Status(_ context.Context) agent.AuthStatus {
 			name := agent.FirstNonEmpty(p.Name, p.ID)
 			return agent.AuthStatus{Configured: true, Method: method, Detail: "Using " + name + " from Codex config"}
 		}
-		return agent.AuthStatus{Configured: false, Detail: "No credential set — connect an account or configure a provider in Codex config."}
+		return nativeSubscriptionStatus(ctx)
 	}
 }
 
-// EnvForRun is the ONLY place credentials enter a run. Endpoint/org/project are orthogonal to the
-// credential and exported whenever set; the credential itself is chosen by the stored method, falling
-// back to whichever secret is present so a run still authenticates if the method tag was lost.
+// EnvForRun supplies stored field credentials, or selects the native account for
+// subscription runs. Old stores without a method tag keep their presence fallback.
 func (m *authModule) EnvForRun() map[string]string {
 	env := map[string]string{}
+	if m.store.Get(ckMethod) == "login" {
+		// Explicit subscription selection must not inherit a previous Azure/API
+		// endpoint or its credentials. Native Codex owns account refresh.
+		env[azureProviderMarker] = "openai"
+		return env
+	}
 	// Older Foundry setups may still have first-party companions in the store.
 	// They do not apply to the Azure provider, including after a daemon upgrade.
 	if m.store.Get(ckMethod) != "azureFoundry" {

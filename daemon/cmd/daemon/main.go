@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -19,6 +20,8 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/api"
+	"github.com/oblien/mindwire/daemon/internal/gitaccess"
+	"github.com/oblien/mindwire/daemon/internal/gitops"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/registry"
@@ -35,12 +38,30 @@ import (
 	// from within the notify package). Add a blank import per pluggable channel.
 	_ "github.com/oblien/mindwire/daemon/internal/notify/exec"
 	_ "github.com/oblien/mindwire/daemon/internal/notify/file"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--git-credential" || os.Args[1] == "--git-ssh") {
+		var err error
+		if os.Args[1] == "--git-credential" {
+			err = gitaccess.Helper(os.Args[2:], os.Stdin, os.Stdout)
+		} else {
+			err = gitaccess.SSHHelper(os.Args[2:], os.Stdin, os.Stdout, os.Stderr)
+		}
+		if err != nil {
+			log.Print(err)
+			os.Exit(1)
+		}
+		return
+	}
 	for _, a := range os.Args[1:] {
 		if a == "--print-catalog" {
 			printCatalog()
+			return
+		}
+		if a == "--print-toolchains" {
+			printToolchains()
 			return
 		}
 	}
@@ -115,7 +136,7 @@ func main() {
 	health := http.NewServeMux()
 	health.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "workspaceMetadataVersion": registry.Version, "projectOperationsVersion": registry.ProjectOperationsVersion, "surfaceProtocolVersion": 1, "notificationPreferencesVersion": registry.NotificationPreferencesVersion})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "workspaceMetadataVersion": registry.Version, "projectOperationsVersion": registry.ProjectOperationsVersion, "surfaceProtocolVersion": 1, "notificationPreferencesVersion": registry.NotificationPreferencesVersion, "gitAccessVersion": gitaccess.Version, "gitOperationsVersion": gitops.Version, "harnessPolicyVersion": toolchain.PolicyVersion})
 	})
 	root.Handle("/healthz", api.Auth(token, health))
 
@@ -172,7 +193,44 @@ func serve(srv *http.Server, listener net.Listener) {
 func printCatalog() {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	_ = enc.Encode(map[string]any{"version": agent.Version, "agents": agent.Catalog()})
+	_ = enc.Encode(map[string]any{"version": agent.Version, "agents": agent.Catalog(), "harnessCompatibility": toolchain.Bundled(), "harnessPolicyVersion": toolchain.PolicyVersion})
+}
+
+// Image builds use the same package declarations and approved versions as runtime setup.
+// This emits data only; release automation never duplicates a list of npm latest packages.
+func printToolchains() {
+	plan, err := bundledToolchains()
+	if err != nil {
+		log.Fatal(err)
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(plan)
+}
+
+type toolchainPlan struct {
+	Agent       string            `json:"agent"`
+	Binary      string            `json:"binary"`
+	Package     string            `json:"package"`
+	Version     string            `json:"version"`
+	VersionArgs []string          `json:"versionArgs"`
+	Environment map[string]string `json:"environment,omitempty"`
+}
+
+func bundledToolchains() ([]toolchainPlan, error) {
+	catalog := toolchain.Bundled()
+	plan := []toolchainPlan{}
+	for _, a := range agent.All() {
+		mod, ok := a.(agent.ToolchainModule)
+		if !ok {
+			continue
+		}
+		spec := mod.Toolchain()
+		decision := catalog.Evaluate(a.ID(), agent.Version, "")
+		if decision.RecommendedVersion == "" {
+			return nil, fmt.Errorf("no bundled %s release supports daemon %s; update the compatibility catalog before releasing", a.ID(), agent.Version)
+		}
+		plan = append(plan, toolchainPlan{Agent: a.ID(), Binary: spec.Binary, Package: spec.Package, Version: decision.RecommendedVersion, VersionArgs: spec.VersionArgs, Environment: spec.Environment})
+	}
+	return plan, nil
 }
 
 func env(key, fallback string) string {

@@ -7,13 +7,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 )
 
 func workspaceError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
-	case errors.Is(err, registry.ErrInvalid):
+	case errors.Is(err, registry.ErrInvalid), errors.Is(err, gitaccess.ErrCredential):
 		status = http.StatusBadRequest
 	case errors.Is(err, registry.ErrConflict):
 		status = http.StatusConflict

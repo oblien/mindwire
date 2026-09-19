@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/proc"
 	"github.com/oblien/mindwire/daemon/internal/procmon"
@@ -27,6 +28,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/setup"
 	"github.com/oblien/mindwire/daemon/internal/stream"
 	"github.com/oblien/mindwire/daemon/internal/surface"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 )
 
@@ -138,12 +140,13 @@ func (v *CredView) All() map[string]string {
 
 // Supervisor hosts all agents and supervises their turns for one sandbox.
 type Supervisor struct {
-	store    *session.Store
-	hub      *stream.Hub
-	notifier notify.Notifier
-	notes    *notify.Stream   // local SSE broadcaster (in-app live notifications)
-	mon      *procmon.Monitor // on-demand per-turn CPU/mem sampler (idle until a client subscribes)
-	cwd      string
+	prepareGit GitPreparation
+	store      *session.Store
+	hub        *stream.Hub
+	notifier   notify.Notifier
+	notes      *notify.Stream   // local SSE broadcaster (in-app live notifications)
+	mon        *procmon.Monitor // on-demand per-turn CPU/mem sampler (idle until a client subscribes)
+	cwd        string
 
 	agents map[string]*Agent // by agent type
 	def    string            // default agent type when a request omits ?agent=
@@ -153,6 +156,7 @@ type Supervisor struct {
 	active                  map[string]string // chatId -> active turn's working directory
 	activeAgents            map[string]int    // harness -> live turns, under the same lock as setup admission
 	setup                   *setup.Tracker
+	toolchain               *toolchain.Manager
 	cancels                 map[string]context.CancelFunc // runId -> cancel the running turn
 	// User-in-loop ingress, parallel to cancels (same register-before-return + defer close). inputs
 	// holds each running turn's inbound channel (present only for agents declaring an ingress
@@ -183,7 +187,7 @@ func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, d
 		agents: map[string]*Agent{}, def: defaultAgent,
 		serviceReplies: map[string]map[string]chan agent.InteractionResponse{}, serviceEmit: map[string]agent.Emit{},
 		active: map[string]string{}, cancels: map[string]context.CancelFunc{},
-		activeAgents: map[string]int{}, setup: setup.NewTracker(),
+		activeAgents: map[string]int{}, setup: setup.NewTracker(), toolchain: toolchain.New(agent.Version),
 		inputs: map[string]chan agent.Inbound{}, pending: map[string]map[string]agent.Interaction{},
 		answering: map[string]bool{}, runClosed: map[string]chan struct{}{},
 	}
@@ -229,11 +233,13 @@ func (s *Supervisor) CWD() string { return s.cwd }
 // StartTurnInput is one turn's request from the API layer. Bundled into a value object so the
 // StartTurn signature doesn't grow per-field as per-turn options expand.
 type StartTurnInput struct {
-	ChatID  string
-	Message string
-	CWD     string // run this turn in a specific dir (a project workdir); else the daemon default
-	Options agent.TurnOptions
-	reply   *session.InteractionReply // internal: atomically commit a resumed async answer with the turn
+	ChatID   string
+	Message  string
+	CWD      string // run this turn in a specific dir (a project workdir); else the daemon default
+	Options  agent.TurnOptions
+	GitAuth  *gitaccess.Auth // write-only; never session or transcript state
+	gitLease *gitaccess.Lease
+	reply    *session.InteractionReply // internal: atomically commit a resumed async answer with the turn
 }
 
 // StartTurn records the user message, creates a running Run, registers cancellation, and
@@ -263,6 +269,14 @@ func (s *Supervisor) StartCompact(a *Agent, req StartTurnInput) (session.Run, bo
 // unattended, and with no Inbound channel neither adapter can enter its pausing transport (both gate
 // persistent/app-server on Inbound != nil), so the loop can't stall on an approval.
 func (s *Supervisor) StartResolve(a *Agent, req StartTurnInput, ro ResolveOptions) (session.Run, bool) {
+	run, err := s.StartResolveChecked(a, req, ro)
+	return run, err == nil
+}
+
+func (s *Supervisor) StartResolveChecked(a *Agent, req StartTurnInput, ro ResolveOptions) (session.Run, error) {
+	if err := s.checkSoftware(a); err != nil {
+		return session.Run{}, err
+	}
 	if ro.MaxIterations <= 0 {
 		ro.MaxIterations = resolveMaxIterations
 	}
@@ -272,14 +286,24 @@ func (s *Supervisor) StartResolve(a *Agent, req StartTurnInput, ro ResolveOption
 	s.mu.Lock()
 	if _, busy := s.active[req.ChatID]; busy || s.setup.Status(a.ID()).Running {
 		s.mu.Unlock()
-		return session.Run{}, false
+		return session.Run{}, ErrChatBusy
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), ro.Deadline)
+	if s.prepareGit != nil {
+		var err error
+		req.gitLease, err = s.prepareGit(ctx, req.ChatID, req.CWD, req.GitAuth)
+		if err != nil {
+			cancel()
+			s.mu.Unlock()
+			return session.Run{}, err
+		}
+	}
+	req.GitAuth = nil
 	s.active[req.ChatID] = s.activePath(req.CWD)
 	s.activeAgents[a.ID()]++
 	// The parent context bounds the WHOLE resolve (overall deadline); each child turn derives a 30-min
 	// timeout from it. Register the cancel under the parent id BEFORE returning, so an immediate cancel
 	// can't race an unregistered run into a 404 (same anti-race as start()).
-	ctx, cancel := context.WithTimeout(context.Background(), ro.Deadline)
 	parent := session.Run{ID: newID(), ChatID: req.ChatID, Agent: a.ID(), Status: "running", Kind: "resolve", CreatedAt: nowISO()}
 	s.cancels[parent.ID] = cancel
 	s.inflight++ // paired with execResolve's deferred runDone; unconditional launch below
@@ -295,7 +319,7 @@ func (s *Supervisor) StartResolve(a *Agent, req StartTurnInput, ro ResolveOption
 	_ = s.store.SaveRun(parent)
 
 	go s.execResolve(ctx, cancel, a, parent, req, ro)
-	return parent, true
+	return parent, nil
 }
 
 // start is the shared launch path for StartTurn (compact=false) and StartCompact (compact=true).
@@ -305,15 +329,31 @@ func (s *Supervisor) start(a *Agent, req StartTurnInput, compact bool) (session.
 }
 
 func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (session.Run, error) {
+	if err := s.checkSoftware(a); err != nil {
+		return session.Run{}, err
+	}
 	s.mu.Lock()
 	if _, busy := s.active[req.ChatID]; busy || s.setup.Status(a.ID()).Running {
 		s.mu.Unlock()
 		return session.Run{}, ErrChatBusy
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), maxTurn)
+	if s.prepareGit != nil && !compact {
+		var err error
+		req.gitLease, err = s.prepareGit(ctx, req.ChatID, req.CWD, req.GitAuth)
+		if err != nil {
+			cancel()
+			s.mu.Unlock()
+			return session.Run{}, err
+		}
+	}
+	req.GitAuth = nil
 	run := session.Run{ID: newID(), ChatID: req.ChatID, Agent: a.ID(), Status: "running", CreatedAt: nowISO()}
 	if req.reply != nil {
 		message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO()}
 		if err := s.store.CommitInteractionReply(*req.reply, run.ID, message, &run); err != nil {
+			req.closeGit()
+			cancel()
 			s.mu.Unlock()
 			return session.Run{}, err
 		}
@@ -322,7 +362,6 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 	s.activeAgents[a.ID()]++
 	// Create + register the cancel func BEFORE returning the run id, so a client that
 	// cancels immediately after POST /turns can't race an unregistered run into a 404.
-	ctx, cancel := context.WithTimeout(context.Background(), maxTurn)
 	s.cancels[run.ID] = cancel
 	s.runClosed[run.ID] = make(chan struct{})
 	// Same anti-race for user-in-loop: if the agent can take ingress (respond/input/interrupt),
@@ -444,8 +483,12 @@ func (s *Supervisor) Respond(runID, interactionID, decision string, options []st
 
 // RespondInteraction accepts exactly one complete answer for a currently pending request.
 func (s *Supervisor) RespondInteraction(runID string, reply agent.InteractionResponse) error {
+	return s.RespondInteractionWithGitAuth(runID, reply, nil)
+}
+
+func (s *Supervisor) RespondInteractionWithGitAuth(runID string, reply agent.InteractionResponse, gitAuth *gitaccess.Auth) error {
 	if _, ok := s.store.MessageQuestion(runID, reply.InteractionID); ok {
-		return s.respondMessageQuestion(runID, reply)
+		return s.respondMessageQuestion(runID, reply, gitAuth)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -565,6 +608,7 @@ func metaStrings(m map[string]any) map[string]string {
 func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *Agent, run session.Run, req StartTurnInput, inbound chan agent.Inbound, compact bool) {
 	defer s.runDone() // registered first ⇒ runs last, after the terminal SaveRun and teardown
 	defer cancel()
+	defer req.closeGit()
 	defer func() {
 		s.mu.Lock()
 		delete(s.active, run.ChatID)
@@ -615,7 +659,8 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 
 	turn := runner.Turn{
 		ChatID: run.ChatID, Message: req.Message, RunID: run.ID, CWD: req.CWD, Options: req.Options,
-		Inbound: inbound,
+		Environment: req.gitEnvironment(),
+		Inbound:     inbound,
 		BeforePublish: func(ev agent.Event) {
 			if ev.Interaction != nil {
 				ev.Interaction.RunID = run.ID
@@ -701,6 +746,7 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc, a *Agent, parent session.Run, req StartTurnInput, ro ResolveOptions) {
 	defer s.runDone() // registered first ⇒ runs last, after the terminal SaveRun and teardown
 	defer cancel()
+	defer req.closeGit()
 	defer func() {
 		s.mu.Lock()
 		delete(s.active, parent.ChatID)
@@ -759,6 +805,7 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 		childCtx, childCancel := context.WithTimeout(ctx, maxTurn)
 		turn, cleanup, prepareErr := s.desktopTurn(childCtx, a, runner.Turn{
 			ChatID: parent.ChatID, Message: msg, RunID: parent.ID, CWD: req.CWD, Options: opts,
+			Environment: req.gitEnvironment(),
 			BeforePublish: func(ev agent.Event) {
 				if ev.Interaction != nil {
 					// Resolve is explicitly unattended and has no user ingress. Preserve
