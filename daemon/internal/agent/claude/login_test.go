@@ -45,6 +45,10 @@ func TestClaudeNativeAuthProcess(t *testing.T) {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"loggedIn": err == nil, "authMethod": method, "apiProvider": "firstParty"})
 		os.Exit(0)
 	}
+	if strings.Contains(args, "auth logout") {
+		_ = os.Remove(os.Getenv("MINDWIRE_AUTH_TEST_STATE"))
+		os.Exit(0)
+	}
 	os.Exit(5)
 }
 
@@ -58,16 +62,43 @@ func claudeLoginFixture(t *testing.T) *authModule {
 	return m
 }
 
+func TestClaudeLogoutClearsNativeAccountAndStoredFields(t *testing.T) {
+	m := claudeLoginFixture(t)
+	if err := m.store.Set("authMethod", "login"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(os.Getenv("MINDWIRE_AUTH_TEST_STATE"), []byte("native account"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	auth := agent.ManageAuth(m, m.store)
+	if err := auth.Logout(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(os.Getenv("MINDWIRE_AUTH_TEST_STATE")); !os.IsNotExist(err) {
+		t.Fatal("native account was retained")
+	}
+	if auth.Status(context.Background()).Configured || m.store.Get("oauthToken") != "" || m.store.Get("apiKey") != "" {
+		t.Fatal("agent remains authenticated")
+	}
+}
+
 func TestClaudeSubscriptionBrowserCodeCompletesThroughNativeLogin(t *testing.T) {
 	m := claudeLoginFixture(t)
 	if first := m.Methods()[0]; first.ID != "login" || !first.Interactive || first.Label != "Continue with Claude" {
 		t.Fatalf("subscription must be first: %+v", first)
 	}
 	st, err := m.Begin(context.Background(), "login")
-	if err != nil || st.FlowID == "" || st.URL == "" {
+	if err != nil || st.FlowID == "" {
 		t.Fatalf("begin: %+v %v", st, err)
 	}
-	authtest.Eventually(t, func() bool { return m.login.State().Status == "needs_input" })
+	flowID := st.FlowID
+	authtest.Eventually(t, func() bool {
+		st, err = m.Step(context.Background(), map[string]string{agent.AuthFlowIDKey: flowID})
+		return err != nil || st.Status == "error" || st.Status == "needs_input"
+	})
+	if err != nil || st.Status != "needs_input" || st.URL == "" || !m.Active() {
+		t.Fatalf("browser handoff: %+v %v", st, err)
+	}
 	if fields := m.login.State().Fields; len(fields) != 1 || fields[0].Key != agent.AuthCodeKey {
 		t.Fatalf("code field: %+v", fields)
 	}

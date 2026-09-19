@@ -358,7 +358,7 @@ func (c *Client) Agent(ctx context.Context, opts ...ScopedOption) (AgentInfo, er
 		Version:          agent.Version,
 		AgentType:        ag.ID(),
 		Name:             ag.Adapter.Meta().Name,
-		Capabilities:     ag.Adapter.Capabilities(),
+		Capabilities:     ag.Capabilities(),
 		Schema:           ag.Adapter.Settings(),
 		AuthMethods:      ag.Auth.Methods(),
 		AuthStatus:       status,
@@ -437,14 +437,7 @@ func (c *Client) GetConfig(opts ...ScopedOption) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	allow := agent.SettingsKeys(ag.Adapter.Settings())
-	out := map[string]string{}
-	for k, v := range ag.Creds.All() {
-		if allow[k] {
-			out[k] = v
-		}
-	}
-	return out, nil
+	return agent.ReadSettings(ag.Adapter, ag.Creds), nil
 }
 
 // SetConfig merges values into the scoped agent's namespaced config, ignoring any key the agent
@@ -456,15 +449,12 @@ func (c *Client) SetConfig(values map[string]string, opts ...ScopedOption) error
 	if err != nil {
 		return err
 	}
-	schema := ag.Adapter.Settings()
-	for k, v := range values {
-		raw, ok := agent.ResolveSettingKey(schema, k)
-		if !ok {
-			continue
-		}
-		if err := ag.Creds.Set(raw, v); err != nil {
-			return &APIError{Message: "failed to persist settings", Status: http.StatusInternalServerError, Op: "SetConfig", Cause: err}
-		}
+	patch, err := agent.NormalizeSettings(ag.Adapter.Settings(), values)
+	if err != nil {
+		return &APIError{Message: err.Error(), Status: http.StatusBadRequest, Op: "SetConfig", Cause: err}
+	}
+	if err := ag.Creds.SetMany(patch); err != nil {
+		return &APIError{Message: "failed to persist settings", Status: http.StatusInternalServerError, Op: "SetConfig", Cause: err}
 	}
 	return nil
 }

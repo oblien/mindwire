@@ -41,9 +41,8 @@ func (adapter) Capabilities() agent.Capabilities {
 		ToolEvents: true,
 		Cancel:     true,
 		Persistent: true,
-		// Report configured private deployments through /models. Codex's cached metadata catalog
-		// does not enumerate an account's deployments; clients source the public picker separately.
-		// The settings model field remains free text for provider-specific names (see models.go).
+		// Native model/list supplies supported models and their reasoning levels.
+		// Private deployments retain explicit names and manual entry (models.go).
 		Models: true,
 		// Codex feeds image attachments to `codex exec -i <file>` natively, so the model sees the image.
 		ImageInput: true,
@@ -88,16 +87,20 @@ func (adapter) Capabilities() agent.Capabilities {
 // flag mapping is too irregular to iterate (fresh vs resume take different flags for the same
 // concept), so buildExecCommand switches on these keys explicitly rather than a per-spec flag.
 const (
-	keyModel         = "model"
-	keyEffort        = "reasoning-effort"
-	keyReviewer      = "approval-reviewer"
-	keyCollaboration = "collaboration-mode"
-	keyApproval      = "permission-mode" // maps to Codex's approval policy (when to ask a human)
-	keySandbox       = "sandbox"         // Codex's orthogonal second axis (filesystem/network isolation)
-	keyWorkdir       = "working-dir"
-	keyAddDir        = "add-dir"
-	keySystemPrompt  = "system-prompt"       // sticky full system-prompt override (canon systemPrompt), threaded into the exec overlay
-	keyAutoCompact   = "auto-compact-tokens" // canon autoCompactTokens → -c model_auto_compact_token_limit
+	keyModel          = "model"
+	keyEffort         = "reasoning-effort"
+	keySummary        = "reasoning-summary"
+	keyRequestRetries = "request-max-retries"
+	keyStreamRetries  = "stream-max-retries"
+	keyStreamTimeout  = "stream-idle-timeout-ms"
+	keyReviewer       = "approval-reviewer"
+	keyCollaboration  = "collaboration-mode"
+	keyApproval       = "permission-mode" // maps to Codex's approval policy (when to ask a human)
+	keySandbox        = "sandbox"         // Codex's orthogonal second axis (filesystem/network isolation)
+	keyWorkdir        = "working-dir"
+	keyAddDir         = "add-dir"
+	keySystemPrompt   = "system-prompt"       // sticky full system-prompt override (canon systemPrompt), threaded into the exec overlay
+	keyAutoCompact    = "auto-compact-tokens" // canon autoCompactTokens → -c model_auto_compact_token_limit
 )
 
 // optSrc says where a select field's VALUES come from. We never hardcode enum values — they are
@@ -109,6 +112,7 @@ const (
 	srcSandbox                // inline `[possible values: …]` from `codex exec --help` (-s/--sandbox)
 	srcApproval               // multi-line `Possible values:` from `codex --help` (-a/--ask-for-approval)
 	srcReviewer
+	srcSummary
 	srcCollaboration
 	srcModels // model ids from modelChoices() — empty for Codex (no local list → free text)
 )
@@ -128,8 +132,9 @@ type fieldSpec struct {
 // surface onto a cross-agent canon; Codex-specific axes (sandbox, working directory) are custom
 // (scope custom, canon == key).
 var codexSpecs = []fieldSpec{
-	{key: keyModel, label: "Model", section: "Model & reasoning", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonModel, src: srcModels, emptyLabel: "Default (CLI default)", placeholder: "gpt-5.5", help: "Model the agent should use; leave blank for the CLI default. Free text here (CLI-validated); browse and pick the OpenAI model list in the client's Models surface, sourced from the live models.dev catalog."},
-	{key: keyEffort, label: "Reasoning effort", section: "Model & reasoning", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonReasoningEffort, src: srcNone, placeholder: "medium", help: "How much reasoning the model uses per turn (e.g. minimal, low, medium, high, xhigh), depending on the selected model."},
+	{key: keyModel, label: "Model", section: "Model & reasoning", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonModel, src: srcModels, emptyLabel: "Default", placeholder: "Model or deployment ID", help: "Choose from Codex's model list or enter your provider's deployment name. Leave blank for the native default."},
+	{key: keyEffort, label: "Reasoning effort", section: "Model & reasoning", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonReasoningEffort, src: srcNone, placeholder: "Default", help: "How much reasoning the selected model uses. Available levels come from Codex's model metadata; custom deployments can use a provider-supported value."},
+	{key: keySummary, label: "Reasoning summary", section: "Model & reasoning", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonReasoningSummary, src: srcSummary, emptyLabel: "Default", help: "How much of the model's reasoning summary appears in the conversation. Supported values come from the installed Codex version."},
 
 	{key: keyApproval, label: "Approval policy", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonPermissionMode, src: srcApproval, emptyLabel: "Never (autonomous)", help: "When Codex pauses to ask you before running a command."},
 	{key: keyReviewer, label: "Approval reviewer", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonApprovalReviewer, src: srcReviewer, help: "Approve for me uses Codex's native reviewer with Ask when needed. Ask before commands uses manual review. Custom connections use the chat model for automatic review."},
@@ -142,6 +147,9 @@ var codexSpecs = []fieldSpec{
 	{key: keySystemPrompt, label: "System prompt (override)", section: "Prompt & context", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonSystemPrompt, src: srcNone, placeholder: "You are a terse senior engineer.", help: "Replaces Codex's default instructions entirely. A per-turn systemPrompt option overrides this."},
 
 	{key: keyAutoCompact, label: "Auto-compact window", section: "Limits", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonAutoCompactTokens, src: srcNone, placeholder: "200000", help: "Auto-compact the conversation once its context reaches this many tokens. Enter a positive integer; non-numeric values are ignored. Codex caps the effective limit at about 90% of the model's context window."},
+	{key: keyRequestRetries, label: "Request retries", section: "Connection", typ: agent.FieldText, scope: agent.ScopeCustom, placeholder: "Provider default", help: "Maximum retries when an API request fails. Applies to the active provider on the next turn."},
+	{key: keyStreamRetries, label: "Stream retries", section: "Connection", typ: agent.FieldText, scope: agent.ScopeCustom, placeholder: "Provider default", help: "Maximum reconnect attempts when a response stream is interrupted."},
+	{key: keyStreamTimeout, label: "Stream idle timeout (ms)", section: "Connection", typ: agent.FieldText, scope: agent.ScopeCustom, placeholder: "Provider default", help: "How long Codex waits without stream activity before reconnecting, in milliseconds."},
 }
 
 // Settings builds Codex's settings schema. We own the field references; a select whose CLI source
@@ -171,6 +179,8 @@ func (adapter) Settings() agent.SettingsSchema {
 			}
 			f = withChoices(f, values, "")
 			f.Default = "user"
+		case srcSummary:
+			f = withChoices(f, protocolChoices("ReasoningSummary"), s.emptyLabel)
 		case srcCollaboration:
 			values := protocolChoices("ModeKind")
 			if len(values) == 0 {
@@ -188,6 +198,13 @@ func (adapter) Settings() agent.SettingsSchema {
 			}
 		case srcModels:
 			f = withChoices(f, modelChoices(), s.emptyLabel)
+		}
+		if s.key == keyRequestRetries || s.key == keyStreamRetries || s.key == keyStreamTimeout {
+			minimum, maximum := int64(0), int64(4294967295)
+			if s.key == keyStreamTimeout {
+				minimum = 1
+			}
+			f.InputMode, f.Minimum, f.Maximum = "numeric", &minimum, &maximum
 		}
 		if s.key == keyApproval {
 			f.Default = "never"
@@ -346,6 +363,14 @@ func buildExecCommand(in agent.TurnInput, files materialized) string {
 	// Reasoning effort — config-only (no CLI flag), fresh + resume.
 	if v := strings.TrimSpace(in.Config[keyEffort]); v != "" {
 		cli += " -c " + agent.ShellQuote("model_reasoning_effort="+v)
+	}
+	for key, native := range map[string]string{keySummary: "model_reasoning_summary", keyReviewer: "approvals_reviewer"} {
+		if value := strings.TrimSpace(in.Config[key]); value != "" {
+			cli += " -c " + agent.ShellQuote(native+"="+value)
+		}
+	}
+	for _, override := range providerTuning(in, "") {
+		cli += " -c " + agent.ShellQuote(override)
 	}
 	// Auto-compact threshold — config-only, fresh + resume. Codex expects an integer token limit, so a
 	// non-numeric unified value (e.g. Claude's "auto") is skipped rather than passed through and rejected.

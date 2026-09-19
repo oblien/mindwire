@@ -23,11 +23,17 @@ func (s *Supervisor) Setup(a *Agent, force bool) (setup.Status, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.serviceUpdatingLocked() {
+		return setup.Status{}, ErrServiceUpdating
+	}
 	if current := s.setup.Status(a.ID()); current.Running {
 		return current, nil
 	}
 	if s.activeAgents[a.ID()] > 0 {
 		return setup.Status{}, ErrAgentBusy
+	}
+	if s.authChanging[a.ID()] {
+		return setup.Status{}, ErrAuthBusy
 	}
 	return s.setup.Start(a.ID(), steps, force, 20*time.Minute), nil
 }

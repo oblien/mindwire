@@ -57,6 +57,7 @@ const (
 // AuthStatus is the resting state: is the agent authenticated, and via which method.
 type AuthStatus struct {
 	Configured bool   `json:"configured"`
+	SignedOut  bool   `json:"signedOut,omitempty"`
 	Method     string `json:"method,omitempty"`
 	Detail     string `json:"detail,omitempty"`
 }

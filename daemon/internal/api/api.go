@@ -115,6 +115,9 @@ type Route struct {
 // Routes is the full authenticated API surface. Every agent-specific route accepts ?agent=<type>.
 func (a *API) Routes() []Route {
 	return []Route{
+		{"GET", "/service/update", a.serviceUpdateStatus},
+		{"POST", "/service/update", a.serviceUpdateAcquire},
+		{"DELETE", "/service/update/{id}", a.serviceUpdateRelease},
 		{"GET", "/surfaces", a.surfacesList},
 		{"GET", "/surfaces/desktop", a.surfaceStatus},
 		{"PUT", "/surfaces/desktop/binding", a.surfaceBind},
@@ -220,6 +223,7 @@ func (a *API) Routes() []Route {
 		{"GET", "/auth/methods", a.authMethods},
 		{"POST", "/auth/begin", a.authBegin},
 		{"POST", "/auth/step", a.authStep},
+		{"POST", "/auth/logout", a.authLogout},
 		{"GET", "/auth/status", a.authStatusHandler},
 		// Notifications: daemon-wide (the client PUTs a webhook URL + optional token).
 		{"PUT", "/notify/config", a.setNotifyConfig},
@@ -248,7 +252,11 @@ var PublicRoutes = []Route{
 
 func (a *API) Register(mux *http.ServeMux) {
 	for _, rt := range a.Routes() {
-		mux.HandleFunc(rt.Method+" "+rt.Pattern, rt.Handler)
+		handler := rt.Handler
+		if rt.Method != "GET" && !strings.HasPrefix(rt.Pattern, "/service/update") {
+			handler = a.serviceOperation(handler)
+		}
+		mux.HandleFunc(rt.Method+" "+rt.Pattern, handler)
 	}
 }
 
@@ -1136,7 +1144,7 @@ func (a *API) agentInfo(w http.ResponseWriter, r *http.Request) {
 		"version":          agent.Version,
 		"agentType":        ag.ID(),
 		"name":             ag.Adapter.Meta().Name,
-		"capabilities":     ag.Adapter.Capabilities(),
+		"capabilities":     ag.Capabilities(),
 		"schema":           ag.Adapter.Settings(),
 		"authMethods":      ag.Auth.Methods(),
 		"authStatus":       status,
@@ -1229,16 +1237,14 @@ func (a *API) setConfig(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid body")
 		return
 	}
-	schema := ag.Adapter.Settings()
-	for k, v := range cfg {
-		raw, ok := agent.ResolveSettingKey(schema, k)
-		if !ok {
-			continue // neither a declared non-secret raw key nor a canon resolving to one
-		}
-		if err := ag.Creds.Set(raw, v); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to persist settings"})
-			return
-		}
+	values, err := agent.NormalizeSettings(ag.Adapter.Settings(), cfg)
+	if err != nil {
+		badRequest(w, err.Error())
+		return
+	}
+	if err := ag.Creds.SetMany(values); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to persist settings"})
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -1249,14 +1255,7 @@ func (a *API) getConfig(w http.ResponseWriter, r *http.Request) {
 	if ag == nil {
 		return
 	}
-	allow := agent.SettingsKeys(ag.Adapter.Settings())
-	out := map[string]string{}
-	for k, v := range ag.Creds.All() {
-		if allow[k] {
-			out[k] = v
-		}
-	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, agent.ReadSettings(ag.Adapter, ag.Creds))
 }
 
 // ---- prompts & memory ------------------------------------------------------
@@ -1810,6 +1809,23 @@ func (a *API) authStatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ag.Auth.Status(r.Context()))
+}
+
+func (a *API) authLogout(w http.ResponseWriter, r *http.Request) {
+	ag := a.agentFor(w, r)
+	if ag == nil {
+		return
+	}
+	status, err := a.sup.Logout(r.Context(), ag)
+	if err != nil {
+		code := http.StatusBadGateway
+		if errors.Is(err, orchestrator.ErrAuthBusy) || errors.Is(err, orchestrator.ErrServiceUpdating) {
+			code = http.StatusConflict
+		}
+		writeJSON(w, code, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 // ---- notifications ----------------------------------------------------------

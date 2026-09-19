@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/proc"
@@ -26,8 +28,10 @@ func (m *authModule) beginLogin(ctx context.Context) agent.AuthState {
 	}
 	flow := agent.NewAuthFlow("login")
 	m.login = flow
+	done := make(chan struct{})
+	m.loginDone = done
+	go func() { defer close(done); m.runLogin(flow) }()
 	m.mu.Unlock()
-	go m.runLogin(flow)
 	return flow.InitialState(ctx)
 }
 
@@ -37,6 +41,35 @@ func (m *authModule) cancelLogin() {
 	if m.login != nil {
 		m.login.Cancel()
 	}
+}
+
+func (m *authModule) Logout(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	m.mu.Lock()
+	if m.login != nil {
+		m.login.Cancel()
+	}
+	done := m.loginDone
+	m.mu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return errors.New("Claude sign-in is still closing; try signing out again")
+		}
+	}
+	if method := m.store.Get("authMethod"); method != "" && method != "login" {
+		return nil
+	}
+	command := subscriptionCommand("claude auth logout", map[string]string{subscriptionMarker: "native"})
+	cmd := exec.CommandContext(ctx, "bash", "-lc", toolchain.Shell(command))
+	proc.Group(cmd)
+	cmd.Env = toolchain.Environment()
+	if err := cmd.Run(); err != nil {
+		return errors.New("Claude could not sign out; try again")
+	}
+	return nil
 }
 
 func (m *authModule) runLogin(flow *agent.AuthFlow) {

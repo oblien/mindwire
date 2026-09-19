@@ -35,9 +35,9 @@ export interface OblienConfig {
   port?: number;
   /** Explicit local `mindwired` to deploy. `{os}`/`{arch}` expand to the workspace platform. */
   daemonBin?: string;
-  /** Redeploy the daemon when the running version differs from the SDK's bundled binary. Off by default. */
+  /** Upgrade an older daemon when idle; requires its service update capability. Off by default. */
   autoUpdate?: boolean;
-  /** Replace even a healthy version match. Use only with a locally built development daemon. */
+  /** Replace even a healthy version match while idle. Use only with a local development binary. */
   forceDeploy?: boolean;
   /** On `close()`, tear the workspace down (delete one we created / stop one we reused). */
   stopOnExit?: boolean;

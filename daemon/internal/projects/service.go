@@ -83,6 +83,9 @@ func (s *Service) Changes() <-chan struct{} {
 	defer s.pulseMu.Unlock()
 	return s.pulse
 }
+
+// Includes final persistence/cleanup, not just an operation's last status label.
+func (s *Service) ActiveCount() int { s.mu.Lock(); defer s.mu.Unlock(); return len(s.active) }
 func (s *Service) notify() {
 	s.pulseMu.Lock()
 	close(s.pulse)

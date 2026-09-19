@@ -76,6 +76,12 @@ type Agent struct {
 // ID is the agent type (e.g. "claude-code").
 func (a *Agent) ID() string { return a.Adapter.ID() }
 
+func (a *Agent) Capabilities() agent.Capabilities {
+	c := a.Adapter.Capabilities()
+	_, c.AuthLogout = a.Auth.(agent.AuthLogoutModule)
+	return c
+}
+
 // CredView is a per-agent-type namespaced view of the shared store: every key is prefixed
 // with "<agentType>:", so each agent's creds AND settings (apiKey, oauthToken, authMethod,
 // model, …) are isolated. Implements agent.CredStore.
@@ -117,6 +123,14 @@ func (v *CredView) ns(key string) string {
 func (v *CredView) Get(key string) string     { return v.store.Get(v.ns(key)) }
 func (v *CredView) Set(key, val string) error { return v.store.Set(v.ns(key), val) }
 
+func (v *CredView) SetMany(values map[string]string) error {
+	entries := make(map[string]string, len(values))
+	for key, value := range values {
+		entries[v.ns(key)] = value
+	}
+	return v.store.SetMany(entries)
+}
+
 // All returns this agent's keys with the prefix stripped (bare keys like "model", "apiKey"), unioned
 // with the shared cross-agent subtree (provider connections). Stale per-agent "provider:*" keys from
 // before providers were shared are ignored — the shared namespace is authoritative — so an old
@@ -155,6 +169,7 @@ type Supervisor struct {
 	notificationPreferences notify.Preferences
 	active                  map[string]string // chatId -> active turn's working directory
 	activeAgents            map[string]int    // harness -> live turns, under the same lock as setup admission
+	authChanging            map[string]bool
 	setup                   *setup.Tracker
 	toolchain               *toolchain.Manager
 	cancels                 map[string]context.CancelFunc // runId -> cancel the running turn
@@ -171,11 +186,13 @@ type Supervisor struct {
 	// defer that runs AFTER its terminal SaveRun), and idle broadcasts when it reaches zero. Wait()
 	// parks on idle so a caller can Cancel every run and then tear down the state directory without
 	// racing a late persist. Guarded by mu, like the maps above.
-	surfaces       *surface.Service
-	serviceReplies map[string]map[string]chan agent.InteractionResponse
-	serviceEmit    map[string]agent.Emit
-	inflight       int
-	idle           *sync.Cond
+	surfaces          *surface.Service
+	serviceReplies    map[string]map[string]chan agent.InteractionResponse
+	serviceEmit       map[string]agent.Emit
+	inflight          int
+	serviceOperations int
+	updateLease       *ServiceUpdateLease
+	idle              *sync.Cond
 }
 
 // New builds a supervisor over EVERY registered adapter (each with its own auth + runner +
@@ -187,14 +204,14 @@ func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, d
 		agents: map[string]*Agent{}, def: defaultAgent,
 		serviceReplies: map[string]map[string]chan agent.InteractionResponse{}, serviceEmit: map[string]agent.Emit{},
 		active: map[string]string{}, cancels: map[string]context.CancelFunc{},
-		activeAgents: map[string]int{}, setup: setup.NewTracker(), toolchain: toolchain.New(agent.Version),
+		activeAgents: map[string]int{}, authChanging: map[string]bool{}, setup: setup.NewTracker(), toolchain: toolchain.New(agent.Version),
 		inputs: map[string]chan agent.Inbound{}, pending: map[string]map[string]agent.Interaction{},
 		answering: map[string]bool{}, runClosed: map[string]chan struct{}{},
 	}
 	s.idle = sync.NewCond(&s.mu)
 	for _, ad := range agent.All() {
 		creds := newCredView(store, ad.ID())
-		au := ad.Auth(creds)
+		au := agent.ManageAuth(ad.Auth(creds), creds)
 		s.agents[ad.ID()] = &Agent{
 			Adapter: ad, Auth: au, Creds: creds,
 			Runner: runner.New(store, ad, au, creds, hub, cwd),
@@ -284,9 +301,17 @@ func (s *Supervisor) StartResolveChecked(a *Agent, req StartTurnInput, ro Resolv
 		ro.Deadline = resolveDeadline
 	}
 	s.mu.Lock()
+	if s.serviceUpdatingLocked() {
+		s.mu.Unlock()
+		return session.Run{}, ErrServiceUpdating
+	}
 	if _, busy := s.active[req.ChatID]; busy || s.setup.Status(a.ID()).Running {
 		s.mu.Unlock()
 		return session.Run{}, ErrChatBusy
+	}
+	if err := s.authAdmissionLocked(a); err != nil {
+		s.mu.Unlock()
+		return session.Run{}, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ro.Deadline)
 	if s.prepareGit != nil {
@@ -333,9 +358,17 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 		return session.Run{}, err
 	}
 	s.mu.Lock()
+	if s.serviceUpdatingLocked() {
+		s.mu.Unlock()
+		return session.Run{}, ErrServiceUpdating
+	}
 	if _, busy := s.active[req.ChatID]; busy || s.setup.Status(a.ID()).Running {
 		s.mu.Unlock()
 		return session.Run{}, ErrChatBusy
+	}
+	if err := s.authAdmissionLocked(a); err != nil {
+		s.mu.Unlock()
+		return session.Run{}, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), maxTurn)
 	if s.prepareGit != nil && !compact {

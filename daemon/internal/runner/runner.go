@@ -197,7 +197,7 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 // the keys the adapter declares. Secrets are excluded here — they reach the CLI only via Env
 // (AuthModule.EnvForRun).
 func (r *Runner) settings(opts agent.TurnOptions) map[string]string {
-	return resolveSettings(r.adapter.Settings(), r.creds.All(), opts)
+	return resolveSettings(r.adapter.Settings(), agent.ReadSettings(r.adapter, r.creds), opts)
 }
 
 // resolveSettings applies per-turn canon-addressed overrides on top of the sticky settings, filtered

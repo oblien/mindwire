@@ -494,6 +494,27 @@ func (st *Store) Set(key, val string) error {
 	return st.save()
 }
 
+// SetMany commits one settings edit together so a turn cannot see half a model /
+// reasoning change. A failed disk write also restores the in-memory snapshot.
+func (st *Store) SetMany(values map[string]string) error {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	before := st.s.Config
+	next := make(map[string]string, len(before)+len(values))
+	for key, value := range before {
+		next[key] = value
+	}
+	for key, value := range values {
+		next[key] = value
+	}
+	st.s.Config = next
+	if err := st.save(); err != nil {
+		st.s.Config = before
+		return err
+	}
+	return nil
+}
+
 // NotifyConfig returns the provisioned notification webhook (url, channel, token).
 func (st *Store) NotifyConfig() (url, channel, token string) {
 	st.mu.Lock()

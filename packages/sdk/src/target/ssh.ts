@@ -43,7 +43,7 @@ export interface SshOptions {
   agentCwd?: string;
   /** Explicit local `mindwired` to deploy; `{os}`/`{arch}` expand to the destination platform. Otherwise downloaded from GitHub Releases. */
   daemonBin?: string;
-  /** Redeploy when the running daemon's version differs from the SDK's bundled binary. */
+  /** Upgrade an older daemon when idle; requires its service update capability. */
   autoUpdate?: boolean;
   /** On `close()`, tear the tunnel down and end the SSH connection. Defaults to `true`. */
   stopOnExit?: boolean;

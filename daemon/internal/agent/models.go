@@ -29,9 +29,12 @@ type ModelInfo struct {
 	Output  []string `json:"outputModalities,omitempty"`
 
 	// Reasoning/ToolCall/Attachment are capability flags from the catalog.
-	Reasoning  bool `json:"reasoning,omitempty"`
-	ToolCall   bool `json:"toolCall,omitempty"`
-	Attachment bool `json:"attachment,omitempty"`
+	Reasoning              bool     `json:"reasoning,omitempty"`
+	ReasoningEfforts       []Option `json:"reasoningEfforts,omitempty"`
+	DefaultReasoningEffort string   `json:"defaultReasoningEffort,omitempty"`
+	Default                bool     `json:"default,omitempty"`
+	ToolCall               bool     `json:"toolCall,omitempty"`
+	Attachment             bool     `json:"attachment,omitempty"`
 
 	// Cost is per-million-token pricing when the catalog knows it.
 	Cost *ModelCost `json:"cost,omitempty"`
@@ -68,7 +71,7 @@ type ModelsModule interface {
 
 // ModelCatalogModule is an OPTIONAL adapter capability: declare which models.dev catalog providers this
 // agent's models come from. Because the daemon no longer ships the models.dev catalog, an agent that
-// cannot self-enumerate a full list (Codex has no scriptable model command) instead names its provider
+// cannot self-enumerate a full list instead names its provider
 // scope here, and the client — which owns the live catalog — sources the model picker from those
 // providers and enriches every model by (provider, id). The sentinel "*" means "all providers" (a
 // provider-agnostic agent like opencode, which uses models.dev as its own registry). An adapter that

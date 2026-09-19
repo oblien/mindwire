@@ -3,6 +3,7 @@ import { readSSE } from "./sse.js";
 import { Run } from "./run.js";
 import { WorkspaceApi, type ProjectAuth } from "./workspace.js";
 import { SurfacesApi } from "./surfaces.js";
+import { ServiceApi } from "./service.js";
 import { local, type Target, type TargetHandle, type ConnectSpec } from "./target/index.js";
 import type { EnsureEvent } from "./target/host.js";
 import type {
@@ -113,6 +114,7 @@ export class Mindwire {
   /** Workspace registry: saved agent profiles, projects and chat relationships. */
   readonly workspace: WorkspaceApi;
   readonly surfaces: SurfacesApi;
+  readonly service: ServiceApi;
   readonly http: Http;
   /** The default agent type applied to agent-scoped calls, if set. */
   readonly defaultAgent: string | undefined;
@@ -153,6 +155,7 @@ export class Mindwire {
     this.defaultAgent = opts.agent;
     this.workspace = new WorkspaceApi(this);
     this.surfaces = new SurfacesApi(this);
+    this.service = new ServiceApi(this);
     this.auth = new AuthApi(this);
     this.prompts = new PromptsApi(this);
     this.mcp = new McpApi(this);
@@ -177,6 +180,7 @@ export class Mindwire {
     clone.defaultAgent = agent;
     clone.workspace = new WorkspaceApi(clone as Mindwire);
     clone.surfaces = new SurfacesApi(clone as Mindwire);
+    clone.service = new ServiceApi(clone as Mindwire);
     clone.auth = new AuthApi(clone as Mindwire);
     clone.prompts = new PromptsApi(clone as Mindwire);
     clone.mcp = new McpApi(clone as Mindwire);
@@ -534,6 +538,13 @@ export class AuthApi {
   /** `GET /auth/status` — is the agent authenticated, and via which method. */
   status(scoped?: AgentScoped): Promise<AuthStatus> {
     return this.mw.http.request<AuthStatus>("GET", "/auth/status", {
+      query: this.mw.agentParam(scoped),
+    });
+  }
+
+  /** `POST /auth/logout` — disconnect this harness once its running chats finish. */
+  logout(scoped?: AgentScoped): Promise<AuthStatus> {
+    return this.mw.http.request<AuthStatus>("POST", "/auth/logout", {
       query: this.mw.agentParam(scoped),
     });
   }

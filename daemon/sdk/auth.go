@@ -72,3 +72,13 @@ func (a *Auth) Status(ctx context.Context, opts ...ScopedOption) (AuthStatus, er
 	}
 	return ag.Auth.Status(ctx), nil
 }
+
+// Logout disconnects this harness in the workspace. Running chats are preserved:
+// sign-out returns a conflict until the harness is idle.
+func (a *Auth) Logout(ctx context.Context, opts ...ScopedOption) (AuthStatus, error) {
+	ag, err := a.c.resolve(opts)
+	if err != nil {
+		return AuthStatus{}, err
+	}
+	return a.c.core.sup.Logout(ctx, ag)
+}

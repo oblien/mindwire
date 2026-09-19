@@ -30,8 +30,10 @@ func (m *authModule) beginLogin(ctx context.Context) agent.AuthState {
 	}
 	flow := agent.NewAuthFlow("login")
 	m.login = flow
+	done := make(chan struct{})
+	m.loginDone = done
+	go func() { defer close(done); m.runLogin(flow) }()
 	m.mu.Unlock()
-	go m.runLogin(flow)
 	return flow.InitialState(ctx)
 }
 
@@ -41,6 +43,36 @@ func (m *authModule) cancelLogin() {
 	if m.login != nil {
 		m.login.Cancel()
 	}
+}
+
+func (m *authModule) Logout(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	m.mu.Lock()
+	if m.login != nil {
+		m.login.Cancel()
+	}
+	done := m.loginDone
+	m.mu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return errors.New("Codex sign-in is still closing; try signing out again")
+		}
+	}
+	if method := m.store.Get(ckMethod); method != "" && method != "login" {
+		return nil
+	}
+	client, err := startAuthRPC(ctx)
+	if err != nil {
+		return errors.New("couldn't start Codex sign-out; check that Codex is installed")
+	}
+	defer client.close()
+	if err := client.call(ctx, "account/logout", map[string]any{}, nil); err != nil {
+		return errors.New("Codex could not sign out; try again")
+	}
+	return nil
 }
 
 func (m *authModule) runLogin(flow *agent.AuthFlow) {
@@ -137,8 +169,12 @@ type authRPC struct {
 }
 
 func startAuthRPC(ctx context.Context) (*authRPC, error) {
+	return startMetadataRPC(ctx, subscriptionShell+"codex app-server -c 'model_provider=\"openai\"'")
+}
+
+func startMetadataRPC(ctx context.Context, command string) (*authRPC, error) {
 	processCtx, cancel := context.WithTimeout(context.Background(), 11*time.Minute)
-	cmd := exec.CommandContext(processCtx, "bash", "-lc", toolchain.Shell(subscriptionShell+"codex app-server -c 'model_provider=\"openai\"'"))
+	cmd := exec.CommandContext(processCtx, "bash", "-lc", toolchain.Shell(command))
 	proc.Group(cmd)
 	cmd.Env = toolchain.Environment()
 	stdin, err := cmd.StdinPipe()

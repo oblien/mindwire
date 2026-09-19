@@ -67,7 +67,7 @@ export interface DockerConfig {
   agentCwd?: string;
   /** Explicit path to a Linux `mindwired` to deploy (else resolved from the platform package). */
   daemonBin?: string;
-  /** Redeploy when the running daemon's version differs from the SDK's bundled binary. */
+  /** Upgrade an older daemon when idle; requires its service update capability. */
   autoUpdate?: boolean;
   /** On `close()`, stop + remove a container we created (attached containers are left running). */
   stopOnExit?: boolean;

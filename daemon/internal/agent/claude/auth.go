@@ -18,9 +18,10 @@ import (
 // Claude owns native subscription credentials and refresh. The daemon stores
 // only the selected method and credentials entered for field-based connections.
 type authModule struct {
-	store agent.CredStore
-	mu    sync.Mutex
-	login *agent.AuthFlow
+	store     agent.CredStore
+	mu        sync.Mutex
+	login     *agent.AuthFlow
+	loginDone <-chan struct{}
 }
 
 func newAuth(store agent.CredStore) *authModule { return &authModule{store: store} }
@@ -166,6 +167,12 @@ func (m *authModule) Step(ctx context.Context, input map[string]string) (agent.A
 // (settings.json env, keychain, apiKeyHelper, OAuth refresh, third-party providers like
 // Bedrock/Vertex) and reports the result. It's free and fast (~0.25s), so there's no reason to
 // sniff config or spend a real request.
+func (m *authModule) Active() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.login != nil && m.login.Active()
+}
+
 func (m *authModule) Status(ctx context.Context) agent.AuthStatus {
 	st, err := queryAuthStatus(ctx, m.EnvForRun())
 	if err != nil {

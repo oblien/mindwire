@@ -15,12 +15,11 @@ const nativeTest = process.platform === "linux" || process.platform === "darwin"
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 
 // Exercise the actual generated shell on the test OS, including its lock/checksum/session tools.
-// Only the remote HOME probe and process-stop scope are adapted: no user daemon or state is touched.
+// Only the remote home-directory probe is adapted: updates stop the leased fixture PID.
 async function fixture() {
   const directory = await fs.mkdtemp(join(tmpdir(), "mw-native-bootstrap-"));
   const stateDir = join(directory, ".mindwire");
   const local = new LocalHost();
-  const pidFile = join(stateDir, "fixture.pid");
   const startsFile = join(stateDir, "starts");
   const binary = join(directory, "fixture-daemon");
   const data = `#!${process.execPath}
@@ -32,7 +31,12 @@ fs.appendFileSync(path.join(dir, "starts"), String(process.pid) + "\\n");
 http.createServer((req, res) => {
   if (req.headers.authorization !== "Bearer " + token) { res.writeHead(401); res.end(); return; }
   res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify({ ok: true, version: "1.2.3", pid: process.pid }));
+  if (req.url === "/service/update" && req.method === "POST") {
+    if (fs.existsSync(path.join(dir, "busy"))) { res.writeHead(409); res.end(JSON.stringify({ code: "service_busy" })); return; }
+    res.writeHead(201); res.end(JSON.stringify({ id: "fixturelease", pid: process.pid, expiresAt: new Date(Date.now()+60000).toISOString() })); return;
+  }
+  if (req.url.startsWith("/service/update/") && req.method === "DELETE") { res.end(JSON.stringify({ok: true})); return; }
+  res.end(JSON.stringify({ ok: true, version: "1.2.3", pid: process.pid, serviceUpdateVersion: 1 }));
 }).listen(Number(process.env.ADDR.split(":").pop()), "127.0.0.1");
 `;
   await fs.writeFile(binary, data, { mode: 0o755 });
@@ -51,8 +55,7 @@ http.createServer((req, res) => {
       if (argv[2]?.includes("MINDWIRE_READY")) {
         // Use macOS's own lockf/shasum/Perl even if Homebrew alternatives are installed.
         const nativePath = process.platform === "darwin" ? "PATH=/usr/bin:/bin:/usr/sbin:/sbin\n" : "";
-        const stopFixture = `pkill() { if [ -s ${quote(pidFile)} ]; then kill "$(cat ${quote(pidFile)})" 2>/dev/null || true; fi; }\n`;
-        return local.exec([argv[0]!, argv[1]!, nativePath + stopFixture + prefix + argv[2]], { timeoutSeconds: 12 });
+        return local.exec([argv[0]!, argv[1]!, nativePath + prefix + argv[2]], { timeoutSeconds: 12 });
       }
       return local.exec(argv, options);
     },
@@ -148,6 +151,30 @@ nativeTest("native bootstrap: downloads the OS-specific asset and verifies its c
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await f.close();
   }
+}, 25_000);
+
+nativeTest("native bootstrap: busy updates preserve work, then replace only the leased process", async () => {
+  const f = await fixture(), other = await fixture();
+  try {
+    const token = await ensureDaemon(f.host, { ...f.config, daemonBin: f.binary });
+    const otherToken = await ensureDaemon(other.host, { ...other.config, daemonBin: other.binary });
+    const first = await f.health(token), unrelated = await other.health(otherToken);
+    await fs.writeFile(join(f.stateDir, "busy"), "active workspace operation");
+    await fs.writeFile(f.binary, f.data.replace('version: "1.2.3"', 'version: "1.2.4"'), { mode: 0o755 });
+    const events: string[] = [];
+    const options = { ...f.config, desiredVersion: "1.2.4", daemonBin: f.binary, onLog: (e: { phase: string }) => events.push(e.phase) };
+    expect(await ensureDaemon(f.host, options)).toBe(token);
+    expect(events.at(-1)).toBe("skip");
+    expect((await f.health(token)).pid).toBe(first.pid);
+    expect((await f.starts())).toHaveLength(1);
+    expect((await fs.readdir(f.stateDir)).filter((file) => file.startsWith("mindwired.new"))).toEqual([]);
+    await expect(ensureDaemon(f.host, { ...options, forceDeploy: true })).rejects.toThrow("workspace is busy");
+    await fs.rm(join(f.stateDir, "busy"));
+    await ensureDaemon(f.host, options);
+    expect((await f.health(token)).version).toBe("1.2.4");
+    expect((await f.starts())).toHaveLength(2);
+    expect((await other.health(otherToken)).pid).toBe(unrelated.pid);
+  } finally { await f.close(); await other.close(); }
 }, 25_000);
 
 nativeTest("native bootstrap: headless launch does not need nohup and survives hangup", async () => {

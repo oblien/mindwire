@@ -49,13 +49,14 @@ const (
 type Capabilities struct {
 	Protocol   Protocol   `json:"protocol"` // how the daemon drives the agent (cli | http | persistent)
 	Output     OutputMode `json:"output"`
-	History    Support    `json:"history"`    // CORE switch (messages endpoint)
-	Sessions   Support    `json:"sessions"`   // client hint
-	Resume     bool       `json:"resume"`     // client hint
-	ToolEvents bool       `json:"toolEvents"` // client hint
-	Cancel     bool       `json:"cancel"`     // CORE switch (cancel endpoint)
-	Persistent bool       `json:"persistent"` // client hint: holds a live stdin process (else one-shot per turn)
-	Models     bool       `json:"models"`     // client hint
+	History    Support    `json:"history"`              // CORE switch (messages endpoint)
+	Sessions   Support    `json:"sessions"`             // client hint
+	Resume     bool       `json:"resume"`               // client hint
+	ToolEvents bool       `json:"toolEvents"`           // client hint
+	Cancel     bool       `json:"cancel"`               // CORE switch (cancel endpoint)
+	Persistent bool       `json:"persistent"`           // client hint: holds a live stdin process (else one-shot per turn)
+	Models     bool       `json:"models"`               // client hint
+	AuthLogout bool       `json:"authLogout,omitempty"` // workspace-owned sign-out
 	// ImageInput is a client hint: the agent delivers image attachments as TRUE vision content (the
 	// model sees pixels), not just a path the model must open with a Read tool. Attachments themselves
 	// are ungated (any agent may receive them); this only tells a UI whether images are seen natively.

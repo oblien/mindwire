@@ -116,17 +116,25 @@ test("ensureDaemon: a healthy daemon at the desired version is kept (no upload, 
 });
 
 test("ensureDaemon: a stale daemon is redeployed when autoUpdate is on", async () => {
-  const { host, puts } = fakeHost({ health: '{"ok":true,"version":"0.0.1"}' });
+  const { host, puts } = fakeHost({ health: '{"ok":true,"version":"0.0.1","serviceUpdateVersion":1}' });
   await ensureDaemon(host, cfg({ autoUpdate: true, daemonBin: tempBin() }));
 
   expect(puts.length).toBe(1); // version drift + opt-in ⇒ redeploy
 });
 
 test("ensureDaemon: a development forceDeploy replaces a healthy version match", async () => {
-  const { host, puts } = fakeHost({ health: '{"ok":true,"version":"1.2.3"}' });
+  const { host, puts } = fakeHost({ health: '{"ok":true,"version":"1.2.3","serviceUpdateVersion":1}' });
   await ensureDaemon(host, cfg({ forceDeploy: true, daemonBin: tempBin() }));
 
   expect(puts.length).toBe(1);
+});
+
+test("ensureDaemon: automatic updates preserve newer and legacy services", async () => {
+  for (const health of ['{"ok":true,"version":"2.0.0","serviceUpdateVersion":1}', '{"ok":true,"version":"0.0.1"}']) {
+    const { host, puts } = fakeHost({ health });
+    await ensureDaemon(host, cfg({ autoUpdate: true, daemonBin: tempBin() }));
+    expect(puts).toHaveLength(0);
+  }
 });
 
 test("ensureDaemon: a stale daemon is left alone when autoUpdate is off", async () => {

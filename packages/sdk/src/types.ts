@@ -327,6 +327,7 @@ export interface Capabilities {
   cancel: boolean;
   persistent: boolean;
   models: boolean;
+  authLogout?: boolean;
   /**
    * Client hint: image attachments are delivered as true vision content (the model sees the image),
    * not just a path it must open with a Read tool. Attachments themselves are ungated.
@@ -441,6 +442,8 @@ export interface Field {
   presentation?: "segmented" | "menu" | (string & {});
   /** Text keyboard hint. */
   inputMode?: "url" | (string & {});
+  minimum?: number;
+  maximum?: number;
 }
 
 export interface Section {
@@ -498,6 +501,10 @@ export interface ModelInfo {
   outputModalities?: string[];
   /** Capability flags from the catalog. */
   reasoning?: boolean;
+  /** Reasoning levels reported by the installed harness for this exact model. */
+  reasoningEfforts?: Option[];
+  defaultReasoningEffort?: string;
+  default?: boolean;
   toolCall?: boolean;
   attachment?: boolean;
   /** Per-million-token pricing when known. */
@@ -682,6 +689,8 @@ export interface AuthState {
 
 /** The resting state: is the agent authenticated, and via which method. */
 export interface AuthStatus {
+  /** Explicit workspace sign-out, persisted until a connection completes. */
+  signedOut?: boolean;
   configured: boolean;
   method?: string;
   detail?: string;
@@ -1103,6 +1112,8 @@ export interface Health {
   ok: boolean;
   agent: string;
   version: string;
+  /** Atomic idle admission for service replacement. */
+  serviceUpdateVersion?: number;
 }
 
 /**

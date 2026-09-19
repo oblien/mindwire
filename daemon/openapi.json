@@ -211,6 +211,10 @@
           "gitOperationsVersion": {
             "type": "integer",
             "description": "1 or later supports durable Git mutations, stable request IDs, shared coordination, status, cancellation, and streaming."
+          },
+          "serviceUpdateVersion": {
+            "type": "integer",
+            "description": "1 supports atomic idle admission before service replacement."
           }
         },
         "required": [
@@ -1209,12 +1213,16 @@
               "http",
               "persistent"
             ]
+          },
+          "authLogout": {
+            "type": "boolean",
+            "description": "POST /auth/logout is supported."
           }
         }
       },
       "ModelInfo": {
         "type": "object",
-        "description": "One model an agent can run: its API id and a human label, plus optional provider-aware metadata enriched from the on-disk models.dev catalog opencode maintains. Every field beyond id/label is omitted when unknown (e.g. a custom-provider model carries only id/label/provider/custom).",
+        "description": "A model reported by the installed harness or explicitly configured provider. Native reasoning levels and defaults are optional; unknown metadata stays absent.",
         "properties": {
           "id": {
             "type": "string",
@@ -1268,6 +1276,19 @@
           "custom": {
             "type": "boolean",
             "description": "True when the model comes from a registered custom provider (see /providers) rather than the built-in catalog."
+          },
+          "reasoningEfforts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            },
+            "description": "Reasoning levels reported by the installed harness for this exact model."
+          },
+          "defaultReasoningEffort": {
+            "type": "string"
+          },
+          "default": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -1849,6 +1870,16 @@
           "inputMode": {
             "type": "string",
             "description": "Text keyboard hint, such as url."
+          },
+          "minimum": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Inclusive lower bound for numeric text."
+          },
+          "maximum": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Inclusive upper bound for numeric text."
           }
         }
       },
@@ -2006,6 +2037,10 @@
           },
           "detail": {
             "type": "string"
+          },
+          "signedOut": {
+            "type": "boolean",
+            "description": "Explicit workspace sign-out; remains until a new connection completes."
           }
         },
         "required": [
@@ -4089,6 +4124,48 @@
             "format": "int64"
           }
         }
+      },
+      "ServiceUpdateState": {
+        "type": "object",
+        "required": [
+          "idle",
+          "updating",
+          "activeOperations"
+        ],
+        "properties": {
+          "idle": {
+            "type": "boolean"
+          },
+          "updating": {
+            "type": "boolean"
+          },
+          "activeOperations": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ServiceUpdateLease": {
+        "type": "object",
+        "required": [
+          "id",
+          "pid",
+          "expiresAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pid": {
+            "type": "integer",
+            "minimum": 2,
+            "description": "The idle daemon process; stop only this PID."
+          }
+        }
       }
     }
   },
@@ -4580,7 +4657,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Declared non-secret settings, including supported native defaults and managed workspace overrides. Credentials are never returned."
       },
       "put": {
         "tags": [
@@ -4608,8 +4686,12 @@
         "responses": {
           "204": {
             "description": "Merged"
+          },
+          "400": {
+            "description": "A declared setting contains an invalid value; no settings are changed."
           }
-        }
+        },
+        "description": "Validate and atomically merge a non-secret settings patch. Raw and canonical keys are accepted. Empty values reset managed overrides to native defaults; unknown keys are ignored. Changes apply to the next turn."
       }
     },
     "/memory": {
@@ -10514,6 +10596,136 @@
             }
           }
         ]
+      }
+    },
+    "/service/update": {
+      "get": {
+        "operationId": "serviceUpdateStatus",
+        "summary": "Check whether the workspace is idle for a service update",
+        "tags": [
+          "Service"
+        ],
+        "responses": {
+          "200": {
+            "description": "Current activity; acquire a lease before replacement.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUpdateState"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "serviceUpdateAcquire",
+        "summary": "Acquire an idle lease for immediate service replacement",
+        "description": "Download the release first. Returns 409 while any work is active or another installer holds a lease. Closes new mutation/turn admission for at most one minute.",
+        "tags": [
+          "Service"
+        ],
+        "responses": {
+          "201": {
+            "description": "Acquired lease.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUpdateLease"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "service_busy or service_updating",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/service/update/{id}": {
+      "delete": {
+        "operationId": "serviceUpdateRelease",
+        "summary": "Release an abandoned service update lease",
+        "tags": [
+          "Service"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Released.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired lease."
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Sign out of the workspace harness",
+        "description": "Cancels native sign-in, signs out the native subscription, clears harness-specific authentication fields, and records explicit sign-out across daemon restarts. Preserves chats, settings and shared provider connections. Reconnect through an authentication method to resume. Refuses while this harness has running chats or setup.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Auth status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatus"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Harness has active work or the service is updating"
+          },
+          "502": {
+            "description": "Native sign-out failed; retry"
+          }
+        }
       }
     }
   }

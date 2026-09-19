@@ -14,6 +14,7 @@ func newAppServer(in agent.TurnInput, files materialized) appServer {
 		command: "codex app-server", env: map[string]string{}, message: in.Message,
 		model:  strings.TrimSpace(agent.FirstNonEmpty(in.Config[keyModel], in.Env[azureModelMarker])),
 		effort: strings.TrimSpace(in.Config[keyEffort]), provider: strings.TrimSpace(in.Env[azureProviderMarker]),
+		summary: strings.TrimSpace(in.Config[keySummary]),
 		sandbox: sandbox(in), approval: approvalPolicy(in),
 		reviewer: strings.TrimSpace(in.Config[keyReviewer]), collaboration: strings.TrimSpace(in.Config[keyCollaboration]),
 		cwd:          strings.TrimSpace(agent.FirstNonEmpty(in.Config[keyWorkdir], in.CWD)),
@@ -31,9 +32,6 @@ func newAppServer(in agent.TurnInput, files materialized) appServer {
 	}
 	if a.provider != "" {
 		a.command += " -c " + agent.ShellQuote("model_provider="+a.provider)
-		if a.provider == "openai" {
-			a.command = "(" + subscriptionShell + a.command + ")"
-		}
 	} else if keyName := apiKeyEnv(in.Env); keyName != "" {
 		// CODEX_API_KEY is exec-only. Give app-server the same key through a transient provider
 		// env reference, without logging in or replacing the user's native auth/config files.
@@ -52,7 +50,25 @@ func newAppServer(in agent.TurnInput, files materialized) appServer {
 		if len(headers) > 0 {
 			provider["env_http_headers"] = headers
 		}
+		for _, setting := range providerSettings {
+			if value, err := strconv.ParseUint(strings.TrimSpace(in.Config[setting.key]), 10, 32); err == nil && (setting.key != keyStreamTimeout || value > 0) {
+				provider[setting.native] = value
+			}
+		}
 		a.config["model_providers"] = map[string]any{a.provider: provider}
+	}
+	// Native providers keep their credential references and endpoint metadata.
+	// Dotted CLI overrides change only the requested numeric tuning fields.
+	if a.provider != "mindwire-api" {
+		for _, override := range providerTuning(in, a.provider) {
+			a.command += " -c " + agent.ShellQuote(override)
+		}
+	}
+	if a.summary != "" {
+		a.config["model_reasoning_summary"] = a.summary
+	}
+	if a.provider == "openai" {
+		a.command = "(" + subscriptionShell + a.command + ")"
 	}
 	if in.CWD != "" {
 		a.command = "cd " + agent.ShellQuote(in.CWD) + " && " + a.command

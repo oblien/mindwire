@@ -63,7 +63,8 @@ type appServer struct {
 	message        string            // the user's turn message
 	model          string            // "" ⇒ omit (CLI default)
 	effort         string            // reasoning effort; "" ⇒ omit
-	sandbox        string            // sandbox posture (enum)
+	summary        string
+	sandbox        string // sandbox posture (enum)
 	reviewer       string
 	collaboration  string
 	approval       string // approval policy (enum)
@@ -943,6 +944,9 @@ func (a appServer) turnParams(threadID string) map[string]any {
 	}
 	if a.effort != "" {
 		p["effort"] = a.effort
+	}
+	if a.summary != "" {
+		p["summary"] = a.summary
 	}
 	return p
 }

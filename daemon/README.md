@@ -56,6 +56,7 @@ lifecycle, the HTTP surface, and how to add an adapter — is documented once, o
 - **[NOTIFICATIONS.md](./NOTIFICATIONS.md)** — the provider-agnostic notification webhook contract.
 - **[INTERACTIONS.md](./INTERACTIONS.md)** — shared question forms, command approvals, permission settings and client lifecycle.
 - **[AUTHENTICATION.md](./AUTHENTICATION.md)** — native subscription sign-in, device codes, browser code handoff, and shared auth lifecycle.
+- **[SETTINGS.md](./SETTINGS.md)** — model/effort discovery, native defaults, atomic settings patches and connection tuning.
 - **[WORKSPACES.md](./WORKSPACES.md)** — workspace ownership, project operations, registry API, cache migration, deletion and sync.
 - **[GIT_ACCESS.md](./GIT_ACCESS.md)** — independent GitHub connections, operation/run credentials, saved workspace access, and Git endpoints.
 - **[DESKTOP.md](./DESKTOP.md)** — shared desktop control protocol, native VNC transports, SDKs and verification.

@@ -73,6 +73,28 @@ func TestCodexNativeAuthProcess(t *testing.T) {
 			}
 			_ = os.WriteFile(os.Getenv("MINDWIRE_AUTH_TEST_CANCEL"), []byte("canceled"), 0600)
 			result = map[string]any{"status": "canceled"}
+		case "account/logout":
+			_ = os.Remove(os.Getenv("MINDWIRE_AUTH_TEST_STATE"))
+		case "model/list":
+			if scenario == "unsupported-models" {
+				_ = enc.Encode(map[string]any{"id": req.ID, "error": map[string]any{"code": -32601, "message": "unsupported method"}})
+				continue
+			}
+			if req.Params["cursor"] == "next" {
+				result = map[string]any{"data": []any{
+					map[string]any{"id": "second", "model": "another-model", "displayName": "Another model"},
+					map[string]any{"id": "hidden", "model": "hidden-model", "hidden": true},
+				}}
+			} else {
+				result = map[string]any{"nextCursor": "next", "data": []any{map[string]any{
+					"id": "native-id", "model": "gpt-6-astra", "displayName": "GPT 6 Astra", "isDefault": true,
+					"defaultReasoningEffort": "high", "inputModalities": []string{"text", "image"},
+					"supportedReasoningEfforts": []any{
+						map[string]any{"reasoningEffort": "high", "description": "More reasoning"},
+						map[string]any{"reasoningEffort": "max", "description": "Maximum reasoning"},
+					},
+				}}}
+			}
 		default:
 			os.Exit(6)
 		}
@@ -90,6 +112,26 @@ func codexLoginFixture(t *testing.T, scenario string) *authModule {
 	m := newAuth(authtest.NewStore(map[string]string{ckMethod: "apiKey", ckAPIKey: "old-stored-key", ckBaseURL: "https://old-gateway.invalid"}))
 	t.Cleanup(m.cancelLogin)
 	return m
+}
+
+func TestChatGPTLogoutClearsNativeAccountAndStoredFields(t *testing.T) {
+	m := codexLoginFixture(t, "complete")
+	if err := m.store.Set(ckMethod, "login"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(os.Getenv("MINDWIRE_AUTH_TEST_STATE"), []byte("native account"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	auth := agent.ManageAuth(m, m.store)
+	if err := auth.Logout(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(os.Getenv("MINDWIRE_AUTH_TEST_STATE")); !os.IsNotExist(err) {
+		t.Fatal("native account was retained")
+	}
+	if auth.Status(context.Background()).Configured || m.store.Get(ckAPIKey) != "" {
+		t.Fatal("agent remains authenticated")
+	}
 }
 
 func TestChatGPTDeviceLoginCompletesAndSurvivesDaemonRestart(t *testing.T) {
@@ -114,7 +156,17 @@ func TestChatGPTDeviceLoginCompletesAndSurvivesDaemonRestart(t *testing.T) {
 func TestChatGPTPendingLoginIsSharedAndCancellationReachesNativeServer(t *testing.T) {
 	m := codexLoginFixture(t, "waiting")
 	st, err := m.Begin(context.Background(), "login")
-	if err != nil || st.Status != "pending" || st.URL == "" || st.Code == "" {
+	if err != nil || st.FlowID == "" {
+		t.Fatalf("begin: %+v %v", st, err)
+	}
+	// A cold native process can produce its URL after Begin's bounded wait.
+	// Exercise the same flow-scoped polling contract as the mobile client.
+	flowID := st.FlowID
+	authtest.Eventually(t, func() bool {
+		st, err = m.Step(context.Background(), map[string]string{agent.AuthFlowIDKey: flowID})
+		return err != nil || st.Status == "error" || (st.URL != "" && st.Code != "")
+	})
+	if err != nil || st.Status != "pending" || st.URL == "" || st.Code == "" || !m.Active() {
 		t.Fatalf("device code: %+v %v", st, err)
 	}
 	again, _ := m.Begin(context.Background(), "login")

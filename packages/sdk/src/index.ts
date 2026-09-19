@@ -53,6 +53,8 @@ export type { CatalogOptions } from "./catalog/index.js";
 export { MindwireError, ApiError, RunFailedError, TimeoutError } from "./errors.js";
 
 export * from "./types.js";
+export { ServiceApi } from "./service.js";
+export type { ServiceUpdateState, ServiceUpdateLease } from "./service.js";
 export { WorkspaceApi, WorkspaceCollection, ProjectOperationsApi, GitAccessApi } from "./workspace.js";
 export type { ProjectRequest, ProjectAuth, ProjectOperation, ProjectRemoveRequest,
   GitConnection, GitAccessState, ProjectGitState, GitAction, GitOperationRequest, GitOperation } from "./workspace.js";

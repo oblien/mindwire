@@ -11,6 +11,23 @@ import { MindwireError } from "../errors.js";
 import { SDK_VERSION } from "../version.js";
 import { ensureDaemonBinary } from "../daemon-binary.js";
 
+function versionAtLeast(actual: string | undefined, desired: string): boolean {
+  if (actual === desired) return true;
+  if (!actual || !/^\d+\.\d+\.\d+$/.test(actual) || !/^\d+\.\d+\.\d+$/.test(desired)) return false;
+  const a = actual.split(".").map(Number), b = desired.split(".").map(Number);
+  for (let i = 0; i < 3; i++) { if (a[i] !== b[i]) return a[i]! > b[i]!; }
+  return true;
+}
+
+const versionCheckScript = String.raw`version_at_least() {
+  [ "$1" != "$2" ] || return 0
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "$2" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  local a b c x y z
+  IFS=. read -r a b c <<< "$1"
+  IFS=. read -r x y z <<< "$2"
+  (( 10#$a > 10#$x || (10#$a == 10#$x && 10#$b > 10#$y) || (10#$a == 10#$x && 10#$b == 10#$y && 10#$c >= 10#$z) ))
+}`;
+
 /** Result of running a command in a sandbox — normalized (camelCase) across backends. */
 export interface ExecResult {
   exitCode?: number;
@@ -46,7 +63,7 @@ export interface EnsureDaemonConfig {
    * development launcher to build artifacts without guessing the sandbox platform in advance.
    */
   daemonBin?: string;
-  /** Redeploy when the running daemon's version differs from `desiredVersion`. Off by default. */
+  /** Upgrade an older service when idle. Requires serviceUpdateVersion >= 1. Off by default. */
   autoUpdate?: boolean;
   /** Redeploy even when the reported version matches. Intended only for a locally built development daemon. */
   forceDeploy?: boolean;
@@ -140,23 +157,28 @@ export async function ensureDaemon(host: SandboxHost, cfg: EnsureDaemonConfig): 
         message: health.version ? `daemon reachable (v${health.version})` : "daemon reachable (version unknown)",
         version: health.version,
       });
-      const upToDate = health.version !== undefined && health.version === desired;
+      const upToDate = versionAtLeast(health.version, desired);
       // Keep a healthy daemon that's current, or one whose version we can't/shouldn't force-replace.
       // Only a stale-or-unknown version *with* autoUpdate, or an explicit development forceDeploy,
       // triggers a redeploy.
       if (!cfg.forceDeploy && (upToDate || !cfg.autoUpdate)) {
         emit({
           phase: "skip",
-          message: upToDate ? `daemon already at v${desired}` : "keeping the running daemon",
+          message: upToDate ? `daemon already at v${health.version}` : "keeping the running daemon",
           version: health.version,
         });
+        return token;
+      }
+      if ((health.serviceUpdateVersion ?? 0) < 1) {
+        if (cfg.forceDeploy) throw new MindwireError("This legacy service cannot reserve an idle update. Upgrade it explicitly or stop it after its work finishes before deploying.");
+        emit({ phase: "skip", message: "automatic update deferred: upgrade this legacy service explicitly to enable idle updates", version: health.version });
         return token;
       }
     } else {
       emit({ phase: "probe", message: "no daemon reachable; deploying" });
     }
 
-    await deploy(host, cfg, emit, token, directory);
+    await deploy(host, cfg, emit, token, directory, health.reachable);
     // A concurrent installer may have won the workspace lock and chosen its credential first.
     if (!cfg.token) token = (await readWorkspaceToken(host, directory)) ?? token;
     return token;
@@ -179,6 +201,7 @@ async function deploy(
   emit: (e: Omit<EnsureEvent, "target">) => void,
   token: string,
   directory: string,
+  requireLease: boolean,
 ): Promise<void> {
   const newPath = directory + "/mindwired.new";
   const BIN = shellQuote(directory + "/mindwired"), BIN_NEW = shellQuote(newPath);
@@ -224,6 +247,7 @@ async function deploy(
       '  latest=$(curl -fsSL https://api.github.com/repos/oblien/mindwire/releases/latest | sed -n \'s/.*"tag_name"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p\')',
       '  case "$latest" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "MINDWIRE_FAIL no matching or latest release"; exit 1 ;; esac',
       '  release="https://github.com/oblien/mindwire/releases/download/$latest"',
+      '  mw_expected_version="${latest#v}"',
       `  asset="mindwired-$latest-${platform}-${arch}"`,
       '  download || { echo "MINDWIRE_FAIL latest release download failed"; exit 1; }',
       "fi",
@@ -244,29 +268,43 @@ async function deploy(
     'else echo "MINDWIRE_FAIL No supported update lock is available (flock on Linux, lockf on macOS)."; exit 1; fi',
     `mw_token=${shellQuote(token)}`,
     !cfg.token ? `if [ -s ${TOKEN} ]; then mw_token=$(cat ${TOKEN}); fi` : "",
+    'mw_lease=""',
+    `mw_lease_file=${shellQuote(directory)}/update-lease-$$.json`,
+    'cleanup_update() {',
+    `  if [ -n "$mw_lease" ]; then curl -s --connect-timeout 2 --max-time 3 -X DELETE -H "Authorization: Bearer $mw_token" "http://127.0.0.1:${cfg.port}/service/update/$mw_lease" >/dev/null 2>&1 || true; fi`,
+    `  rm -f ${BIN_NEW} "$mw_lease_file"${stagedUpload ? " " + shellQuote(stagedUpload) : ""}`,
+    '}',
+    // Shared staging is only removed while this process owns the workspace lock.
+    'trap cleanup_update EXIT',
+    versionCheckScript,
+    `mw_desired=${shellQuote(desired)}`,
+    'mw_expected_version="$mw_desired"',
+    `mw_health=$(curl -fsS --max-time 3 -H "Authorization: Bearer $mw_token" http://127.0.0.1:${cfg.port}/healthz 2>/dev/null || true)`,
     !cfg.forceDeploy ? [
-      `mw_health=$(curl -fsS --max-time 3 -H "Authorization: Bearer $mw_token" http://127.0.0.1:${cfg.port}/healthz 2>/dev/null || true)`,
       `mw_version=$(printf '%s' "$mw_health" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\\([^" ]*\\)".*/\\1/p')`,
-      `if [ -n "$mw_health" ] && ${cfg.autoUpdate ? `[ "$mw_version" = ${shellQuote(desired)} ]` : "true"}; then echo MINDWIRE_READY; exit 0; fi`,
+      `if [ -n "$mw_health" ] && ${cfg.autoUpdate ? 'version_at_least "$mw_version" "$mw_desired"' : "true"}; then echo MINDWIRE_READY; exit 0; fi`,
     ].join("\n") : "",
     // macOS ships POSIX setsid in Perl, but does not include Linux's setsid executable.
     'if command -v setsid >/dev/null 2>&1; then mw_detach=(setsid);',
     `elif command -v perl >/dev/null 2>&1; then mw_detach=(perl -MPOSIX -e 'defined(my $sid = POSIX::setsid()) && $sid >= 0 or die "setsid: $!"; exec @ARGV; die "exec: $!";');`,
     'else echo "MINDWIRE_FAIL Cannot start the Mindwire service: setsid or Perl is required."; exit 1; fi',
     acquire,
-    // Stop a prior daemon by exact process NAME, never `pkill -f <path>`: this whole script (which
-    // contains `${BIN}` several times) is the argv of the `bash -lc` shell running it, so a full-cmdline
-    // match would SIGTERM our own deploying shell before the daemon ever launches. `-x mindwired` matches
-    // only the daemon's comm (`bash`/`pkill` never match), leaving this shell alive.
-    'if command -v pkill >/dev/null 2>&1; then',
-    '  pkill -x mindwired 2>/dev/null || true',
-    'else',
-    '  for mw_proc in /proc/[0-9]*/comm; do',
-    '    IFS= read -r mw_name 2>/dev/null < "$mw_proc" || continue',
-    '    [ "$mw_name" = mindwired ] || continue',
-    '    mw_pid=${mw_proc#/proc/}; mw_pid=${mw_pid%/comm}',
-    '    kill "$mw_pid" 2>/dev/null || true',
-    '  done',
+    // The service decides idleness after transfer. Never stop arbitrary processes
+    // or interrupt a chat that began while the SDK was downloading its binary.
+    `mw_health=$(curl -fsS --max-time 3 -H "Authorization: Bearer $mw_token" http://127.0.0.1:${cfg.port}/healthz 2>/dev/null || true)`,
+    'if [ -n "$mw_health" ]; then',
+    `  mw_status=$(curl -s --connect-timeout 2 --max-time 5 -X POST -H "Authorization: Bearer $mw_token" -o "$mw_lease_file" -w '%{http_code}' http://127.0.0.1:${cfg.port}/service/update) || mw_status=000`,
+    '  case "$mw_status" in',
+    '    201)',
+    `      mw_lease=$(sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([[:alnum:]]*\\)".*/\\1/p' "$mw_lease_file")`,
+    `      mw_service_pid=$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p' "$mw_lease_file")`,
+    '      [ -n "$mw_lease" ] && [[ "$mw_service_pid" =~ ^[0-9]+$ ]] && [ "$mw_service_pid" -gt 1 ] || { echo "MINDWIRE_FAIL invalid service update lease"; exit 1; }',
+    '      kill "$mw_service_pid" ;;',
+    '    409) echo MINDWIRE_UPDATE_DEFERRED; exit 0 ;;',
+    '    404) echo "MINDWIRE_FAIL this legacy service requires an explicit upgrade before idle updates"; exit 1 ;;',
+    '    *) echo "MINDWIRE_FAIL could not reserve an idle service update"; exit 1 ;;',
+    '  esac',
+    requireLease ? 'else echo "MINDWIRE_FAIL the service went offline before its idle update could be reserved"; exit 1' : '',
     'fi',
     "sleep 0.3",
     `mv -f ${BIN_NEW} ${BIN}`,
@@ -277,8 +315,10 @@ async function deploy(
       `STATE_PATH=${STATE} DAEMON_TOKEN="$mw_token" ${BIN} > ${LOG} 2>&1 < /dev/null 9>&- &`,
     // Health-poll from inside the VM (loopback) and emit a marker — exit codes are unreliable here.
     'mw_pid=$!; mw_exit=""; mw_deadline=$((SECONDS + 30))',
-    `while (( SECONDS < mw_deadline )); do curl -fsS --connect-timeout 2 --max-time 3 -H "Authorization: Bearer $mw_token" http://127.0.0.1:${cfg.port}/healthz >/dev/null 2>&1 ` +
-      '&& { echo MINDWIRE_READY; exit 0; };',
+    'while (( SECONDS < mw_deadline )); do',
+    `  mw_health=$(curl -fsS --connect-timeout 2 --max-time 3 -H "Authorization: Bearer $mw_token" http://127.0.0.1:${cfg.port}/healthz 2>/dev/null || true)`,
+    `  mw_version=$(printf '%s' "$mw_health" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\\([^" ]*\\)".*/\\1/p')`,
+    '  if version_at_least "$mw_version" "$mw_expected_version"; then echo MINDWIRE_READY; exit 0; fi',
     '  if [ -z "$mw_exit" ] && ! kill -0 "$mw_pid" 2>/dev/null; then',
     '    mw_exit=0; wait "$mw_pid" || mw_exit=$?; [ "$mw_exit" = 0 ] || break',
     '  fi',
@@ -286,7 +326,7 @@ async function deploy(
     'done',
     `mw_tail=$(tail -n 40 ${LOG} 2>/dev/null || true)`,
     'if [ -n "$mw_exit" ] && [ "$mw_exit" != 0 ]; then mw_reason="Mindwire exited during startup (status $mw_exit).";',
-    'else mw_reason="The Mindwire service did not become ready."; fi',
+    'else mw_reason="The Mindwire service did not become ready at v$mw_expected_version (reported: $mw_version)."; fi',
     '[ -z "$mw_tail" ] || mw_reason="$mw_reason $mw_tail"',
     'printf "MINDWIRE_FAIL %s\\n" "$mw_reason"',
   ].join("\n");
@@ -294,6 +334,11 @@ async function deploy(
   emit({ phase: "launch", message: "launching daemon" });
   const res = await host.exec(["bash", "-lc", script], { timeoutSeconds: 420 });
   const out = res.stdout ?? "";
+  if (out.includes("MINDWIRE_UPDATE_DEFERRED")) {
+    if (cfg.forceDeploy) throw new MindwireError("The workspace is busy. Wait for its operations to finish before deploying the service.");
+    emit({ phase: "skip", message: "service update deferred while workspace operations are running" });
+    return;
+  }
   if (!out.includes("MINDWIRE_READY")) {
     throw new MindwireError(
       "mindwire: the in-sandbox daemon did not become healthy after deploy.\n" +
@@ -304,7 +349,7 @@ async function deploy(
 }
 
 /** Probe `127.0.0.1:<port>/healthz` from inside the sandbox. Returns reachability + reported version. */
-async function probeHealth(host: SandboxHost, port: number, token: string): Promise<{ reachable: boolean; version?: string }> {
+async function probeHealth(host: SandboxHost, port: number, token: string): Promise<{ reachable: boolean; version?: string; serviceUpdateVersion?: number }> {
   const script =
     `out=$(curl -fsS --max-time 3 -H ${shellQuote(`Authorization: Bearer ${token}`)} http://127.0.0.1:${port}/healthz 2>/dev/null) ` +
     `&& printf '<<MW_H>>%s<<MW_H>>' "$out" || printf '<<MW_H>><<MW_H>>'`;
@@ -312,8 +357,9 @@ async function probeHealth(host: SandboxHost, port: number, token: string): Prom
   const body = ((res.stdout ?? "").match(/<<MW_H>>([\s\S]*?)<<MW_H>>/)?.[1] ?? "").trim();
   if (!body) return { reachable: false };
   try {
-    const j = JSON.parse(body) as { version?: unknown };
-    return { reachable: true, version: typeof j.version === "string" ? j.version : undefined };
+    const j = JSON.parse(body) as { version?: unknown; serviceUpdateVersion?: unknown };
+    return { reachable: true, version: typeof j.version === "string" ? j.version : undefined,
+      serviceUpdateVersion: typeof j.serviceUpdateVersion === "number" ? j.serviceUpdateVersion : undefined };
   } catch {
     // Something answered but it isn't our JSON — treat as reachable/unknown so we don't clobber it.
     return { reachable: true };

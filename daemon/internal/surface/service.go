@@ -92,6 +92,7 @@ func validRequest(id string) bool {
 	return len(id) > 0 && len(id) <= 128 && strings.IndexFunc(id, func(r rune) bool { return r < 33 || r > 126 }) < 0
 }
 func (s *Service) Artifacts() *artifact.Store { return s.artifacts }
+func (s *Service) ActiveSessionCount() int    { s.mu.Lock(); defer s.mu.Unlock(); return len(s.sessions) }
 func (s *Service) SetApproval(fn Approval)    { s.mu.Lock(); s.approval = fn; s.mu.Unlock() }
 func (s *Service) signalLocked() {
 	s.snapshot.Revision++

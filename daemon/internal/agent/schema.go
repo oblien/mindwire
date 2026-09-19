@@ -59,6 +59,8 @@ type Field struct {
 	VisibleWhen    *FieldCondition `json:"visibleWhen,omitempty"`
 	Presentation   string          `json:"presentation,omitempty"` // select: segmented | menu; empty = native default
 	InputMode      string          `json:"inputMode,omitempty"`    // text keyboard hint, e.g. url
+	Minimum        *int64          `json:"minimum,omitempty"`      // inclusive integer limits for numeric text fields
+	Maximum        *int64          `json:"maximum,omitempty"`
 }
 
 // Section groups fields under a heading (the app renders one group per section).

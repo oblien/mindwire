@@ -609,6 +609,10 @@ func TestSDKRouteParity(t *testing.T) {
 	// Each HTTP route → the SDK method covering it. A new route with no entry (or an entry naming a
 	// route that no longer exists) fails the test.
 	coverage := map[string]string{
+		// Replacing a daemon executable is not an operation on an embedded library.
+		"GET /service/update":         "HTTP/TypeScript: service.updateStatus; daemon installer only",
+		"POST /service/update":        "HTTP/TypeScript: service.acquireUpdate; daemon installer only",
+		"DELETE /service/update/{id}": "HTTP/TypeScript: service.releaseUpdate; daemon installer only",
 		// Managed Git invokes the daemon executable as its credential helper. An
 		// arbitrary program embedding this library cannot handle those invocations;
 		// the HTTP/TypeScript API covers it. See GIT_ACCESS.md for this boundary.
@@ -697,6 +701,7 @@ func TestSDKRouteParity(t *testing.T) {
 		"POST /auth/begin":                              "Auth.Begin",
 		"POST /auth/step":                               "Auth.Step",
 		"GET /auth/status":                              "Auth.Status",
+		"POST /auth/logout":                             "Auth.Logout",
 		"PUT /notify/config":                            "Client.SetNotifyConfig",
 		"GET /notify/config":                            "Client.GetNotifyConfig",
 		"GET /notify/stream":                            "Client.Notifications",

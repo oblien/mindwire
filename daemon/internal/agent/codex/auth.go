@@ -33,9 +33,10 @@ const (
 )
 
 type authModule struct {
-	store agent.CredStore
-	mu    sync.Mutex
-	login *agent.AuthFlow
+	store     agent.CredStore
+	mu        sync.Mutex
+	login     *agent.AuthFlow
+	loginDone <-chan struct{}
 }
 
 var azureAuthSpec = agent.FoundryAuthSpec{
@@ -181,6 +182,12 @@ func (m *authModule) Step(_ context.Context, input map[string]string) (agent.Aut
 
 // Status uses native account/read for subscription accounts and credential
 // presence for field-based providers. It never makes an inference request.
+func (m *authModule) Active() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.login != nil && m.login.Active()
+}
+
 func (m *authModule) Status(ctx context.Context) agent.AuthStatus {
 	if m.store.Get(ckMethod) == "login" {
 		return nativeSubscriptionStatus(ctx)

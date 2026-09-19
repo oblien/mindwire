@@ -15,6 +15,7 @@ const (
 	CanonModel              = "model"
 	CanonFallbackModel      = "fallbackModel"
 	CanonReasoningEffort    = "reasoningEffort"
+	CanonReasoningSummary   = "reasoningSummary"
 	CanonSystemPrompt       = "systemPrompt"       // full override
 	CanonAppendSystemPrompt = "appendSystemPrompt" // appended to the agent's default
 	CanonPermissionMode     = "permissionMode"
@@ -35,6 +36,7 @@ var canonRegistry = map[string]bool{
 	CanonModel:              true,
 	CanonFallbackModel:      true,
 	CanonReasoningEffort:    true,
+	CanonReasoningSummary:   true,
 	CanonSystemPrompt:       true,
 	CanonAppendSystemPrompt: true,
 	CanonPermissionMode:     true,
