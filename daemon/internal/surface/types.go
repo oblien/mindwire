@@ -28,6 +28,8 @@ type Capabilities struct {
 	Text           bool `json:"text"`
 	ClipboardRead  bool `json:"clipboardRead"`
 	ClipboardWrite bool `json:"clipboardWrite"`
+	KeyboardText   bool `json:"keyboardText"`
+	ExtendedKeys   bool `json:"extendedKeys"`
 }
 
 type ProviderStatus struct {
@@ -96,18 +98,19 @@ type ControlRequest struct {
 }
 
 type Action struct {
-	Kind    string   `json:"kind" jsonschema:"pointer, click, drag, scroll, key, text, clipboard_read, clipboard_write, release"`
-	X       *int     `json:"x,omitempty"`
-	Y       *int     `json:"y,omitempty"`
-	ToX     *int     `json:"toX,omitempty"`
-	ToY     *int     `json:"toY,omitempty"`
-	Buttons int      `json:"buttons,omitempty"`
-	Button  string   `json:"button,omitempty"`
-	Count   int      `json:"count,omitempty"`
-	DeltaX  int      `json:"deltaX,omitempty"`
-	DeltaY  int      `json:"deltaY,omitempty"`
-	Keys    []string `json:"keys,omitempty"`
-	Text    string   `json:"text,omitempty"`
+	Kind     string   `json:"kind" jsonschema:"pointer, click, drag, scroll, key, text, clipboard_read, clipboard_write, release"`
+	X        *int     `json:"x,omitempty"`
+	Y        *int     `json:"y,omitempty"`
+	ToX      *int     `json:"toX,omitempty"`
+	ToY      *int     `json:"toY,omitempty"`
+	Buttons  int      `json:"buttons,omitempty"`
+	Button   string   `json:"button,omitempty"`
+	Count    int      `json:"count,omitempty"`
+	DeltaX   int      `json:"deltaX,omitempty"`
+	DeltaY   int      `json:"deltaY,omitempty"`
+	Keys     []string `json:"keys,omitempty"`
+	Text     string   `json:"text,omitempty"`
+	TextMode string   `json:"textMode,omitempty" jsonschema:"Optional keyboard mode sends short text as physical keys, without replacing the clipboard. Requires keyboardText capability."`
 }
 
 type ActionRequest struct {

@@ -7,6 +7,7 @@ import (
 	"image"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -323,6 +324,12 @@ func (r *rfbClient) key(key keys.Key, down bool) error {
 	return r.client.KeyEvent(key, down)
 }
 func parseKey(name string) (keys.Key, error) {
+	upper := strings.ToUpper(name)
+	if len(upper) >= 2 && upper[0] == 'F' {
+		if number, err := strconv.Atoi(upper[1:]); err == nil && number >= 1 && number <= 24 && upper == "F"+strconv.Itoa(number) {
+			return keys.Key(0xffbd + number), nil
+		}
+	}
 	switch strings.ToLower(name) {
 	case "ctrl", "control":
 		return keys.Key(0xffe3), nil
@@ -362,6 +369,20 @@ func parseKey(name string) (keys.Key, error) {
 		return keys.Key(0xff55), nil
 	case "pagedown":
 		return keys.Key(0xff56), nil
+	case "capslock":
+		return keys.Key(0xffe5), nil
+	case "insert":
+		return keys.Key(0xff63), nil
+	case "printscreen":
+		return keys.Key(0xff61), nil
+	case "pause":
+		return keys.Key(0xff13), nil
+	case "menu":
+		return keys.Key(0xff67), nil
+	case "numlock":
+		return keys.Key(0xff7f), nil
+	case "scrolllock":
+		return keys.Key(0xff14), nil
 	}
 	runes := []rune(name)
 	if len(runes) == 1 {

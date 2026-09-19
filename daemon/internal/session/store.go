@@ -52,12 +52,13 @@ type Run struct {
 }
 
 type state struct {
-	Sessions map[string]string `json:"sessions"` // "<agent>\x1f<chatId>" -> CLI session id
-	Cwds     map[string]string `json:"cwds"`     // chatId -> the dir turns ran in (for native history)
-	Titles   map[string]string `json:"titles"`   // chatId -> user-set title (wins over the native auto-title)
-	Messages []Message         `json:"messages"`
-	Runs     []Run             `json:"runs"`
-	Notify   notifyConfig      `json:"notify,omitempty"` // legacy single notification webhook config
+	Sessions     map[string]string          `json:"sessions"` // "<agent>\x1f<chatId>" -> CLI session id
+	Cwds         map[string]string          `json:"cwds"`     // chatId -> the dir turns ran in (for native history)
+	Titles       map[string]string          `json:"titles"`   // chatId -> user-set title (wins over the native auto-title)
+	Messages     []Message                  `json:"messages"`
+	Runs         []Run                      `json:"runs"`
+	Interactions map[string]MessageQuestion `json:"interactions,omitempty"`
+	Notify       notifyConfig               `json:"notify,omitempty"` // legacy single notification webhook config
 	// Channels + Rules are the daemon-driven notification fan-out: named delivery targets and the
 	// per-agent/per-session/global rules that route matching notifications to them. Additive — the
 	// legacy Notify webhook (above) and the file/exec/stream channels keep firing independently.
@@ -280,6 +281,11 @@ func (st *Store) DeleteChat(chatID string) ([]SessionRef, error) {
 		}
 	}
 	st.s.Runs = runs
+	for key, question := range st.s.Interactions {
+		if question.ChatID == chatID {
+			delete(st.s.Interactions, key)
+		}
+	}
 
 	return refs, st.save()
 }
@@ -346,6 +352,30 @@ func (st *Store) Messages(chatID string) []Message {
 	out := []Message{}
 	for _, m := range st.s.Messages {
 		if m.ChatID == chatID {
+			// Older daemons recorded async questions as informational rows without
+			// a run correlator. Attach the known reply owner before native merging.
+			hasLegacy := false
+			for _, part := range m.Parts {
+				hasLegacy = hasLegacy || agent.LegacyAsyncFormID(part.Interaction) != ""
+			}
+			if hasLegacy {
+				for _, run := range st.s.Runs {
+					if run.ChatID != chatID || run.ReplyID != m.ID {
+						continue
+					}
+					m.Parts = append([]agent.Part(nil), m.Parts...)
+					for i, part := range m.Parts {
+						if agent.LegacyAsyncFormID(part.Interaction) == "" {
+							continue
+						}
+						it := *part.Interaction
+						it.RunID = run.ID
+						m.Parts[i].Interaction = &it
+					}
+					break
+				}
+			}
+			m.Parts = st.overlayInteractions(chatID, m.Parts)
 			out = append(out, m)
 		}
 	}

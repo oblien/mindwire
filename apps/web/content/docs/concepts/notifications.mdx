@@ -9,6 +9,48 @@ watching: a turn finished, a turn needs an approval, a turn failed. The daemon i
 emitter** — it produces one unified [`Notification`](/docs/reference/sdk-ts/interfaces/Notification/) and
 hands it to whatever channels are enabled, with no per-channel knowledge in the send path.
 
+## Workspace notification preferences
+
+Saved workspace agent profiles and chats support an optional `notificationsMuted` boolean.
+The supervisor reads the current preference before every notification, including completion,
+errors, approvals and questions. A mute prevents new deliveries through the legacy webhook,
+routing rules, file/exec hooks and notification SSE. Runs, interactions and transcripts continue
+normally; the run stream reports `notify: "muted"` instead of claiming delivery.
+
+- An **agent profile mute** applies to its current and future chats. It uses the saved profile ID;
+  another profile using the same harness keeps its own preference.
+- A **chat mute** applies to that chat. Setting it to `false` does not override a muted parent profile.
+- Preferences live in the workspace registry and survive daemon restarts. Updates use the usual
+  record revision checks. Omitting the field preserves its value, so older clients' renames cannot
+  erase a mute. Send an explicit `false` to clear it.
+
+Check that health advertises `notificationPreferencesVersion >= 1` before offering these controls.
+Older daemons do not enforce them. Use the existing workspace API rather than a separate preference
+store:
+
+```ts
+const health = await mw.health();
+if ((health.notificationPreferencesVersion ?? 0) < 1) {
+  throw new Error("Update the Mindwire service to manage notification preferences.");
+}
+const snapshot = await mw.workspace.snapshot();
+const profile = snapshot.agents.find((agent) => agent.id === profileId);
+if (!profile) throw new Error("Agent profile no longer exists.");
+await mw.workspace.agents.put(
+  profile.id,
+  { ...profile, notificationsMuted: true },
+  profile.revision,
+);
+```
+
+The same field is available through Go's `WorkspaceAgent` / `WorkspaceChat` and REST
+`PUT /workspace/agents/{id}` / `PUT /workspace/chats/{id}`. Native chats without a registry record
+retain the default delivery behavior. Deleted chats do not send late notifications. If the registry
+cannot be read, the notification is skipped and its failure is reported without failing the turn.
+
+Device-wide permissions and suppression while viewing a particular chat belong to the client.
+They do not change the workspace's delivery configuration or silence the user's other devices.
+
 ## One notification, N channels
 
 Delivery is a **pluggable registry with N-way fan-out**, built on the exact self-registration pattern

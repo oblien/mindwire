@@ -96,6 +96,8 @@ export interface WorkspaceAgent extends WorkspaceRecord {
   name: string;
   agentType: string;
   agentTypeName?: string;
+  /** Mutes this profile's current and future chats across notification channels. Omit to preserve; false to clear. */
+  notificationsMuted?: boolean;
 }
 
 export interface WorkspaceProject extends WorkspaceRecord {
@@ -111,6 +113,8 @@ export interface WorkspaceChat extends WorkspaceRecord {
   title: string;
   titleIsUserSet?: boolean;
   sessionId?: string;
+  /** Mutes this chat. False clears its own mute but never overrides a muted parent profile. Omit to preserve. */
+  notificationsMuted?: boolean;
 }
 
 export type WorkspaceKind = "agents" | "projects" | "chats";

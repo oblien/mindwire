@@ -61,6 +61,8 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 	if len(registries) > 0 {
 		a.registry = registries[0]
 		if a.registry != nil {
+			sup.SetNotificationPreferences(a.registry)
+			sup.SetInteractionContext(a.registry)
 			a.projects, a.initError = projects.New(a.registry, sup)
 			if a.initError == nil {
 				a.surfaces, a.initError = surface.NewConfigured(a.registry, store)
@@ -467,6 +469,10 @@ type respondReq = agent.InteractionResponse
 // respondRun validates and queues one reply. Unknown runs return 404, invalid
 // answers return 400, and already resolved or stale requests return 409.
 func (a *API) respondRun(w http.ResponseWriter, r *http.Request) {
+	// A message answer may start a turn. Use the same admission lock as /turns
+	// so deleting/reassigning its workspace records cannot race the context check.
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
 	id := r.PathValue("id")
 	run, ok := a.store.GetRun(id)
 	if !ok {
@@ -483,7 +489,7 @@ func (a *API) respondRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.sup.RespondInteraction(id, req); err != nil {
-		if errors.Is(err, orchestrator.ErrInteractionNotPending) {
+		if errors.Is(err, orchestrator.ErrInteractionNotPending) || errors.Is(err, orchestrator.ErrInteractionSending) || errors.Is(err, orchestrator.ErrChatBusy) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		} else {
 			badRequest(w, err.Error())
@@ -993,6 +999,9 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 		}
 		msgs, err := ag.Adapter.History(query)
 		if err == nil && len(msgs) > 0 {
+			for i := range msgs {
+				msgs[i].Parts = a.store.OverlayInteractions(chatID, msgs[i].Parts)
+			}
 			if hasRun && run.Status == "running" {
 				msgs = historyBeforeRun(msgs, recorded, run)
 			}

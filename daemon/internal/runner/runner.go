@@ -145,6 +145,12 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 		if ev.SessionID != "" {
 			sessionID = ev.SessionID
 		}
+		if ev.Interaction != nil {
+			// Supervisor enrichment must not mutate an adapter's reusable value or
+			// a pointer already retained by a stream subscriber/replay buffer.
+			it := *ev.Interaction
+			ev.Interaction = &it
+		}
 		if t.BeforePublish != nil {
 			t.BeforePublish(ev)
 		}

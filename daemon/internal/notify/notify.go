@@ -17,6 +17,12 @@ type Notifier interface {
 	Notify(ctx context.Context, n agent.Notification) error
 }
 
+// Preferences is consulted immediately before delivery, across all notification
+// transports and conditions. Implemented by the authoritative workspace registry.
+type Preferences interface {
+	NotificationsMuted(chatID string) (bool, error)
+}
+
 // Noop drops notifications (used in tests / when delivery is intentionally off).
 type Noop struct{}
 

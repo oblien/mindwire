@@ -132,16 +132,19 @@ func (r *Run) Cancel() error {
 	return nil
 }
 
-// Respond delivers the user's answer to a mid-turn interaction (a permission approval, a question, a
-// plan). APIError{400} if the agent takes no interaction responses; APIError{404} if no turn is
-// accepting input for this id.
+// Respond answers a permission, question or plan. Native controls require a pending
+// live request. Message-mode questions remain answerable after completion: the daemon
+// steers the active turn or starts a resumed turn (obtain it through LatestRun).
+// APIError{400} indicates an invalid answer; {409} indicates a stale or concurrent reply.
 func (r *Run) Respond(in RespondInput) error {
+	r.core.registryMu.Lock()
+	defer r.core.registryMu.Unlock()
 	if err := r.capGate(func(c Capabilities) bool { return c.Respond }, "this agent does not support responding to interactions", "Run.Respond"); err != nil {
 		return err
 	}
 	if err := r.core.sup.RespondInteraction(r.data.ID, in); err != nil {
 		status := http.StatusBadRequest
-		if errors.Is(err, orchestrator.ErrInteractionNotPending) {
+		if errors.Is(err, orchestrator.ErrInteractionNotPending) || errors.Is(err, orchestrator.ErrInteractionSending) || errors.Is(err, orchestrator.ErrChatBusy) {
 			status = http.StatusConflict
 		}
 		return &APIError{Message: err.Error(), Status: status, Op: "Run.Respond"}

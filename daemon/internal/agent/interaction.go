@@ -1,9 +1,14 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// ErrInputClosed means input was not submitted to a live native turn. Callers
+// may safely resume the conversation instead; other errors must not auto-retry.
+var ErrInputClosed = errors.New("the native turn is no longer accepting input")
 
 // Interaction is a structured, self-describing request the agent surfaces mid-turn for
 // the client to render generically — and, when NeedsResponse, for the user to answer.
@@ -18,17 +23,54 @@ import (
 //	input    — free-text answer
 //	plan     — a proposed plan to accept (Detail + Options)
 type Interaction struct {
-	ID            string         `json:"id,omitempty"`
-	Kind          string         `json:"kind"`
-	Title         string         `json:"title,omitempty"`
-	Detail        string         `json:"detail,omitempty"`
-	Items         []TodoItem     `json:"items,omitempty"`     // kind=todos
-	Options       []Action       `json:"options,omitempty"`   // kind=approval|choice|select|plan
-	Questions     []Question     `json:"questions,omitempty"` // one form, answered atomically
-	Blocking      *bool          `json:"blocking,omitempty"`  // nil means a pending request blocks
-	Feedback      string         `json:"feedback,omitempty"`  // approval text: "always" or "rejection"; empty = unsupported
-	NeedsResponse bool           `json:"needsResponse,omitempty"`
-	Meta          map[string]any `json:"meta,omitempty"`
+	ID            string     `json:"id,omitempty"`
+	Kind          string     `json:"kind"`
+	Title         string     `json:"title,omitempty"`
+	Detail        string     `json:"detail,omitempty"`
+	Items         []TodoItem `json:"items,omitempty"`     // kind=todos
+	Options       []Action   `json:"options,omitempty"`   // kind=approval|choice|select|plan
+	Questions     []Question `json:"questions,omitempty"` // one form, answered atomically
+	Blocking      *bool      `json:"blocking,omitempty"`  // nil means a pending request blocks
+	Feedback      string     `json:"feedback,omitempty"`  // approval text: "always" or "rejection"; empty = unsupported
+	NeedsResponse bool       `json:"needsResponse,omitempty"`
+	// Message questions are non-blocking harness messages, not native control requests.
+	// They remain answerable after the originating turn ends. The daemon owns RunID and
+	// Response, including persistence and delivery as steering or a resumed user turn.
+	ResponseMode string               `json:"responseMode,omitempty"` // "message"; empty = native control
+	RunID        string               `json:"runId,omitempty"`
+	Response     *InteractionResponse `json:"response,omitempty"`
+	Meta         map[string]any       `json:"meta,omitempty"`
+}
+
+func (it Interaction) IsMessageQuestion() bool {
+	return it.ResponseMode == "message" && len(it.Questions) > 0
+}
+
+// AnswerText is used only for native async questions, whose reply transport is an
+// ordinary user message. Native control forms retain their structured RPC response.
+func (it Interaction) AnswerText(reply InteractionResponse) string {
+	var lines []string
+	for _, q := range it.Questions {
+		a := reply.Answers[q.ID]
+		var selected []string
+		for _, id := range a.Options {
+			for _, option := range q.Options {
+				if option.ID == id {
+					selected = append(selected, option.Label)
+					break
+				}
+			}
+		}
+		answer := strings.Join(selected, ", ")
+		if text := strings.TrimSpace(a.Text); text != "" {
+			if answer != "" {
+				answer += "\nFeedback: "
+			}
+			answer += text
+		}
+		lines = append(lines, q.Title+"\n"+answer)
+	}
+	return strings.Join(lines, "\n\n")
 }
 
 // Question retains the harness's stable id, descriptions and selection rules.

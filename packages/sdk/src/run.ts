@@ -102,8 +102,9 @@ export class Run {
   }
 
   /**
-   * Answer a mid-turn interaction the turn is waiting on — a permission approval, or an
-   * AskUserQuestion / ExitPlanMode reply. Requires the agent's `respond` capability.
+   * Answer a pending permission, question or plan. Message-mode questions remain answerable
+   * after completion; the daemon steers or resumes the conversation. Read the chat's latest
+   * run after replying to a completed run. Requires the agent's `respond` capability.
    */
   async respond(input: RespondInput = {}): Promise<void> {
     await this.http.request<void>("POST", `/runs/${encodeURIComponent(this.id)}/respond`, { body: input });

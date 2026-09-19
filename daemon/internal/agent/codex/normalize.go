@@ -612,17 +612,14 @@ func emitNorm(n normItem, phase itemPhase, raw json.RawMessage, emit agent.Emit,
 	}
 	switch n.Kind {
 	case kindAgentMessage:
-		st.streamText(n, agent.EventText, phase, emit)
-		for i, question := range n.Questions {
-			if strings.TrimSpace(question.Title) == "" {
-				continue
-			}
+		if question := asyncQuestionInteraction(n.ID, n.Questions); question != nil {
 			st.visible = true
-			// Async questions have no server-request ID. Show their content without inventing
-			// an approval or a /respond action; a normal chat message can answer them.
-			st.emitInteraction(&agent.Interaction{ID: fmt.Sprintf("%s:question:%d", n.ID, i), Kind: "info",
-				Title: question.Title, Detail: strings.Join(question.Options, "\n"),
-				Meta: map[string]any{"source": "codex", "asyncQuestion": true}}, emit)
+			st.emitInteraction(question, emit)
+			// The native text is a plain-text copy of this same form. Do not render it
+			// a second time or append it again as the terminal result.
+			n.Text = ""
+		} else {
+			st.streamText(n, agent.EventText, phase, emit)
 		}
 		if n.MessagePhase == "final_answer" || !st.finalAnswer || n.ID != "" && n.ID == st.finalItemID {
 			st.finalText, st.finalItemID = n.Text, n.ID

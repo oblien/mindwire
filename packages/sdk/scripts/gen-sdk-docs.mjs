@@ -75,14 +75,16 @@ for (const file of walk(OUT)) {
   const h1 = lines.findIndex((l) => l.startsWith("# "));
   if (h1 !== -1) {
     const m = KIND.exec(lines[h1]);
-    if (m) title = m[1].trim();
+    // Generic brackets are escaped in Markdown, but frontmatter titles are plain text.
+    if (m) title = m[1].trim().replace(/\\([<>])/g, "$1");
     lines.splice(h1, 1);
     while (lines[h1] === "") lines.splice(h1, 1); // trim blank lines left behind
   }
   if (isIndex) title = "TypeScript SDK";
 
   const body = lines.join("\n").trimStart();
-  fs.writeFileSync(file, `---\ntitle: "${title}"\n---\n\n${body}`);
+  // JSON strings are valid YAML scalars and safely escape quotes and backslashes.
+  fs.writeFileSync(file, `---\ntitle: ${JSON.stringify(title)}\n---\n\n${body}`);
 }
 
 // ---- fumadocs meta.json for the sidebar ----------------------------------

@@ -22,6 +22,7 @@ import (
 )
 
 const Version = 1
+const NotificationPreferencesVersion = 1
 const schemaVersion = 3
 
 var (
@@ -42,6 +43,8 @@ type Agent struct {
 	Name          string `json:"name"`
 	AgentType     string `json:"agentType"`
 	AgentTypeName string `json:"agentTypeName,omitempty"`
+	// A profile-level mute applies to all of its chats, including future ones.
+	NotificationsMuted *bool `json:"notificationsMuted,omitempty"`
 }
 
 type Project struct {
@@ -58,6 +61,8 @@ type Chat struct {
 	Title          string `json:"title"`
 	TitleIsUserSet bool   `json:"titleIsUserSet,omitempty"`
 	SessionID      string `json:"sessionId,omitempty"` // migration hint; native mappings remain in the session store
+	// Explicit false clears this chat's mute; it does not override its agent's mute.
+	NotificationsMuted *bool `json:"notificationsMuted,omitempty"`
 }
 
 type Deletion struct {
@@ -327,6 +332,15 @@ func (st *Store) Put(kind, id string, data []byte, expected *int64) error {
 			_ = json.Unmarshal(value, &incoming)
 			incoming["createdAt"] = previous["createdAt"]
 			incoming["revision"] = previous["revision"]
+			// Older clients do not know this optional field. Their unrelated metadata
+			// edits must preserve a mute; clearing one requires an explicit false.
+			if kind == "agents" || kind == "chats" {
+				if _, present := incoming["notificationsMuted"]; !present {
+					if muted, exists := previous["notificationsMuted"]; exists {
+						incoming["notificationsMuted"] = muted
+					}
+				}
+			}
 			same, _ := json.Marshal(incoming)
 			canonical, _ := json.Marshal(previous)
 			if string(same) == string(canonical) {

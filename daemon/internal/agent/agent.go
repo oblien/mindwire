@@ -56,8 +56,11 @@ type Inbound struct {
 	Answers map[string]QuestionAnswer `json:"answers,omitempty"`
 	// Internal correlators never come from a client's request body.
 	Interaction *Interaction `json:"-"`
-	Ack         chan error   `json:"-"`
-	ControlID   string       `json:"-"`
+	// Buffered acknowledgement for native controls and message-question steering.
+	// When supplied for input, an adapter must report acceptance or failure; merely
+	// writing to stdin is not acceptance. ErrInputClosed means no input was submitted.
+	Ack       chan error `json:"-"`
+	ControlID string     `json:"-"`
 	// Meta is the adapter's own correlators, copied verbatim from the interaction's Meta by the
 	// supervisor and handed back so the adapter can encode the native response without server state
 	// (e.g. respondVia, toolUseId).

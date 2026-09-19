@@ -135,6 +135,11 @@ func parseStreamControlled(r io.Reader, emit agent.Emit, control func(json.RawMe
 				// the client renders, not raw tool blobs.
 				if it := interactionFor(b); it != nil {
 					// Only can_use_tool is an actionable request. The assistant tool block is its preview.
+					// A control request may precede this full block. Never let a late preview
+					// clear its pending state, correlator, or previously resolved answer.
+					if _, exists := interactions[b.ID]; exists {
+						continue
+					}
 					it.NeedsResponse = false
 					interactions[b.ID] = *it
 					emit(agent.Event{Type: agent.EventInteraction, SessionID: sessionID, Interaction: it})
@@ -151,6 +156,7 @@ func parseStreamControlled(r io.Reader, emit agent.Emit, control func(json.RawMe
 				if b.Type == "tool_result" {
 					if it, ok := interactions[b.ToolUseID]; ok {
 						it.NeedsResponse = false
+						interactions[b.ToolUseID] = it
 						emit(agent.Event{Type: agent.EventInteraction, SessionID: sessionID, Interaction: &it})
 						continue
 					}

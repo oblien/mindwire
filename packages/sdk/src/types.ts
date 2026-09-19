@@ -280,6 +280,12 @@ export interface Interaction {
   /** Whether approval feedback is accepted for all actions, or only a rejection. */
   feedback?: "always" | "rejection";
   needsResponse?: boolean;
+  /** Async questions use native user messages and remain answerable after turn completion. */
+  responseMode?: "message";
+  /** Daemon run to address with respond, including when the form is in history. */
+  runId?: string;
+  /** Accepted answer, saved after acknowledgement. */
+  response?: RespondInput;
   meta?: Record<string, unknown>;
 }
 
@@ -288,7 +294,8 @@ export interface Interaction {
  * ties the answer to the pending request. `decision` must be an offered action ID. For a form,
  * `answers` maps every required question ID to its selected option IDs and optional feedback.
  * Legacy single-question clients may send `options` and `text` at the top level. Incomplete
- * answers return 400; stale or duplicate submissions return 409.
+ * answers return 400; stale or concurrent submissions return 409. Message-mode forms
+ * remain answerable after completion, and retrying the same accepted answer is idempotent.
  */
 export interface RespondInput {
   interactionId?: string;
@@ -1050,6 +1057,8 @@ export interface Health {
   workspaceMetadataVersion?: number;
   /** Durable project creation/clone operations; absent on older daemons. */
   projectOperationsVersion?: number;
+  /** Persistent profile/chat mutes enforced before every notification delivery. */
+  notificationPreferencesVersion?: number;
   ok: boolean;
   agent: string;
   version: string;

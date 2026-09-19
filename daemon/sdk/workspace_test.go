@@ -104,6 +104,50 @@ func TestWorkspaceUsesSharedRegistryAndProtectsActiveChats(t *testing.T) {
 	}
 }
 
+func TestWorkspaceNotificationMutesApplyThroughEmbeddedSDK(t *testing.T) {
+	notes := &capturingNotifier{}
+	c := newFakeClient(t, notes)
+	muted := true
+	if _, err := c.Workspace.Agents.Put("profile", WorkspaceAgent{Name: "Muted agent", AgentType: "fake", NotificationsMuted: &muted}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Workspace.Projects.Put("project", WorkspaceProject{Name: "App", Path: t.TempDir()}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Workspace.Chats.Put("chat", WorkspaceChat{AgentID: "profile", ProjectID: "project", Title: "Chat"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for index, wantNotes := range []int{0, 1} {
+		if index == 1 {
+			snapshot, err := c.Workspace.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			profile := snapshot.Agents[0]
+			muted = false
+			profile.NotificationsMuted = &muted
+			if _, err := c.Workspace.Agents.Put(profile.ID, profile, &profile.Revision); err != nil {
+				t.Fatal(err)
+			}
+		}
+		run, err := c.Turn(ctx, TurnRequest{ChatID: "chat", Message: "script"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := run.Wait(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if len(notes.all()) != wantNotes {
+			t.Fatalf("notifications=%d, want %d", len(notes.all()), wantNotes)
+		}
+	}
+	if c.Health().NotificationPreferencesVersion != 1 {
+		t.Fatal("notification preference capability missing")
+	}
+}
+
 func TestWorkspaceProjectOperationsShareTheEmbeddedService(t *testing.T) {
 	c := newFakeClient(t, nil)
 	path := filepath.Join(t.TempDir(), "app")

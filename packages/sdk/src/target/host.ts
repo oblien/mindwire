@@ -272,13 +272,23 @@ async function deploy(
     `mv -f ${BIN_NEW} ${BIN}`,
     `chmod +x ${BIN}`,
     // Detach so the daemon survives this exec's shell exiting. ADDR=":<port>" binds 0.0.0.0.
-    `"\${mw_detach[@]}" nohup env ADDR=":${cfg.port}" AGENT_TYPE=${shellQuote(cfg.agent)} AGENT_CWD=${shellQuote(cfg.agentCwd)} ` +
+    // Ignore HUP directly: macOS nohup can fail after setsid in a headless workspace.
+    `"\${mw_detach[@]}" /bin/sh -c 'trap "" HUP; exec "$@"' mindwire-service env ADDR=":${cfg.port}" AGENT_TYPE=${shellQuote(cfg.agent)} AGENT_CWD=${shellQuote(cfg.agentCwd)} ` +
       `STATE_PATH=${STATE} DAEMON_TOKEN="$mw_token" ${BIN} > ${LOG} 2>&1 < /dev/null 9>&- &`,
     // Health-poll from inside the VM (loopback) and emit a marker — exit codes are unreliable here.
-      `for ((mw_attempt=0; mw_attempt<60; mw_attempt++)); do curl -fsS --max-time 2 -H "Authorization: Bearer $mw_token" http://127.0.0.1:${cfg.port}/healthz >/dev/null 2>&1 ` +
-      `&& { echo MINDWIRE_READY; exit 0; }; sleep 0.25; done`,
-    "echo MINDWIRE_FAIL",
-    `tail -n 40 ${LOG} 2>/dev/null || true`,
+    'mw_pid=$!; mw_exit=""; mw_deadline=$((SECONDS + 30))',
+    `while (( SECONDS < mw_deadline )); do curl -fsS --connect-timeout 2 --max-time 3 -H "Authorization: Bearer $mw_token" http://127.0.0.1:${cfg.port}/healthz >/dev/null 2>&1 ` +
+      '&& { echo MINDWIRE_READY; exit 0; };',
+    '  if [ -z "$mw_exit" ] && ! kill -0 "$mw_pid" 2>/dev/null; then',
+    '    mw_exit=0; wait "$mw_pid" || mw_exit=$?; [ "$mw_exit" = 0 ] || break',
+    '  fi',
+    '  sleep 0.25',
+    'done',
+    `mw_tail=$(tail -n 40 ${LOG} 2>/dev/null || true)`,
+    'if [ -n "$mw_exit" ] && [ "$mw_exit" != 0 ]; then mw_reason="Mindwire exited during startup (status $mw_exit).";',
+    'else mw_reason="The Mindwire service did not become ready."; fi',
+    '[ -z "$mw_tail" ] || mw_reason="$mw_reason $mw_tail"',
+    'printf "MINDWIRE_FAIL %s\\n" "$mw_reason"',
   ].join("\n");
 
   emit({ phase: "launch", message: "launching daemon" });

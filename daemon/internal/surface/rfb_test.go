@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -22,10 +23,11 @@ type wireInput struct {
 	data []byte
 }
 type rfbFixture struct {
-	mu     sync.Mutex
-	inputs []wireInput
-	resize bool
-	debug  bool
+	mu            sync.Mutex
+	inputs        []wireInput
+	resize        bool
+	debug         bool
+	frameRequests int
 }
 
 func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
@@ -85,6 +87,9 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 				return
 			}
 		case 3:
+			f.mu.Lock()
+			f.frameRequests++
+			f.mu.Unlock()
 			if _, err := read(9); err != nil {
 				return
 			}
@@ -134,6 +139,78 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 		default:
 			return
 		}
+	}
+}
+
+func TestDesktopExtendedKeysAndKeyboardTextValidation(t *testing.T) {
+	for name, want := range map[string]uint32{
+		"F1": 0xffbe, "f12": 0xffc9, "F24": 0xffd5, "CapsLock": 0xffe5,
+		"Insert": 0xff63, "Delete": 0xffff, "PrintScreen": 0xff61,
+		"Pause": 0xff13, "Menu": 0xff67, "NumLock": 0xff7f, "ScrollLock": 0xff14,
+	} {
+		got, err := parseKey(name)
+		if err != nil || uint32(got) != want {
+			t.Errorf("%s = %x, %v; want %x", name, got, err, want)
+		}
+	}
+	for _, name := range []string{"F0", "F25", "F01", "Fn"} {
+		if _, err := parseKey(name); err == nil {
+			t.Errorf("unsupported key %q accepted", name)
+		}
+	}
+	if err := validateAction(Action{Kind: "text", TextMode: "keyboard", Text: "print(\"Hi!\")"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []Action{
+		{Kind: "text", TextMode: "keyboard", Text: "\n"},
+		{Kind: "text", TextMode: "keyboard", Text: "你好"},
+		{Kind: "text", TextMode: "keyboard", Text: strings.Repeat("x", 4097)},
+		{Kind: "key", TextMode: "keyboard", Keys: []string{"a"}},
+		{Kind: "text", TextMode: "unknown", Text: "x"},
+	} {
+		if err := validateAction(action); err == nil {
+			t.Error("invalid keyboard text mode accepted")
+		}
+	}
+}
+
+func TestLiveKeystrokesDoNotWaitForGeometryOrReplaceClipboard(t *testing.T) {
+	local, remote := net.Pipe()
+	fixture := &rfbFixture{}
+	go fixture.serve(remote)
+	client, err := newRFB(t.Context(), local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.close()
+	if _, _, err := client.capture(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	provider := &Oblien{client: client, target: "macos", status: ProviderStatus{OS: "darwin"},
+		binding: Binding{Connection: SSHConnection{ExpiresAt: time.Now().Add(time.Hour)}}}
+	fixture.mu.Lock()
+	before := fixture.frameRequests
+	fixture.mu.Unlock()
+	if _, err := provider.Apply(t.Context(), Action{Kind: "text", TextMode: "keyboard", Text: "aB!"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Apply(t.Context(), Action{Kind: "key", Keys: []string{"F12"}}); err != nil {
+		t.Fatal(err)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if fixture.frameRequests != before {
+		t.Fatal("typing waited for an unnecessary screen refresh")
+	}
+	var downs []uint32
+	for _, event := range fixture.inputs {
+		if event.kind == 4 && event.data[0] == 1 {
+			downs = append(downs, binary.BigEndian.Uint32(event.data[3:]))
+		}
+	}
+	want := []uint32{'a', 0xffe1, 'b', 0xffe1, '1', 0xffc9}
+	if fmt.Sprint(downs) != fmt.Sprint(want) {
+		t.Fatalf("physical keyboard events %x, want %x", downs, want)
 	}
 }
 

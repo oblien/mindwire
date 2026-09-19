@@ -3,13 +3,18 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/notify"
+	"github.com/oblien/mindwire/daemon/internal/registry"
+	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/stream"
 )
 
@@ -17,6 +22,98 @@ type waitingNotificationAdapter struct {
 	*fakeAdapter
 	kind     string
 	notified <-chan struct{}
+}
+
+func TestLiveRegistryMutesEveryNotificationConditionBeforeFanout(t *testing.T) {
+	fake := &fakeAdapter{id: "notify-mute-policy"}
+	s := newResolveSup(t, fake)
+	reg, err := registry.Open(filepath.Join(t.TempDir(), "workspace.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reg.Close()
+	if err := reg.Import(registry.Import{
+		Agents:   []registry.Agent{{Record: registry.Record{ID: "profile"}, Name: "Profile", AgentType: fake.id}},
+		Projects: []registry.Project{{Record: registry.Record{ID: "project"}, Name: "Project", Path: t.TempDir()}},
+		Chats:    []registry.Chat{{Record: registry.Record{ID: "chat"}, AgentID: "profile", ProjectID: "project", Title: "Chat"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.SetNotificationPreferences(reg)
+	var calls atomic.Int32
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"success":true,"delivered":1}`))
+	}))
+	defer receiver.Close()
+	if err := s.store.SetNotifyConfig(receiver.URL, "workspace", "secret", agent.ChannelPush); err != nil {
+		t.Fatal(err)
+	}
+	s.notifier = notify.Fanout(notify.All(s.store))
+	adapter, _ := s.Resolve(fake.id)
+	conditions := []agent.Condition{agent.Finished, agent.Errored, agent.WaitingApproval, agent.WaitingFeedback, agent.WaitingInput}
+	for _, muted := range []bool{false, true, false} {
+		chat, _, _, err := reg.ChatContext("chat")
+		if err != nil {
+			t.Fatal(err)
+		}
+		chat.NotificationsMuted = &muted
+		data, _ := json.Marshal(chat)
+		if err := reg.Put("chats", "chat", data, &chat.Revision); err != nil {
+			t.Fatal(err)
+		}
+		before := calls.Load()
+		_, notesBefore, closeBefore := s.notes.Subscribe()
+		closeBefore()
+		for _, condition := range conditions {
+			s.emit(adapter, session.Run{ID: "running", ChatID: "chat"}, condition, "test")
+		}
+		_, notesAfter, closeAfter := s.notes.Subscribe()
+		closeAfter()
+		want := len(conditions)
+		if muted {
+			want = 0
+		}
+		if got := int(calls.Load() - before); got != want || len(notesAfter)-len(notesBefore) != want {
+			t.Fatalf("muted=%v: HTTP calls=%d, SSE notes=%d; want %d", muted, got, len(notesAfter)-len(notesBefore), want)
+		}
+	}
+}
+
+type notificationPreferencesFailure struct{}
+
+func (notificationPreferencesFailure) NotificationsMuted(string) (bool, error) {
+	return false, errors.New("database unavailable")
+}
+
+func TestNotificationPreferenceFailureDoesNotLoseRunResultOrSend(t *testing.T) {
+	fake := &fakeAdapter{id: "notify-preference-failure", turns: []scriptedTurn{{text: "The result is preserved"}}}
+	s := newResolveSup(t, fake)
+	s.SetNotificationPreferences(notificationPreferencesFailure{})
+	var calls atomic.Int32
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+	}))
+	defer receiver.Close()
+	if err := s.store.SetNotifyConfig(receiver.URL, "workspace", "secret", agent.ChannelPush); err != nil {
+		t.Fatal(err)
+	}
+	s.notifier = notify.Fanout(notify.All(s.store))
+	adapter, _ := s.Resolve(fake.id)
+	run, ok := s.StartTurn(adapter, StartTurnInput{ChatID: "chat", Message: "test"})
+	if !ok {
+		t.Fatal("turn did not start")
+	}
+	events := drainResolve(t, s, run.ID)
+	var result, skipped bool
+	for _, event := range events {
+		result = result || event.Result != nil && event.Result.Text == "The result is preserved"
+		skipped = skipped || event.Meta["notify"] == "not sent: notification settings unavailable"
+	}
+	completed, _ := s.store.GetRun(run.ID)
+	if !result || !skipped || completed.Status != "done" || calls.Load() != 0 {
+		t.Fatalf("result=%v skip=%v status=%s delivered=%d", result, skipped, completed.Status, calls.Load())
+	}
 }
 
 func (f *waitingNotificationAdapter) RunStream(ctx context.Context, _ agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {

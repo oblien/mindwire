@@ -46,6 +46,7 @@ func MergeRecordedHistory(native, recorded []Message) []Message {
 			break
 		}
 		if match >= 0 {
+			record = withoutSteeredPrefix(groups, match, record)
 			groups[match] = mergeTurnParts(groups[match], record)
 			cursor = match + 1
 			continue
@@ -69,6 +70,78 @@ func MergeRecordedHistory(native, recorded []Message) []Message {
 	var result []Message
 	for _, group := range groups {
 		result = append(result, group...)
+	}
+	return result
+}
+
+// Native steering adds a user-message boundary inside one daemon run. Its final
+// recorded snapshot still contains the output from before that boundary. Locate
+// that prefix by a native async question's stable ID, then omit components already
+// present there. Scope the match to those native turns, so repeated text or local
+// item IDs from an unrelated earlier run cannot consume the current response.
+func withoutSteeredPrefix(groups [][]Message, current int, recorded []Message) []Message {
+	questions := map[string]bool{}
+	for _, message := range recorded {
+		for _, part := range historyParts(message) {
+			if part.Interaction != nil && part.Interaction.IsMessageQuestion() {
+				questions[part.Interaction.ID] = true
+			}
+		}
+	}
+	if len(questions) == 0 {
+		return recorded
+	}
+	start := current
+	for i := 0; i < current; i++ {
+		for _, message := range groups[i] {
+			for _, part := range historyParts(message) {
+				if part.Interaction != nil && questions[part.Interaction.ID] {
+					start = min(start, i)
+				}
+			}
+		}
+	}
+	if start == current {
+		return recorded
+	}
+	var prefix []Part
+	for _, group := range groups[start:current] {
+		for _, message := range group {
+			if message.Role != "user" {
+				prefix = append(prefix, historyParts(message)...)
+			}
+		}
+	}
+	cursor := 0
+	var result []Message
+	for _, message := range recorded {
+		if message.Role == "user" {
+			result = append(result, message)
+			continue
+		}
+		var remaining []Part
+		var text []string
+		for _, part := range historyParts(message) {
+			match := -1
+			for i := cursor; i < len(prefix); i++ {
+				if SameHistoryPart(prefix[i], part) {
+					match = i
+					break
+				}
+			}
+			if match >= 0 {
+				cursor = match + 1
+				continue
+			}
+			remaining = append(remaining, part)
+			if part.Type == "text" {
+				text = append(text, part.Text)
+			}
+		}
+		if len(remaining) > 0 {
+			message.Parts, message.Text = remaining, strings.Join(text, "\n\n")
+			result = append(result, message)
+		}
 	}
 	return result
 }
@@ -161,6 +234,9 @@ func mergeTurnParts(native, recorded []Message) []Message {
 				if final.Interaction != nil && part.Interaction != nil && part.Interaction.ID != "" {
 					interaction := *final.Interaction
 					interaction.ID = part.Interaction.ID
+					if part.Interaction.RunID != "" {
+						interaction.RunID = part.Interaction.RunID
+					}
 					final.Interaction = &interaction
 				}
 				cursor = match + 1

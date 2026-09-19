@@ -101,13 +101,27 @@ Supported actions: pointer, click, drag, scroll, key chord, text, clipboard read
 clipboard write and release. Text is limited to 1 MiB; chords to eight keys; scroll
 steps to 50 per axis. Human queues are bounded and never replay uncertain input.
 
+Optional protocol-1 capabilities `keyboardText` and `extendedKeys` support native
+mobile keyboards. `textMode: "keyboard"` on a text action sends up to 4096 bytes
+of printable ASCII as physical US keys, without changing the clipboard. Send
+Return/Tab as key actions and Unicode with normal text input. Unsupported modes,
+control characters and oversized batches are rejected before dispatch. Keyboard
+input reuses the live RFB connection without a geometry round-trip; spatial input
+still refreshes geometry before validation. Function keys F1–F24, CapsLock,
+Insert, PrintScreen, Pause, Menu, NumLock and ScrollLock are available alongside
+the existing navigation keys and modifiers. These additions need a new daemon
+release; clients should gate them on the advertised capabilities.
+
 ## macOS sign-in and clipboard
 
 A native VNC connection can initially show a sleeping or signed-out display.
-Pointer/keyboard input wakes it. When the image provides credentials, the app's
-Desktop sign-in sheet fetches `/desktop/credentials` on demand. Select the remote
-password field and choose Type password; credentials are discarded with the sheet.
-Mindwire does not copy the hosted browser's automatic login script.
+Pointer/keyboard input wakes it. The iOS client prepares a new graphical Mac
+session on explicit connection using Oblien's native-runtime helper, copied from
+its hosted viewer. This provider setup preserves existing sessions, explicit
+screen locks, other accounts and administrator login settings. Temporary login
+credentials are cleaned, and the password travels only through task stdin with
+logs disabled. The setting can be turned off; foreground resume does not repeat
+preparation. The Desktop sign-in sheet also provides manual credentials on demand.
 
 Before graphical login, only short US-keyboard text is available. After login,
 Unicode and multiline text use the desktop user's native `pbcopy` followed by a
@@ -190,6 +204,9 @@ replace an unexpired SSH grant unnecessarily. Authorization eventually expires;
 opening Desktop obtains another scoped grant. The app never refreshes by silently
 re-enabling a disabled Runtime API. Closing/backgrounding the viewer releases only
 its human session, leaving an authorized agent's independent session running.
+Temporary iOS inactive states keep the viewer connected. Foreground return opens
+a fresh view session automatically, without reclaiming a control lease or
+replaying input. Explicit Disconnect/Done cancels that intent.
 
 ## Browser preview
 

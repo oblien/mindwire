@@ -2,7 +2,8 @@
 
 Codex and Claude Code use the same `Interaction` event, run snapshot, `/respond`
 endpoint and client components. Native request identifiers stay attached to the
-pending run; answering a question resumes that request instead of starting a new turn.
+pending run. Blocking forms resume that native request; async questions use the
+harness's native user-message input, during the turn or after it finishes.
 The Go and TypeScript SDKs export the same question and answer types.
 
 ## Answering a form
@@ -57,6 +58,15 @@ returns `answers[questionId].answers` to Codex. Claude's `AskUserQuestion` becom
 same form, then resumes its native `can_use_tool` callback with the original input
 and answers keyed by native question text. Multi selections and feedback are retained.
 
+Codex's `request_user_input_async` instead arrives as an `agentMessage` with
+`delivery: "async"` and a structured `questions` array. It becomes one form with
+`responseMode: "message"`, `blocking: false`, and a daemon `runId`. Render its
+questions once; the native message text duplicates the form and is not another
+assistant reply. Submit it through the same `/runs/{runId}/respond` endpoint.
+The daemon validates every answer, waits for native `turn/steer` acknowledgement
+while running, or starts a turn in the same native conversation after completion.
+It revalidates the workspace project and harness before starting more work.
+
 ## Approving a command, edit or plan
 
 Render the actions actually offered in `interaction.options`, including descriptions.
@@ -80,14 +90,28 @@ reply. Claude and legacy Codex rejection reasons use the native denial response.
 
 `202` means the answer was validated and queued to the native harness. Incomplete
 forms and unoffered actions return `400` without consuming the request. An already
-answered, expired or completed request returns `409`. The same request can be accepted
-only once, even with simultaneous submissions.
+answered or expired native control request returns `409`. Message questions remain
+pending across turn completion and daemon restarts. Their accepted `response` is
+persisted with the user message and resumed run; retrying the identical accepted
+answer is idempotent. Conflicting or concurrent submissions return `409`.
 
 Register pending requests before publishing their stream event. Clients can answer
 immediately or reconnect using `/runs/{runId}/snapshot`. While submitting, disable
 duplicate taps; preserve the answers and allow retry if submission fails. Resolved,
-cancelled and historical interactions are read-only. Cancelling a Codex approval
+cancelled and historical native controls are read-only. An unanswered message form
+in history remains actionable using its own `runId`; the app never fabricates an
+RPC ID or marks it answered before acknowledgement. Cancelling a Codex approval
 keeps partial text, tool and file output and marks the run `cancelled`.
+
+When native history provides the structured choices, older informational question
+rows are upgraded without copying their plain-text options into the feed again.
+The latest daemon-recorded question can recover its pending state; older questions
+and imported/forked history remain read-only unless they already have a saved request.
+
+Each distinct question emits `waiting_feedback`; repeated item snapshots do not
+notify again. A turn ending with an unanswered message form does not cover its
+input-needed alert with a generic completion alert. The existing chat/agent mute
+policy and the iOS visible-chat suppression apply to these alerts.
 
 ## Permission settings
 
@@ -130,6 +154,16 @@ user-managed model catalogs are respected. Catalog preparation errors fail the t
 with an explanation instead of silently switching to unconditional approval.
 
 ## Verification and shipping
+
+Additional verification on 2026-09-19 with Codex **0.155.0** and Claude Code **2.1.246**:
+
+- Real daemon HTTP question/answer round trips, including Claude waiting in bypass mode.
+- Codex async replies through native steering and after completion plus a daemon restart.
+- One form in live and final history, retained choices/feedback, and input-needed notifications.
+- Race checks for acknowledgement, concurrent replies, replay, and answering during turn completion.
+- iOS question rendering, draft retention across completion, history replies, and notification policy.
+
+The async app-server capture is `internal/agent/codex/testdata/questions.async.json`.
 
 Verified on 2026-09-15 with Codex **0.154.0** and Claude Code **2.1.246**:
 

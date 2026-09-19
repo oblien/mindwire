@@ -359,6 +359,17 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 				if input == "" {
 					input = p.Input
 				}
+				if strings.TrimPrefix(p.Name, "functions.") == "request_user_input_async" {
+					var payload struct {
+						Questions []asyncQuestion `json:"questions"`
+					}
+					if json.Unmarshal([]byte(input), &payload) == nil {
+						if inter := asyncQuestionInteraction(p.CallID, payload.Questions); inter != nil {
+							appendFeedback(env.Timestamp, inter)
+							continue
+						}
+					}
+				}
 				if strings.TrimPrefix(p.Name, "functions.") == "update_plan" {
 					if inter := planInteraction(json.RawMessage(input)); inter != nil {
 						inter.ID = p.CallID

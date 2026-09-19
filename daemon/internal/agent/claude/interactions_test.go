@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"strings"
@@ -8,6 +9,61 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 )
+
+func TestQuestionPreviewCannotOverwriteAControlRequestOrResolution(t *testing.T) {
+	raw, err := os.ReadFile("testdata/questions.request.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		t.Fatal(err)
+	}
+	raw = compact.Bytes()
+	var env streamEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatal(err)
+	}
+	it := approvalInteraction(env.RequestID, env.Request)
+	var request struct {
+		Input json.RawMessage `json:"input"`
+	}
+	_ = json.Unmarshal(env.Request, &request)
+	preview, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{
+		map[string]any{"type": "tool_use", "id": it.ID, "name": "AskUserQuestion", "input": request.Input},
+	}}})
+	result, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []any{
+		map[string]any{"type": "tool_result", "tool_use_id": it.ID, "content": "User answered"},
+	}}})
+	for _, controlFirst := range []bool{true, false} {
+		lines := [][]byte{preview, raw, preview, result, preview}
+		if controlFirst {
+			lines = [][]byte{raw, preview, result, preview}
+		}
+		var events []agent.Event
+		parseStream(bytes.NewReader(bytes.Join(lines, []byte("\n"))), func(e agent.Event) { events = append(events, e) })
+		var questions []agent.Interaction
+		for _, e := range events {
+			if e.Interaction != nil {
+				questions = append(questions, *e.Interaction)
+			}
+		}
+		want := 3
+		if controlFirst {
+			want = 2
+		}
+		if len(questions) != want {
+			t.Fatalf("controlFirst=%v: %+v", controlFirst, questions)
+		}
+		pending := questions[len(questions)-2]
+		if !pending.NeedsResponse || pending.Meta["requestId"] != env.RequestID || len(pending.Questions) != 2 {
+			t.Fatalf("control request was replaced by its preview: %+v", pending)
+		}
+		if questions[len(questions)-1].NeedsResponse {
+			t.Fatal("tool result did not resolve the question")
+		}
+	}
+}
 
 func TestQuestionHistoryHasOneReadOnlyFormWithoutOrphanResult(t *testing.T) {
 	raw, err := os.ReadFile("testdata/questions.request.json")

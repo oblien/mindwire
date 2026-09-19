@@ -6,6 +6,7 @@ export interface SurfaceProblem { code: string; message: string }
 export interface SurfaceCapabilities {
   view: boolean; capture: boolean; pointer: boolean; keyboard: boolean; text: boolean;
   clipboardRead: boolean; clipboardWrite: boolean;
+  keyboardText?: boolean; extendedKeys?: boolean;
 }
 export interface SurfaceController {
   sessionId: string; actor: "user" | "agent"; name: string; runId?: string; chatId?: string;
@@ -40,6 +41,8 @@ export interface SurfaceAction {
   x?: number; y?: number; toX?: number; toY?: number; buttons?: number;
   button?: "left" | "middle" | "right"; count?: number; deltaX?: number; deltaY?: number;
   keys?: string[]; text?: string;
+  /** Physical US keyboard text (printable ASCII, <=4096 bytes), preserving the clipboard. */
+  textMode?: "keyboard";
 }
 export interface SurfaceActionRequest {
   /** Reuse this ID to inspect/recover an uncertain acknowledgement. Do not replay with a new ID. */

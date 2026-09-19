@@ -148,17 +148,21 @@ type Supervisor struct {
 	agents map[string]*Agent // by agent type
 	def    string            // default agent type when a request omits ?agent=
 
-	mu           sync.Mutex
-	active       map[string]string // chatId -> active turn's working directory
-	activeAgents map[string]int    // harness -> live turns, under the same lock as setup admission
-	setup        *setup.Tracker
-	cancels      map[string]context.CancelFunc // runId -> cancel the running turn
+	mu                      sync.Mutex
+	notificationPreferences notify.Preferences
+	active                  map[string]string // chatId -> active turn's working directory
+	activeAgents            map[string]int    // harness -> live turns, under the same lock as setup admission
+	setup                   *setup.Tracker
+	cancels                 map[string]context.CancelFunc // runId -> cancel the running turn
 	// User-in-loop ingress, parallel to cancels (same register-before-return + defer close). inputs
 	// holds each running turn's inbound channel (present only for agents declaring an ingress
 	// capability); pending records the run's respondable interactions so Respond can echo their
 	// adapter correlators (Interaction.Meta) back on the Inbound without the adapter keeping state.
-	inputs  map[string]chan agent.Inbound
-	pending map[string]map[string]agent.Interaction // runId -> interactionId -> interaction
+	inputs             map[string]chan agent.Inbound
+	pending            map[string]map[string]agent.Interaction // runId -> interactionId -> interaction
+	answering          map[string]bool
+	runClosed          map[string]chan struct{}
+	interactionContext InteractionContext
 	// Drain accounting: inflight counts live execRun/execResolve goroutines (each decrements in a
 	// defer that runs AFTER its terminal SaveRun), and idle broadcasts when it reaches zero. Wait()
 	// parks on idle so a caller can Cancel every run and then tear down the state directory without
@@ -181,6 +185,7 @@ func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, d
 		active: map[string]string{}, cancels: map[string]context.CancelFunc{},
 		activeAgents: map[string]int{}, setup: setup.NewTracker(),
 		inputs: map[string]chan agent.Inbound{}, pending: map[string]map[string]agent.Interaction{},
+		answering: map[string]bool{}, runClosed: map[string]chan struct{}{},
 	}
 	s.idle = sync.NewCond(&s.mu)
 	for _, ad := range agent.All() {
@@ -228,6 +233,7 @@ type StartTurnInput struct {
 	Message string
 	CWD     string // run this turn in a specific dir (a project workdir); else the daemon default
 	Options agent.TurnOptions
+	reply   *session.InteractionReply // internal: atomically commit a resumed async answer with the turn
 }
 
 // StartTurn records the user message, creates a running Run, registers cancellation, and
@@ -294,18 +300,31 @@ func (s *Supervisor) StartResolve(a *Agent, req StartTurnInput, ro ResolveOption
 
 // start is the shared launch path for StartTurn (compact=false) and StartCompact (compact=true).
 func (s *Supervisor) start(a *Agent, req StartTurnInput, compact bool) (session.Run, bool) {
+	run, err := s.startChecked(a, req, compact)
+	return run, err == nil
+}
+
+func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (session.Run, error) {
 	s.mu.Lock()
 	if _, busy := s.active[req.ChatID]; busy || s.setup.Status(a.ID()).Running {
 		s.mu.Unlock()
-		return session.Run{}, false
+		return session.Run{}, ErrChatBusy
+	}
+	run := session.Run{ID: newID(), ChatID: req.ChatID, Agent: a.ID(), Status: "running", CreatedAt: nowISO()}
+	if req.reply != nil {
+		message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO()}
+		if err := s.store.CommitInteractionReply(*req.reply, run.ID, message, &run); err != nil {
+			s.mu.Unlock()
+			return session.Run{}, err
+		}
 	}
 	s.active[req.ChatID] = s.activePath(req.CWD)
 	s.activeAgents[a.ID()]++
 	// Create + register the cancel func BEFORE returning the run id, so a client that
 	// cancels immediately after POST /turns can't race an unregistered run into a 404.
 	ctx, cancel := context.WithTimeout(context.Background(), maxTurn)
-	run := session.Run{ID: newID(), ChatID: req.ChatID, Agent: a.ID(), Status: "running", CreatedAt: nowISO()}
 	s.cancels[run.ID] = cancel
+	s.runClosed[run.ID] = make(chan struct{})
 	// Same anti-race for user-in-loop: if the agent can take ingress (respond/input/interrupt),
 	// register its inbound channel + pending map now, so a client that answers an interaction
 	// immediately can't race an unallocated channel into a 404. A compaction takes no ingress, so
@@ -330,15 +349,17 @@ func (s *Supervisor) start(a *Agent, req StartTurnInput, compact bool) (session.
 	// Thin recorded log (universal fallback; native-history agents are read from their store). A
 	// compaction records no user message — the /compact trigger isn't a user turn; only its
 	// compaction boundary (accumulated as a Part on the assistant reply) belongs in the transcript.
-	if !compact {
+	if !compact && req.reply == nil {
 		_ = s.store.AddMessage(session.Message{
 			ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(),
 		})
 	}
-	_ = s.store.SaveRun(run)
+	if req.reply == nil {
+		_ = s.store.SaveRun(run)
+	}
 
 	go s.execRun(ctx, cancel, a, run, req, inbound, compact)
-	return run, true
+	return run, nil
 }
 
 // Busy reports whether a turn is currently running for a chat. The API uses it to 409 a delete or
@@ -423,6 +444,9 @@ func (s *Supervisor) Respond(runID, interactionID, decision string, options []st
 
 // RespondInteraction accepts exactly one complete answer for a currently pending request.
 func (s *Supervisor) RespondInteraction(runID string, reply agent.InteractionResponse) error {
+	if _, ok := s.store.MessageQuestion(runID, reply.InteractionID); ok {
+		return s.respondMessageQuestion(runID, reply)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	it, ok := s.pending[runID][reply.InteractionID]
@@ -487,6 +511,9 @@ func (s *Supervisor) SetPermissionMode(runID, mode string) bool {
 // recordPending stores a respondable interaction so Respond can recover its correlators. No-op when
 // the run has no ingress channel (its pending map was never allocated).
 func (s *Supervisor) recordPending(runID string, it agent.Interaction) {
+	if it.IsMessageQuestion() {
+		return
+	} // durable message forms are owned by the session store
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if p := s.pending[runID]; p != nil {
@@ -550,8 +577,19 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 		if ch := s.inputs[run.ID]; ch != nil {
 			delete(s.inputs, run.ID)
 			close(ch)
+			// A result can win the race before an adapter consumes queued input.
+			// Acknowledge only those unconsumed values as safe to send in a resumed turn.
+			for in := range ch {
+				if in.Ack != nil {
+					in.Ack <- agent.ErrInputClosed
+				}
+			}
 		}
 		delete(s.pending, run.ID)
+		if closed := s.runClosed[run.ID]; closed != nil {
+			close(closed)
+			delete(s.runClosed, run.ID)
+		}
 		s.mu.Unlock()
 		s.mon.Untrack(run.ID) // PID lifecycle == turn lifecycle: stop reporting this turn's resources
 	}()
@@ -580,6 +618,16 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 		Inbound: inbound,
 		BeforePublish: func(ev agent.Event) {
 			if ev.Interaction != nil {
+				ev.Interaction.RunID = run.ID
+				if ev.Interaction.IsMessageQuestion() {
+					it, err := s.store.RecordMessageQuestion(run.ChatID, run.ID, *ev.Interaction)
+					if err != nil {
+						it.NeedsResponse = false
+						it.Detail = "Could not save this question. Please ask the agent to try again."
+						log.Printf("save question: %v", err)
+					}
+					*ev.Interaction = it
+				}
 				s.recordPending(run.ID, *ev.Interaction)
 			}
 			if ev.Type == agent.EventResult {
@@ -635,7 +683,11 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 	s.saveReply(&run, res.Text, parts, "")
 	run.Status = "done"
 	_ = s.store.SaveRun(run)
-	s.emit(a, run, agent.Finished, snippet(res.Text)) // notify + publish result BEFORE closing
+	// An unanswered async form is the action the user needs. Do not immediately
+	// cover its input-needed notification with a generic completion notification.
+	if !s.store.HasPendingMessageQuestion(run.ID) {
+		s.emit(a, run, agent.Finished, snippet(res.Text))
+	}
 	s.hub.Close(run.ID)
 }
 
@@ -709,6 +761,9 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 			ChatID: parent.ChatID, Message: msg, RunID: parent.ID, CWD: req.CWD, Options: opts,
 			BeforePublish: func(ev agent.Event) {
 				if ev.Interaction != nil {
+					// Resolve is explicitly unattended and has no user ingress. Preserve
+					// structured output without advertising an answer button that cannot work.
+					ev.Interaction.NeedsResponse = false
 					s.recordPending(parent.ID, *ev.Interaction)
 				}
 			},
@@ -830,6 +885,23 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 // emit builds a notification for a condition (using the agent's declared UX) and fans it to
 // the external webhook (or no-op if unconfigured) AND the local SSE stream.
 func (s *Supervisor) emit(a *Agent, run session.Run, cond agent.Condition, body string) {
+	s.mu.Lock()
+	preferences := s.notificationPreferences
+	s.mu.Unlock()
+	if preferences != nil {
+		muted, err := preferences.NotificationsMuted(run.ChatID)
+		if err != nil {
+			// A failed preference lookup must not bypass a saved mute. Only this
+			// notification is skipped; the run and transcript still finish normally.
+			log.Printf("notify: preferences chat=%s: %v", run.ChatID, err)
+			s.notificationOutcome(run, cond, "not sent: notification settings unavailable")
+			return
+		}
+		if muted {
+			s.notificationOutcome(run, cond, "muted")
+			return
+		}
+	}
 	n := s.buildNote(a, cond, body, run.ChatID, run.ID)
 	// Bounded so a slow webhook can't stall the turn's stream-close (emit runs just before Close).
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -841,6 +913,18 @@ func (s *Supervisor) emit(a *Agent, run session.Run, cond agent.Condition, body 
 	if err != nil {
 		summary = err.Error()
 	}
+	s.notificationOutcome(run, cond, summary)
+}
+
+// SetNotificationPreferences binds workspace-owned settings for the HTTP and Go SDK
+// hosts. Read under the supervisor lock; registry I/O never holds that lock.
+func (s *Supervisor) SetNotificationPreferences(preferences notify.Preferences) {
+	s.mu.Lock()
+	s.notificationPreferences = preferences
+	s.mu.Unlock()
+}
+
+func (s *Supervisor) notificationOutcome(run session.Run, cond agent.Condition, summary string) {
 	log.Printf("notify: cond=%s chat=%s → %s", cond, run.ChatID, summary)
 	// Surface the outcome on the run stream so the CLIENT can see whether the daemon's webhook POST
 	// succeeded (the POST is otherwise invisible to the client). Published while the hub topic is
@@ -848,28 +932,31 @@ func (s *Supervisor) emit(a *Agent, run session.Run, cond agent.Condition, body 
 	s.hub.Publish(run.ID, agent.Event{Type: agent.EventStatus, Meta: map[string]any{"notify": summary}})
 }
 
-// watchInteractions subscribes to a run's event stream and fires a single "waiting for you"
-// notification the first time the turn surfaces an interaction that NeedsResponse (a question or a
+// watchInteractions subscribes to a run's event stream and fires a "waiting for you"
+// notification once per distinct interaction that NeedsResponse (a question or a
 // plan to approve — not TodoWrite progress). Runs in its own goroutine; the range over the live
 // channel ends when execRun closes the hub topic at turn completion, so the goroutine cannot leak.
-// One notification per run avoids spamming a turn that asks repeatedly.
+// Updates and replay of the same request cannot duplicate its notification.
 func (s *Supervisor) watchInteractions(a *Agent, run session.Run) {
 	replay, ch, done, cancel := s.hub.Subscribe(run.ID)
 	defer cancel()
-	fired := false
+	fired := map[string]bool{}
 	consider := func(ev agent.Event) {
 		if ev.Type != agent.EventInteraction || ev.Interaction == nil || !ev.Interaction.NeedsResponse {
 			return
 		}
-		if fired {
+		if fired[ev.Interaction.ID] {
 			return
 		}
-		fired = true
+		fired[ev.Interaction.ID] = true
 		cond := agent.WaitingFeedback
 		if ev.Interaction.Kind == "approval" {
 			cond = agent.WaitingApproval
 		}
 		body := ev.Interaction.Title
+		if len(ev.Interaction.Questions) > 0 {
+			body = ev.Interaction.Questions[0].Title
+		}
 		if body == "" {
 			body = ev.Interaction.Detail
 		}

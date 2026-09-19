@@ -745,6 +745,11 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	// the approval reply id rides in the approvals map (keyed by the interaction id we handed out).
 	awaitTurn := func() (string, string, bool) {
 		select {
+		case <-done:
+			return "", "", false
+		default:
+		}
+		select {
 		case <-turnReady:
 			smu.Lock()
 			defer smu.Unlock()
@@ -755,7 +760,9 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 			return "", "", false
 		}
 	}
+	ingressDone := make(chan struct{})
 	go func() {
+		defer close(ingressDone)
 		for {
 			select {
 			case <-ctx.Done():
@@ -802,17 +809,31 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 				case "input":
 					text := strings.TrimSpace(msg.Text)
 					if text == "" {
+						if msg.Ack != nil {
+							msg.Ack <- errors.New("input is empty")
+						}
 						continue
 					}
 					t, u, ready := awaitTurn()
 					if !ready {
+						if msg.Ack != nil {
+							msg.Ack <- agent.ErrInputClosed
+						}
 						return
 					}
-					if err := sendRequest("turn/steer", map[string]any{
+					params := map[string]any{
 						"threadId":       t,
 						"expectedTurnId": u,
 						"input":          []any{map[string]any{"type": "text", "text": text}},
-					}); err != nil {
+					}
+					if msg.Ack != nil {
+						// A question stays pending until Codex acknowledges the native steer.
+						response, err := call("turn/steer", params)
+						if err == nil {
+							_, err = await(response)
+						}
+						msg.Ack <- err
+					} else if err := sendRequest("turn/steer", params); err != nil {
 						emit(agent.Event{Type: agent.EventError, Error: "Could not send Codex input: " + err.Error()})
 					}
 				case "interrupt":
@@ -841,6 +862,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		}
 	}
 
+	<-ingressDone
 	smu.Lock()
 	res2, ok := result, got
 	failure, sid := failureText, sessionID

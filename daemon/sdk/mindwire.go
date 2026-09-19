@@ -127,6 +127,8 @@ func New(opts Options) (*Client, error) {
 	notifier := notify.Fanout(channels)
 
 	sup := orchestrator.New(store, hub, notifier, opts.CWD, opts.Agent)
+	sup.SetNotificationPreferences(workspaceRegistry)
+	sup.SetInteractionContext(workspaceRegistry)
 	projectService, err := projects.New(workspaceRegistry, sup)
 	if err != nil {
 		workspaceRegistry.Close()
@@ -230,17 +232,18 @@ func (c *Client) resolve(opts []ScopedOption) (*orchestrator.Agent, error) {
 // Health reports the daemon-level liveness snapshot (the /healthz payload): always ok in-process,
 // plus the default agent type and the core's version.
 type Health struct {
-	OK                       bool   `json:"ok"`
-	Agent                    string `json:"agent"`
-	Version                  string `json:"version"`
-	WorkspaceMetadataVersion int    `json:"workspaceMetadataVersion"`
-	ProjectOperationsVersion int    `json:"projectOperationsVersion"`
-	SurfaceProtocolVersion   int    `json:"surfaceProtocolVersion"`
+	OK                             bool   `json:"ok"`
+	Agent                          string `json:"agent"`
+	Version                        string `json:"version"`
+	WorkspaceMetadataVersion       int    `json:"workspaceMetadataVersion"`
+	ProjectOperationsVersion       int    `json:"projectOperationsVersion"`
+	SurfaceProtocolVersion         int    `json:"surfaceProtocolVersion"`
+	NotificationPreferencesVersion int    `json:"notificationPreferencesVersion"`
 }
 
 // Health returns the liveness snapshot. It cannot fail in-process.
 func (c *Client) Health() Health {
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package
@@ -628,6 +631,9 @@ func (c *Client) Messages(chatID string, opts MessagesOptions) ([]Message, error
 			ChatID: chatID, SessionID: c.core.store.Session(ag.ID(), chatID), CWD: cwd, Recorded: recorded,
 		})
 		if err == nil && len(msgs) > 0 {
+			for i := range msgs {
+				msgs[i].Parts = c.core.store.OverlayInteractions(chatID, msgs[i].Parts)
+			}
 			return pageWindow(msgs, opts.Limit, opts.Before, func(m Message) string { return m.ID }), nil
 		}
 	}

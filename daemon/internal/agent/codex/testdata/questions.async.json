@@ -1,0 +1,12 @@
+{
+  "type": "agentMessage",
+  "id": "native-async-question",
+  "text": "Which color?\n- Blue\n- Green\n\nWhich format?\n- Plain text\n- Markdown",
+  "phase": "final_answer",
+  "memoryCitation": null,
+  "delivery": "async",
+  "questions": [
+    { "title": "Which color?", "options": ["Blue", "Green"] },
+    { "title": "Which format?", "options": ["Plain text", "Markdown"] }
+  ]
+}

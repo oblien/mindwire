@@ -128,7 +128,7 @@ func (t *Transcript) Apply(ev agent.Event) {
 		t.state.Error = ev.Error
 	case agent.EventResult:
 		for i, part := range t.state.Parts {
-			if part.Interaction != nil {
+			if part.Interaction != nil && !part.Interaction.IsMessageQuestion() {
 				it := *part.Interaction
 				it.NeedsResponse = false
 				t.state.Parts[i].Interaction = &it
@@ -182,7 +182,7 @@ func (t *Transcript) Snapshot(final bool) Snapshot {
 	snapshot.Parts = append([]agent.Part{}, t.state.Parts...)
 	if final {
 		for i, part := range snapshot.Parts {
-			if part.Interaction != nil {
+			if part.Interaction != nil && !part.Interaction.IsMessageQuestion() {
 				it := *part.Interaction
 				it.NeedsResponse = false
 				snapshot.Parts[i].Interaction = &it

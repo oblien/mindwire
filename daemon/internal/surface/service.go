@@ -722,6 +722,17 @@ func spatial(kind string) bool {
 	return kind == "pointer" || kind == "click" || kind == "drag" || kind == "scroll"
 }
 func validateAction(a Action) error {
+	if a.TextMode != "" {
+		if a.Kind != "text" || a.TextMode != "keyboard" || len(a.Text) > 4096 {
+			return problem("invalid_request", "Keyboard text supports up to 4096 bytes on a text action.")
+		}
+		// Portable across Mac QEMU and Linux: control keys use a separate key action.
+		for _, c := range a.Text {
+			if c < 32 || c > 126 {
+				return problem("invalid_request", "Use normal text input for Unicode, and key actions for Return or Tab.")
+			}
+		}
+	}
 	if len(a.Text) > MaxTextBytes {
 		return problem("invalid_request", "Send up to one MiB of text at a time.")
 	}

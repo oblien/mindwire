@@ -149,3 +149,31 @@ nativeTest("native bootstrap: downloads the OS-specific asset and verifies its c
     await f.close();
   }
 }, 25_000);
+
+nativeTest("native bootstrap: headless launch does not need nohup and survives hangup", async () => {
+  const f = await fixture();
+  try {
+    const tools = join(f.directory, "headless-tools");
+    await fs.mkdir(tools);
+    await fs.writeFile(join(tools, "nohup"), '#!/bin/sh\necho "nohup: cannot detach from console" >&2\nexit 1\n', { mode: 0o755 });
+    f.prefix(`PATH=${quote(tools)}:$PATH\n`);
+    const token = await ensureDaemon(f.host, { ...f.config, daemonBin: f.binary });
+    const first = await f.health(token);
+    process.kill(first.pid, "SIGHUP");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect((await f.health(token)).pid).toBe(first.pid);
+  } finally {
+    await f.close();
+  }
+}, 15_000);
+
+nativeTest("native bootstrap: a startup failure reports the exit status and log immediately", async () => {
+  const f = await fixture();
+  try {
+    await fs.writeFile(f.binary, '#!/bin/sh\necho "cannot initialize workspace state" >&2\nexit 42\n', { mode: 0o755 });
+    await expect(ensureDaemon(f.host, { ...f.config, daemonBin: f.binary }))
+      .rejects.toThrow("Mindwire exited during startup (status 42). cannot initialize workspace state");
+  } finally {
+    await f.close();
+  }
+}, 10_000);

@@ -36,13 +36,14 @@ func (s *Supervisor) Snapshot(id string) (RunSnapshot, bool) {
 	if snapshot.Parts == nil {
 		snapshot.Parts = []agent.Part{}
 	}
+	snapshot.Parts = s.store.OverlayInteractions(run.ChatID, snapshot.Parts)
 	return RunSnapshot{Run: run, Snapshot: snapshot}, true
 }
 
 // Persist the assistant's components even when the turn fails after producing output.
 // A run error alone is not a chat transcript: it otherwise disappears on the next reload.
 func (s *Supervisor) saveReply(run *session.Run, text string, parts []agent.Part, failure string) {
-	parts = append([]agent.Part(nil), parts...)
+	parts = s.store.OverlayInteractions(run.ChatID, parts)
 	if text == "" || failure != "" {
 		var partial []string
 		for _, part := range parts {

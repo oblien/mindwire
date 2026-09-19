@@ -195,6 +195,10 @@
           "surfaceProtocolVersion": {
             "type": "integer",
             "description": "1 when the shared desktop protocol is available."
+          },
+          "notificationPreferencesVersion": {
+            "type": "integer",
+            "description": "1 when workspace-owned profile/chat notification mutes are enforced; absent on older daemons."
           }
         },
         "required": [
@@ -1523,7 +1527,7 @@
       },
       "RespondRequest": {
         "type": "object",
-        "description": "Answer one pending interaction. Complete every required question atomically. Unknown actions or incomplete forms return 400; stale and duplicate responses return 409.",
+        "description": "Answer one pending interaction. Complete every required question atomically. Native controls expire with their run. A responseMode=message question remains answerable using its runId: the daemon steers a running turn or resumes the conversation. Repeating the same accepted message answer is idempotent. Unknown actions or incomplete forms return 400; stale, conflicting or concurrent replies return 409.",
         "properties": {
           "interactionId": {
             "type": "string",
@@ -1686,6 +1690,21 @@
           },
           "needsResponse": {
             "type": "boolean"
+          },
+          "responseMode": {
+            "type": "string",
+            "enum": ["message"],
+            "description": "A native async question answered as a user message. Omitted for native control requests."
+          },
+          "runId": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Daemon run to address when answering this interaction, including from history."
+          },
+          "response": {
+            "$ref": "#/components/schemas/RespondRequest",
+            "readOnly": true,
+            "description": "The accepted answer, persisted by the daemon."
           },
           "meta": {
             "type": "object",
@@ -2466,6 +2485,10 @@
           },
           "agentTypeName": {
             "type": "string"
+          },
+          "notificationsMuted": {
+            "type": "boolean",
+            "description": "Mutes this saved profile and all its current and future chats, independent of other profiles using the same harness. Omit to preserve an existing value; send false to clear. Applies to every notification channel and condition. Requires notificationPreferencesVersion >= 1."
           }
         }
       },
@@ -2491,6 +2514,10 @@
           },
           "agentTypeName": {
             "type": "string"
+          },
+          "notificationsMuted": {
+            "type": "boolean",
+            "description": "Mutes this saved profile and all its current and future chats, independent of other profiles using the same harness. Omit to preserve an existing value; send false to clear. Applies to every notification channel and condition. Requires notificationPreferencesVersion >= 1."
           }
         }
       },
@@ -2597,6 +2624,10 @@
           },
           "sessionId": {
             "type": "string"
+          },
+          "notificationsMuted": {
+            "type": "boolean",
+            "description": "Mutes this chat; false clears its own mute but does not override a muted parent profile. Omit to preserve an existing value; send false to clear. Applies to every notification channel and condition. Requires notificationPreferencesVersion >= 1."
           }
         }
       },
@@ -2629,6 +2660,10 @@
           },
           "sessionId": {
             "type": "string"
+          },
+          "notificationsMuted": {
+            "type": "boolean",
+            "description": "Mutes this chat; false clears its own mute but does not override a muted parent profile. Omit to preserve an existing value; send false to clear. Applies to every notification channel and condition. Requires notificationPreferencesVersion >= 1."
           }
         }
       },
@@ -3021,6 +3056,13 @@
               },
               "text": {
                 "type": "string"
+              },
+              "textMode": {
+                "type": "string",
+                "enum": [
+                  "keyboard"
+                ],
+                "description": "Optional physical US keyboard input for text actions, preserving the clipboard. Requires keyboardText capability; printable ASCII only, at most 4096 bytes."
               }
             },
             "required": [
@@ -3404,6 +3446,12 @@
                 "type": "boolean"
               },
               "clipboardWrite": {
+                "type": "boolean"
+              },
+              "keyboardText": {
+                "type": "boolean"
+              },
+              "extendedKeys": {
                 "type": "boolean"
               }
             },

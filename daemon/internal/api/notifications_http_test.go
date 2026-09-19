@@ -7,14 +7,97 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
+	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/stream"
 )
+
+func TestWorkspaceMutesThroughHTTPPreserveRunStreamAndHistory(t *testing.T) {
+	fake := resolveFakeAdapter{id: "http-notification-preferences"}
+	agent.Register(fake)
+	dir := t.TempDir()
+	store, err := session.Open(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := registry.Open(filepath.Join(dir, "workspace.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reg.Close()
+	hub := stream.New()
+	sup := orchestrator.New(store, hub, notify.Fanout(notify.All(store)), dir, fake.id)
+	api := New(store, hub, sup, reg)
+	if err := api.InitError(); err != nil {
+		t.Fatal(err)
+	}
+	defer api.Close()
+	mux := http.NewServeMux()
+	api.Register(mux)
+	authed := Auth("daemon-secret", mux)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("Authorization", "Bearer daemon-secret")
+		authed.ServeHTTP(w, r)
+	})
+	var delivered atomic.Int32
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		delivered.Add(1)
+		_, _ = w.Write([]byte(`{"success":true,"delivered":1}`))
+	}))
+	defer receiver.Close()
+	config, _ := json.Marshal(map[string]string{"url": receiver.URL, "channel": "workspace", "token": "send-secret", "format": "push"})
+	if got := serve(t, handler, "PUT", "/notify/config", string(config)); got.Code != 204 {
+		t.Fatal(got.Body.String())
+	}
+	batch, _ := json.Marshal(registry.Import{
+		Agents:   []registry.Agent{{Record: registry.Record{ID: "profile"}, Name: "Profile", AgentType: fake.id}},
+		Projects: []registry.Project{{Record: registry.Record{ID: "project"}, Name: "Project", Path: dir}},
+		Chats:    []registry.Chat{{Record: registry.Record{ID: "chat"}, AgentID: "profile", ProjectID: "project", Title: "Chat"}},
+	})
+	if got := serve(t, handler, "POST", "/workspace/import", string(batch)); got.Code != 200 {
+		t.Fatal(got.Body.String())
+	}
+	for _, muted := range []bool{true, false} {
+		var snapshot registry.Snapshot
+		if err := json.Unmarshal(serve(t, handler, "GET", "/workspace", "").Body.Bytes(), &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		profile := snapshot.Agents[0]
+		profile.NotificationsMuted = &muted
+		update, _ := json.Marshal(map[string]any{"record": profile, "expectedRevision": profile.Revision})
+		got := serve(t, handler, "PUT", "/workspace/agents/profile", string(update))
+		if got.Code != 200 {
+			t.Fatal(got.Body.String())
+		}
+		if err := json.Unmarshal(got.Body.Bytes(), &snapshot); err != nil || snapshot.Agents[0].NotificationsMuted == nil || *snapshot.Agents[0].NotificationsMuted != muted {
+			t.Fatalf("preference not acknowledged: %s", got.Body.String())
+		}
+		turn := serve(t, handler, "POST", "/turns", `{"chatId":"chat","message":"test"}`)
+		var run session.Run
+		if turn.Code != 202 || json.Unmarshal(turn.Body.Bytes(), &run) != nil {
+			t.Fatalf("turn: %s", turn.Body.String())
+		}
+		sup.Wait()
+		feed := serve(t, handler, "GET", "/runs/"+run.ID+"/stream", "").Body.String()
+		outcome, wantDelivered := "sent ✓", int32(1)
+		if muted {
+			outcome, wantDelivered = "muted", 0
+		}
+		if !strings.Contains(feed, `"notify":"`+outcome+`"`) || !strings.Contains(feed, "done") || delivered.Load() != wantDelivered {
+			t.Fatalf("muted=%v delivered=%d stream=%s", muted, delivered.Load(), feed)
+		}
+		history := serve(t, handler, "GET", "/chats/chat/messages", "")
+		if history.Code != 200 || !strings.Contains(history.Body.String(), "done") {
+			t.Fatalf("muting affected history: %s", history.Body.String())
+		}
+	}
+}
 
 func TestPushNotificationConfigSurvivesRestartAndKeepsRouting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")

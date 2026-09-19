@@ -115,7 +115,7 @@ func TestWholeFileChangesUseSharedDiffFormat(t *testing.T) {
 	}
 }
 
-func TestReasoningSummariesReplaceRawPreviewsAndAsyncQuestionsStayPassive(t *testing.T) {
+func TestReasoningSummariesReplaceRawPreviewsAndAsyncQuestionsStayStructured(t *testing.T) {
 	col, state := &collector{}, newStreamState()
 	state.emitDelta("item/reasoning/textDelta", json.RawMessage(`{"itemId":"reason","contentIndex":0,"delta":"Checking the source."}`), col.emit)
 	state.emitDelta("item/reasoning/summaryPartAdded", json.RawMessage(`{"itemId":"reason","summaryIndex":0}`), col.emit)
@@ -138,8 +138,14 @@ func TestReasoningSummariesReplaceRawPreviewsAndAsyncQuestionsStayPassive(t *tes
 	emitItem(phaseCompleted, question, col.emit, state)
 	emitItem(phaseCompleted, question, col.emit, state)
 	inter := firstOf(col.snapshot(), agent.EventInteraction)
-	if inter == nil || inter.Interaction.Title != "Which format?" || inter.Interaction.Detail != "PDF\nText" || inter.Interaction.NeedsResponse || countType(col.snapshot(), agent.EventInteraction) != 1 {
-		t.Fatalf("async question was lost or made into an RPC: %+v", inter)
+	if inter == nil || inter.Interaction.Title != "Which format?" || !inter.Interaction.IsMessageQuestion() || !inter.Interaction.NeedsResponse || inter.Interaction.Blocking == nil || *inter.Interaction.Blocking || countType(col.snapshot(), agent.EventInteraction) != 1 {
+		t.Fatalf("async question lost choices, was duplicated or became blocking: %+v", inter)
+	}
+	if questions := inter.Interaction.Questions; len(questions) != 1 || len(questions[0].Options) != 2 || questions[0].Options[1].Label != "Text" || !questions[0].AllowOther {
+		t.Fatalf("lost native choices: %+v", questions)
+	}
+	if countType(col.snapshot(), agent.EventText) != 0 {
+		t.Fatal("question text duplicated the structured form")
 	}
 }
 

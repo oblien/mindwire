@@ -1,15 +1,16 @@
 ---
 title: Interaction & approvals
-description: Pause a turn for a permission decision, a question, or a plan — and answer it live.
+description: Render native questions and approvals, and return the user's choices to the harness.
 ---
 
-By default a turn runs to completion. Choose a non-bypass **permission mode** and the agent
-**pauses** at decision points, surfacing an `interaction` event with `needsResponse: true`. Your app
-answers on the live run, and the turn continues.
+Harnesses surface questions and approvals as `interaction` events with `needsResponse: true`.
+Permission settings control command and edit approval; user questions can still require an answer
+in bypass mode. A blocking request pauses the harness. A non-blocking question allows work to
+continue while your app shows its choices.
 
 ## The interaction event
 
-An `interaction` event carries a `kind` (`approval`, `question`, `select`, `plan`, `todos`, …), a
+An `interaction` event carries a `kind` (`approval`, `form`, `choice`, `select`, `input`, `plan`, `todos`, …), a
 human-readable `title`/`detail`, and — when it's waiting on you — `needsResponse: true`. Approval and
 choice kinds also carry `options`. Answer with the interaction's `id`.
 
@@ -26,7 +27,8 @@ const run = await mw.turn({
 
 for await (const ev of run) {
   if (ev.type === "interaction" && ev.interaction?.needsResponse) {
-    await run.respond({ interactionId: ev.interaction.id, decision: "allow" });
+    const answer = await showPrompt(ev.interaction); // your UI returns offered action/option IDs
+    await run.respond({ ...answer, interactionId: ev.interaction.id });
   }
 }
 ```
@@ -46,8 +48,10 @@ if err != nil {
 }
 
 for ev := range run.Stream(ctx) {
-	if ev.Type == mindwire.EventInteraction && ev.Interaction.NeedsResponse {
-		run.Respond(mindwire.RespondInput{InteractionID: ev.Interaction.ID, Decision: "allow"})
+	if ev.Type == mindwire.EventInteraction && ev.Interaction != nil && ev.Interaction.NeedsResponse {
+		answer := showPrompt(ev.Interaction) // your UI returns mindwire.RespondInput
+		answer.InteractionID = ev.Interaction.ID
+		if err := run.Respond(answer); err != nil { log.Print(err) }
 	}
 }
 ```
@@ -74,17 +78,35 @@ curl -XPOST "http://127.0.0.1:8790/runs/$RUN/respond" \
 `respond` is the single door for every waiting interaction — the fields you send depend on the
 `kind`:
 
-- **approval** — `decision: "allow"` / `"deny"` (an edit, a command, a tool call).
-- **question / select** — `options: ["…"]` to pick one or more offered choices, or `text` for a
-  free-form answer.
+- **approval** — `decision` is the exact ID of an offered action. Retain its native scope;
+  do not invent session or allow-all actions.
+- **form** — `answers` maps question IDs to `{ options: ["…"], text: "…" }`. Submit every
+  required question together. `multiSelect` permits multiple choices; `allowOther` permits
+  text alone. Feedback may accompany a selection.
+- **choice / select / input** — use `questions` when present, or the legacy top-level
+  `options` and `text` for a single question.
 - **plan** — approve or reject a proposed plan the same way as an approval.
 
 The `respond` capability is required; an agent that takes no interaction responses rejects the call
 (a `400`). Discover what an agent supports with `GET /agent` (`mw.agent()` / `client.Agent(ctx)`).
 
+## Questions that remain available after completion
+
+Codex async questions carry `responseMode: "message"`, `blocking: false` and a daemon `runId`.
+Render their structured `questions` as choices, including in history. Answer through that run's
+`respond` endpoint. The daemon steers an active turn or resumes the same native conversation after
+completion. Read the chat's latest run to attach to a resumed response.
+
+The daemon persists the accepted `response`. Duplicate taps cannot send it twice, and an identical
+retry after a lost acknowledgement is idempotent. Keep the user's draft selections while the live
+form moves into history. Native control requests without `responseMode` expire when their run ends.
+
+Each distinct pending question emits `waiting_feedback` through the configured notification
+channels. Chat and agent notification preferences still apply.
+
 ## Which modes pause
 
-Permission modes are agent-agnostic **canonical** values (`default`, `acceptEdits`, `plan`,
-`bypassPermissions`). `bypassPermissions` runs straight through; the others pause at their respective
-decision points. Set the mode per turn under `options.settings.permissionMode`, or switch it on a
-live turn — see [Steering a live turn](/docs/guides/steering).
+`permissionMode` is the shared setting key; its offered values come from the installed harness.
+Discover them from the daemon's settings schema. Bypassing command approval does not bypass
+questions that require the user. Set the mode per turn under `options.settings.permissionMode`,
+or switch it on a live turn when supported — see [Steering a live turn](/docs/guides/steering).

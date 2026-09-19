@@ -365,6 +365,91 @@ func TestPermissionsResponsesUseRequestedGrants(t *testing.T) {
 	}
 }
 
+func TestAsyncQuestionSteerReportsNativeAcknowledgement(t *testing.T) {
+	for _, rejected := range []bool{false, true} {
+		t.Run(map[bool]string{false: "accepted", true: "rejected"}[rejected], func(t *testing.T) {
+			clientR, clientW := io.Pipe()
+			serverR, serverW := io.Pipe()
+			defer clientR.Close()
+			defer clientW.Close()
+			defer serverR.Close()
+			defer serverW.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			inbound := make(chan agent.Inbound, 1)
+			ack, received := make(chan error, 1), make(chan rpcIn, 1)
+			release := make(chan struct{})
+			go func() {
+				defer serverW.Close()
+				decoder, encoder := json.NewDecoder(clientR), json.NewEncoder(serverW)
+				var req rpcIn
+				for _, body := range []string{`{}`, ``, `{"thread":{"id":"thread-1"}}`, `{"turn":{"id":"turn-1","status":"inProgress","items":[]}}`} {
+					if decoder.Decode(&req) != nil {
+						return
+					}
+					if body != "" {
+						if encoder.Encode(map[string]any{"id": req.ID, "result": json.RawMessage(body)}) != nil {
+							return
+						}
+					}
+				}
+				_, _ = io.WriteString(serverW, `{"method":"item/completed","params":{"item":{"id":"async","type":"agentMessage","delivery":"async","text":"Which color? Blue or Green","questions":[{"title":"Which color?","options":["Blue","Green"]}]}}}`+"\n")
+				if decoder.Decode(&req) != nil {
+					return
+				}
+				received <- req
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return
+				}
+				if rejected {
+					_ = encoder.Encode(map[string]any{"id": req.ID, "error": map[string]any{"code": -32600, "message": "Steering is unavailable"}})
+				} else {
+					_ = encoder.Encode(map[string]any{"id": req.ID, "result": map[string]any{"turnId": "turn-1"}})
+				}
+				_, _ = io.WriteString(serverW, `{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed","items":[]}}}`+"\n")
+			}()
+			finished := make(chan struct{})
+			go func() {
+				defer close(finished)
+				(appServer{message: "test"}).converse(ctx, clientW, serverR, inbound, func(ev agent.Event) {
+					if it := ev.Interaction; it != nil && it.IsMessageQuestion() && it.NeedsResponse {
+						inbound <- agent.Inbound{Kind: "input", Text: "Which color?\nBlue", Ack: ack}
+					}
+				})
+			}()
+			select {
+			case req := <-received:
+				if req.Method != "turn/steer" || !strings.Contains(string(req.Params), `"expectedTurnId":"turn-1"`) || !strings.Contains(string(req.Params), `Blue`) {
+					t.Fatalf("wrong native answer: %+v", req)
+				}
+			case <-ctx.Done():
+				t.Fatal("no native steering request")
+			}
+			select {
+			case err := <-ack:
+				t.Fatalf("acknowledged before native response: %v", err)
+			default:
+			}
+			close(release)
+			select {
+			case err := <-ack:
+				if (err != nil) != rejected {
+					t.Fatalf("rejected=%v ack=%v", rejected, err)
+				}
+			case <-ctx.Done():
+				t.Fatal("no native acknowledgement")
+			}
+			select {
+			case <-finished:
+			case <-ctx.Done():
+				t.Fatal("transport did not finish")
+			}
+		})
+	}
+}
+
 func TestRichAppServerToolOutputs(t *testing.T) {
 	var events []agent.Event
 	st := newStreamState()

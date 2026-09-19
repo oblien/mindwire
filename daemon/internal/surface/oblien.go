@@ -165,7 +165,7 @@ func (p *Oblien) Status(ctx context.Context) (ProviderStatus, error) {
 				break
 			}
 		}
-		status.Capabilities = Capabilities{View: true, Capture: true, Pointer: true, Keyboard: true, Text: true}
+		status.Capabilities = Capabilities{View: true, Capture: true, Pointer: true, Keyboard: true, Text: true, KeyboardText: true, ExtendedKeys: true}
 		if status.OS == "darwin" && p.target != "" {
 			status.Capabilities.ClipboardRead = true
 			status.Capabilities.ClipboardWrite = true
@@ -215,8 +215,22 @@ func (p *Oblien) Capture(ctx context.Context) (image.Image, Geometry, error) {
 	return client.capture(ctx)
 }
 func (p *Oblien) Apply(ctx context.Context, a Action) (string, error) {
-	if _, err := p.Connect(ctx); err != nil {
+	// Service.Apply refreshes geometry before spatial validation. Reusing the live
+	// connection here avoids a second frame round-trip for every pointer move, and
+	// keeps keystrokes independent of screen repaint latency. No retry after input.
+	if err := p.expired(); err != nil {
 		return "", err
+	}
+	p.mu.Lock()
+	connected := p.client != nil && p.client.alive()
+	p.mu.Unlock()
+	if !connected {
+		if spatial(a.Kind) {
+			return "", problem("stale_frame", "The display reconnected. Wait for a fresh frame before moving the pointer.")
+		}
+		if _, err := p.Connect(ctx); err != nil {
+			return "", err
+		}
 	}
 	p.mu.Lock()
 	client := p.client
@@ -234,6 +248,9 @@ func (p *Oblien) Apply(ctx context.Context, a Action) (string, error) {
 		}
 		return "", p.writeMacClipboard(ctx, a.Text)
 	case "text":
+		if a.TextMode == "keyboard" {
+			return "", client.typeText(ctx, a.Text, status.OS == "darwin")
+		}
 		if status.OS == "darwin" {
 			err := p.writeMacClipboard(ctx, a.Text)
 			if err == nil {
