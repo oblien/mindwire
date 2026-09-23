@@ -165,7 +165,12 @@ func (adapter) Settings() agent.SettingsSchema {
 		f := agent.Field{Key: s.key, Label: s.label, Type: s.typ, Scope: s.scope, Canon: canon, Help: s.help, Placeholder: s.placeholder}
 		switch s.src {
 		case srcSandbox:
-			f = withChoices(f, sandboxChoices(), s.emptyLabel)
+			emptyLabel := s.emptyLabel
+			if agent.WorkspaceIsolation() == "container" {
+				emptyLabel = "Default (container)"
+				f.Help = "The workspace container isolates commands from the host. Approval policy still controls when Codex asks you. A stricter inner sandbox requires Linux namespace support inside the container."
+			}
+			f = withChoices(f, sandboxChoices(), emptyLabel)
 		case srcApproval:
 			values := protocolChoices("AskForApproval")
 			if len(values) == 0 {
@@ -299,11 +304,14 @@ func approvalPolicy(in agent.TurnInput) string {
 	return "never"
 }
 
-// sandbox is the effective sandbox policy for a turn (default: workspace-write, so a turn can edit
-// the workspace without an approval round-trip — the autonomous posture).
+// sandbox preserves an explicit user choice. Otherwise an externally isolated
+// container is the sandbox boundary; direct placements retain workspace-write.
 func sandbox(in agent.TurnInput) string {
 	if v := strings.TrimSpace(in.Config[keySandbox]); v != "" {
 		return v
+	}
+	if agent.WorkspaceIsolation() == "container" {
+		return "danger-full-access"
 	}
 	return "workspace-write"
 }

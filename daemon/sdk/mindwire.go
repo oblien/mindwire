@@ -241,11 +241,13 @@ type Health struct {
 	SurfaceProtocolVersion         int    `json:"surfaceProtocolVersion"`
 	NotificationPreferencesVersion int    `json:"notificationPreferencesVersion"`
 	HarnessPolicyVersion           int    `json:"harnessPolicyVersion"`
+	WorkspaceIsolationVersion      int    `json:"workspaceIsolationVersion"`
+	WorkspaceIsolation             string `json:"workspaceIsolation"`
 }
 
 // Health returns the liveness snapshot. It cannot fail in-process.
 func (c *Client) Health() Health {
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation()}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package

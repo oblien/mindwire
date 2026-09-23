@@ -41,6 +41,7 @@ ENV HOME=/home/node \
     NPM_CONFIG_PREFIX=/home/node/.npm-global \
     PATH=/home/node/.npm-global/bin:${PATH} \
     ADDR=:8790 \
+    MINDWIRE_ISOLATION=container \
     DISABLE_AUTOUPDATER=1 \
     OPENCODE_DISABLE_AUTOUPDATE=true \
     STATE_PATH=/home/node/.mindwire/agent-state.json

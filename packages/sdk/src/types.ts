@@ -1114,6 +1114,9 @@ export interface Health {
   version: string;
   /** Atomic idle admission for service replacement. */
   serviceUpdateVersion?: number;
+  /** Container placement supplies the sandbox boundary; approval policy is independent. */
+  workspaceIsolationVersion?: number;
+  workspaceIsolation?: "direct" | "container";
 }
 
 /**

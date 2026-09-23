@@ -43,7 +43,10 @@ function fakeHost(
           : "MW_DOCKER=running:27.0.1";
 
   const innerScript = (argv: string[]): string | undefined => {
-    if (argv[0] === "docker" && argv[1] === "exec" && (argv[3] === "bash" || argv[3] === "sh") && argv[4] === "-lc") return argv[5];
+    if (argv[0] === "docker" && argv[1] === "exec") {
+      const start = argv[2] === "--env" ? 5 : 3;
+      if ((argv[start] === "bash" || argv[start] === "sh") && argv[start + 1] === "-lc") return argv[start + 2];
+    }
     if ((argv[0] === "bash" || argv[0] === "sh") && argv[1] === "-lc") return argv[2];
     return undefined;
   };
@@ -133,11 +136,11 @@ test("provisionContainer: ensures Docker, spins a container, deploys the daemon 
   expect(handle.hostPort).toBe(49155);
   expect(handle.containerId).toBe(cid);
 
-  // The ensure cycle ran *inside* the container: every ContainerHost exec is `docker exec <cid> …`,
-  // including the daemon launch script (which rides `bash -lc`, so it's argv[5]).
-  expect(calls.exec.some((a) => a[0] === "docker" && a[1] === "exec" && a[2] === cid)).toBe(true);
+  // The trusted container launcher selects the outer isolation boundary; the
+  // daemon must receive it even when attaching an image without Mindwire's ENV.
+  expect(calls.exec.some((a) => a[0] === "docker" && a[1] === "exec" && a[4] === cid && a[3] === "MINDWIRE_ISOLATION=container")).toBe(true);
   expect(
-    calls.exec.some((a) => a[0] === "docker" && a[1] === "exec" && a[2] === cid && (a[5] ?? "").includes("MINDWIRE_READY")),
+    calls.exec.some((a) => a[0] === "docker" && a[1] === "exec" && a[4] === cid && a.some((part) => part.includes("MINDWIRE_READY"))),
   ).toBe(true);
 });
 
@@ -212,7 +215,7 @@ test("provisionContainer: skips deploy when a healthy, current daemon is already
 
   expect(events.map((e) => e.phase)).toEqual(["install", "provision", "connect", "probe", "skip"]);
   expect(calls.puts.length).toBe(0); // healthy ⇒ no upload
-  expect(calls.exec.some((a) => (a[5] ?? "").includes("MINDWIRE_READY"))).toBe(false); // no launch
+  expect(calls.exec.some((a) => a.some((part) => part.includes("MINDWIRE_READY")))).toBe(false); // no launch
 });
 
 test("provisionContainer: attaches to an existing container (no `docker run`) and never removes it", async () => {

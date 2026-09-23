@@ -215,6 +215,15 @@
           "serviceUpdateVersion": {
             "type": "integer",
             "description": "1 supports atomic idle admission before service replacement."
+          },
+          "workspaceIsolationVersion": {
+            "type": "integer",
+            "description": "1 supports container placement as the outer sandbox boundary without changing approval policy."
+          },
+          "workspaceIsolation": {
+            "type": "string",
+            "enum": ["direct", "container"],
+            "description": "Placement selected by the trusted service launcher."
           }
         },
         "required": [

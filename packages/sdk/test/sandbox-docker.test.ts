@@ -24,6 +24,7 @@ function fakeDocker(
     remove: 0,
     inspect: 0,
     exec: [] as string[][],
+    execEnv: [] as string[][],
     putArchive: [] as { path: string; size: number }[],
   };
 
@@ -63,6 +64,7 @@ function fakeDocker(
     exec: async (o: Record<string, unknown>) => {
       const argv = o["Cmd"] as string[];
       calls.exec.push(argv);
+      calls.execEnv.push(o["Env"] as string[]);
       const stdout = stdoutFor(argv);
       return {
         start: async () => {
@@ -143,12 +145,14 @@ test("provisionDocker: creates a container publishing the port, deploys the daem
   const create = calls.create[0]!;
   expect(create["Image"]).toBe("my/agent-image");
   expect(create["Cmd"]).toBeUndefined();
-  expect(create["Env"]).toEqual(["ADDR=:8790", "AGENT_TYPE=claude-code", "AGENT_CWD=/root"]);
+  expect(create["Env"]).toEqual(["ADDR=:8790", "AGENT_TYPE=claude-code", "AGENT_CWD=/root", "MINDWIRE_ISOLATION=container"]);
   expect(create["ExposedPorts"]).toEqual({ "8790/tcp": {} });
   expect(create["HostConfig"]).toEqual({ PortBindings: { "8790/tcp": [{ HostPort: "0" }] } });
 
   // Deploy ran: mkdir + a tar putArchive into the daemon dir, then a version-gated launch.
   expect(calls.putArchive.length).toBe(1);
+  expect(calls.execEnv.length).toBeGreaterThan(0);
+  expect(calls.execEnv.every((env) => env.includes("MINDWIRE_ISOLATION=container"))).toBe(true);
   expect(calls.putArchive[0]?.path).toBe("/root/.mindwire");
   expect(calls.exec.some((a) => (a[2] ?? "").includes("MINDWIRE_READY"))).toBe(true);
 

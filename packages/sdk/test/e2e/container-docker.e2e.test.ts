@@ -11,7 +11,8 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { provisionContainer, type EnsureEvent, type ContainerHandle } from "../../src/index.js";
+import type { EnsureEvent, ContainerHandle } from "../../src/index.js";
+import { version } from "../../package.json";
 import { LocalHost } from "./local-host.js";
 
 const RUN = !!process.env.RUN_DOCKER_E2E;
@@ -58,6 +59,8 @@ describe.skipIf(!RUN)("e2e: daemon in a real Docker container", () => {
   test(
     "provisions a container, deploys mindwired, and streams the full phase order",
     async () => {
+      // Exercise the release build's stamped SDK version, not the source's dev sentinel.
+      const { provisionContainer } = await import("../../dist/index.js");
       handle = await provisionContainer(
         host,
         {
@@ -97,7 +100,7 @@ describe.skipIf(!RUN)("e2e: daemon in a real Docker container", () => {
     expect(res.ok).toBe(true);
     const body = (await res.json()) as { ok?: boolean; version?: string };
     expect(body.ok).toBe(true);
-    expect(typeof body.version).toBe("string");
+    expect(body.version).toBe(version);
   });
 
   test("/catalog over the tunnel lists the supported native adapters", async () => {

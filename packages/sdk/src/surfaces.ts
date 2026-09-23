@@ -41,7 +41,7 @@ export interface SurfaceAction {
   x?: number; y?: number; toX?: number; toY?: number; buttons?: number;
   button?: "left" | "middle" | "right"; count?: number; deltaX?: number; deltaY?: number;
   keys?: string[]; text?: string;
-  /** Physical US keyboard text (printable ASCII, <=4096 bytes), preserving the clipboard. */
+  /** Physical US keyboard text (printable ASCII, up to 4096 bytes), preserving the clipboard. */
   textMode?: "keyboard";
 }
 export interface SurfaceActionRequest {

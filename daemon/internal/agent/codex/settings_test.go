@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +54,25 @@ func TestNativeConnectionTuningLoadedByCodex(t *testing.T) {
 
 func TestNativeSettingsExposeOnlyDeclaredDefaultsAndHonorManagedRouting(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
+	// Approval reviewer is exposed only when the CLI schema declares it. Pin a
+	// fixture so this settings test does not depend on a locally installed Codex.
+	root := t.TempDir()
+	t.Setenv("MINDWIRE_TOOLCHAIN_DIR", root)
+	bin := filepath.Join(root, "codex", "versions", "1.0.0", "bin", "codex")
+	if err := os.MkdirAll(filepath.Dir(bin), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "codex", "selected.json"), []byte(`{"version":"1.0.0"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cli := `#!/bin/sh
+[ "$1 $2 $3 $4" = "app-server generate-json-schema --experimental --out" ] || exit 0
+mkdir -p "$5/v2"
+printf '%s\n' '{"definitions":{"ApprovalsReviewer":{"enum":["user","auto_review"]}}}' > "$5/v2/ThreadStartParams.json"
+`
+	if err := os.WriteFile(bin, []byte(cli), 0700); err != nil {
+		t.Fatal(err)
+	}
 	content := `model = "gpt-6-astra"
 model_provider = "azure_custom"
 model_reasoning_effort = "max"

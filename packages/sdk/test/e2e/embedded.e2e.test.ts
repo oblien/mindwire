@@ -10,7 +10,8 @@
 // whole describe reports as skipped at ~0 cost. `bun run test:e2e` sets it.
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { startEmbedded, type EmbeddedDaemon } from "../../src/index.js";
+import type { EmbeddedDaemon } from "../../src/index.js";
+import { version } from "../../package.json";
 
 const RUN = !!process.env.RUN_E2E;
 
@@ -25,6 +26,9 @@ describe.skipIf(!RUN)("e2e: embedded daemon (real binary)", () => {
         "E2E precondition failed: MINDWIRE_DAEMON must name a built daemon binary.",
       );
     }
+    // Use the built SDK so its version matches the daemon built from this checkout.
+    // Load only when enabled, keeping skipped E2E tests independent of build artifacts.
+    const { startEmbedded } = await import("../../dist/index.js");
     daemon = await startEmbedded();
   });
 
@@ -42,8 +46,7 @@ describe.skipIf(!RUN)("e2e: embedded daemon (real binary)", () => {
     expect(res.ok).toBe(true);
     const body = (await res.json()) as { ok?: boolean; version?: string };
     expect(body.ok).toBe(true);
-    expect(typeof body.version).toBe("string");
-    expect(body.version!.length).toBeGreaterThan(0);
+    expect(body.version).toBe(version);
   });
 
   test("/catalog lists the supported native adapters", async () => {

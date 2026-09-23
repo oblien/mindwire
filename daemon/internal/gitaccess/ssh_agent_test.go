@@ -175,6 +175,14 @@ func TestSSHHelperAuthenticatesWithNativeSSHUsingMemoryAgent(t *testing.T) {
 			_ = request.Reply(true, nil)
 			_, _ = channel.Write([]byte("native-ssh-verified\n"))
 			_, err := channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
+			if err == nil {
+				err = channel.Close()
+			}
+			if err == nil {
+				// Let OpenSSH acknowledge the channel close and disconnect before
+				// closing TCP; an early close can turn success into a broken pipe.
+				_ = server.Wait()
+			}
 			served <- err
 			return
 		}

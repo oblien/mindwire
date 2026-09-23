@@ -141,7 +141,7 @@ class DockerHost implements SandboxHost {
 
   async exec(argv: string[]): Promise<{ exitCode?: number; stdout?: string; stderr?: string }> {
     const { Writable } = await import("node:stream");
-    const exec = await this.container.exec({ Cmd: argv, AttachStdout: true, AttachStderr: true });
+    const exec = await this.container.exec({ Cmd: argv, Env: ["MINDWIRE_ISOLATION=container"], AttachStdout: true, AttachStderr: true });
     const stream = await exec.start({ hijack: true, stdin: false });
 
     const out: Buffer[] = [];
@@ -216,7 +216,7 @@ export async function provisionDocker(
       // The runtime image starts mindwired itself. Do not replace its command: doing so turns the
       // image ENTRYPOINT into `mindwired sleep infinity` and prevents the runtime from starting.
       Image: image,
-      Env: [`ADDR=:${port}`, `AGENT_TYPE=${agent}`, `AGENT_CWD=${agentCwd}`],
+      Env: [`ADDR=:${port}`, `AGENT_TYPE=${agent}`, `AGENT_CWD=${agentCwd}`, "MINDWIRE_ISOLATION=container"],
       Tty: false,
       ExposedPorts: { [portKey]: {} },
       HostConfig: { PortBindings: { [portKey]: [{ HostPort: "0" }] } },

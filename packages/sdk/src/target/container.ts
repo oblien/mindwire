@@ -123,7 +123,7 @@ export class ContainerHost implements SandboxHost {
 
   exec(argv: string[], opts?: { timeoutSeconds?: number }): Promise<ExecResult> {
     // Pass a real argv to the base and let *it* do the single quoting — never pre-join (Risk 3).
-    return this.base.exec(["docker", "exec", this.containerId, ...argv], opts);
+    return this.base.exec(["docker", "exec", "--env", "MINDWIRE_ISOLATION=container", this.containerId, ...argv], opts);
   }
 
   async putFile(path: string, data: Uint8Array, opts?: { mode?: string }): Promise<void> {
@@ -267,7 +267,7 @@ async function runContainer(
   }
 
   // Publish to the base machine's LOOPBACK only (Risk 2) — the SSH forward reaches it; the box doesn't.
-  const runArgs = ["docker", "run", "-d"];
+  const runArgs = ["docker", "run", "-d", "--env", "MINDWIRE_ISOLATION=container"];
   if (cfg.name) runArgs.push("--name", cfg.name);
   runArgs.push("-p", `127.0.0.1:0:${port}`);
   if (cfg.createArgs?.length) runArgs.push(...cfg.createArgs);

@@ -30,7 +30,15 @@ curl -s -H "Authorization: Bearer $DAEMON_TOKEN" http://127.0.0.1:8790/healthz
 | `STATE_PATH` | `agent-state.json` | Local JSON state file. |
 | `WORKSPACE_DB_PATH` | `workspace.db` beside `STATE_PATH` | Authoritative SQLite registry for agent profiles, projects and chat links. |
 | `DAEMON_TOKEN` | *(required)* | Bearer token, also saved privately beside the state file for authorized workspace clients. |
+| `MINDWIRE_ISOLATION` | `direct` | Trusted launch setting: `container` means the enclosing container provides isolation. Codex defaults to using that boundary; explicit sandbox settings and approvals are preserved. Reported by `/healthz` as `workspaceIsolation` with `workspaceIsolationVersion: 1`. |
 | `DEV_CORS` | off | `1` allows a cross-origin browser client (e.g. the preview app's dev server). |
+
+The runtime image and the SDK's Docker/SSH-container launchers set `MINDWIRE_ISOLATION=container`.
+Direct host launchers leave it unset. This avoids requiring privileged nested Linux namespaces for
+Codex inside Docker; it does not disable the container boundary or change approval policy. See
+[Codex sandboxing](https://developers.openai.com/codex/sandboxing) for the native container guidance.
+Mount only the workspace data you intend to expose to its agents. This contract requires service
+0.1.17 or later; older services do not advertise `workspaceIsolationVersion`.
 
 ## Setup and update status
 
