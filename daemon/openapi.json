@@ -227,6 +227,10 @@
               "container"
             ],
             "description": "Placement selected by the trusted service launcher."
+          },
+          "gitIdentityVersion": {
+            "type": "integer",
+            "description": "Independent Git author settings; version 1 supports repository, workspace and client-distributed all-workspaces defaults."
           }
         },
         "required": [
@@ -4247,6 +4251,90 @@
           }
         },
         "description": "Explicit commit attribution, saved to repository-local Git configuration. Never modifies global configuration."
+      },
+      "GitIdentitySettings": {
+        "type": "object",
+        "required": [
+          "effective",
+          "repository",
+          "workspace",
+          "allWorkspaces",
+          "defaultRevision"
+        ],
+        "properties": {
+          "effective": {
+            "$ref": "#/components/schemas/GitIdentity"
+          },
+          "repository": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allWorkspaces": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "defaultRevision": {
+            "type": "string",
+            "description": "Opaque revision used for an acknowledged shared-default delivery."
+          }
+        }
+      },
+      "GitIdentityUpdate": {
+        "type": "object",
+        "required": [
+          "scope",
+          "identity"
+        ],
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "repository",
+              "workspace",
+              "all_workspaces"
+            ]
+          },
+          "identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "expectedRevision": {
+            "type": "string"
+          }
+        },
+        "description": "Saves attribution only. Null removes this override. all_workspaces requires requestId and expectedRevision, and updates only this daemon; clients distribute their default to each connected workspace. Never stages or commits."
       }
     }
   },
@@ -10817,6 +10905,282 @@
             "description": "Native sign-out failed; retry"
           }
         }
+      }
+    },
+    "/workspace/git/identity": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read Git author settings",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitIdentitySettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the Mindwire service to use Git author settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional registered repository context; preferred over path."
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional repository directory when no registered project is selected."
+          }
+        ],
+        "description": "Requires gitIdentityVersion >= 1. Native repository configuration overrides workspace defaults, then the all-workspaces default. Names and emails are not inferred from authentication."
+      },
+      "put": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Save Git author settings without committing",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitIdentitySettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting request, destination reservation, or revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Project was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the Mindwire service to use Git author settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitIdentityUpdate"
+              }
+            }
+          }
+        },
+        "description": "Requires gitIdentityVersion >= 1. Native repository configuration overrides workspace defaults, then the all-workspaces default. Names and emails are not inferred from authentication. Writes name and email atomically under the Git config lock. Replaying an acknowledged default request returns current settings; stale expectedRevision is a 409. A repository context is required for repository scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional registered repository context; preferred over path."
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional repository directory when no registered project is selected."
+          }
+        ]
       }
     }
   }

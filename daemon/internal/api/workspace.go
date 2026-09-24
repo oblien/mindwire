@@ -84,6 +84,10 @@ func (a *API) workspaceImport(w http.ResponseWriter, r *http.Request) {
 		workspaceError(w, err)
 		return
 	}
+	if err := a.gitAuthors.PrepareAll(r.Context()); err != nil {
+		gitError(w, err)
+		return
+	}
 	a.writeWorkspaceSnapshot(w)
 }
 

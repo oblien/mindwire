@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/gitaccess"
+	"github.com/oblien/mindwire/daemon/internal/gitauthor"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 )
@@ -286,6 +287,9 @@ func (s *Service) Save(id string, data []byte, expected *int64) error {
 		return err
 	}
 	p.Path = path
+	if err := gitauthor.New(s.store).PrepareRepository(context.Background(), path); err != nil {
+		return err
+	}
 	if p.RepoURL != "" {
 		if err = validateRepo(p.RepoURL); err != nil {
 			return err
@@ -355,7 +359,22 @@ func (s *Service) Remove(id string, expected *int64) error {
 			return fmt.Errorf("%w: stop the running chat before removing this project", registry.ErrConflict)
 		}
 	}
-	return s.store.Delete("projects", id, expected, false)
+	project, err := s.store.Project(id)
+	if err != nil {
+		return err
+	}
+	if expected != nil && *expected != project.Revision {
+		return registry.ErrConflict
+	}
+	authors := gitauthor.New(s.store)
+	if err := authors.Detach(context.Background(), project.Path); err != nil {
+		return err
+	}
+	if err := s.store.Delete("projects", id, expected, false); err != nil {
+		_ = authors.PrepareRepository(context.Background(), project.Path)
+		return err
+	}
+	return nil
 }
 
 func normalize(req Request) (registry.ProjectSpec, error) {
@@ -607,6 +626,9 @@ func (s *Service) run(ctx context.Context, o registry.ProjectOperation, auth Aut
 }
 
 func (s *Service) configureGit(ctx context.Context, o registry.ProjectOperation) error {
+	if err := gitauthor.New(s.store).PrepareRepository(ctx, o.Path); err != nil {
+		return err
+	}
 	if s.gitAccess == nil {
 		return nil
 	}

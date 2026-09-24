@@ -6,6 +6,26 @@ const snapshot: WorkspaceSnapshot = {
   agents: [], projects: [], chats: [], deleted: [],
 };
 
+test("author settings save independently and keep nullable overrides and default receipts", async () => {
+  const calls: { path: string; method: string; body: unknown }[] = [];
+  const author = { name: "Shared", email: "shared@example.invalid" };
+  const state = { effective: author, repository: null, workspace: null, allWorkspaces: author, defaultRevision: "pref-1" };
+  const mw = new Mindwire({ target: remote("http://registry"), fetch: async (input, init) => {
+    const url = new URL(input);
+    calls.push({ path: url.pathname + url.search, method: init?.method ?? "GET",
+      body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    return Response.json(state);
+  } });
+  expect(await mw.workspace.git.identity({ projectId: "my project" })).toEqual(state);
+  const request = { scope: "all_workspaces", identity: author, requestId: "pref-1", expectedRevision: "" } as const;
+  await mw.workspace.git.setIdentity(request);
+  await mw.workspace.git.setIdentity({ scope: "repository", identity: null }, { projectId: "my project" });
+  expect(calls[1]?.body).toEqual(request);
+  expect(calls[2]?.body).toEqual({ scope: "repository", identity: null });
+  expect(calls.every(c => c.path.startsWith("/workspace/git/identity") && c.method !== "POST")).toBe(true);
+  expect(new URL(calls[0]!.path, "http://registry").searchParams.get("projectId")).toBe("my project");
+});
+
 test("commit author setup retains explicit attribution and actionable failures", async () => {
   const identity = { name: "App User", email: "app@example.invalid" };
   const base = { projectId: "project", path: "/work", action: "commit", createdAt: "2026-09-24T00:00:00Z",

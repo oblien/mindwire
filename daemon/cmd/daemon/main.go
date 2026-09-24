@@ -21,6 +21,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/api"
 	"github.com/oblien/mindwire/daemon/internal/gitaccess"
+	"github.com/oblien/mindwire/daemon/internal/gitauthor"
 	"github.com/oblien/mindwire/daemon/internal/gitops"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
@@ -136,7 +137,7 @@ func main() {
 	health := http.NewServeMux()
 	health.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "workspaceMetadataVersion": registry.Version, "projectOperationsVersion": registry.ProjectOperationsVersion, "surfaceProtocolVersion": 1, "notificationPreferencesVersion": registry.NotificationPreferencesVersion, "gitAccessVersion": gitaccess.Version, "gitOperationsVersion": gitops.Version, "harnessPolicyVersion": toolchain.PolicyVersion, "serviceUpdateVersion": orchestrator.ServiceUpdateVersion, "workspaceIsolationVersion": agent.WorkspaceIsolationVersion, "workspaceIsolation": agent.WorkspaceIsolation()})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "workspaceMetadataVersion": registry.Version, "projectOperationsVersion": registry.ProjectOperationsVersion, "surfaceProtocolVersion": 1, "notificationPreferencesVersion": registry.NotificationPreferencesVersion, "gitAccessVersion": gitaccess.Version, "gitOperationsVersion": gitops.Version, "gitIdentityVersion": gitauthor.Version, "harnessPolicyVersion": toolchain.PolicyVersion, "serviceUpdateVersion": orchestrator.ServiceUpdateVersion, "workspaceIsolationVersion": agent.WorkspaceIsolationVersion, "workspaceIsolation": agent.WorkspaceIsolation()})
 	})
 	root.Handle("/healthz", api.Auth(token, health))
 

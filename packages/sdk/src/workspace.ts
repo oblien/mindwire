@@ -34,6 +34,25 @@ export type GitAction = "stage" | "unstage" | "discard" | "commit" | "fetch" | "
 
 export interface GitIdentity { name: string; email: string }
 
+export type GitIdentityScope = "repository" | "workspace" | "all_workspaces";
+
+export interface GitIdentitySettings {
+  effective: GitIdentity;
+  repository: GitIdentity | null;
+  workspace: GitIdentity | null;
+  allWorkspaces: GitIdentity | null;
+  defaultRevision: string;
+}
+
+export interface GitIdentityUpdate {
+  scope: GitIdentityScope;
+  /** null removes this override, allowing a broader default to apply. */
+  identity: GitIdentity | null;
+  /** Required for all_workspaces; keep this ID and expectedRevision until acknowledged. */
+  requestId?: string;
+  expectedRevision?: string;
+}
+
 export interface GitOperationRequest {
   /** Stable ID. Reuse this exact intent after a lost acknowledgement. */
   id: string;
@@ -270,6 +289,15 @@ export class WorkspaceApi {
 /** Account preferences and authenticated Git on the daemon hosting each repository. */
 export class GitAccessApi {
   constructor(private readonly mw: Mindwire) {}
+  /** Reads attribution independently of GitHub authentication. Requires gitIdentityVersion >= 1. */
+  identity(context: { projectId?: string; path?: string } = {}): Promise<GitIdentitySettings> {
+    return this.mw.http.request("GET", "/workspace/git/identity", { query: context });
+  }
+  /** Saves settings only; never stages or commits. all_workspaces installs this
+   * workspace's copy of a client-managed default; the client handles fan-out. */
+  setIdentity(update: GitIdentityUpdate, context: { projectId?: string; path?: string } = {}): Promise<GitIdentitySettings> {
+    return this.mw.http.request("PUT", "/workspace/git/identity", { query: context, body: update });
+  }
   state(): Promise<GitAccessState> {
     return this.mw.http.request("GET", "/workspace/git");
   }

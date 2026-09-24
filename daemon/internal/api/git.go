@@ -346,6 +346,11 @@ func (a *API) prepareGitRun(ctx context.Context, chatID, cwd string, auth *gitac
 	if a.gitBusyPath(cwd) {
 		return nil, registry.ErrConflict
 	}
+	if a.gitAuthors != nil {
+		if err := a.gitAuthors.PrepareRepository(ctx, cwd); err != nil {
+			return nil, err
+		}
+	}
 	if c := a.gitConnection(project, ""); c == nil || c.Mode == "native" {
 		return a.gitAccess.Prepare(ctx, "", c, auth)
 	}

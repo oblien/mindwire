@@ -23,6 +23,7 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/gitaccess"
+	"github.com/oblien/mindwire/daemon/internal/gitauthor"
 	"github.com/oblien/mindwire/daemon/internal/gitops"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
@@ -46,6 +47,7 @@ const (
 
 type API struct {
 	gitAccess  *gitaccess.Service
+	gitAuthors *gitauthor.Service
 	gitJobs    *gitops.Service
 	projects   *projects.Service
 	surfaces   *surface.Service
@@ -66,6 +68,7 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 	if len(registries) > 0 {
 		a.registry = registries[0]
 		if a.registry != nil {
+			a.gitAuthors = gitauthor.New(a.registry)
 			sup.SetNotificationPreferences(a.registry)
 			sup.SetInteractionContext(a.registry)
 			a.gitAccess, a.initError = gitaccess.New(a.registry.Directory())
@@ -134,6 +137,8 @@ func (a *API) Routes() []Route {
 		{"GET", "/workspace/changes", a.workspaceSnapshot},
 		{"POST", "/workspace/import", a.workspaceImport},
 		{"GET", "/workspace/git", a.gitState},
+		{"GET", "/workspace/git/identity", a.gitIdentity},
+		{"PUT", "/workspace/git/identity", a.gitIdentitySave},
 		{"PUT", "/workspace/git", a.gitDefault},
 		{"DELETE", "/workspace/git/connections/{id}", a.gitForget},
 		{"GET", "/workspace/projects/{id}/git", a.projectGit},

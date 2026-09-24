@@ -1110,6 +1110,8 @@ export interface Health {
   gitAccessVersion?: number;
   /** Durable Git writes: v2 adds branches; v3 adds repository-scoped commit author setup. */
   gitOperationsVersion?: number;
+  /** Independent author settings with repository/workspace/shared-default inheritance. */
+  gitIdentityVersion?: number;
   /** Persistent profile/chat mutes enforced before every notification delivery. */
   notificationPreferencesVersion?: number;
   harnessPolicyVersion?: number;

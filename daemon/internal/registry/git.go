@@ -24,8 +24,8 @@ type GitSpec struct {
 	Identity  *GitIdentity `json:"identity,omitempty"`
 }
 
-// GitIdentity is explicit, user-provided attribution, saved only in this repository.
-// It is part of the durable commit intent so retries cannot silently change authors.
+// GitIdentity is explicit, user-provided attribution for author settings.
+// Legacy commit intents may also carry a repository author so retries retain it.
 type GitIdentity struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
