@@ -2,6 +2,7 @@ package gitops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/proc"
@@ -18,6 +20,8 @@ import (
 )
 
 func Network(action string) bool { return action == "fetch" || action == "pull" || action == "push" }
+
+var ErrIdentityRequired = errors.New("Set your Git author name and email before committing.")
 
 func Normalize(spec *registry.GitSpec) error {
 	invalid := func(reason string) error { return fmt.Errorf("%w: %s", registry.ErrInvalid, reason) }
@@ -54,6 +58,18 @@ func Normalize(spec *registry.GitSpec) error {
 	if len(spec.Message) > 65536 || strings.ContainsRune(spec.Message, 0) {
 		return invalid("invalid commit message")
 	}
+	if spec.Identity != nil {
+		identity := *spec.Identity
+		identity.Name, identity.Email = strings.TrimSpace(identity.Name), strings.TrimSpace(identity.Email)
+		if spec.Action != "commit" || !validIdentity(identity) {
+			return invalid("a commit author needs a valid name and email")
+		}
+		spec.Identity = &identity
+	}
+	branchAction := spec.Action == "switch_branch" || spec.Action == "create_branch"
+	if !branchAction && (spec.Branch != "" || spec.Remote) {
+		return invalid("this Git operation does not accept a branch")
+	}
 	switch spec.Action {
 	case "stage", "unstage", "discard":
 		if len(spec.Paths) == 0 || spec.Message != "" {
@@ -67,10 +83,41 @@ func Normalize(spec *registry.GitSpec) error {
 		if len(spec.Paths) != 0 || spec.Message != "" {
 			return invalid("network Git operations do not accept files or messages")
 		}
+	case "switch_branch", "create_branch":
+		if len(spec.Paths) != 0 || spec.Message != "" || !validBranchName(spec.Branch) {
+			return invalid("select a valid Git branch name")
+		}
+		if spec.Remote {
+			_, local, found := strings.Cut(spec.Branch, "/")
+			if spec.Action != "switch_branch" || !found || !validBranchName(local) {
+				return invalid("select a remote tracking branch")
+			}
+		}
 	default:
 		return invalid("unsupported Git operation")
 	}
 	return nil
+}
+
+// Validate literal branch names, never revision expressions such as @{-1} or command flags.
+func validBranchName(name string) bool {
+	if name == "" || name == "HEAD" || name == "@" || len(name) > 1024 || strings.HasPrefix(name, "-") ||
+		strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.HasSuffix(name, ".") ||
+		strings.Contains(name, "..") || strings.Contains(name, "@{") || strings.Contains(name, "//") ||
+		strings.ContainsAny(name, " ~^:?*[\\") {
+		return false
+	}
+	for _, c := range name {
+		if c < 32 || c == 127 {
+			return false
+		}
+	}
+	for _, part := range strings.Split(name, "/") {
+		if strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
+	}
+	return true
 }
 
 func Root(ctx context.Context, directory string) (string, error) {
@@ -91,7 +138,7 @@ func (s *Service) execute(ctx context.Context, spec registry.GitSpec, c *gitacce
 	command := func(input string, args ...string) error {
 		cmd := exec.CommandContext(ctx, "git", append([]string{"--literal-pathspecs", "-C", spec.Path}, args...)...)
 		proc.Group(cmd)
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+		cmd.Env = gitEnvironment(spec.Identity)
 		if input != "" {
 			cmd.Stdin = strings.NewReader(input)
 		}
@@ -136,7 +183,40 @@ func (s *Service) execute(ctx context.Context, spec registry.GitSpec, c *gitacce
 			err = command("", append([]string{"clean", "-f", "--"}, untracked...)...)
 		}
 	case "commit":
+		if spec.Identity != nil {
+			// Both writes and the commit share the durable repository reservation. Never
+			// change global Git configuration or derive attribution from an app account.
+			if err = command("", "config", "--local", "--replace-all", "user.name", spec.Identity.Name); err == nil {
+				err = command("", "config", "--local", "--replace-all", "user.email", spec.Identity.Email)
+			}
+			if err != nil {
+				break
+			}
+		}
+		for _, ident := range []string{"GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"} {
+			probe := exec.CommandContext(ctx, "git", "-C", spec.Path, "var", ident)
+			probe.Env = gitEnvironment(spec.Identity)
+			data, check := probe.CombinedOutput()
+			if check != nil {
+				if ctx.Err() != nil {
+					return gitaccess.Result{}, ctx.Err()
+				}
+				if missingIdentity(string(data)) {
+					return gitaccess.Result{}, ErrIdentityRequired
+				}
+				return gitaccess.Result{}, fmt.Errorf("could not read Git author: %s", gitaccess.Redact(strings.TrimSpace(string(data)), gitaccess.Auth{}))
+			}
+		}
 		err = command(spec.Message, "commit", "--file=-")
+	case "switch_branch":
+		if spec.Remote {
+			err = command("", "switch", "--track", "--", "refs/remotes/"+spec.Branch)
+		} else {
+			err = command("", "switch", "--no-guess", "--", spec.Branch)
+		}
+	case "create_branch":
+		// -c creates the ref only if switching succeeds; never reset an existing branch.
+		err = command("", "switch", "-c", spec.Branch)
 	}
 	text := gitaccess.Redact(output.String(), gitaccess.Auth{})
 	if err != nil {
@@ -146,6 +226,38 @@ func (s *Service) execute(ctx context.Context, spec registry.GitSpec, c *gitacce
 		return gitaccess.Result{}, fmt.Errorf("%s", text)
 	}
 	return gitaccess.Result{Output: text}, nil
+}
+
+func validIdentity(identity registry.GitIdentity) bool {
+	if identity.Name == "" || len(identity.Name) > 256 || len(identity.Email) > 320 ||
+		strings.Count(identity.Email, "@") != 1 || strings.HasPrefix(identity.Email, "@") || strings.HasSuffix(identity.Email, "@") {
+		return false
+	}
+	for _, value := range []string{identity.Name, identity.Email} {
+		for _, c := range value {
+			if c < 32 || c == 127 || c == '<' || c == '>' {
+				return false
+			}
+		}
+	}
+	return strings.IndexFunc(identity.Email, unicode.IsSpace) == -1
+}
+
+func gitEnvironment(identity *registry.GitIdentity) []string {
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+	if identity != nil {
+		env = append(env, "GIT_AUTHOR_NAME="+identity.Name, "GIT_COMMITTER_NAME="+identity.Name,
+			"GIT_AUTHOR_EMAIL="+identity.Email, "GIT_COMMITTER_EMAIL="+identity.Email)
+	}
+	return env
+}
+
+// Only attribution failures become a setup request; hooks/signing/config errors remain failures.
+func missingIdentity(output string) bool {
+	return strings.Contains(output, "Author identity unknown") || strings.Contains(output, "Committer identity unknown") ||
+		strings.Contains(output, "Please tell me who you are") || strings.Contains(output, "unable to auto-detect email address") ||
+		strings.Contains(output, "empty ident name") || strings.Contains(output, "no email was given") ||
+		strings.Contains(output, "no name was given") || strings.Contains(output, "empty ident email")
 }
 
 // Keep a bounded diagnostic tail even when a hook or remote is unusually noisy.

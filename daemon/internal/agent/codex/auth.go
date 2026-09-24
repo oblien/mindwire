@@ -57,7 +57,7 @@ func (m *authModule) Methods() []agent.AuthMethod {
 	return []agent.AuthMethod{
 		{
 			ID: "login", Label: "Continue with ChatGPT", Scope: agent.ScopeUnified, Interactive: true,
-			Help: "Use the Codex access included with your ChatGPT plan. Open the sign-in page and enter the device code. If prompted, enable Codex device-code sign-in in your ChatGPT security settings.",
+			Help: "Use the Codex access included with your ChatGPT plan. First enable Device code authorization for Codex in ChatGPT → Settings → Security, or ask your ChatGPT workspace admin to enable it. Then open the sign-in page and enter the code. Mindwire starts the login for you.",
 		},
 		{
 			ID: "apiKey", Label: "API key", Scope: agent.ScopeUnified,

@@ -33,6 +33,8 @@ func TestManagedOfficialPackagesLive(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
+			startedAt := time.Now()
+			ctx = WithInstallProgress(ctx, func(stage string) { t.Logf("%s: %s", spec.ID, stage) })
 			version, err := m.Install(ctx, spec, false)
 			if err != nil {
 				t.Fatal(err)
@@ -45,7 +47,7 @@ func TestManagedOfficialPackagesLive(t *testing.T) {
 			if err != nil || ParseVersion(string(output)) != version {
 				t.Fatalf("native command: %s %v", output, err)
 			}
-			t.Logf("official %s %s installed, verified and selected", spec.ID, version)
+			t.Logf("official %s %s installed, verified and selected in %s", spec.ID, version, time.Since(startedAt).Round(time.Millisecond))
 		})
 	}
 }

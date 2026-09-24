@@ -13,12 +13,22 @@ import (
 // GitSpec is the non-secret intent and idempotency key. Path is the canonical
 // repository root, resolved by the daemon rather than supplied by the client.
 type GitSpec struct {
-	ID        string   `json:"id"`
-	ProjectID string   `json:"projectId"`
-	Path      string   `json:"path"`
-	Action    string   `json:"action"`
-	Paths     []string `json:"paths,omitempty"`
-	Message   string   `json:"message,omitempty"`
+	ID        string       `json:"id"`
+	ProjectID string       `json:"projectId"`
+	Path      string       `json:"path"`
+	Action    string       `json:"action"`
+	Paths     []string     `json:"paths,omitempty"`
+	Message   string       `json:"message,omitempty"`
+	Branch    string       `json:"branch,omitempty"`
+	Remote    bool         `json:"remote,omitempty"`
+	Identity  *GitIdentity `json:"identity,omitempty"`
+}
+
+// GitIdentity is explicit, user-provided attribution, saved only in this repository.
+// It is part of the durable commit intent so retries cannot silently change authors.
+type GitIdentity struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 
 type GitOperation struct {
@@ -26,6 +36,7 @@ type GitOperation struct {
 	Status    string `json:"status"`
 	Output    string `json:"output,omitempty"`
 	Error     string `json:"error,omitempty"`
+	ErrorCode string `json:"errorCode,omitempty"`
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
 	Sequence  int64  `json:"sequence"`

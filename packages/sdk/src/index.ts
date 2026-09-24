@@ -57,7 +57,7 @@ export { ServiceApi } from "./service.js";
 export type { ServiceUpdateState, ServiceUpdateLease } from "./service.js";
 export { WorkspaceApi, WorkspaceCollection, ProjectOperationsApi, GitAccessApi } from "./workspace.js";
 export type { ProjectRequest, ProjectAuth, ProjectOperation, ProjectRemoveRequest,
-  GitConnection, GitAccessState, ProjectGitState, GitAction, GitOperationRequest, GitOperation } from "./workspace.js";
+  GitConnection, GitAccessState, ProjectGitState, GitAction, GitIdentity, GitOperationRequest, GitOperation } from "./workspace.js";
 export type { WorkspaceRecord, WorkspaceAgent, WorkspaceProject, WorkspaceChat, WorkspaceKind,
   WorkspaceInput, WorkspaceImport, WorkspaceSnapshot } from "./workspace.js";
 

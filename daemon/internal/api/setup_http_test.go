@@ -80,12 +80,19 @@ func TestSetupHTTPClientsShareLiveJobAndAtomicTurnAdmission(t *testing.T) {
 	if !status.Running || status.OK || status.Stage != "verifying" || status.Current != "cli" {
 		t.Fatalf("second client must see live verification: %+v", status)
 	}
+	if status.StartedAt == nil || len(status.Plan) != 2 || status.Plan[0] != "git" || status.Plan[1] != "cli" {
+		t.Fatalf("GET /setup omitted live step progress: %+v", status)
+	}
+	startedAt := *status.StartedAt
 	w := request(second.update, "POST", "/update", "")
 	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
 		t.Fatal(err)
 	}
 	if w.Code != http.StatusAccepted || status.Operation != "setup" || status.Stage != "verifying" {
 		t.Fatalf("second client must join setup: %d %+v", w.Code, status)
+	}
+	if !status.StartedAt.Equal(startedAt) {
+		t.Fatal("joining the existing job changed its start time")
 	}
 	if w := request(second.turn, "POST", "/turns", `{"chatId":"chat","message":"hello"}`); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "setup") {
 		t.Fatalf("turn while installing: %d %s", w.Code, w.Body)

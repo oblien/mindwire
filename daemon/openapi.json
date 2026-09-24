@@ -182,7 +182,7 @@
           },
           "version": {
             "type": "string",
-            "description": "agent.Version \u2014 the definitions/protocol version."
+            "description": "agent.Version — the definitions/protocol version."
           },
           "workspaceMetadataVersion": {
             "type": "integer",
@@ -210,7 +210,7 @@
           },
           "gitOperationsVersion": {
             "type": "integer",
-            "description": "1 or later supports durable Git mutations, stable request IDs, shared coordination, status, cancellation, and streaming."
+            "description": "Durable Git operation protocol: 1 for worktree/network operations, 2 adds branch operations, 3 adds repository-scoped commit author setup and machine-readable identity errors."
           },
           "serviceUpdateVersion": {
             "type": "integer",
@@ -222,7 +222,10 @@
           },
           "workspaceIsolation": {
             "type": "string",
-            "enum": ["direct", "container"],
+            "enum": [
+              "direct",
+              "container"
+            ],
             "description": "Placement selected by the trusted service launcher."
           }
         },
@@ -254,7 +257,7 @@
           },
           "numGoroutine": {
             "type": "integer",
-            "description": "Live goroutines \u2014 a rough concurrency gauge."
+            "description": "Live goroutines — a rough concurrency gauge."
           },
           "memAllocBytes": {
             "type": "integer",
@@ -290,7 +293,7 @@
       },
       "ProcessSample": {
         "type": "object",
-        "description": "One running turn's live resource use at a single sampling tick. Labels and numbers only \u2014 never a secret. A turn runs in its own process group; the figures are summed over that whole group (bash \u2192 node \u2192 the agent).",
+        "description": "One running turn's live resource use at a single sampling tick. Labels and numbers only — never a secret. A turn runs in its own process group; the figures are summed over that whole group (bash → node → the agent).",
         "properties": {
           "agent": {
             "type": "string",
@@ -306,12 +309,12 @@
           },
           "pid": {
             "type": "integer",
-            "description": "Group-leader pid \u2014 the whole turn's process tree."
+            "description": "Group-leader pid — the whole turn's process tree."
           },
           "cpuPercent": {
             "type": "number",
             "format": "double",
-            "description": "CPU% over the last sampling window (delta of cumulative CPU seconds \u00f7 wall-clock). 0 on the first tick a group is seen."
+            "description": "CPU% over the last sampling window (delta of cumulative CPU seconds ÷ wall-clock). 0 on the first tick a group is seen."
           },
           "rssBytes": {
             "type": "integer",
@@ -411,7 +414,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Per-turn setting overrides addressed by canonical key (see Field.canon). Resolved canon\u2192the selected agent's key and filtered to declared non-secret keys server-side; overrides win over the sticky config."
+            "description": "Per-turn setting overrides addressed by canonical key (see Field.canon). Resolved canon→the selected agent's key and filtered to declared non-secret keys server-side; overrides win over the sticky config."
           },
           "systemPrompt": {
             "type": "string",
@@ -528,7 +531,7 @@
               "error",
               "cancelled"
             ],
-            "description": "Parent-only: why the resolve loop ended \u2014 \"done\" (the agent signalled completion), \"capped\" (hit the iteration/deadline bound), \"error\", or \"cancelled\"."
+            "description": "Parent-only: why the resolve loop ended — \"done\" (the agent signalled completion), \"capped\" (hit the iteration/deadline bound), \"error\", or \"cancelled\"."
           },
           "iterations": {
             "type": "integer",
@@ -604,7 +607,7 @@
           },
           "subtype": {
             "type": "string",
-            "description": "The agent's own terminal-result classifier when it distinguishes one (Claude's result subtype: \"success\", \"error_max_turns\", \"error_max_budget_usd\", \u2026). Absent for agents whose terminal event is always fully settled (Codex)."
+            "description": "The agent's own terminal-result classifier when it distinguishes one (Claude's result subtype: \"success\", \"error_max_turns\", \"error_max_budget_usd\", …). Absent for agents whose terminal event is always fully settled (Codex)."
           },
           "incomplete": {
             "type": "boolean",
@@ -633,7 +636,7 @@
               "max_turns",
               "max_budget"
             ],
-            "description": "Why this iteration is running: \"start\" (first), \"max_turns\"/\"max_budget\" (resuming a continuable stop), or \"probe\" (a clean settle with no completion sentinel \u2014 probing for done)."
+            "description": "Why this iteration is running: \"start\" (first), \"max_turns\"/\"max_budget\" (resuming a continuable stop), or \"probe\" (a clean settle with no completion sentinel — probing for done)."
           },
           "childRunId": {
             "type": "string",
@@ -1036,7 +1039,7 @@
       },
       "ForkRequest": {
         "type": "object",
-        "description": "Fork a chat. newChatId is optional \u2014 a random id is generated when omitted.",
+        "description": "Fork a chat. newChatId is optional — a random id is generated when omitted.",
         "properties": {
           "newChatId": {
             "type": "string"
@@ -1045,7 +1048,7 @@
       },
       "CompactRequest": {
         "type": "object",
-        "description": "On-demand compaction. instructions is optional \u2014 when present it focuses the continuation summary (Claude's `/compact <instructions>`); agents that don't honor focus still compact.",
+        "description": "On-demand compaction. instructions is optional — when present it focuses the continuation summary (Claude's `/compact <instructions>`); agents that don't honor focus still compact.",
         "properties": {
           "instructions": {
             "type": "string"
@@ -1213,7 +1216,7 @@
           },
           "resolve": {
             "type": "boolean",
-            "description": "Agent supports global-resolve runs (POST /turns {mode:\"resolve\"}). Unlike the other switches this is NOT gated in the daemon \u2014 resolve is pure daemon logic over the existing resume path, so every agent that can resume can be resolved; the flag is a UI hint only."
+            "description": "Agent supports global-resolve runs (POST /turns {mode:\"resolve\"}). Unlike the other switches this is NOT gated in the daemon — resolve is pure daemon logic over the existing resume path, so every agent that can resume can be resolved; the flag is a UI hint only."
           },
           "protocol": {
             "type": "string",
@@ -1340,7 +1343,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Resolved absolute path \u2014 always set, even when the file is absent."
+            "description": "Resolved absolute path — always set, even when the file is absent."
           },
           "exists": {
             "type": "boolean",
@@ -1384,7 +1387,7 @@
       },
       "SubagentMeta": {
         "type": "object",
-        "description": "Best-effort parsed view of a subagent definition's frontmatter. A convenience only \u2014 the raw `content` is canonical. Every field is optional; absent frontmatter yields no meta object.",
+        "description": "Best-effort parsed view of a subagent definition's frontmatter. A convenience only — the raw `content` is canonical. Every field is optional; absent frontmatter yields no meta object.",
         "properties": {
           "name": {
             "type": "string"
@@ -1486,7 +1489,7 @@
       },
       "CustomProvider": {
         "type": "object",
-        "description": "One registered custom OpenAI-compatible LLM provider. SECURITY: the API key is NEVER part of this shape \u2014 it is supplied write-only on PUT and reported only as `hasKey`. The harness config references the key solely through an env-var placeholder; the value lives in the daemon and enters a run only via the auth env path.",
+        "description": "One registered custom OpenAI-compatible LLM provider. SECURITY: the API key is NEVER part of this shape — it is supplied write-only on PUT and reported only as `hasKey`. The harness config references the key solely through an env-var placeholder; the value lives in the daemon and enters a run only via the auth env path.",
         "properties": {
           "id": {
             "type": "string",
@@ -1719,7 +1722,7 @@
       },
       "Interaction": {
         "type": "object",
-        "description": "A structured, self-describing request the agent surfaces mid-turn for the client to render generically \u2014 and, when needsResponse, for the user to answer.",
+        "description": "A structured, self-describing request the agent surfaces mid-turn for the client to render generically — and, when needsResponse, for the user to answer.",
         "properties": {
           "id": {
             "type": "string"
@@ -1945,7 +1948,7 @@
       },
       "AuthMethod": {
         "type": "object",
-        "description": "One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin\u2192step\u2192status flow.",
+        "description": "One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin→step→status flow.",
         "properties": {
           "id": {
             "type": "string"
@@ -2155,9 +2158,24 @@
               "checking",
               "waiting",
               "installing",
+              "resolving",
+              "downloading",
+              "configuring",
               "verifying"
             ],
             "description": "Live phase of the current step. Completion is reported only after its check passes."
+          },
+          "plan": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered tool names in this job. Successful steps indicate step progress, not a download percentage."
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The shared job's start time, preserved across client reconnects."
           }
         },
         "required": [
@@ -2310,7 +2328,7 @@
       },
       "NotifyChannelMasked": {
         "type": "object",
-        "description": "The read-side view of a notification channel. Secrets are never returned \u2014 the URL, token, HMAC secret, and header values are all withheld; only their presence (and the URL host, as a display hint) is reported.",
+        "description": "The read-side view of a notification channel. Secrets are never returned — the URL, token, HMAC secret, and header values are all withheld; only their presence (and the URL host, as a display hint) is reported.",
         "properties": {
           "id": {
             "type": "string",
@@ -2387,7 +2405,7 @@
           },
           "url": {
             "type": "string",
-            "description": "Destination URL. Required (on create). For slack/discord this is the incoming-webhook URL; for telegram the full bot `sendMessage` URL. Write-only \u2014 never returned."
+            "description": "Destination URL. Required (on create). For slack/discord this is the incoming-webhook URL; for telegram the full bot `sendMessage` URL. Write-only — never returned."
           },
           "headers": {
             "type": "object",
@@ -2412,7 +2430,7 @@
       },
       "NotifyChannelTestResult": {
         "type": "object",
-        "description": "Outcome of a synthetic delivery to one channel. The send result is DATA \u2014 a failed delivery still returns HTTP 200 with `ok:false` and an `error` message.",
+        "description": "Outcome of a synthetic delivery to one channel. The send result is DATA — a failed delivery still returns HTTP 200 with `ok:false` and an `error` message.",
         "properties": {
           "ok": {
             "type": "boolean"
@@ -4021,7 +4039,9 @@
               "commit",
               "fetch",
               "pull",
-              "push"
+              "push",
+              "switch_branch",
+              "create_branch"
             ]
           },
           "paths": {
@@ -4046,6 +4066,19 @@
             ],
             "writeOnly": true,
             "description": "Network operations only; held in memory for this operation and never included in its receipt."
+          },
+          "branch": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Literal branch name for switch_branch/create_branch. Requires gitOperationsVersion >= 2. Creation switches to the new branch without resetting existing refs or discarding local work."
+          },
+          "remote": {
+            "type": "boolean",
+            "description": "switch_branch only: branch is a remote tracking name such as origin/feature. Creates a local tracking branch from the existing remote ref without fetching."
+          },
+          "identity": {
+            "$ref": "#/components/schemas/GitIdentity",
+            "description": "Commit only. Requires gitOperationsVersion >= 3. Author setup and commit share one durable operation; retain the same identity on retries."
           }
         }
       },
@@ -4077,7 +4110,9 @@
               "commit",
               "fetch",
               "pull",
-              "push"
+              "push",
+              "switch_branch",
+              "create_branch"
             ]
           },
           "paths": {
@@ -4131,6 +4166,23 @@
           "sequence": {
             "type": "integer",
             "format": "int64"
+          },
+          "branch": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Literal branch name for switch_branch/create_branch. Requires gitOperationsVersion >= 2. Creation switches to the new branch without resetting existing refs or discarding local work."
+          },
+          "remote": {
+            "type": "boolean",
+            "description": "switch_branch only: branch is a remote tracking name such as origin/feature. Creates a local tracking branch from the existing remote ref without fetching."
+          },
+          "identity": {
+            "$ref": "#/components/schemas/GitIdentity",
+            "description": "Commit only. Requires gitOperationsVersion >= 3. Author setup and commit share one durable operation; retain the same identity on retries."
+          },
+          "errorCode": {
+            "type": "string",
+            "description": "Machine-readable failure. git_identity_required means the commit has not run and the client should ask for author name/email. Submit a new commit intent with identity after user confirmation."
           }
         }
       },
@@ -4175,6 +4227,26 @@
             "description": "The idle daemon process; stop only this PID."
           }
         }
+      },
+      "GitIdentity": {
+        "type": "object",
+        "required": [
+          "name",
+          "email"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 320
+          }
+        },
+        "description": "Explicit commit attribution, saved to repository-local Git configuration. Never modifies global configuration."
       }
     }
   },
@@ -4492,7 +4564,7 @@
           "Health"
         ],
         "summary": "Daemon process resource snapshot",
-        "description": "The daemon PROCESS's own runtime stats (heap in use, memory reserved from the OS, goroutines, GC cycles) plus host facts (cores, platform, uptime). Cheap and on-demand \u2014 a single runtime.ReadMemStats, no background sampling. Not the whole machine's RAM/CPU.",
+        "description": "The daemon PROCESS's own runtime stats (heap in use, memory reserved from the OS, goroutines, GC cycles) plus host facts (cores, platform, uptime). Cheap and on-demand — a single runtime.ReadMemStats, no background sampling. Not the whole machine's RAM/CPU.",
         "responses": {
           "200": {
             "description": "Snapshot",
@@ -4513,7 +4585,7 @@
           "Health"
         ],
         "summary": "Stream live per-turn CPU/memory (SSE)",
-        "description": "Server-Sent Events of live resource use for currently-running turns, grouped by agent. On-demand and refcounted: the daemon starts sampling only while at least one client is connected and stops the instant the last one disconnects \u2014 zero background work when nothing is watching. Each turn runs in its own process group; a sample is the whole group's summed RSS and its CPU% over the sampling window. Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream; one ProcessFrame per frame. Optional `?agent=` filters each frame's samples to one agent. Payload carries labels and numbers only \u2014 no secrets.",
+        "description": "Server-Sent Events of live resource use for currently-running turns, grouped by agent. On-demand and refcounted: the daemon starts sampling only while at least one client is connected and stops the instant the last one disconnects — zero background work when nothing is watching. Each turn runs in its own process group; a sample is the whole group's summed RSS and its CPU% over the sampling window. Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream; one ProcessFrame per frame. Optional `?agent=` filters each frame's samples to one agent. Payload carries labels and numbers only — no secrets.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -4795,7 +4867,7 @@
           "Prompts"
         ],
         "summary": "Delete a persistent memory file",
-        "description": "Removes one scope's memory file (?scope=, default user) and returns the resulting doc (exists:false). Idempotent \u2014 deleting an absent file still succeeds.",
+        "description": "Removes one scope's memory file (?scope=, default user) and returns the resulting doc (exists:false). Idempotent — deleting an absent file still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -4973,7 +5045,7 @@
           "Prompts"
         ],
         "summary": "Delete a prompt template",
-        "description": "Removes one template by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent template still succeeds.",
+        "description": "Removes one template by name at a scope (?scope=, default user). Idempotent — deleting an absent template still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5164,7 +5236,7 @@
           "Prompts"
         ],
         "summary": "Delete a subagent definition",
-        "description": "Removes one definition by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent definition still succeeds.",
+        "description": "Removes one definition by name at a scope (?scope=, default user). Idempotent — deleting an absent definition still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5217,7 +5289,7 @@
           "MCP"
         ],
         "summary": "List persistent MCP servers",
-        "description": "Returns the agent's persistent MCP-server config across every supported scope, keyed scope\u2192name\u2192server. A missing config file yields an empty object for that scope. 400 if the agent has no persistent MCP-config module. Carries only an env-var NAME for HTTP auth (bearerTokenEnvVar), never a secret value; on Claude only the mcpServers subtree of the config is ever read.",
+        "description": "Returns the agent's persistent MCP-server config across every supported scope, keyed scope→name→server. A missing config file yields an empty object for that scope. 400 if the agent has no persistent MCP-config module. Carries only an env-var NAME for HTTP auth (bearerTokenEnvVar), never a secret value; on Claude only the mcpServers subtree of the config is ever read.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5358,7 +5430,7 @@
           "MCP"
         ],
         "summary": "Delete a persistent MCP server",
-        "description": "Removes one MCP server by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent server still succeeds.",
+        "description": "Removes one MCP server by name at a scope (?scope=, default user). Idempotent — deleting an absent server still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5411,7 +5483,7 @@
           "Providers"
         ],
         "summary": "List custom LLM providers",
-        "description": "Returns the agent's registered custom LLM providers across every supported scope, keyed scope\u2192id\u2192provider. A missing config file yields an empty object for that scope. 400 if the agent has no custom-provider module. `hasKey` reports whether a secret is stored; the key is never returned.",
+        "description": "Returns the agent's registered custom LLM providers across every supported scope, keyed scope→id→provider. A missing config file yields an empty object for that scope. 400 if the agent has no custom-provider module. `hasKey` reports whether a secret is stored; the key is never returned.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5499,7 +5571,7 @@
           "Providers"
         ],
         "summary": "Register a custom LLM provider",
-        "description": "Registers one custom provider at a scope (?scope=, default user), writing the harness's native custom-endpoint config and preserving all sibling config. The write-only apiKey (when supplied) is stored in the daemon and referenced only via an env-var placeholder \u2014 never written literally. Echoes the stored provider back (hasKey reflects whether a key is stored; the key itself is never returned).",
+        "description": "Registers one custom provider at a scope (?scope=, default user), writing the harness's native custom-endpoint config and preserving all sibling config. The write-only apiKey (when supplied) is stored in the daemon and referenced only via an env-var placeholder — never written literally. Echoes the stored provider back (hasKey reflects whether a key is stored; the key itself is never returned).",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5552,7 +5624,7 @@
           "Providers"
         ],
         "summary": "Delete a custom LLM provider",
-        "description": "Removes one custom provider by id at a scope (?scope=, default user) and clears its stored key. Idempotent \u2014 deleting an absent provider still succeeds.",
+        "description": "Removes one custom provider by id at a scope (?scope=, default user) and clears its stored key. Idempotent — deleting an absent provider still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5821,7 +5893,7 @@
           "Turns & runs"
         ],
         "summary": "List a resolve run's child iterations",
-        "description": "Returns the child runs of a global-resolve parent, oldest\u2192newest \u2014 the per-iteration turns of a resolve run (each streams onto the parent's topic). An ordinary turn (or a parent with no iterations yet) returns an empty list.",
+        "description": "Returns the child runs of a global-resolve parent, oldest→newest — the per-iteration turns of a resolve run (each streams onto the parent's topic). An ordinary turn (or a parent with no iterations yet) returns an empty list.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -6006,7 +6078,7 @@
           "Turns & runs"
         ],
         "summary": "Soft-stop a running turn",
-        "description": "Ask the agent to halt its current work WITHOUT the hard context kill `/cancel` does \u2014 the turn stays active for a follow-up over `/input`. Requires the agent's `interrupt` capability.",
+        "description": "Ask the agent to halt its current work WITHOUT the hard context kill `/cancel` does — the turn stays active for a follow-up over `/input`. Requires the agent's `interrupt` capability.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -6553,7 +6625,7 @@
           "Notifications"
         ],
         "summary": "List notification channels",
-        "description": "Returns every configured channel, masked. Secrets (URL, token, HMAC secret, header values) are never returned \u2014 only their presence and the URL host.",
+        "description": "Returns every configured channel, masked. Secrets (URL, token, HMAC secret, header values) are never returned — only their presence and the URL host.",
         "responses": {
           "200": {
             "description": "Channels (masked)",
@@ -6670,7 +6742,7 @@
           "Notifications"
         ],
         "summary": "Delete a notification channel",
-        "description": "Removes a channel by id. Idempotent \u2014 deleting an absent channel still succeeds.",
+        "description": "Removes a channel by id. Idempotent — deleting an absent channel still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -6854,7 +6926,7 @@
           "Notifications"
         ],
         "summary": "Delete a routing rule",
-        "description": "Removes a rule by id. Idempotent \u2014 deleting an absent rule still succeeds.",
+        "description": "Removes a rule by id. Idempotent — deleting an absent rule still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -10337,7 +10409,7 @@
             }
           }
         },
-        "description": "Requires gitOperationsVersion >= 1. Persists the intent before executing native Git. The same ID and intent returns the existing operation, even after completion or restart; a different intent with that ID returns 409. Network writes use the selected project connection. Local mutations need no GitHub credential. Disconnecting only detaches the observer. Active Git, project, and agent work in overlapping directories conflicts. After a daemon restart, unfinished operations become interrupted and are never replayed automatically. Operations are bounded to 15 minutes."
+        "description": "Requires gitOperationsVersion >= 1, >= 2 for switch_branch/create_branch, or >= 3 for commit with identity. Missing commit attribution returns a failed operation with errorCode git_identity_required; collect the user's name and email before a new commit request. Supplied identity is saved only in this repository. Persists the intent before executing native Git. The same ID and intent returns the existing operation, even after completion or restart; a different intent with that ID returns 409. Network writes use the selected project connection. Local mutations need no GitHub credential. Disconnecting only detaches the observer. Active Git, project, and agent work in overlapping directories conflicts. After a daemon restart, unfinished operations become interrupted and are never replayed automatically. Operations are bounded to 15 minutes."
       },
       "get": {
         "tags": [
@@ -10478,6 +10550,16 @@
               "type": "boolean"
             },
             "description": "Only active operations. Otherwise returns the 50 most recently updated operations."
+          },
+          {
+            "in": "query",
+            "name": "actionsVersion",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": "Use 2 to include branch operations. The default preserves the action set understood by older clients; repository locking always includes every active operation."
           }
         ]
       }

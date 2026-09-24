@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -32,6 +33,18 @@ func (a *API) projectGitOperations(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		workspaceError(w, err)
 		return
+	}
+	// Older clients decode actions as a closed enum. Keep new branch receipts out of their
+	// history while the same server lock still protects them from overlapping mutations.
+	version, _ := strconv.Atoi(r.URL.Query().Get("actionsVersion"))
+	if version < 2 {
+		visible := operations[:0]
+		for _, operation := range operations {
+			if operation.Action != "switch_branch" && operation.Action != "create_branch" {
+				visible = append(visible, operation)
+			}
+		}
+		operations = visible
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"operations": operations})
 }

@@ -35,6 +35,9 @@ func TestTrackerConcurrentSetupAndUpdateJoinSameHarnessJob(t *testing.T) {
 	if !first.Running || first.Operation != "update" {
 		t.Fatalf("initial update: %+v", first)
 	}
+	if first.StartedAt == nil || first.StartedAt.IsZero() || len(first.Plan) != 1 || first.Plan[0] != "cli" {
+		t.Fatalf("initial progress metadata: %+v", first)
+	}
 
 	var callers sync.WaitGroup
 	for range 40 {
@@ -43,6 +46,9 @@ func TestTrackerConcurrentSetupAndUpdateJoinSameHarnessJob(t *testing.T) {
 			status := tracker.Start("codex", steps, false, 5*time.Second)
 			if !status.Running || status.Operation != "update" {
 				t.Errorf("reattached status: %+v", status)
+			}
+			if !status.StartedAt.Equal(*first.StartedAt) || len(status.Plan) != 1 || status.Plan[0] != "cli" {
+				t.Errorf("reattaching lost the plan or restarted elapsed time: %+v", status)
 			}
 		})
 	}
@@ -59,8 +65,13 @@ func TestTrackerConcurrentSetupAndUpdateJoinSameHarnessJob(t *testing.T) {
 		t.Fatalf("installer must run once, count=%q err=%v", data, err)
 	}
 	status.Steps[0].Name = "changed by caller"
+	status.Plan[0] = "changed by caller"
+	*status.StartedAt = time.Time{}
 	if tracker.Status("codex").Steps[0].Name != "cli" {
 		t.Fatal("mutating a snapshot changed the shared job")
+	}
+	if snapshot := tracker.Status("codex"); snapshot.Plan[0] != "cli" || snapshot.StartedAt.IsZero() {
+		t.Fatal("mutating progress metadata changed the shared job")
 	}
 }
 

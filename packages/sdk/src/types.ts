@@ -994,7 +994,11 @@ export interface SetupStatus {
   /** The shared job's operation, including when another client started it. Older daemons omit it. */
   operation?: "setup" | "update";
   /** Current step phase, reported by the daemon rather than inferred from elapsed time. */
-  stage?: "checking" | "waiting" | "installing" | "verifying" | (string & {});
+  stage?: "checking" | "waiting" | "installing" | "resolving" | "downloading" | "configuring" | "verifying" | (string & {});
+  /** Ordered tool names in this job. Count successful steps for step progress, not download percent. */
+  plan?: string[];
+  /** ISO 8601 start time of the shared job, preserved when clients reconnect. */
+  startedAt?: string;
 }
 
 /** `GET /notify/config` — the token is never returned. */
@@ -1104,7 +1108,7 @@ export interface Health {
   projectOperationsVersion?: number;
   /** Workspace/project GitHub bindings and operation/run credential forwarding. */
   gitAccessVersion?: number;
-  /** Durable, coordinated Git mutations with idempotent submission and reconnectable status. */
+  /** Durable Git writes: v2 adds branches; v3 adds repository-scoped commit author setup. */
   gitOperationsVersion?: number;
   /** Persistent profile/chat mutes enforced before every notification delivery. */
   notificationPreferencesVersion?: number;

@@ -6,6 +6,40 @@ const snapshot: WorkspaceSnapshot = {
   agents: [], projects: [], chats: [], deleted: [],
 };
 
+test("commit author setup retains explicit attribution and actionable failures", async () => {
+  const identity = { name: "App User", email: "app@example.invalid" };
+  const base = { projectId: "project", path: "/work", action: "commit", createdAt: "2026-09-24T00:00:00Z",
+    updatedAt: "2026-09-24T00:00:01Z", sequence: 3 };
+  const mw = new Mindwire({ target: remote("http://registry"), fetch: async (_input, init) => {
+    const body = JSON.parse(String(init?.body));
+    if (!body.identity) return Response.json({ ...base, ...body, status: "failed", errorCode: "git_identity_required" });
+    expect(body.identity).toEqual(identity);
+    return Response.json({ ...base, ...body, status: "succeeded" });
+  } });
+  const missing = await mw.workspace.git.start("project", { id: "missing-author", action: "commit", message: "Draft" });
+  expect(missing.errorCode).toBe("git_identity_required");
+  const saved = await mw.workspace.git.start("project", { id: "confirmed-author", action: "commit", message: "Draft", identity });
+  expect(saved.identity).toEqual(identity);
+  expect(saved.status).toBe("succeeded");
+});
+
+test("branch operations preserve their intent and request compatible history", async () => {
+  const request = { id: "branch-request", action: "switch_branch", branch: "origin/release", remote: true } as const;
+  const operation = { ...request, projectId: "project", path: "/work", status: "succeeded",
+    createdAt: "2026-09-24T00:00:00Z", updatedAt: "2026-09-24T00:00:01Z", sequence: 3 };
+  const mw = new Mindwire({ target: remote("http://registry"), fetch: async (input, init) => {
+    const url = new URL(input);
+    if (init?.method === "POST") {
+      expect(JSON.parse(String(init.body))).toEqual(request);
+      return Response.json(operation);
+    }
+    expect(url.searchParams.get("actionsVersion")).toBe("2");
+    return Response.json({ operations: [operation] });
+  } });
+  expect(await mw.workspace.git.start("project", request)).toEqual(operation);
+  expect(await mw.workspace.git.operations("project")).toEqual([operation]);
+});
+
 test("durable Git writes keep stable IDs and observers do not cancel server work", async () => {
   const calls: { path: string; method: string; body: any }[] = [];
   const operation = { id: "stable-id", projectId: "project", path: "/work", action: "push", status: "succeeded",

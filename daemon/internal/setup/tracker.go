@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/toolchain"
 )
 
 // Status is the wire-shaped snapshot of an agent's toolchain install job: whether an install is in
@@ -19,7 +20,9 @@ type Status struct {
 	Current   string       `json:"current"`
 	Steps     []StepResult `json:"steps"`
 	Operation string       `json:"operation,omitempty"` // "setup" or "update"; shared by all clients
-	Stage     string       `json:"stage,omitempty"`     // "checking", "waiting", "installing", "verifying"
+	Stage     string       `json:"stage,omitempty"`     // live check, download, configuration or verification
+	Plan      []string     `json:"plan,omitempty"`      // ordered tool names; Steps contains their results
+	StartedAt *time.Time   `json:"startedAt,omitempty"` // retained when clients reconnect; never a completion estimate
 }
 
 // job is one agent's in-flight install state, mutated under Tracker.mu.
@@ -31,6 +34,8 @@ type job struct {
 	steps     []StepResult
 	operation string
 	stage     string
+	plan      []string
+	startedAt time.Time
 }
 
 // Tracker runs per-agent toolchain installs in the BACKGROUND (an `npm i -g` can take minutes) so a
@@ -73,6 +78,11 @@ func (t *Tracker) Start(agentID string, steps []agent.Step, force bool, timeout 
 	j.steps = nil
 	j.current = ""
 	j.stage = "checking"
+	j.plan = make([]string, len(steps))
+	for i, step := range steps {
+		j.plan[i] = step.Name
+	}
+	j.startedAt = time.Now().UTC()
 	j.operation = "setup"
 	if force {
 		j.operation = "update"
@@ -84,6 +94,11 @@ func (t *Tracker) Start(agentID string, steps []agent.Step, force bool, timeout 
 		// Detached context: a client disconnect can't abort the install mid-write; bounded by timeout.
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
+		ctx = toolchain.WithInstallProgress(ctx, func(stage string) {
+			t.mu.Lock()
+			j.stage = stage
+			t.mu.Unlock()
+		})
 		results := run(ctx, steps, force, t.mutation,
 			func(name, stage string) {
 				t.mu.Lock()
@@ -126,5 +141,7 @@ func (t *Tracker) Status(agentID string) Status {
 // snapshot copies a job to the wire shape (steps never nil). Caller holds t.mu.
 func snapshot(j *job) Status {
 	steps := append([]StepResult{}, j.steps...)
-	return Status{Running: j.running, OK: j.ok, Started: j.started, Current: j.current, Steps: steps, Operation: j.operation, Stage: j.stage}
+	startedAt := j.startedAt
+	return Status{Running: j.running, OK: j.ok, Started: j.started, Current: j.current, Steps: steps,
+		Operation: j.operation, Stage: j.stage, Plan: append([]string{}, j.plan...), StartedAt: &startedAt}
 }

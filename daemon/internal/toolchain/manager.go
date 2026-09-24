@@ -151,7 +151,11 @@ func (m *Manager) Check(ctx context.Context, spec Spec) (string, error) {
 // lock. It stages an exact approved version, verifies it, then atomically selects it. Previous
 // versions and external installations are never removed or changed.
 func (m *Manager) Install(ctx context.Context, spec Spec, update bool) (string, error) {
-	s := m.RefreshSoftware(ctx, spec, true)
+	reportInstallProgress(ctx, "resolving")
+	// Reuse fresh compatibility metadata across first-time installs. An explicit update still
+	// refreshes policy; the executable itself is always probed afresh under the install lock.
+	m.invalidate(spec)
+	s := m.RefreshSoftware(ctx, spec, update)
 	if !update && s.InstalledVersion != "" {
 		if s.Compatibility == "incompatible" {
 			return "", fmt.Errorf("%s", s.Message)
@@ -187,6 +191,7 @@ func (m *Manager) Install(ctx context.Context, spec Spec, update bool) (string, 
 		if err := m.install(ctx, spec, target, stage); err != nil {
 			return "", err
 		}
+		reportInstallProgress(ctx, "verifying")
 		stagedPath := filepath.Join(stage, "bin", spec.Binary)
 		if filepath.Ext(path) == ".cmd" {
 			stagedPath = filepath.Join(stage, spec.Binary+".cmd")
@@ -216,11 +221,13 @@ func (m *Manager) Install(ctx context.Context, spec Spec, update bool) (string, 
 }
 
 func installNPM(ctx context.Context, spec Spec, version, prefix string) error {
-	cmd := exec.CommandContext(ctx, "bash", "-lc", "npm install --global --no-audit --no-fund --registry https://registry.npmjs.org --prefix "+quote(prefix)+" "+quote(spec.Package+"@"+version))
+	reportInstallProgress(ctx, "downloading")
+	cmd := exec.CommandContext(ctx, "bash", "-lc", "npm install --global --prefer-offline --no-audit --no-fund --loglevel=info --progress=false --color=false --registry https://registry.npmjs.org --prefix "+quote(prefix)+" "+quote(spec.Package+"@"+version))
 	proc.Group(cmd)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("install %s %s: %w\n%s", spec.Name, version, err, strings.TrimSpace(string(out)))
+	out := &installOutput{ctx: ctx}
+	cmd.Stdout, cmd.Stderr = out, out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("install %s %s: %w\n%s", spec.Name, version, err, strings.TrimSpace(string(out.tail)))
 	}
 	return nil
 }

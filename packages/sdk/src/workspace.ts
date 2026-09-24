@@ -29,7 +29,10 @@ export interface ProjectGitState {
   repoUrl?: string;
 }
 
-export type GitAction = "stage" | "unstage" | "discard" | "commit" | "fetch" | "pull" | "push";
+export type GitAction = "stage" | "unstage" | "discard" | "commit" | "fetch" | "pull" | "push"
+  | "switch_branch" | "create_branch";
+
+export interface GitIdentity { name: string; email: string }
 
 export interface GitOperationRequest {
   /** Stable ID. Reuse this exact intent after a lost acknowledgement. */
@@ -37,8 +40,15 @@ export interface GitOperationRequest {
   action: GitAction;
   /** Literal repository-relative paths, required for stage/unstage/discard. */
   paths?: string[];
-  /** Required for commit. Git uses the server's configured author identity. */
+  /** Required for commit. Uses the existing author unless identity is explicitly supplied. */
   message?: string;
+  /** Literal branch name for switch_branch/create_branch; requires gitOperationsVersion >= 2. */
+  branch?: string;
+  /** switch_branch only: branch is a remote tracking name, e.g. origin/feature. */
+  remote?: boolean;
+  /** Commit only; requires gitOperationsVersion >= 3. Saves attribution in this repository,
+   * then commits under the same durable lock. Never changes global Git configuration. */
+  identity?: GitIdentity;
   /** Write-only, for network operations only. Never part of an operation snapshot. */
   auth?: ProjectAuth;
 }
@@ -50,6 +60,8 @@ export interface GitOperation extends Omit<GitOperationRequest, "auth"> {
   status: "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
   output?: string;
   error?: string;
+  /** git_identity_required asks the client to collect a name/email before a new commit intent. */
+  errorCode?: "git_identity_required" | (string & {});
   createdAt: string;
   updatedAt: string;
   sequence: number;
@@ -280,7 +292,7 @@ export class GitAccessApi {
     return this.mw.http.request("POST", `/workspace/projects/${encodeURIComponent(projectId)}/git/${operation}`, { body: { auth } });
   }
 
-  /** Requires health.gitOperationsVersion >= 1. Acceptance persists before Git runs;
+  /** Requires health.gitOperationsVersion >= 1 (>= 2 for branch changes). Acceptance persists before Git runs;
    * disconnecting only detaches the client. The same ID/intent never runs twice.
    */
   start(projectId: string, request: GitOperationRequest): Promise<GitOperation> {
@@ -288,7 +300,7 @@ export class GitAccessApi {
   }
   async operations(projectId: string, activeOnly = false): Promise<GitOperation[]> {
     const result = await this.mw.http.request<{ operations: GitOperation[] }>("GET",
-      `/workspace/projects/${encodeURIComponent(projectId)}/git/operations`, { query: { active: activeOnly } });
+      `/workspace/projects/${encodeURIComponent(projectId)}/git/operations`, { query: { active: activeOnly, actionsVersion: 2 } });
     return result.operations;
   }
   operation(id: string): Promise<GitOperation> {
