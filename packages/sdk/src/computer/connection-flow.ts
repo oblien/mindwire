@@ -60,11 +60,16 @@ export function reconnectCode(info: ComputerInfo, name: string, now = new Date()
 }
 
 export function deviceSummary(devices: ComputerDevice[]): string {
-  return devices.filter(device => !device.revoked)
+  const saved = devices.filter(device => !device.revoked);
+  const names = new Map<string, number>();
+  const safeName = (device: ComputerDevice) => device.name.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+  for (const device of saved) names.set(safeName(device), (names.get(safeName(device)) ?? 0) + 1);
+  return saved
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
     .map(device => {
-      const name = device.name.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+      const name = safeName(device);
       const status = device.connected === true ? "connected" : "paired";
-      return `  ${name} · ${status}`;
+      const identity = (names.get(name) ?? 0) > 1 ? ` · key ${device.id.slice(0, 8)}` : "";
+      return `  ${name} · ${status}${identity}`;
     }).join("\n");
 }

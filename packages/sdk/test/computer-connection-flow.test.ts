@@ -1,8 +1,17 @@
 import { expect, test } from "bun:test";
-import { chooseConnectionAction, chooseStartupAction, connectionAction, reconnectCode } from "../src/computer/connection-flow.js";
+import { chooseConnectionAction, chooseStartupAction, connectionAction, deviceSummary, reconnectCode } from "../src/computer/connection-flow.js";
 import { computerPairingURI, type ComputerDevice, type ComputerInfo } from "../src/computer.js";
 
 const phone: ComputerDevice = { id: "saved-phone", name: "iPhone", publicKey: "fixture", createdAt: "now", revoked: false };
+
+test("same-name phones keep distinct key identities; only authenticated connections say connected", () => {
+  const devices = [phone, { ...phone, id: "second-phone", connected: true }, { ...phone, id: "revoked", revoked: true }];
+  const summary = deviceSummary(devices);
+  expect(summary).toContain("iPhone · paired · key saved-ph");
+  expect(summary).toContain("iPhone · connected · key second-p");
+  expect(summary).not.toContain("revoked");
+  expect(deviceSummary([phone])).toBe("  iPhone · paired");
+});
 
 test("saved phones default to resume; a new QR needs an explicit action", async () => {
   expect(await chooseConnectionAction({ devices: [] })).toBe("pair");

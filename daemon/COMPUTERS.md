@@ -65,6 +65,17 @@ access credential. The phone must already hold the matching identity and device 
 authenticate over SSH using its saved pin, and verify `/computer` before saving routes.
 Scanning it updates the existing workspace. It does not request `/pair` or create another key.
 
+On iPhone, open the saved workspace's **Reconnect Computer** action, then **Scan
+Connection Code**. The same action is available in its list context menu and connection
+settings, including when the computer is offline. Recovery first tries the saved routes;
+scanning supplies changed routes and clears stale offline status after verifying SSH.
+Concurrent recovery actions join one attempt. `mindwire reconnect` does not interrupt
+recovery with the first-pairing startup prompt, and prints the exact mobile scan path.
+Phones with the same display name show separate key identifiers instead of being conflated.
+
+**Remove from This iPhone** forgets the connection, keys, and mobile caches without contacting
+the computer or deleting its native chats/files. Pending reads cannot restore a removed entry.
+
 ## Workspace and terminals
 
 The approved phone uses the existing authenticated HTTP/SSE workspace API over

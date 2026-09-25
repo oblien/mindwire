@@ -18,7 +18,11 @@ export interface PairingDisplay { close(): void }
 const enterScreen = "\x1b[?1049h\x1b[?25l";
 const leaveScreen = "\x1b[0m\x1b[?25h\x1b[?1049l";
 const clearScreen = "\x1b[H\x1b[2J";
-const scanInstruction = "Mindwire → Add computer → Scan QR code";
+function scanInstruction(invitation: ComputerConnectionCode): string {
+  return "mode" in invitation && invitation.mode === "reconnect"
+    ? "Workspaces → your computer → Reconnect Computer → Scan Connection Code"
+    : "Mindwire → Add computer → Scan QR code";
+}
 
 /** qrcode's small terminal renderer ignores margin/width. Render its matrix with
  * a four-module quiet zone, two square QR modules per terminal character. */
@@ -42,7 +46,7 @@ export async function createPairingQR(invitation: ComputerConnectionCode) {
   }
   const svg = await QR.toString(data, { ...options, type: "svg" });
   // Leave one column for auto-wrap and rows for instructions and the cursor.
-  return { lines, columns: Math.max(width, scanInstruction.length) + 1, rows: lines.length + 5, svg };
+  return { lines, columns: Math.max(width, scanInstruction(invitation).length) + 1, rows: lines.length + 5, svg };
 }
 
 function escapeHTML(value: string): string {
@@ -70,7 +74,9 @@ textarea{width:100%;margin-top:12px;padding:8px;color:inherit;background:#252528
 <small>MINDWIRE</small><h1>${title}</h1><p>${escapeHTML(invitation.name)}</p>
 <div class="code" id="code" role="img" aria-label="Mindwire connection QR code">${svg}</div>
 <p id="expiry" data-expires="${escapeHTML(invitation.expiresAt)}" aria-live="off"></p>
-<div class="steps"><p>In Mindwire, open <strong>Add computer</strong> and scan.</p>
+<div class="steps"><p>${reconnect
+    ? "In Mindwire, open your computer in <strong>Workspaces</strong>, then <strong>Reconnect Computer → Scan Connection Code</strong>."
+    : "In Mindwire, open <strong>Add computer</strong> and scan."}</p>
 <p>${reconnect ? "Your saved pairing and workspace stay the same. No new approval is needed." : "Then return to the terminal to approve your phone."}</p></div>
 <button type="button" id="copy">Copy ${reconnect ? "reconnect" : "pairing"} link</button>
 <textarea id="link" readonly hidden aria-label="Pairing link">${escapeHTML(computerPairingURI(invitation))}</textarea>
@@ -101,6 +107,7 @@ async function openBrowser(url: string): Promise<boolean> {
 /** Display one existing invitation. Resizing never starts another service or pairing. */
 export async function showPairingInvitation(invitation: ComputerConnectionCode, options: DisplayOptions = {}): Promise<PairingDisplay> {
   const reconnect = "mode" in invitation && invitation.mode === "reconnect";
+  const instruction = scanInstruction(invitation);
   const nextStep = reconnect ? "Scan with a saved phone, then press Enter here." : "Return here to approve your phone.";
   const waiting = reconnect ? "Your saved pairing stays the same." : "Waiting for your phone…";
   const command = reconnect ? "mindwire reconnect" : "mindwire connect pair";
@@ -110,7 +117,8 @@ export async function showPairingInvitation(invitation: ComputerConnectionCode, 
   const interactive = !!output.isTTY && environment.TERM !== "dumb";
   const linkOnly = mode === "none" || (!interactive && mode !== "browser");
   if (linkOnly) {
-    output.write(`Paste this link in Mindwire → Add computer (expires in 5 minutes):\n${computerPairingURI(invitation)}\n\n${waiting}\n`);
+    const destination = reconnect ? "Workspaces → your computer → Reconnect Computer" : "Add computer";
+    output.write(`Paste this link in Mindwire → ${destination} (expires in 5 minutes):\n${computerPairingURI(invitation)}\n\n${waiting}\n`);
     return { close() {} };
   }
 
@@ -125,10 +133,10 @@ export async function showPairingInvitation(invitation: ComputerConnectionCode, 
     if (closed || !useScreen) return;
     let lines: string[];
     if (fits()) {
-      lines = [scanInstruction, "", ...qr.lines, "", waiting];
+      lines = [instruction, "", ...qr.lines, "", waiting];
     } else {
       const size = `Terminal QR needs ${qr.columns} columns × ${qr.rows} rows.`;
-      lines = browser === "opened" ? ["QR opened in your browser.", scanInstruction, nextStep]
+      lines = browser === "opened" ? ["QR opened in your browser.", instruction, nextStep]
         : browser === "opening" ? ["Opening a resizable QR in your browser…", nextStep]
         : browser === "failed" ? ["Couldn't open a browser here.", size, "Enlarge this terminal, or run:", `${command} --no-qr`]
         : [size, "Enlarge this terminal, or use --qr browser."];
@@ -159,7 +167,7 @@ export async function showPairingInvitation(invitation: ComputerConnectionCode, 
       if (closed) return;
       if (useScreen) draw();
       else output.write(browser === "opened"
-        ? `QR opened in your browser.\n${scanInstruction}\n${nextStep}\n`
+        ? `QR opened in your browser.\n${instruction}\n${nextStep}\n`
         : `Open this local QR page in a browser:\n${pageURL ?? `Page unavailable. Run ${command} --no-qr for a link.`}\n\n${waiting}\n`);
     })();
     return browserAttempt;

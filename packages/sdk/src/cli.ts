@@ -127,7 +127,8 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     const action = await chooseConnectionAction({ requested: requestedAction, devices, question });
     const startupPreference = await startupStatus(directory);
     const startupAction = await chooseStartupAction({ state: startupPreference,
-      startup: values.startup, noStartup: values["no-startup"], question });
+      startup: values.startup, noStartup: values["no-startup"],
+      question: action === "pair" && saved.length === 0 ? question : undefined });
     if (startupAction !== undefined) {
       try {
         const startup = await configureStartup(directory, fileURLToPath(import.meta.url), startupAction);
@@ -153,6 +154,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       const code = reconnectCode(await client.computer.info(), hostname());
       emit("reconnect_code", { code, uri: computerPairingURI(code) });
       if (values.json) return;
+      emit("reconnect_instructions", {}, "\nOn your iPhone: Workspaces → your computer → Reconnect Computer → Scan Connection Code.\nThis refreshes the saved connection; it does not pair another phone.");
       const display = await showPairingInvitation(code, {
         mode: values["no-qr"] ? "none" : (values.qr ?? "auto") as PairingQRMode,
       });
@@ -163,7 +165,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
           await delay(Math.max(0, Date.parse(code.expiresAt) - Date.now()));
         }
       } finally { display.close(); }
-      emit("resumed", { computerId: info.computerId }, "Saved pairing kept. Mindwire continues running in the background.");
+      const connected = (await client.computer.devices()).filter(device => !device.revoked && device.connected);
+      emit(connected.length ? "connected" : "waiting_for_phone", { computerId: info.computerId, devices: connected }, connected.length
+        ? `Connected:\n${deviceSummary(connected)}\nMindwire continues running in the background.`
+        : "Mindwire is running. Open Reconnect Computer on your iPhone and scan the code to refresh its address.");
       return;
     }
     const invitation = await client.computer.invite((await client.computer.info()).routes);
