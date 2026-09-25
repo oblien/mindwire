@@ -4,7 +4,7 @@
 #
 # npm distributes one package: `mindwire`. Daemon binaries ship separately as GitHub Release assets and
 # Docker images, so this verifies the exact consumer path: pack the SDK, install it in an empty project,
-# and load its public ESM API without reaching into this monorepo's node_modules.
+# load its public ESM API, and invoke npm's CLI command without reaching into this monorepo's node_modules.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -40,6 +40,8 @@ if (typeof mindwire.Mindwire !== "function") {
   throw new Error("mindwire package did not expose Mindwire");
 }
 EOF
-) && pass "installed and loaded the SDK in an empty project" || fail "packaged SDK smoke failed"
+  mindwire_cli_help="$(./node_modules/.bin/mindwire --help)"
+  [[ "$mindwire_cli_help" == *"mindwire connect"* ]] || fail "installed CLI did not display setup help"
+) && pass "installed SDK and CLI work in an empty project" || fail "packaged SDK smoke failed"
 
 printf '\033[32m✔ SDK release smoke passed.\033[0m\n'

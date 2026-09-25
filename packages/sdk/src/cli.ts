@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { createInterface } from "node:readline/promises";
@@ -170,7 +171,18 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+function isCLIEntry(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    // npm links its bin command: argv keeps the link, while ESM resolves the module.
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    // Importing the CLI from an eval or another program must not start a service.
+    return false;
+  }
+}
+
+if (isCLIEntry()) {
   void main().catch(error => {
     const message = error instanceof Error ? error.message : String(error);
     if (process.argv.includes("--json")) process.stderr.write(JSON.stringify({ event: "error", message }) + "\n");
