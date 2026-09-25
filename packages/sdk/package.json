@@ -1,6 +1,6 @@
 {
   "name": "mindwire",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "bin": { "mindwire": "./dist/cli.js" },
