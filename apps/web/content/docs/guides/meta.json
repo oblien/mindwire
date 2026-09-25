@@ -16,6 +16,7 @@
     "agents",
     "setup",
     "authentication",
-    "destinations"
+    "destinations",
+    "personal-computers"
   ]
 }

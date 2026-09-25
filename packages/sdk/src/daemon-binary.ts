@@ -48,27 +48,13 @@ export async function ensureDaemonBinary(opts: EnsureDaemonBinaryOptions = {}): 
     throw new MindwireError(`mindwire: cannot download daemon for non-release SDK version ${version}`);
   }
 
-  const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const os = await import("node:os");
-  const crypto = await import("node:crypto");
-  const home = os.homedir();
-  const defaultCache = daemonPlatform === "darwin"
-    ? path.join(home, "Library", "Caches", "mindwire")
-    : daemonPlatform === "win32"
-      ? path.join(proc.process?.env?.LOCALAPPDATA ?? home, "mindwire", "Cache")
-      : path.join(proc.process?.env?.XDG_CACHE_HOME ?? path.join(home, ".cache"), "mindwire");
-  const dir = path.join(opts.cacheDir ?? defaultCache, version, `${daemonPlatform}-${daemonArch}`);
+  const { binaryCacheDirectory, cachedExecutable, cacheExecutable } = await import("./binary-cache.js");
+  const dir = path.join(opts.cacheDir ?? await binaryCacheDirectory(daemonPlatform), version, `${daemonPlatform}-${daemonArch}`);
   const asset = assetName(version, daemonPlatform, daemonArch);
   const bin = path.join(dir, asset);
-  const shaFile = `${bin}.sha256`;
-
-  try {
-    const [bytes, expected] = await Promise.all([fs.readFile(bin), fs.readFile(shaFile, "utf8")]);
-    if (crypto.createHash("sha256").update(bytes).digest("hex") === expected.trim()) return bin;
-  } catch {
-    // Missing or incomplete cache entries are replaced atomically below.
-  }
+  const cached = await cachedExecutable(bin);
+  if (cached) return cached;
 
   const base = (opts.releaseBaseUrl ?? proc.process?.env?.MINDWIRE_RELEASE_BASE_URL ?? "https://github.com/oblien/mindwire/releases/download").replace(/\/$/, "");
   const release = `${base}/v${version}`;
@@ -93,15 +79,5 @@ export async function ensureDaemonBinary(opts: EnsureDaemonBinaryOptions = {}): 
   const expected = checksumFor(await checksums.text(), asset);
   if (!expected) throw new MindwireError(`mindwire: release v${version} has no checksum for ${asset}`);
   const bytes = new Uint8Array(await binary.arrayBuffer());
-  const actual = crypto.createHash("sha256").update(bytes).digest("hex");
-  if (actual !== expected) throw new MindwireError(`mindwire: checksum verification failed for ${asset}`);
-
-  await fs.mkdir(dir, { recursive: true });
-  const temp = `${bin}.${process.pid}.tmp`;
-  await fs.writeFile(temp, bytes, { mode: 0o755 });
-  await fs.writeFile(`${shaFile}.${process.pid}.tmp`, `${expected}\n`);
-  await fs.rename(temp, bin);
-  await fs.rename(`${shaFile}.${process.pid}.tmp`, shaFile);
-  if (daemonPlatform !== "win32") await fs.chmod(bin, 0o755);
-  return bin;
+  return cacheExecutable(bin, bytes, expected);
 }

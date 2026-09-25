@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/oblien/mindwire/daemon/internal/computer"
 )
 
 // TestOpenAPIRouteParity asserts daemon/openapi.json documents exactly the routes the daemon
@@ -39,6 +41,9 @@ func TestOpenAPIRouteParity(t *testing.T) {
 	a := New(nil, nil, nil)
 	for _, rt := range append(a.Routes(), PublicRoutes...) {
 		live[rt.Method+" "+rt.Pattern] = true
+	}
+	for _, pattern := range computer.ControlPatterns() {
+		live[pattern] = true
 	}
 
 	for k := range live {

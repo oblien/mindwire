@@ -609,6 +609,23 @@ func TestSDKRouteParity(t *testing.T) {
 	// Each HTTP route → the SDK method covering it. A new route with no entry (or an entry naming a
 	// route that no longer exists) fails the test.
 	coverage := map[string]string{
+		"GET /workspace/host":                  "Execution.Info",
+		"GET /workspace/resources":             "Execution.Resources",
+		"GET /workspace/files":                 "Execution.Files",
+		"GET /workspace/file":                  "Execution.Read",
+		"PUT /workspace/file":                  "Execution.Write",
+		"DELETE /workspace/file":               "Execution.Delete",
+		"POST /workspace/exec":                 "Execution.Exec",
+		"POST /workspace/exec/stream":          "Execution.Exec output callback",
+		"GET /workspace/terminals":             "Execution.Terminals.List",
+		"POST /workspace/terminals":            "Execution.Terminals.Open",
+		"GET /workspace/terminals/{id}":        "Execution.Terminals.Get",
+		"DELETE /workspace/terminals/{id}":     "Execution.Terminals.Remove",
+		"POST /workspace/terminals/{id}/input": "Terminal.Input",
+		"PUT /workspace/terminals/{id}/size":   "Terminal.Resize",
+		"GET /workspace/terminals/{id}/events": "Terminal.Subscribe",
+		"GET /workspace/git/identity":          "HTTP/TypeScript: workspace.git.identity; daemon Git service required",
+		"PUT /workspace/git/identity":          "HTTP/TypeScript: workspace.git.setIdentity; daemon Git service required",
 		// Replacing a daemon executable is not an operation on an embedded library.
 		"GET /service/update":         "HTTP/TypeScript: service.updateStatus; daemon installer only",
 		"POST /service/update":        "HTTP/TypeScript: service.acquireUpdate; daemon installer only",

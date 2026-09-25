@@ -4,6 +4,8 @@ import { Run } from "./run.js";
 import { WorkspaceApi, type ProjectAuth } from "./workspace.js";
 import { SurfacesApi } from "./surfaces.js";
 import { ServiceApi } from "./service.js";
+import { ExecutionApi } from "./execution.js";
+import { ComputerApi } from "./computer.js";
 import { local, type Target, type TargetHandle, type ConnectSpec } from "./target/index.js";
 import type { EnsureEvent } from "./target/host.js";
 import type {
@@ -115,6 +117,8 @@ export class Mindwire {
   readonly workspace: WorkspaceApi;
   readonly surfaces: SurfacesApi;
   readonly service: ServiceApi;
+  readonly execution: ExecutionApi;
+  readonly computer: ComputerApi;
   readonly http: Http;
   /** The default agent type applied to agent-scoped calls, if set. */
   readonly defaultAgent: string | undefined;
@@ -156,6 +160,8 @@ export class Mindwire {
     this.workspace = new WorkspaceApi(this);
     this.surfaces = new SurfacesApi(this);
     this.service = new ServiceApi(this);
+    this.execution = new ExecutionApi(this);
+    this.computer = new ComputerApi(this);
     this.auth = new AuthApi(this);
     this.prompts = new PromptsApi(this);
     this.mcp = new McpApi(this);
@@ -181,6 +187,8 @@ export class Mindwire {
     clone.workspace = new WorkspaceApi(clone as Mindwire);
     clone.surfaces = new SurfacesApi(clone as Mindwire);
     clone.service = new ServiceApi(clone as Mindwire);
+    clone.execution = new ExecutionApi(clone as Mindwire);
+    clone.computer = new ComputerApi(clone as Mindwire);
     clone.auth = new AuthApi(clone as Mindwire);
     clone.prompts = new PromptsApi(clone as Mindwire);
     clone.mcp = new McpApi(clone as Mindwire);

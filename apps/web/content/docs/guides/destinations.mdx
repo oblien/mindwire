@@ -67,8 +67,8 @@ Two zero-config `local()` clients are a special case: they share one loopback da
 | your `Target` | anywhere | whatever `fetch`/`headers`/`token` you return | — |
 
 `ssh` / `docker` / `oblien` each need one **optional peer dependency**, loaded only when you call that
-factory's `connect()`. Importing `mindwire`, or constructing the factory, never loads them — the core
-package stays dependency-free. Install the one you use:
+factory's `connect()`. Importing `mindwire`, or constructing the factory, never loads them.
+Install the provider package you use:
 
 ```bash
 npm i mindwire ssh2        # ssh target

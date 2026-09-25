@@ -86,6 +86,10 @@ jobs:
           MINDWIRE_DAEMON: ${{ runner.temp }}/mindwired
           MINDWIRE_LINUX_DAEMON: ${{ runner.temp }}/mindwired
         run: bun --filter='mindwire' run test:e2e
+      - name: Verify personal computer lifecycle and terminal recovery
+        env:
+          MINDWIRE_COMPUTER_TEST_BINARY: ${{ runner.temp }}/mindwired
+        run: bun --cwd packages/sdk test test/computer-live.test.ts
 
   web:
     name: "web (Next.js)"

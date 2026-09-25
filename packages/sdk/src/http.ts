@@ -280,7 +280,8 @@ export class Http {
         url,
         {
           method,
-          headers: this.headers(await this.authToken(base, force), extra),
+          headers: this.headers(await this.authToken(base, force), extra, init.body !== undefined),
+          ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
           ...(init.signal ? { signal: init.signal } : {}),
         },
         method,

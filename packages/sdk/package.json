@@ -3,8 +3,10 @@
   "version": "0.1.20",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
+  "bin": { "mindwire": "./dist/cli.js" },
   "devDependencies": {
     "@types/node": "26.1.1",
+    "@types/qrcode": "^1.5.5",
     "tsup": "8.5.1",
     "typedoc": "^0.28.20",
     "typedoc-plugin-markdown": "^4.12.0",
@@ -71,5 +73,8 @@
   },
   "sideEffects": false,
   "type": "module",
-  "types": "./dist/index.d.ts"
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  }
 }

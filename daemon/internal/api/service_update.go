@@ -9,6 +9,12 @@ import (
 
 func (a *API) externalServiceActivity() int {
 	n := 0
+	if a.connectionActivity != nil {
+		n += a.connectionActivity()
+	}
+	if a.execution != nil && a.execution.Terminals.Busy() {
+		n++
+	}
 	if a.projects != nil {
 		n += a.projects.ActiveCount()
 	}
@@ -19,6 +25,12 @@ func (a *API) externalServiceActivity() int {
 		n += a.surfaces.ActiveSessionCount()
 	}
 	return n
+}
+
+// Computer connections are optional and share the same service-update admission.
+func (a *API) SetConnectionActivity(activity func() int) { a.connectionActivity = activity }
+func (a *API) ConnectionOperation(next http.HandlerFunc) http.HandlerFunc {
+	return a.serviceOperation(next)
 }
 
 func (a *API) serviceUpdateStatus(w http.ResponseWriter, r *http.Request) {

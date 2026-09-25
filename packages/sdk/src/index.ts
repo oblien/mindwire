@@ -63,3 +63,5 @@ export type { WorkspaceRecord, WorkspaceAgent, WorkspaceProject, WorkspaceChat, 
   WorkspaceInput, WorkspaceImport, WorkspaceSnapshot } from "./workspace.js";
 
 export * from "./surfaces.js";
+export * from "./execution.js";
+export * from "./computer.js";

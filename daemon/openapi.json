@@ -51,6 +51,18 @@
     {
       "name": "Surfaces",
       "description": "Workspace desktop sessions, one controller shared across harnesses, and durable screenshot artifacts."
+    },
+    {
+      "name": "Execution",
+      "description": "Native files, resources and argv execution over any authenticated workspace transport."
+    },
+    {
+      "name": "Terminals",
+      "description": "Daemon-owned PTYs; detaching preserves the shell. Streams resume with sequence cursors."
+    },
+    {
+      "name": "Computer",
+      "description": "Optional computer mode only. Workspace API remains authenticated loopback HTTP, carried inside pinned SSH."
     }
   ],
   "components": {
@@ -231,6 +243,18 @@
           "gitIdentityVersion": {
             "type": "integer",
             "description": "Independent Git author settings; version 1 supports repository, workspace and client-distributed all-workspaces defaults."
+          },
+          "workspaceExecutionVersion": {
+            "type": "integer",
+            "description": "Protocol capability version; zero means unavailable."
+          },
+          "terminalProtocolVersion": {
+            "type": "integer",
+            "description": "Protocol capability version; zero means unavailable."
+          },
+          "computerConnectionVersion": {
+            "type": "integer",
+            "description": "Protocol capability version; zero means unavailable."
           }
         },
         "required": [
@@ -4335,6 +4359,589 @@
           }
         },
         "description": "Saves attribution only. Null removes this override. all_workspaces requires requestId and expectedRevision, and updates only this daemon; clients distribute their default to each connected workspace. Never stages or commits."
+      },
+      "WorkspaceHost": {
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          },
+          "home": {
+            "type": "string"
+          },
+          "directory": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "hostname",
+          "os",
+          "arch",
+          "home",
+          "directory",
+          "pid"
+        ]
+      },
+      "HostResources": {
+        "type": "object",
+        "properties": {
+          "cpus": {
+            "type": "integer"
+          },
+          "memoryMb": {
+            "type": "integer"
+          },
+          "diskMb": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cpus",
+          "memoryMb",
+          "diskMb"
+        ]
+      },
+      "WorkspaceFile": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "file",
+              "dir"
+            ]
+          },
+          "size": {
+            "type": "integer"
+          },
+          "modifiedAt": {
+            "type": "string"
+          },
+          "isIgnored": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "type",
+          "size",
+          "modifiedAt",
+          "isIgnored"
+        ]
+      },
+      "WorkspaceFileContent": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ]
+      },
+      "WorkspaceExecRequest": {
+        "type": "object",
+        "properties": {
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 256
+          },
+          "directory": {
+            "type": "string"
+          },
+          "input": {
+            "type": "string"
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "maximum": 600000
+          }
+        },
+        "required": [
+          "argv"
+        ]
+      },
+      "WorkspaceExecResult": {
+        "type": "object",
+        "properties": {
+          "stdout": {
+            "type": "string"
+          },
+          "stderr": {
+            "type": "string"
+          },
+          "exitCode": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stdout",
+          "stderr",
+          "exitCode"
+        ]
+      },
+      "WorkspaceExecEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "output"
+              },
+              "channel": {
+                "enum": [
+                  "stdout",
+                  "stderr"
+                ]
+              },
+              "data": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "channel",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "exit"
+              },
+              "exitCode": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "exitCode"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "error"
+              },
+              "error": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "error"
+            ]
+          }
+        ]
+      },
+      "TerminalRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "directory": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 512
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 256
+          }
+        },
+        "required": [
+          "id",
+          "columns",
+          "rows"
+        ]
+      },
+      "TerminalState": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "directory": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 512
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 256
+          },
+          "title": {
+            "type": "string"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "exitCode": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "directory",
+          "title",
+          "columns",
+          "rows",
+          "running",
+          "createdAt"
+        ]
+      },
+      "TerminalInput": {
+        "type": "object",
+        "properties": {
+          "writer": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "data": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "description": "Raw terminal bytes. Retry exactly this writer/sequence/data after a lost acknowledgement."
+          }
+        },
+        "required": [
+          "writer",
+          "sequence",
+          "data"
+        ]
+      },
+      "TerminalEvent": {
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "output",
+              "reset",
+              "exit"
+            ]
+          },
+          "data": {
+            "type": "string",
+            "contentEncoding": "base64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TerminalState"
+          }
+        },
+        "required": [
+          "sequence",
+          "kind"
+        ]
+      },
+      "ComputerRoute": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "ssh"
+              },
+              "host": {
+                "type": "string"
+              },
+              "port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              }
+            },
+            "required": [
+              "kind",
+              "host",
+              "port"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "websocket"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "wss:// route to the encrypted SSH bridge. ws:// is restricted to loopback development fixtures."
+              }
+            },
+            "required": [
+              "kind",
+              "url"
+            ]
+          }
+        ]
+      },
+      "ComputerRoutes": {
+        "type": "object",
+        "properties": {
+          "routes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComputerRoute"
+            },
+            "minItems": 1,
+            "maxItems": 12
+          }
+        },
+        "required": [
+          "routes"
+        ]
+      },
+      "ComputerInvitation": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "computerId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "routes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComputerRoute"
+            }
+          },
+          "pairingId": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string",
+            "writeOnly": false,
+            "description": "Expiring pairing capability. Do not log or include in workspace snapshots."
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "computerId",
+          "name",
+          "fingerprint",
+          "routes",
+          "pairingId",
+          "secret",
+          "expiresAt"
+        ]
+      },
+      "ComputerDevice": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "publicKey": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "publicKey",
+          "createdAt",
+          "revoked"
+        ]
+      },
+      "ComputerPairRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "publicKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "publicKey"
+        ]
+      },
+      "ComputerPairing": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "waiting",
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          },
+          "request": {
+            "$ref": "#/components/schemas/ComputerPairRequest"
+          },
+          "completed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "expiresAt",
+          "status"
+        ]
+      },
+      "ComputerInfo": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer"
+          },
+          "computerId": {
+            "type": "string"
+          },
+          "registryId": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "routes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComputerRoute"
+            }
+          },
+          "pid": {
+            "type": "integer"
+          },
+          "apiAddress": {
+            "type": "string"
+          },
+          "sshPort": {
+            "type": "integer"
+          },
+          "websocketPort": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "computerId",
+          "registryId",
+          "fingerprint",
+          "routes",
+          "pid",
+          "apiAddress",
+          "sshPort",
+          "websocketPort"
+        ]
+      },
+      "ComputerUpdate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "idle",
+              "queued",
+              "downloading",
+              "waiting",
+              "restarting",
+              "complete",
+              "failed"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ]
       }
     }
   },
@@ -11181,6 +11788,1092 @@
             "description": "Optional repository directory when no registered project is selected."
           }
         ]
+      }
+    },
+    "/workspace/host": {
+      "get": {
+        "tags": [
+          "Execution"
+        ],
+        "summary": "Computer operating system and default directory",
+        "operationId": "getWorkspaceHost",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceHost"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        }
+      }
+    },
+    "/workspace/resources": {
+      "get": {
+        "tags": [
+          "Execution"
+        ],
+        "summary": "Computer hardware capacity",
+        "operationId": "getWorkspaceResources",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostResources"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        }
+      }
+    },
+    "/workspace/files": {
+      "get": {
+        "tags": [
+          "Execution"
+        ],
+        "summary": "List a directory or search filenames",
+        "operationId": "getWorkspaceFiles",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkspaceFile"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workspace/file": {
+      "get": {
+        "tags": [
+          "Execution"
+        ],
+        "summary": "Read a UTF-8 text file (up to 4 MiB)",
+        "operationId": "getWorkspaceFile",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceFileContent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Execution"
+        ],
+        "summary": "Atomically write a text file",
+        "operationId": "putWorkspaceFile",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceFileContent"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Execution"
+        ],
+        "summary": "Delete a file or directory",
+        "operationId": "deleteWorkspaceFile",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workspace/exec": {
+      "post": {
+        "tags": [
+          "Execution"
+        ],
+        "summary": "Execute argv without implicit shell expansion",
+        "operationId": "postWorkspaceExec",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceExecResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceExecRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/exec/stream": {
+      "post": {
+        "tags": [
+          "Execution"
+        ],
+        "summary": "Stream command output and final exit",
+        "operationId": "postWorkspaceExecStream",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceExecEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "description": "Output data is base64. Cancelling this request cancels the command; use persistent terminals or existing job APIs for detached work.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceExecRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/terminals": {
+      "get": {
+        "tags": [
+          "Terminals"
+        ],
+        "summary": "List persistent terminals",
+        "operationId": "getWorkspaceTerminals",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TerminalState"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Terminals"
+        ],
+        "summary": "Open a terminal with a stable client ID",
+        "operationId": "postWorkspaceTerminals",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminalState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "description": "An existing ID in the same directory returns the existing terminal. Closing a terminal permanently retires its ID for this daemon lifetime.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminalRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/terminals/{id}": {
+      "get": {
+        "tags": [
+          "Terminals"
+        ],
+        "summary": "Get terminal state",
+        "operationId": "getWorkspaceTerminalsId",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminalState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Terminals"
+        ],
+        "summary": "Close and retire a terminal",
+        "operationId": "deleteWorkspaceTerminalsId",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workspace/terminals/{id}/input": {
+      "post": {
+        "tags": [
+          "Terminals"
+        ],
+        "summary": "Write ordered, idempotent input",
+        "operationId": "postWorkspaceTerminalsIdInput",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "sequence": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminalInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/terminals/{id}/size": {
+      "put": {
+        "tags": [
+          "Terminals"
+        ],
+        "summary": "Resize a PTY",
+        "operationId": "putWorkspaceTerminalsIdSize",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminalState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "columns": {
+                    "type": "integer"
+                  },
+                  "rows": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "columns",
+                  "rows"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/terminals/{id}/events": {
+      "get": {
+        "tags": [
+          "Terminals"
+        ],
+        "summary": "Attach or resume output",
+        "operationId": "getWorkspaceTerminalsIdEvents",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminalEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "description": "Detaching leaves the terminal running. Apply events once by sequence. If older than the bounded replay window, a reset event replaces the terminal screen.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/computer": {
+      "get": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Get computer identity and routes",
+        "operationId": "getComputer",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        }
+      }
+    },
+    "/computer/routes": {
+      "put": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Update advertised routes without changing identity",
+        "operationId": "putComputerRoutes",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComputerRoutes"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/computer/pairings": {
+      "post": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Create a five-minute pairing invitation",
+        "operationId": "postComputerPairings",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerInvitation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComputerRoutes"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/computer/pairings/{id}": {
+      "get": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Inspect the exact pending device request",
+        "operationId": "getComputerPairingsId",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerPairing"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/computer/pairings/{id}/decision": {
+      "post": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Approve or reject that device key",
+        "operationId": "postComputerPairingsIdDecision",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "device": {
+                      "$ref": "#/components/schemas/ComputerDevice"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "requestId": {
+                    "type": "string"
+                  },
+                  "approve": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "requestId",
+                  "approve"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/computer/devices": {
+      "get": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "List approved or revoked devices",
+        "operationId": "getComputerDevices",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ComputerDevice"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        }
+      }
+    },
+    "/computer/devices/{id}": {
+      "delete": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Revoke a key and close its active connections",
+        "operationId": "deleteComputerDevicesId",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/computer/update": {
+      "get": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Read durable managed update status",
+        "operationId": "getComputerUpdate",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerUpdate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Queue a verified release update when idle",
+        "operationId": "postComputerUpdate",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerUpdate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Conflicting request or service update in progress"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "version"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/computer/pairings/{id}/complete": {
+      "post": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Acknowledge that the paired device saved its key and connected",
+        "description": "The newly paired client calls this through its fully authenticated workspace connection to release the pairing update reservation. Retrying the same request is safe.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "requestId"
+                ],
+                "properties": {
+                  "requestId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pairing complete"
+          },
+          "400": {
+            "description": "Pairing has not been approved or request ID does not match"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          }
+        }
       }
     }
   }

@@ -2,13 +2,32 @@
 
 package proc
 
-import "os/exec"
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"time"
+)
 
-// Group is a reduced best-effort on Windows: the daemon drives agents through
-// `bash -lc`, which isn't part of a standard Windows environment, so the Unix
-// process-group semantics don't apply. We still set WaitDelay so an inherited pipe
-// can't wedge Wait(); CommandContext's default Cancel (kill the child) still runs.
-// A first-class Windows target would need a Job Object to kill the whole tree.
+// Cancel the process tree on Windows as well as the immediate shell. taskkill is
+// a Windows system utility; arguments are passed directly without a command shell.
 func Group(cmd *exec.Cmd) {
 	cmd.WaitDelay = killGrace
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		command := "taskkill.exe"
+		if root := os.Getenv("SystemRoot"); root != "" {
+			command = filepath.Join(root, "System32", command)
+		}
+		if err := exec.CommandContext(ctx, command, "/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F").Run(); err != nil {
+			_ = cmd.Process.Kill()
+		}
+		return nil
+	}
 }

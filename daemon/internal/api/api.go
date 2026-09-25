@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime"
 	"sort"
 	"strconv"
@@ -34,6 +35,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/stream"
 	"github.com/oblien/mindwire/daemon/internal/surface"
 	"github.com/oblien/mindwire/daemon/internal/toolchain"
+	"github.com/oblien/mindwire/daemon/internal/workspaceexec"
 )
 
 const (
@@ -46,17 +48,19 @@ const (
 )
 
 type API struct {
-	gitAccess  *gitaccess.Service
-	gitAuthors *gitauthor.Service
-	gitJobs    *gitops.Service
-	projects   *projects.Service
-	surfaces   *surface.Service
-	initError  error
-	registry   *registry.Store
-	registryMu sync.Mutex // order registry mutations against starting/deleting a chat
-	store      *session.Store
-	hub        *stream.Hub
-	sup        *orchestrator.Supervisor
+	execution          *workspaceexec.Service
+	connectionActivity func() int
+	gitAccess          *gitaccess.Service
+	gitAuthors         *gitauthor.Service
+	gitJobs            *gitops.Service
+	projects           *projects.Service
+	surfaces           *surface.Service
+	initError          error
+	registry           *registry.Store
+	registryMu         sync.Mutex // order registry mutations against starting/deleting a chat
+	store              *session.Store
+	hub                *stream.Hub
+	sup                *orchestrator.Supervisor
 
 	// started stamps daemon boot so GET /stats can report uptime without any external timer.
 	started time.Time
@@ -64,7 +68,7 @@ type API struct {
 
 // New builds the HTTP API over the supervisor (which hosts all agents) and the shared store.
 func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, registries ...*registry.Store) *API {
-	a := &API{store: store, hub: hub, sup: sup, started: time.Now()}
+	a := &API{store: store, hub: hub, sup: sup, started: time.Now(), execution: workspaceexec.New(os.Getenv("AGENT_CWD"))}
 	if len(registries) > 0 {
 		a.registry = registries[0]
 		if a.registry != nil {
@@ -92,6 +96,9 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 
 func (a *API) InitError() error { return a.initError }
 func (a *API) Close() {
+	if a.execution != nil {
+		a.execution.Terminals.Close()
+	}
 	if a.gitJobs != nil {
 		a.gitJobs.Close()
 	}
@@ -118,6 +125,21 @@ type Route struct {
 // Routes is the full authenticated API surface. Every agent-specific route accepts ?agent=<type>.
 func (a *API) Routes() []Route {
 	return []Route{
+		{"GET", "/workspace/host", a.workspaceHost},
+		{"GET", "/workspace/resources", a.workspaceResources},
+		{"GET", "/workspace/files", a.workspaceFiles},
+		{"GET", "/workspace/file", a.workspaceFileRead},
+		{"PUT", "/workspace/file", a.workspaceFileWrite},
+		{"DELETE", "/workspace/file", a.workspaceFileDelete},
+		{"POST", "/workspace/exec", a.workspaceExec},
+		{"POST", "/workspace/exec/stream", a.workspaceExecStream},
+		{"GET", "/workspace/terminals", a.terminalsList},
+		{"POST", "/workspace/terminals", a.terminalsOpen},
+		{"GET", "/workspace/terminals/{id}", a.terminalGet},
+		{"DELETE", "/workspace/terminals/{id}", a.terminalDelete},
+		{"POST", "/workspace/terminals/{id}/input", a.terminalInput},
+		{"PUT", "/workspace/terminals/{id}/size", a.terminalResize},
+		{"GET", "/workspace/terminals/{id}/events", a.terminalEvents},
 		{"GET", "/service/update", a.serviceUpdateStatus},
 		{"POST", "/service/update", a.serviceUpdateAcquire},
 		{"DELETE", "/service/update/{id}", a.serviceUpdateRelease},

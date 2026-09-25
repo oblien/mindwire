@@ -22,6 +22,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/stream"
 	"github.com/oblien/mindwire/daemon/internal/surface"
 	"github.com/oblien/mindwire/daemon/internal/toolchain"
+	"github.com/oblien/mindwire/daemon/internal/workspaceexec"
 )
 
 // Options configures a Client. The zero value is usable: it opens "agent-state.json" in the current
@@ -55,6 +56,7 @@ type core struct {
 	registry   *registry.Store
 	projects   *projects.Service
 	surfaces   *surface.Service
+	execution  *workspaceexec.Service
 	registryMu sync.Mutex
 
 	mu     sync.Mutex
@@ -91,6 +93,7 @@ type Client struct {
 	// Workspace owns saved workspace metadata shared across all harness views.
 	Workspace *Workspace
 	Surfaces  *Surfaces
+	Execution *WorkspaceExecution
 }
 
 // New constructs a Client, wiring the engine exactly as daemon/cmd/daemon/main.go does minus the HTTP
@@ -145,7 +148,8 @@ func New(opts Options) (*Client, error) {
 	sup.SetSurfaces(surfaceService)
 	co := &core{
 		store: store, hub: hub, sup: sup, cwd: opts.CWD, registry: workspaceRegistry, projects: projectService, surfaces: surfaceService,
-		runs: map[string]struct{}{},
+		runs:      map[string]struct{}{},
+		execution: workspaceexec.New(opts.CWD),
 	}
 	c := &Client{core: co, defaultAgent: opts.Agent}
 	c.Auth = &Auth{c: c}
@@ -154,6 +158,7 @@ func New(opts Options) (*Client, error) {
 	c.Providers = &Providers{c: c}
 	c.Workspace = newWorkspace(c)
 	c.Surfaces = &Surfaces{c: c}
+	c.Execution = co.execution
 	return c, nil
 }
 
@@ -168,6 +173,7 @@ func (c *Client) WithAgent(agentType string) *Client {
 	view.Providers = &Providers{c: view}
 	view.Workspace = newWorkspace(view)
 	view.Surfaces = &Surfaces{c: view}
+	view.Execution = c.core.execution
 	return view
 }
 
@@ -196,6 +202,7 @@ func (c *Client) Close() error {
 	}
 	c.core.sup.Wait() // drain: every cancelled turn's final SaveRun lands before we return
 	c.core.projects.Close()
+	c.core.execution.Terminals.Close()
 	c.core.registryMu.Lock()
 	defer c.core.registryMu.Unlock()
 	c.core.surfaces.Close()
@@ -243,11 +250,13 @@ type Health struct {
 	HarnessPolicyVersion           int    `json:"harnessPolicyVersion"`
 	WorkspaceIsolationVersion      int    `json:"workspaceIsolationVersion"`
 	WorkspaceIsolation             string `json:"workspaceIsolation"`
+	WorkspaceExecutionVersion      int    `json:"workspaceExecutionVersion"`
+	TerminalProtocolVersion        int    `json:"terminalProtocolVersion"`
 }
 
 // Health returns the liveness snapshot. It cannot fail in-process.
 func (c *Client) Health() Health {
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation()}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package

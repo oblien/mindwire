@@ -1122,6 +1122,9 @@ export interface Health {
   serviceUpdateVersion?: number;
   /** Container placement supplies the sandbox boundary; approval policy is independent. */
   workspaceIsolationVersion?: number;
+  workspaceExecutionVersion?: number;
+  terminalProtocolVersion?: number;
+  computerConnectionVersion?: number;
   workspaceIsolation?: "direct" | "container";
 }
 

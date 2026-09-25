@@ -1,0 +1,200 @@
+---
+title: Personal computers
+description: Pair your phone with a Mac, Windows PC, or Linux computer and use the same Mindwire workspace, agents, files, Git, and terminal.
+---
+
+Run Mindwire on your computer and pair it with the mobile app. The computer becomes
+a workspace: projects, agents, chats, approvals, files, Git, and terminal tabs use
+the existing workspace APIs. An Oblien account is not required.
+
+## Connect a computer
+
+Install Node.js 18 or later, then run:
+
+```sh
+npm install -g mindwire
+mindwire connect
+```
+
+Mindwire downloads a verified daemon release for the computer, starts it in the
+background, and opens a Cloudflare internet tunnel by default. If needed, it
+downloads a verified connection helper into its private cache, with progress in
+the terminal. You can connect from another Wi-Fi network or mobile data.
+
+Mindwire then displays a QR code. In the mobile app, open **Add computer** and
+scan it, or paste the pairing link. Approve the phone in the computer's terminal;
+the device name and key fingerprint appear on both sides. The invitation expires
+after five minutes.
+
+Once paired, the app opens the computer's workspace. Create a project or select an
+existing folder, add an agent, and use its normal authentication and chat flow.
+**Open terminal** starts a native shell on the computer.
+
+Mindwire runs with the permissions of the computer user who started it. The initial
+folder defaults to that user's home; `--directory /path/to/projects` changes the
+initial folder, not the filesystem permissions or sandbox boundary. Git features
+need Git. On Windows, install Git for Windows for its Bash support as well. Harness
+availability still depends on the harness's operating-system requirements.
+
+You can close the pairing terminal after approval. The background service keeps
+running. The computer must remain awake and connected; after restarting it, run
+`mindwire start` to restore the saved connection settings. The default quick tunnel
+gets a new address after restart and needs a new pairing link. Choose a stable
+hostname or VPN below for regular use across computer restarts.
+
+## Choose a connection
+
+SSH supplies authentication and encryption on every route. Choose the network
+route according to how the phone can reach the computer:
+
+| Route | Needs a relay? | Suitable for |
+| --- | --- | --- |
+| Cloudflare or ngrok | Yes | Default internet access without inbound port forwarding |
+| Existing VPN, including Tailscale | Depends on the VPN's connectivity | Regular use across networks with a stable address |
+| Custom WebSocket tunnel | Your provider | An existing tunnel or self-hosted relay |
+| Reachable public address | No | A host with an existing secure network setup |
+| Same reachable Wi-Fi/LAN | No | Optional local use with no external service |
+
+Two devices behind unrelated NATs need a reachable address, VPN, or relay. The QR
+code establishes trust; it does not create a network path by itself. This protocol
+does not depend on Apple Continuity or on both devices using the same operating
+system.
+
+The default direct listener is TCP port **8791**. Mindwire leaves the computer's
+system SSH configuration unchanged. Allow that port on the intended network if
+the computer's firewall blocks it.
+
+### Direct SSH or an existing VPN
+
+Mindwire can also advertise the computer's available LAN/VPN addresses alongside
+its internet route. To use direct SSH alone, explicitly disable the relay:
+
+```sh
+mindwire connect --relay none --host laptop.local
+mindwire connect --relay none --host laptop.your-tailnet.ts.net
+```
+
+For Tailscale, connect the phone and computer to the same tailnet first. Mindwire
+then uses its own paired SSH identity over the VPN. It does not configure the VPN
+or require Tailscale SSH.
+
+### Cloudflare
+
+A quick tunnel is the default and works across networks without a Cloudflare
+account. Mindwire reuses `cloudflared` if installed or downloads a pinned, verified
+copy for its own use:
+
+```sh
+mindwire connect --relay cloudflare
+```
+
+Quick tunnel hostnames change when the tunnel restarts. For regular access, use a
+named tunnel with a stable public hostname. Configure that hostname to forward to
+`http://127.0.0.1:8792`, save its tunnel token in a private file, and run:
+
+```sh
+mindwire connect --relay cloudflare \
+  --relay-url wss://computer.example.com/ssh \
+  --cloudflare-token-file /path/to/private/tunnel-token
+```
+
+Mindwire passes the token to `cloudflared` through its environment and does not
+include it in the QR code. Browser sign-in challenges in front of the tunnel are
+not supported by this native connection; Mindwire's SSH keys authenticate devices.
+
+### ngrok
+
+Install ngrok and configure its account on the computer, then run:
+
+```sh
+mindwire connect --relay ngrok
+```
+
+To use your account's configured stable hostname:
+
+```sh
+mindwire connect --relay ngrok --relay-url wss://your-host.ngrok.app/ssh
+```
+
+### Existing or custom tunnels
+
+Any tunnel that supports binary WebSocket connections can carry this protocol.
+Forward its public `/ssh` route to `http://127.0.0.1:8792/ssh`, then advertise it:
+
+```sh
+mindwire connect --relay custom --relay-url wss://computer.example.com/ssh
+```
+
+The custom adapter advertises an already-running tunnel; the provider owns that
+tunnel's lifecycle. This is also the extension point for an Oblien tunnel that
+forwards the same WebSocket endpoint. No Oblien workspace needs to be created.
+
+With a relay, SSH bytes travel inside WSS. The phone still pins the computer's SSH
+key, so TLS termination at the provider does not expose workspace content. The
+daemon's authenticated HTTP API remains on loopback and is reached through SSH
+forwarding. Do not point a tunnel directly at that HTTP API.
+
+Direct and relay routes can coexist. The app selects an authenticated route before
+sending workspace requests. To change saved connection settings, stop the service
+when idle and run `mindwire connect` with the new options. Pair again to update a
+phone's saved routes; the computer identity and existing workspace are retained.
+
+## Terminals and reconnecting
+
+The daemon owns terminal sessions. Leaving the terminal view or losing the phone's
+connection detaches the client; it does not kill the shell. Returning restores the
+same terminal, recent output, and live input. Closing a terminal tab explicitly
+terminates that shell.
+
+Output replay is bounded to 2 MiB per terminal. If a client falls behind that
+window, it receives the current terminal screen and resumes from there. Input
+uses sequential receipts so retrying a lost acknowledgment does not type a command
+twice. macOS/Linux use a PTY; Windows uses ConPTY.
+
+Terminals survive client disconnects, not a computer reboot or daemon restart.
+The controller waits for running shells and other work before updating.
+
+## Devices and updates
+
+```sh
+mindwire status
+mindwire devices
+mindwire revoke DEVICE_ID
+mindwire stop
+```
+
+Each paired phone has its own key. Revocation closes that phone's active
+connections and rejects reconnects. Pairing keys and daemon credentials are held in
+the phone's Keychain; cached workspace metadata contains only credential references.
+Computer state is stored under `~/.mindwire/computer` by default.
+
+To update the CLI and service:
+
+```sh
+npm install -g mindwire@latest
+mindwire update
+```
+
+The controller downloads and verifies the release, waits for agent runs, workspace
+operations, pairing, and terminals to finish, then obtains the daemon's update
+lease. Concurrent requests share the update. If the replacement fails its health
+or version check, the controller restores the previous binary.
+
+`mindwire stop` refuses to interrupt active work. `mindwire stop --force` explicitly
+ends it. `--state-dir PATH` selects a separate private service state directory.
+
+## Protocol and scope
+
+The daemon advertises `computerConnectionVersion`, `workspaceExecutionVersion`,
+and `terminalProtocolVersion` in `/healthz`. Personal connections add pairing and
+transport; agent streaming, questions, approvals, projects, Git, and authentication
+continue through the standard daemon protocol.
+
+The SDK exposes native workspace execution through `client.execution` and computer
+management through `client.computer`. See the generated REST and SDK reference for
+file, resource, command, terminal, pairing, and update contracts.
+
+The mobile implementation is currently iOS. The wire protocol can support other
+clients, but this feature does not add an Android app. Personal desktop capture and
+off-device push delivery are separate capabilities from workspace and terminal
+access.
