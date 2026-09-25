@@ -21,7 +21,8 @@ background, and opens a Cloudflare internet tunnel by default. If needed, it
 downloads a verified connection helper into its private cache, with progress in
 the terminal. You can connect from another Wi-Fi network or mobile data.
 
-Mindwire then displays a QR code. In the mobile app, open **Add computer** and
+For a first connection, Mindwire asks whether to start automatically after computer
+login, then displays a QR code. In the mobile app, open **Add computer** and
 scan it, or paste the pairing link. Approve the phone in the computer's terminal;
 the device name and key fingerprint appear on both sides. The invitation expires
 after five minutes.
@@ -36,15 +37,32 @@ initial folder, not the filesystem permissions or sandbox boundary. Git features
 need Git. On Windows, install Git for Windows for its Bash support as well. Harness
 availability still depends on the harness's operating-system requirements.
 
-You can close the pairing terminal after approval. Mindwire enables automatic
-startup for your user account and runs after you sign in to the computer. It retries
+You can close the pairing terminal after approval. With automatic startup enabled,
+Mindwire runs after you sign in to the computer. It retries
 dropped tunnels and recovers the background controller without restarting a healthy
 daemon. The computer must remain awake and online.
 
 The default quick tunnel can get a new address after a tunnel restart. For unattended
 access across restarts, choose a stable hostname or VPN below. If all saved addresses
-change while the phone is away, scan a new code to refresh the connection; this
+change while the phone is away, run `mindwire reconnect` and scan its code to refresh the connection; this
 keeps the same computer identity, workspace and projects.
+
+### Return to a saved connection
+
+Run `mindwire connect` again to see your saved phones and choose **Resume saved
+connection**, **Refresh address**, or **Pair another phone**. Press Enter to resume.
+It reuses the existing computer identity and approved phone keys.
+
+```sh
+mindwire connect resume   # Resume without creating a QR code
+mindwire reconnect        # Refresh a saved phone's changed address
+mindwire connect pair     # Pair another phone, with approval
+```
+
+A reconnect code grants no access on its own. The phone verifies the computer
+using its saved keys before updating the address. Open **Computers & Servers →
+your computer → Reconnect computer** in the app, or scan through **Add computer**.
+Both update the same workspace without adding a duplicate.
 
 ### Automatic startup
 
@@ -57,8 +75,9 @@ mindwire startup disable
 Mindwire uses launchd on macOS, a systemd user service on Linux, and Task Scheduler
 on Windows. No administrator service or password is required. If native startup
 is unavailable, the CLI says so and the current connection still works. Use
-`mindwire start` to start it manually. `mindwire connect --no-startup` pairs without
-changing startup settings, and an explicitly disabled preference stays disabled.
+`mindwire start` to start it manually. The first-time startup choice is remembered;
+`mindwire connect --no-startup` skips setup and an explicitly disabled preference stays disabled.
+Scripts can use `--startup` to opt in; noninteractive runs do not enable startup by default.
 
 `mindwire stop` keeps the service stopped, including after login, until you run
 `mindwire start` or `mindwire connect`. Disabling automatic startup leaves an

@@ -257,11 +257,12 @@ type Health struct {
 	WorkspaceExecutionVersion      int    `json:"workspaceExecutionVersion"`
 	TerminalProtocolVersion        int    `json:"terminalProtocolVersion"`
 	TurnRequestVersion             int    `json:"turnRequestVersion"`
+	ImageAttachmentsVersion        int    `json:"imageAttachmentsVersion"`
 }
 
 // Health returns the liveness snapshot. It cannot fail in-process.
 func (c *Client) Health() Health {
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package
@@ -737,8 +738,8 @@ func (c *Client) Turn(ctx context.Context, req TurnRequest) (*Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	if req.ChatID == "" || req.Message == "" {
-		return nil, &APIError{Message: "chatId and message are required", Status: http.StatusBadRequest, Op: "Turn"}
+	if req.ChatID == "" || !agent.HasUserInput(req.Message, req.Options) {
+		return nil, &APIError{Message: "chatId and a message or attachment are required", Status: http.StatusBadRequest, Op: "Turn"}
 	}
 	if msg, ok := agent.UnsupportedTurnOption(ag.Adapter.Capabilities(), req.Options); !ok {
 		return nil, &APIError{Message: msg, Status: http.StatusBadRequest, Op: "Turn"}
@@ -833,8 +834,8 @@ func (c *Client) Resolve(ctx context.Context, req ResolveRequest) (*Run, error) 
 	if err != nil {
 		return nil, err
 	}
-	if req.ChatID == "" || req.Message == "" {
-		return nil, &APIError{Message: "chatId and message are required", Status: http.StatusBadRequest, Op: "Resolve"}
+	if req.ChatID == "" || !agent.HasUserInput(req.Message, req.Options) {
+		return nil, &APIError{Message: "chatId and a message or attachment are required", Status: http.StatusBadRequest, Op: "Resolve"}
 	}
 	if msg, ok := agent.UnsupportedTurnOption(ag.Adapter.Capabilities(), req.Options); !ok {
 		return nil, &APIError{Message: msg, Status: http.StatusBadRequest, Op: "Resolve"}

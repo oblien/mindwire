@@ -265,7 +265,11 @@ func mergeTurnParts(native, recorded []Message) []Message {
 	}
 	var result []Message
 	if native[0].Role == "user" {
-		result = append(result, native[0])
+		user := native[0]
+		if len(recorded) > 0 && recorded[0].Role == "user" {
+			user.Attachments = MergeInputAttachments(user.Attachments, recorded[0].Attachments)
+		}
+		result = append(result, user)
 	}
 	lastOwner := -1
 	usedIDs := map[string]int{}

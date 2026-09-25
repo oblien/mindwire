@@ -921,7 +921,10 @@ func (a appServer) threadOptions(p map[string]any) {
 }
 
 func (a appServer) turnParams(threadID string) map[string]any {
-	input := []any{map[string]any{"type": "text", "text": a.message}}
+	input := make([]any, 0, len(a.images)+1)
+	if strings.TrimSpace(a.message) != "" {
+		input = append(input, map[string]any{"type": "text", "text": a.message})
+	}
 	for _, path := range a.images {
 		input = append(input, map[string]any{"type": "localImage", "path": path})
 	}

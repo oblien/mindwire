@@ -192,6 +192,7 @@ type Supervisor struct {
 	inflight          int
 	serviceOperations int
 	updateLease       *ServiceUpdateLease
+	stopping          bool
 	idle              *sync.Cond
 }
 
@@ -334,7 +335,7 @@ func (s *Supervisor) StartResolveChecked(a *Agent, req StartTurnInput, ro Resolv
 	// timeout from it. Register the cancel under the parent id BEFORE returning, so an immediate cancel
 	// can't race an unregistered run into a 404 (same anti-race as start()).
 	parent := session.Run{ID: newID(), ChatID: req.ChatID, Agent: a.ID(), Status: "running", Kind: "resolve", CreatedAt: nowISO()}
-	message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO()}
+	message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments}
 	if err := s.store.SaveTurnStart(parent, &message, req.RequestID, digest); err != nil {
 		req.closeGit()
 		cancel()
@@ -400,7 +401,7 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 	req.GitAuth = nil
 	run := session.Run{ID: newID(), ChatID: req.ChatID, Agent: a.ID(), Status: "running", CreatedAt: nowISO()}
 	if req.reply != nil {
-		message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO()}
+		message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments}
 		if err := s.store.CommitInteractionReply(*req.reply, run.ID, message, &run); err != nil {
 			req.closeGit()
 			cancel()
@@ -410,7 +411,7 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 	} else {
 		var message *session.Message
 		if !compact {
-			message = &session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO()}
+			message = &session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments}
 		}
 		if err := s.store.SaveTurnStart(run, message, req.RequestID, digest); err != nil {
 			req.closeGit()

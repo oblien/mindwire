@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -189,6 +190,35 @@ func TestBuildExecCommandMaterializedFiles(t *testing.T) {
 	for _, want := range []string{"--output-schema '/tmp/s.json'", "-i '/img/a.png'", "-i '/img/b.jpg'"} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("materialized command missing %q\n got: %s", want, cmd)
+		}
+	}
+}
+
+// Codex's variadic --image flag otherwise consumes the following prompt as
+// another filename. Image-only turns must also supply an explicit empty prompt
+// so the CLI doesn't wait for stdin.
+func TestBuildExecCommandKeepsImagePromptSeparate(t *testing.T) {
+	for mode, input := range map[string]agent.TurnInput{
+		"fresh":  {},
+		"resume": {SessionID: "saved-session"},
+		"latest": {Options: agent.TurnOptions{ContinueLatest: true}},
+	} {
+		for name, message := range map[string]string{
+			"text":       "Describe these images.",
+			"image-only": "",
+			"flag-like":  "--explain this image's details",
+		} {
+			t.Run(mode+"/"+name, func(t *testing.T) {
+				input.Message = message
+				command := buildExecCommand(input, materialized{
+					imagePaths: []string{"/img/first photo.png", "/img/second.jpg"},
+				})
+				args := agent.ShellWords(command)
+				want := []string{"-i", "/img/first photo.png", "-i", "/img/second.jpg", "--", message}
+				if len(args) < len(want) || !slices.Equal(args[len(args)-len(want):], want) {
+					t.Fatalf("image inputs and prompt aren't separate arguments: %q", args)
+				}
+			})
 		}
 	}
 }

@@ -154,7 +154,7 @@ func main() {
 	}
 	health.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "workspaceMetadataVersion": registry.Version, "projectOperationsVersion": registry.ProjectOperationsVersion, "surfaceProtocolVersion": 1, "notificationPreferencesVersion": registry.NotificationPreferencesVersion, "gitAccessVersion": gitaccess.Version, "gitOperationsVersion": gitops.Version, "gitIdentityVersion": gitauthor.Version, "harnessPolicyVersion": toolchain.PolicyVersion, "serviceUpdateVersion": orchestrator.ServiceUpdateVersion, "workspaceIsolationVersion": agent.WorkspaceIsolationVersion, "workspaceIsolation": agent.WorkspaceIsolation(), "workspaceExecutionVersion": workspaceexec.Version, "terminalProtocolVersion": workspaceexec.TerminalVersion, "turnRequestVersion": orchestrator.TurnRequestVersion, "computerConnectionVersion": computerVersion})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "historyPageVersion": api.HistoryPageVersion, "workspaceMetadataVersion": registry.Version, "projectOperationsVersion": registry.ProjectOperationsVersion, "surfaceProtocolVersion": 1, "notificationPreferencesVersion": registry.NotificationPreferencesVersion, "gitAccessVersion": gitaccess.Version, "gitOperationsVersion": gitops.Version, "gitIdentityVersion": gitauthor.Version, "harnessPolicyVersion": toolchain.PolicyVersion, "serviceUpdateVersion": orchestrator.ServiceUpdateVersion, "workspaceIsolationVersion": agent.WorkspaceIsolationVersion, "workspaceIsolation": agent.WorkspaceIsolation(), "workspaceExecutionVersion": workspaceexec.Version, "terminalProtocolVersion": workspaceexec.TerminalVersion, "turnRequestVersion": orchestrator.TurnRequestVersion, "imageAttachmentsVersion": agent.ImageAttachmentsVersion, "computerConnectionVersion": computerVersion})
 	})
 	root.Handle("/healthz", api.Auth(token, health))
 
@@ -166,6 +166,7 @@ func main() {
 			log.Fatalf("computer connection: %v", err)
 		}
 		workspaceAPI.SetConnectionActivity(connection.PendingActivity)
+		workspaceAPI.SetConnectionUpdateForce(connection.ForceUpdatePending)
 		connection.Register(apiMux, workspaceAPI.ConnectionOperation)
 		if err = connection.Start(env("COMPUTER_SSH_ADDR", "0.0.0.0:8791"), env("COMPUTER_WS_ADDR", "127.0.0.1:8792"), filepath.Dir(statePath)); err != nil {
 			log.Fatalf("computer listener: %v", err)
@@ -190,13 +191,12 @@ func main() {
 	}
 
 	log.Printf("agent-daemon: default-agent=%s addr=%s state=%s", sup.Default(), addr, statePath)
-	serve(srv, listener)
+	serve(srv, listener, sup)
 }
 
 // serve runs the HTTP server until SIGINT/SIGTERM, then drains connections gracefully.
-// In-flight turns run on the supervisor's own background contexts, so they continue
-// regardless; this just lets active HTTP requests (incl. SSE) finish before exit.
-func serve(srv *http.Server, listener net.Listener) {
+// Stop service-owned turns and save their partial output before the process exits.
+func serve(srv *http.Server, listener net.Listener, sup *orchestrator.Supervisor) {
 	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -214,6 +214,9 @@ func serve(srv *http.Server, listener net.Listener) {
 		log.Printf("agent-daemon: %s — shutting down", sig)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		if err := sup.Shutdown(ctx); err != nil {
+			log.Printf("agent-daemon: stopping turns: %v", err)
+		}
 		if err := srv.Shutdown(ctx); err != nil {
 			log.Printf("agent-daemon: graceful shutdown: %v", err)
 		}

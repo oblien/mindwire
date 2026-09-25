@@ -9,9 +9,9 @@ The npm CLI downloads the matching, checksum-verified daemon release and starts 
 background controller. It displays a short-lived QR invitation and asks the owner
 to approve the phone's key. Concurrent starts reuse the controller; the daemon
 also locks its identity directory. Closing the pairing terminal leaves the service
-running. Pairing also enables per-user automatic startup: launchd on macOS,
+running. First-time pairing asks about per-user automatic startup: launchd on macOS,
 systemd's user service on Linux, or Task Scheduler on Windows. Mindwire starts
-after the owner signs in and recovers failed controllers, daemons and tunnel
+after the owner signs in, when enabled, and recovers failed controllers, daemons and tunnel
 helpers. An existing healthy daemon and relay are adopted after a controller
 crash, preserving its running terminals and agent work.
 
@@ -22,7 +22,9 @@ Startup is reported as running only after the native guardian has launched.
 
 Use `mindwire startup status`, `mindwire startup enable`, or
 `mindwire startup disable` to manage this. `mindwire connect --no-startup` leaves
-startup settings unchanged. A previously disabled startup preference is retained.
+existing startup settings unchanged and records a first-time opt-out. A previously disabled
+startup preference is retained. Noninteractive runs leave startup unchanged unless passed
+`--startup`; use this flag to opt in without a prompt.
 Unsupported/unavailable native startup is reported without blocking pairing;
 `mindwire start` remains available. No administrator/root service is installed.
 `mindwire stop` records a durable intentional stop before signalling the controller,
@@ -42,7 +44,7 @@ Piped output and dumb terminals use plain links; `--json` stays machine-readable
 
 The default Cloudflare tunnel works across networks. Direct SSH, VPN addresses,
 ngrok and a configured WSS relay use the same protocol and pinned identity.
-A temporary tunnel's address changes when restarted; re-pair it or configure a
+A temporary tunnel's address changes when restarted; refresh it or configure a
 stable hostname/VPN. No system SSH account or public daemon HTTP listener is added.
 The controller retries the helper with bounded backoff independently of daemon
 updates, and withdraws dead routes instead of advertising them as reachable.
@@ -51,6 +53,17 @@ new routes only after verifying the same computer/registry over pinned SSH.
 There is no third-party address registry: if every saved route changes while the
 phone is away, a temporary tunnel needs another QR scan. A named Cloudflare tunnel,
 stable ngrok hostname, custom stable WSS endpoint or VPN avoids this limitation.
+
+`mindwire connect` recognizes approved phones and offers Resume, Refresh address,
+or Pair another phone. Noninteractive connect resumes by default. `mindwire connect resume`
+never creates an invitation; `mindwire connect pair` explicitly pairs another phone.
+`GET /computer/devices` reports `connected` from live authenticated SSH connections.
+
+`mindwire reconnect` generates a five-minute `mindwire://reconnect` code containing only
+the computer/registry IDs, pinned fingerprint and routes. It contains no pairing secret or
+access credential. The phone must already hold the matching identity and device key,
+authenticate over SSH using its saved pin, and verify `/computer` before saving routes.
+Scanning it updates the existing workspace. It does not request `/pair` or create another key.
 
 ## Workspace and terminals
 

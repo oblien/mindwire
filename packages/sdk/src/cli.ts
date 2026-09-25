@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
+import { hostname } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { computerPairingURI, type ComputerUpdate } from "./computer.js";
@@ -12,11 +13,15 @@ import { computerClient, defaultStateDirectory, ensureComputer, readJSON, stopCo
 import type { RelayOptions } from "./computer/relay.js";
 import { showPairingInvitation, type PairingQRMode } from "./computer/pairing-display.js";
 import { configureStartup, startupStatus, watchComputer } from "./computer/startup.js";
+import { chooseConnectionAction, chooseStartupAction, connectionAction, deviceSummary, reconnectCode } from "./computer/connection-flow.js";
 
 const help = `Mindwire — connect this computer to your phone
 
   npm install -g mindwire
-  mindwire connect                       Connect across networks, show QR, approve phone
+  mindwire connect                       Resume a saved connection, or pair your first phone
+  mindwire connect resume                Resume without creating another pairing
+  mindwire reconnect                     Refresh a saved phone's address with a QR code
+  mindwire connect pair                  Pair another phone with this computer
   mindwire connect --relay none --host laptop.tailnet  Use your existing VPN
   mindwire connect --relay none           Direct SSH only (reachable network required)
   mindwire connect --relay cloudflare     Cloudflare quick tunnel
@@ -42,7 +47,8 @@ Options:
   --json                                 Structured output (QR invitation includes a secret)
   --qr auto|terminal|browser              Fit the QR to your terminal or open a local page
   --no-qr                                Print only the pairing link
-  --no-startup                           Pair without changing automatic startup
+  --startup                              Enable automatic startup without a prompt
+  --no-startup                            Skip automatic startup setup
 
 The default works across Wi-Fi and mobile networks. Mindwire privately downloads
 a verified Cloudflare helper when needed. Relays carry encrypted SSH.
@@ -59,11 +65,12 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     "state-dir": { type: "string" }, directory: { type: "string" }, host: { type: "string" },
     relay: { type: "string" }, "relay-url": { type: "string" }, "cloudflare-token-file": { type: "string" },
     "daemon-bin": { type: "string" }, bind: { type: "string" }, port: { type: "string" }, "websocket-port": { type: "string" },
-    version: { type: "string" }, force: { type: "boolean" }, "no-startup": { type: "boolean" },
+    version: { type: "string" }, force: { type: "boolean" }, startup: { type: "boolean" }, "no-startup": { type: "boolean" },
   } });
   const command = positionals[0] ?? "help";
   if (values.help || command === "help") { process.stdout.write(help); return; }
   if (values.qr && !["auto", "terminal", "browser"].includes(values.qr)) throw new Error("Choose --qr auto, terminal or browser.");
+  if (values.startup && values["no-startup"]) throw new Error("Choose either --startup or --no-startup.");
   const directory = path.resolve(values["state-dir"] ?? defaultStateDirectory());
   const emit = (event: string, data: object = {}, text?: string) => {
     if (values.json) process.stdout.write(JSON.stringify({ event, ...data }) + "\n");
@@ -80,7 +87,8 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       : "Automatic startup is off. Use mindwire start to run the service.");
     return;
   }
-  if (["connect", "start"].includes(command)) {
+  if (["connect", "start", "reconnect"].includes(command)) {
+    const requestedAction = command === "reconnect" ? "reconnect" : command === "connect" ? connectionAction(positionals[1]) : undefined;
     const patch: Partial<ComputerConfig> = {};
     if (values.directory) patch.directory = path.resolve(values.directory);
     if (values.host) patch.host = values.host;
@@ -106,22 +114,59 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     const info = await client.computer.info();
     emit("ready", { computerId: info.computerId, routes: info.routes }, "Mindwire is running in the background.");
     if (command === "start") return;
-    const startupPreference = await startupStatus(directory);
-    if (!values["no-startup"] && (startupPreference.enabled || !startupPreference.kind)) {
-      try {
-        const startup = await configureStartup(directory, fileURLToPath(import.meta.url), true);
-        emit("startup", startup, "Automatic startup enabled. Mindwire will recover after you sign in to this computer.");
-      } catch {
-        emit("startup_unavailable", {}, "Mindwire is running, but automatic startup couldn't be enabled. Run mindwire startup enable to check your system's startup service.");
-      }
-    }
     if (info.routes.some(route => route.kind === "websocket")) {
       emit("secure_connection", {}, "Your phone connects over end-to-end encrypted SSH. The tunnel carries encrypted traffic; only phones you approve can connect.");
     }
-    if (info.routes.some(route => route.kind === "websocket" && new URL(route.url).hostname.endsWith(".trycloudflare.com"))) {
-      emit("temporary_address", {}, "Cloudflare internet access is ready. For a permanent address, configure a named Cloudflare tunnel or your VPN; a free temporary address can change after a tunnel restart.");
+    const devices = await client.computer.devices();
+    const saved = devices.filter(device => !device.revoked);
+    if (saved.length) emit("saved_devices", { devices: saved }, `\nSaved phones\n${deviceSummary(saved)}`);
+    const question = !values.json && process.stdin.isTTY ? async (prompt: string): Promise<string> => {
+      const input = createInterface({ input: process.stdin, output: process.stderr });
+      try { return await input.question(prompt); } finally { input.close(); }
+    } : undefined;
+    const action = await chooseConnectionAction({ requested: requestedAction, devices, question });
+    const startupPreference = await startupStatus(directory);
+    const startupAction = await chooseStartupAction({ state: startupPreference,
+      startup: values.startup, noStartup: values["no-startup"], question });
+    if (startupAction !== undefined) {
+      try {
+        const startup = await configureStartup(directory, fileURLToPath(import.meta.url), startupAction);
+        emit("startup", startup, startup.enabled
+          ? "Automatic startup enabled. Saved phones can reconnect after you sign in to this computer."
+          : "Automatic startup is off. Run mindwire connect after restarting, or mindwire startup enable to change this.");
+      } catch {
+        emit("startup_unavailable", {}, "Mindwire is running, but startup setup didn't complete. Run mindwire startup enable to check your system's startup service.");
+      }
+    } else {
+      emit("startup", startupPreference, startupPreference.enabled
+        ? "Automatic startup is on. Change it with mindwire startup disable."
+        : "Automatic startup is off. Enable it with mindwire startup enable.");
     }
-    const invitation = await client.computer.invite(info.routes);
+    if (action === "resume") {
+      emit("resumed", { computerId: info.computerId, devices: saved }, "\nReady for your saved phone. Open this computer in Mindwire.");
+      if (info.routes.some(route => route.kind === "websocket" && new URL(route.url).hostname.endsWith(".trycloudflare.com"))) {
+        emit("reconnect_hint", {}, "If its temporary tunnel address changed, run mindwire reconnect to refresh your phone.");
+      }
+      return;
+    }
+    if (action === "reconnect") {
+      const code = reconnectCode(await client.computer.info(), hostname());
+      emit("reconnect_code", { code, uri: computerPairingURI(code) });
+      if (values.json) return;
+      const display = await showPairingInvitation(code, {
+        mode: values["no-qr"] ? "none" : (values.qr ?? "auto") as PairingQRMode,
+      });
+      try {
+        if (question) await question("\nScan with your saved phone, then press Enter to close this code. ");
+        else if (values.qr === "browser") {
+          emit("waiting", {}, "This code stays open until it expires. Press Ctrl+C to close it; Mindwire keeps running.");
+          await delay(Math.max(0, Date.parse(code.expiresAt) - Date.now()));
+        }
+      } finally { display.close(); }
+      emit("resumed", { computerId: info.computerId }, "Saved pairing kept. Mindwire continues running in the background.");
+      return;
+    }
+    const invitation = await client.computer.invite((await client.computer.info()).routes);
     const uri = computerPairingURI(invitation);
     emit("invitation", { invitation, uri });
     const display = values.json ? undefined : await showPairingInvitation(invitation, {

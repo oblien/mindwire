@@ -111,10 +111,10 @@ type TurnOptions struct {
 	Attachments []Attachment `json:"attachments,omitempty"` // files referenced from the message
 }
 
-// Attachment is a file made available to a turn. Path-reference only for now: if Path is set the
-// adapter references that on-disk file; if Data is set it is written to a per-turn temp file first,
-// then referenced. Inline image content blocks require the persistent stream-json transport (a
-// follow-on), so this stays a filesystem reference the one-shot CLI can read.
+// Attachment is a file made available to a turn. Native image-capable adapters use
+// image content blocks or local-image input; other files are referenced by path.
+// Inline bytes are base64 on the wire and retained in user history so a temporary
+// materialized file can be removed without losing the client's image preview.
 type Attachment struct {
 	Name string `json:"name,omitempty"` // display/file name (shown to the agent when referenced)
 	Path string `json:"path,omitempty"` // absolute path already on disk (preferred)
@@ -139,12 +139,13 @@ type TurnResult struct {
 // text / thinking / tool — that the app renders as inline cards; omitempty so it's absent for user
 // and text-only messages and pre-parts clients simply ignore it.
 type Message struct {
-	ID        string `json:"id"`
-	ChatID    string `json:"chatId"`
-	Role      string `json:"role"` // "user" | "assistant"
-	Text      string `json:"text"`
-	CreatedAt string `json:"createdAt"`
-	Parts     []Part `json:"parts,omitempty"`
+	ID          string       `json:"id"`
+	ChatID      string       `json:"chatId"`
+	Role        string       `json:"role"` // "user" | "assistant"
+	Text        string       `json:"text"`
+	CreatedAt   string       `json:"createdAt"`
+	Parts       []Part       `json:"parts,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
 // Part is one ordered piece of an assistant turn. A `tool` part pairs the tool_use and its

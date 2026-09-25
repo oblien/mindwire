@@ -84,3 +84,35 @@ func TestServiceUpdateWaitsForGitOperationAndKeepsItsResult(t *testing.T) {
 		t.Fatalf("idle update: %d %s", got.Code, got.Body.String())
 	}
 }
+
+func TestManualUpdateClosesAdmissionWithExternalSessionsAndRetainsExclusivity(t *testing.T) {
+	h, _, a := newRegistryAPIEnv(t)
+	a.SetConnectionActivity(func() int { return 1 })
+	authed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("Authorization", "Bearer workspace-secret")
+		h.ServeHTTP(w, r)
+	})
+	for _, body := range []string{"", `{"force":false}`} {
+		if got := serve(t, authed, "POST", "/service/update", body); got.Code != 409 {
+			t.Fatalf("automatic: %d %s", got.Code, got.Body.String())
+		}
+	}
+	if got := serve(t, authed, "POST", "/service/update", `{"force":"yes"}`); got.Code != 400 {
+		t.Fatalf("invalid force: %d", got.Code)
+	}
+	got := serve(t, authed, "POST", "/service/update", `{"force":true}`)
+	var lease orchestrator.ServiceUpdateLease
+	if got.Code != 201 || json.Unmarshal(got.Body.Bytes(), &lease) != nil {
+		t.Fatalf("manual: %d %s", got.Code, got.Body.String())
+	}
+	if got := serve(t, authed, "POST", "/service/update", `{"force":true}`); got.Code != 409 || !strings.Contains(got.Body.String(), "service_updating") {
+		t.Fatalf("duplicate: %d %s", got.Code, got.Body.String())
+	}
+	a.sup.ReleaseServiceUpdate(lease.ID)
+	// Existing npm controllers request an empty-body lease. Accepted owner intent
+	// is resolved by the daemon, not a second incompatible CLI update mechanism.
+	a.SetConnectionUpdateForce(func() bool { return true })
+	if got := serve(t, authed, "POST", "/service/update", ""); got.Code != 201 {
+		t.Fatalf("old controller: %d %s", got.Code, got.Body.String())
+	}
+}

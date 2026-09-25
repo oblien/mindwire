@@ -58,3 +58,11 @@ func TestAppServerAPIKeyUsesEnvironmentReference(t *testing.T) {
 		t.Fatal("project header lost")
 	}
 }
+
+func TestImageOnlyTurnUsesNativeImageInputWithoutEmptyTextBlock(t *testing.T) {
+	server := newAppServer(agent.TurnInput{}, materialized{imagePaths: []string{"/tmp/photo.jpg"}})
+	inputs := server.turnParams("thread")["input"].([]any)
+	if len(inputs) != 1 || inputs[0].(map[string]any)["type"] != "localImage" {
+		t.Fatalf("Image-only turn must contain only its native image: %+v", inputs)
+	}
+}

@@ -40,10 +40,11 @@ type Device struct {
 	Revoked   bool      `json:"revoked"`
 }
 type state struct {
-	ID         string            `json:"id"`
-	PrivateKey string            `json:"privateKey"`
-	Devices    map[string]Device `json:"devices"`
-	Routes     []Route           `json:"routes"`
+	ID             string            `json:"id"`
+	PrivateKey     string            `json:"privateKey"`
+	Devices        map[string]Device `json:"devices"`
+	Routes         []Route           `json:"routes"`
+	ManualUpdateID string            `json:"manualUpdateId,omitempty"`
 }
 type Invitation struct {
 	Version     int       `json:"version"`
@@ -538,9 +539,19 @@ func (s *Server) routes(register func(string, http.HandlerFunc)) {
 	register("GET /computer/devices", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		devices := []Device{}
+		type deviceStatus struct {
+			Device
+			Connected bool `json:"connected"`
+		}
+		connected := map[string]bool{}
+		for _, id := range s.connections {
+			if id != "" {
+				connected[id] = true
+			}
+		}
+		devices := []deviceStatus{}
 		for _, device := range s.state.Devices {
-			devices = append(devices, device)
+			devices = append(devices, deviceStatus{Device: device, Connected: !device.Revoked && connected[device.ID]})
 		}
 		send(w, 200, devices)
 	})

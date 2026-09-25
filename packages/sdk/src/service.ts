@@ -22,9 +22,11 @@ export class ServiceApi {
   }
 
   /** Download first. Acquire immediately before replacement; busy work returns 409.
+   * With serviceUpdateVersion >= 2, force authorizes interrupting active work.
+   * It never overrides another installer's lease.
    * Admission stays closed until release, process exit, or the one-minute expiry. */
-  acquireUpdate(): Promise<ServiceUpdateLease> {
-    return this.client.http.request("POST", "/service/update");
+  acquireUpdate(options?: { force?: boolean }): Promise<ServiceUpdateLease> {
+    return this.client.http.request("POST", "/service/update", options ? { body: options } : undefined);
   }
 
   releaseUpdate(id: string): Promise<{ ok: boolean }> {

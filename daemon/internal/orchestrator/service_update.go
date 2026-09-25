@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"os"
@@ -8,7 +9,7 @@ import (
 	"time"
 )
 
-const ServiceUpdateVersion = 1
+const ServiceUpdateVersion = 2
 
 var (
 	ErrServiceBusy     = errors.New("workspace operations are still running; the service update must wait")
@@ -16,7 +17,8 @@ var (
 )
 
 // ServiceUpdateLease closes admission only for the final binary replacement. The
-// installer downloads first, acquires this lease, then replaces the idle service.
+// installer downloads first, acquires this lease, then replaces the service.
+// Explicit owner updates may interrupt work; automatic updates still require idle.
 // A crashed installer cannot leave admission closed indefinitely.
 type ServiceUpdateLease struct {
 	ID        string    `json:"id"`
@@ -31,10 +33,36 @@ type ServiceUpdateState struct {
 }
 
 func (s *Supervisor) serviceUpdatingLocked() bool {
+	if s.stopping {
+		return true
+	}
 	if s.updateLease != nil && !time.Now().Before(s.updateLease.ExpiresAt) {
 		s.updateLease = nil
 	}
 	return s.updateLease != nil
+}
+
+// Shutdown cancels service-owned turns and waits for their final transcript save.
+// The caller's deadline bounds an unresponsive harness; no new work can enter.
+func (s *Supervisor) Shutdown(ctx context.Context) error {
+	s.mu.Lock()
+	s.stopping = true
+	cancels := make([]context.CancelFunc, 0, len(s.cancels))
+	for _, cancel := range s.cancels {
+		cancels = append(cancels, cancel)
+	}
+	s.mu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+	done := make(chan struct{})
+	go func() { s.Wait(); close(done) }()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *Supervisor) serviceActivityLocked() int {
@@ -72,13 +100,13 @@ func (s *Supervisor) BeginServiceOperation() (func(), error) {
 	return func() { once.Do(func() { s.mu.Lock(); s.serviceOperations--; s.mu.Unlock() }) }, nil
 }
 
-func (s *Supervisor) AcquireServiceUpdate() (ServiceUpdateLease, error) {
+func (s *Supervisor) AcquireServiceUpdate(force ...bool) (ServiceUpdateLease, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.serviceUpdatingLocked() {
 		return ServiceUpdateLease{}, ErrServiceUpdating
 	}
-	if s.serviceActivityLocked() > 0 {
+	if !(len(force) > 0 && force[0]) && s.serviceActivityLocked() > 0 {
 		return ServiceUpdateLease{}, ErrServiceBusy
 	}
 	lease := ServiceUpdateLease{ID: rand.Text(), PID: os.Getpid(), ExpiresAt: time.Now().Add(time.Minute)}
@@ -89,7 +117,7 @@ func (s *Supervisor) AcquireServiceUpdate() (ServiceUpdateLease, error) {
 func (s *Supervisor) ReleaseServiceUpdate(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.serviceUpdatingLocked() || s.updateLease.ID != id {
+	if s.stopping || !s.serviceUpdatingLocked() || s.updateLease.ID != id {
 		return false
 	}
 	s.updateLease = nil

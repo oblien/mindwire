@@ -72,7 +72,7 @@ function run(args: string[], env: NodeJS.ProcessEnv = process.env): Promise<{ co
   }
 }, 90_000);
 
-(binary ? test : test.skip)("managed update waits for terminals and rolls back an invalid release", async () => {
+(binary ? test : test.skip)("automatic update waits; manual promotion restarts with an open terminal and retains rollback", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "mindwire-computer-update-"));
   const bytes = await readFile(binary!);
   const sum = createHash("sha256").update(bytes).digest("hex");
@@ -95,7 +95,7 @@ function run(args: string[], env: NodeJS.ProcessEnv = process.env): Promise<{ co
     const client = await computerClient(directory);
     const before = await client.computer.info();
     await client.execution.terminals.open({ id: "blocks-update", columns: 80, rows: 24, directory });
-    await client.computer.requestUpdate(version);
+    const queued = await client.computer.requestUpdate(version);
     async function status() { return JSON.parse(await readFile(path.join(directory, "computer-update.json"), "utf8")) as { status: string; error?: string }; }
     let waiting = false;
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -105,7 +105,9 @@ function run(args: string[], env: NodeJS.ProcessEnv = process.env): Promise<{ co
     expect(waiting).toBe(true);
     expect((await client.computer.info()).pid).toBe(before.pid);
     expect((await client.execution.terminals.get("blocks-update")).running).toBe(true);
-    await client.execution.terminals.close("blocks-update");
+    const promoted = await client.computer.requestUpdate(version, { force: true });
+    expect(promoted.id).toBe(queued.id);
+    expect(promoted.force).toBe(true);
     let failed = false;
     for (let attempt = 0; attempt < 200; attempt++) {
       if ((await status()).status === "failed") { failed = true; break; }

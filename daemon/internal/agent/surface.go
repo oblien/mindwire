@@ -153,7 +153,11 @@ func NormalizeSurfaceHistory(messages []Message) []Message {
 			event := ToolEvent{ID: tool.ID, Name: tool.Name, Input: tool.Input, Output: tool.Output, IsError: tool.IsError, Action: tool.Action}
 			NormalizeSurfaceTool(&event)
 			if event.Input != nil {
-				tool.Input, _ = json.Marshal(event.Input)
+				if raw, ok := event.Input.(json.RawMessage); ok {
+					tool.Input = raw // An unchanged native input is already encoded.
+				} else {
+					tool.Input, _ = json.Marshal(event.Input)
+				}
 			}
 			tool.Output = event.Output
 			tool.Action = event.Action

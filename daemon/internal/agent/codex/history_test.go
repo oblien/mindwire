@@ -44,6 +44,42 @@ func TestParseCurrentRolloutCompletedItems(t *testing.T) {
 	}
 }
 
+func TestImageInputEchoesKeepOneMessageAndRepeatedPhotosStayDistinct(t *testing.T) {
+	lines := []string{
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>injected</environment_context>"}]}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,AQID"}]}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"","images":["data:image/png;base64,AQID"]}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"photo","content":[{"type":"image","url":"data:image/png;base64,AQID"}]}}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"reply","content":[{"type":"output_text","text":"I see it"}]}}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"","images":["data:image/png;base64,BAUG"]}}`,
+	}
+	messages, err := parseRollout(strings.NewReader(strings.Join(lines, "\n")), "chat")
+	if err != nil || len(messages) != 3 || messages[0].Text != "" || messages[1].Text != "I see it" || messages[2].Role != "user" {
+		t.Fatalf("Image echoes duplicated or input context leaked: %+v %v", messages, err)
+	}
+	if len(messages[0].Attachments) != 1 || len(messages[2].Attachments) != 1 || messages[0].Attachments[0].Data[0] != 1 || messages[2].Attachments[0].Data[0] != 4 {
+		t.Fatal("Images mixed across turns")
+	}
+}
+
+// Shape captured from a real codex-cli 0.155.1 request to a local Responses fixture.
+func TestCaptured155LocalImageWrappersMergeWithCompletedUserItem(t *testing.T) {
+	for _, prompt := range []string{"Describe the fixture image.", ""} {
+		lines := []string{
+			`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<image name=[Image #1] path=\"/tmp/photo.png\">"},{"type":"input_image","image_url":"data:image/png;base64,AQID"},{"type":"input_text","text":"</image>"},{"type":"input_text","text":"` + prompt + `"}]}}`,
+			`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"photo","content":[{"type":"local_image","path":"/tmp/photo.png"},{"type":"text","text":"` + prompt + `","text_elements":[]}]}}}`,
+			`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"reply","content":[{"type":"output_text","text":"Image fixture received."}]}}}`,
+		}
+		messages, err := parseRollout(strings.NewReader(strings.Join(lines, "\n")), "chat")
+		if err != nil || len(messages) != 2 || messages[0].Text != prompt || len(messages[0].Attachments) != 1 || len(messages[0].Attachments[0].Data) != 3 {
+			t.Fatalf("Captured image input duplicated or lost: %+v %v", messages, err)
+		}
+		if got := imageInputText([]byte(`[{"type":"text","text":"</image>"}]`)); got != "</image>" {
+			t.Fatal("Ordinary user text was hidden")
+		}
+	}
+}
+
 func TestRolloutUpgradeKeepsThePreviousTurn(t *testing.T) {
 	lines := []string{
 		`{"type":"event_msg","payload":{"type":"user_message","message":"Old question"}}`,

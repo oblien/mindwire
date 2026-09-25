@@ -774,6 +774,16 @@ export interface Message {
   createdAt: string;
   /** Ordered rich transcript (text / thinking / tool / compaction). Absent for user & text-only messages. */
   parts?: Part[];
+  /** Native user images, including inline bytes when retained by the harness or recorded turn. */
+  attachments?: Attachment[];
+}
+
+/** Complete messages, oldest first. A soft byte budget keeps large histories incremental. */
+export interface MessagePage {
+  messages: Message[];
+  hasMore: boolean;
+  /** Pass as `before` to read the preceding page. */
+  before?: string;
 }
 
 /**
@@ -1101,6 +1111,7 @@ export interface NotifyChannelTestResult {
 
 /** `GET /healthz` — the daemon's liveness probe. */
 export interface Health {
+  historyPageVersion?: number;
   surfaceProtocolVersion?: number;
   /** Workspace registry protocol version; absent on daemons predating workspace metadata. */
   workspaceMetadataVersion?: number;
@@ -1125,6 +1136,8 @@ export interface Health {
   workspaceExecutionVersion?: number;
   terminalProtocolVersion?: number;
   turnRequestVersion?: number;
+  /** Image-only input and image attachments retained in message history. */
+  imageAttachmentsVersion?: number;
   computerConnectionVersion?: number;
   workspaceIsolation?: "direct" | "container";
 }

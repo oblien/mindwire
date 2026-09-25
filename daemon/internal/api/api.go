@@ -49,20 +49,21 @@ const (
 )
 
 type API struct {
-	execution          *workspaceexec.Service
-	connectionActivity func() int
-	gitAccess          *gitaccess.Service
-	gitAuthors         *gitauthor.Service
-	gitJobs            *gitops.Service
-	projects           *projects.Service
-	surfaces           *surface.Service
-	initError          error
-	registry           *registry.Store
-	conversations      *conversations.Index
-	registryMu         sync.Mutex // order registry mutations against starting/deleting a chat
-	store              *session.Store
-	hub                *stream.Hub
-	sup                *orchestrator.Supervisor
+	execution             *workspaceexec.Service
+	connectionActivity    func() int
+	connectionUpdateForce func() bool
+	gitAccess             *gitaccess.Service
+	gitAuthors            *gitauthor.Service
+	gitJobs               *gitops.Service
+	projects              *projects.Service
+	surfaces              *surface.Service
+	initError             error
+	registry              *registry.Store
+	conversations         *conversations.Index
+	registryMu            sync.Mutex // order registry mutations against starting/deleting a chat
+	store                 *session.Store
+	hub                   *stream.Hub
+	sup                   *orchestrator.Supervisor
 
 	// started stamps daemon boot so GET /stats can report uptime without any external timer.
 	started time.Time
@@ -355,8 +356,8 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req turnReq
-	if err := decode(w, r, &req); err != nil || req.ChatID == "" || req.Message == "" {
-		badRequest(w, "chatId and message are required")
+	if err := decode(w, r, &req); err != nil || req.ChatID == "" || !agent.HasUserInput(req.Message, req.Options) {
+		badRequest(w, "chatId and a message or attachment are required")
 		return
 	}
 	a.registryMu.Lock()
@@ -1117,11 +1118,6 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// Pagination (additive, back-compat): no params = whole transcript. `limit` caps to the newest N;
-	// `before` is a cursor (message id) that trims to everything strictly older than it, for the app's
-	// scroll-to-top load-more. Applied to BOTH the native transcript and the store fallback.
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	before := r.URL.Query().Get("before")
 	recorded := a.store.Messages(chatID)
 	run, hasRun := a.store.LatestRun(chatID)
 	if ag.Adapter.Capabilities().History == agent.SupportNative {
@@ -1142,7 +1138,7 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 			if hasRun && run.Status == "running" {
 				msgs = historyBeforeRun(msgs, recorded, run)
 			}
-			writeJSON(w, http.StatusOK, pageWindow(msgs, limit, before, func(m agent.Message) string { return m.ID }))
+			writeHistory(w, r, msgs, func(m agent.Message) string { return m.ID })
 			return
 		}
 	}
@@ -1152,10 +1148,10 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 			messages = append(messages, agent.Message(message))
 		}
 		committed := historyBeforeRun(messages, recorded, run)
-		writeJSON(w, http.StatusOK, pageWindow(committed, limit, before, func(m agent.Message) string { return m.ID }))
+		writeHistory(w, r, committed, func(m agent.Message) string { return m.ID })
 		return
 	}
-	writeJSON(w, http.StatusOK, pageWindow(recorded, limit, before, func(m session.Message) string { return m.ID }))
+	writeHistory(w, r, recorded, func(m session.Message) string { return m.ID })
 }
 
 // An active assistant turn belongs only to the run stream. Keep the native prefix

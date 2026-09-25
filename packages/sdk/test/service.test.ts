@@ -23,3 +23,16 @@ test("a busy service update is not reported as success", async () => {
   const client = new Mindwire({ target: remote("https://workspace.test"), fetch: async () => Response.json({ code: "service_busy", error: "A chat is running" }, { status: 409 }) });
   await expect(client.service.acquireUpdate()).rejects.toBeInstanceOf(ApiError);
 });
+
+test("manual restart intent is explicit on the shared service and computer APIs", async () => {
+  const bodies: unknown[] = [];
+  const client = new Mindwire({ target: remote("https://workspace.test"), fetch: async (_url, init) => {
+    bodies.push(init?.body ? JSON.parse(init.body as string) : undefined);
+    return Response.json({ id: "one-operation", version: "0.1.27", force: true, status: "queued" });
+  } });
+  await client.service.acquireUpdate();
+  await client.service.acquireUpdate({ force: true });
+  await client.computer.requestUpdate("0.1.27");
+  await client.computer.requestUpdate("0.1.27", { force: true });
+  expect(bodies).toEqual([undefined, { force: true }, { version: "0.1.27" }, { version: "0.1.27", force: true }]);
+});

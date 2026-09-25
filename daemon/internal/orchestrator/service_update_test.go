@@ -46,6 +46,53 @@ func TestServiceUpdateLeaseBlocksAllRunKindsAndSetup(t *testing.T) {
 	}
 }
 
+func TestManualServiceUpdateInterruptsWorkButNeverStealsAnInstallerLease(t *testing.T) {
+	s, _, _ := newSetupSup(t, nil)
+	done, err := s.BeginServiceOperation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer done()
+	if _, err := s.AcquireServiceUpdate(); !errors.Is(err, ErrServiceBusy) {
+		t.Fatalf("automatic update: %v", err)
+	}
+	lease, err := s.AcquireServiceUpdate(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AcquireServiceUpdate(true); !errors.Is(err, ErrServiceUpdating) {
+		t.Fatalf("duplicate manual update: %v", err)
+	}
+	if _, err := s.BeginServiceOperation(); !errors.Is(err, ErrServiceUpdating) {
+		t.Fatalf("new work admitted: %v", err)
+	}
+	if !s.ReleaseServiceUpdate(lease.ID) {
+		t.Fatal("release failed")
+	}
+	if s.ServiceUpdateState().Idle {
+		t.Fatal("manual authorization must not pretend running work ended")
+	}
+}
+
+func TestServiceShutdownCancelsTurnsBeforeFinishingAndClosesAdmission(t *testing.T) {
+	s, a, _ := newSetupSup(t, nil)
+	run, err := s.StartTurnChecked(a, StartTurnInput{ChatID: "restart", Message: "work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if s.Cancel(run.ID) {
+		t.Fatal("shutdown returned before the turn finalized")
+	}
+	if _, err := s.StartTurnChecked(a, StartTurnInput{ChatID: "new"}); !errors.Is(err, ErrServiceUpdating) {
+		t.Fatalf("shutdown admitted work: %v", err)
+	}
+}
+
 func TestServiceUpdateRefusesActiveTurnUntilFinalSave(t *testing.T) {
 	s, a, _ := newSetupSup(t, nil)
 	run, err := s.StartTurnChecked(a, StartTurnInput{ChatID: "chat", Message: "work"})

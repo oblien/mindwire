@@ -29,12 +29,16 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 	if path == "" {
 		return nil, nil // no transcript on disk; caller falls back to the recorded log
 	}
-	f, err := os.Open(path)
+	messages, err := agent.NativeTranscripts.Read(path, q.ChatID, func(f *os.File) ([]agent.Message, error) {
+		return parseTranscript(f, q.ChatID)
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	return agent.MergeRecordedHistory(agent.NormalizeSurfaceHistory(messages), agent.SurfaceRecords(q.Recorded)), nil
+}
 
+func parseTranscript(f *os.File, chatID string) ([]agent.Message, error) {
 	var out []agent.Message
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 1<<20), 16<<20)
@@ -60,7 +64,7 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 		// shows the same marker the live stream emitted (see parseStream's compact_boundary case).
 		if rec.Type == "system" && rec.Subtype == "compact_boundary" {
 			out = append(out, agent.Message{
-				ID: rec.UUID, ChatID: q.ChatID, Role: "system", CreatedAt: rec.Timestamp,
+				ID: rec.UUID, ChatID: chatID, Role: "system", CreatedAt: rec.Timestamp,
 				Parts: []agent.Part{{Type: "compaction", At: rec.Timestamp,
 					Compaction: compactionFromMeta(rec.Content, rec.CompactMetadata)}},
 			})
@@ -79,7 +83,7 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 				out[n-1].Parts[0].Compaction.Summary = summary
 			} else {
 				out = append(out, agent.Message{
-					ID: rec.UUID, ChatID: q.ChatID, Role: "system", CreatedAt: rec.Timestamp,
+					ID: rec.UUID, ChatID: chatID, Role: "system", CreatedAt: rec.Timestamp,
 					Parts: []agent.Part{{Type: "compaction", At: rec.Timestamp,
 						Compaction: &agent.CompactionInfo{Summary: summary}}},
 				})
@@ -88,6 +92,15 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 		}
 		text := strings.TrimSpace(messageText(rec.Message))
 		parts := messageParts(rec.Message)
+		var attachments []agent.Attachment
+		if rec.Type == "user" {
+			var message struct {
+				Content json.RawMessage `json:"content"`
+			}
+			if json.Unmarshal(rec.Message, &message) == nil {
+				attachments = agent.ImagesFromContent(message.Content)
+			}
+		}
 		// Claude records tool RESULTS as role "user" with no text — fold them onto the preceding
 		// assistant turn (correlate by tool-use id) instead of emitting a stray empty user bubble.
 		if rec.Type == "user" && text == "" && len(parts) > 0 && allTool(parts) {
@@ -96,11 +109,11 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 				continue
 			}
 		}
-		if text == "" && len(parts) == 0 {
+		if text == "" && len(parts) == 0 && len(attachments) == 0 {
 			continue
 		}
 		out = append(out, agent.Message{
-			ID: rec.UUID, ChatID: q.ChatID, Role: rec.Type, Text: text, Parts: parts, CreatedAt: rec.Timestamp,
+			ID: rec.UUID, ChatID: chatID, Role: rec.Type, Text: text, Parts: parts, CreatedAt: rec.Timestamp, Attachments: attachments,
 		})
 	}
 	if err := sc.Err(); err != nil {
@@ -108,7 +121,7 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 		// so the caller falls back to the recorded log rather than serving a partial history.
 		return nil, err
 	}
-	return agent.MergeRecordedHistory(agent.NormalizeSurfaceHistory(out), agent.SurfaceRecords(q.Recorded)), nil
+	return out, nil
 }
 
 // DeleteHistory removes Claude Code's native transcript for a session — the projects/<slug>/<sid>.jsonl

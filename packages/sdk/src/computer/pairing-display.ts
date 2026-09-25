@@ -3,7 +3,7 @@ import { mkdtempSync, chmodSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { computerPairingQRData, computerPairingURI, type ComputerInvitation } from "../computer.js";
+import { computerPairingQRData, computerPairingURI, type ComputerConnectionCode } from "../computer.js";
 
 export type PairingQRMode = "auto" | "terminal" | "browser" | "none";
 type Output = Pick<NodeJS.WriteStream, "isTTY" | "columns" | "rows" | "write" | "on" | "off">;
@@ -22,7 +22,7 @@ const scanInstruction = "Mindwire → Add computer → Scan QR code";
 
 /** qrcode's small terminal renderer ignores margin/width. Render its matrix with
  * a four-module quiet zone, two square QR modules per terminal character. */
-export async function createPairingQR(invitation: ComputerInvitation) {
+export async function createPairingQR(invitation: ComputerConnectionCode) {
   const QR = await import("qrcode");
   const data = computerPairingQRData(invitation);
   const options = { errorCorrectionLevel: "L" as const, margin: 4 };
@@ -49,11 +49,13 @@ function escapeHTML(value: string): string {
   return value.replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 }
 
-function browserPage(invitation: ComputerInvitation, svg: string): string {
+function browserPage(invitation: ComputerConnectionCode, svg: string): string {
+  const reconnect = "mode" in invitation && invitation.mode === "reconnect";
+  const title = reconnect ? "Reconnect your phone" : "Connect your phone";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
-<title>Connect your phone · Mindwire</title>
+<title>${title} · Mindwire</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#141416;color:#f5f5f7;font:16px/1.5 system-ui,sans-serif}
 main{width:min(100% - 40px,520px);margin:32px auto;text-align:center}small{color:#a6a6af;letter-spacing:.16em}
@@ -65,18 +67,18 @@ button:disabled{opacity:.45;cursor:default}button:focus-visible{outline:3px soli
 textarea{width:100%;margin-top:12px;padding:8px;color:inherit;background:#252528;border:1px solid #45454b;border-radius:8px}
 [hidden]{display:none!important}#expiry{font-size:14px}footer{font-size:13px;color:#93939d;margin:18px 0}
 </style></head><body><main>
-<small>MINDWIRE</small><h1>Connect your phone</h1><p>${escapeHTML(invitation.name)}</p>
-<div class="code" id="code" role="img" aria-label="Mindwire pairing QR code">${svg}</div>
+<small>MINDWIRE</small><h1>${title}</h1><p>${escapeHTML(invitation.name)}</p>
+<div class="code" id="code" role="img" aria-label="Mindwire connection QR code">${svg}</div>
 <p id="expiry" data-expires="${escapeHTML(invitation.expiresAt)}" aria-live="off"></p>
 <div class="steps"><p>In Mindwire, open <strong>Add computer</strong> and scan.</p>
-<p>Then return to the terminal to approve your phone.</p></div>
-<button type="button" id="copy">Copy pairing link</button>
+<p>${reconnect ? "Your saved pairing and workspace stay the same. No new approval is needed." : "Then return to the terminal to approve your phone."}</p></div>
+<button type="button" id="copy">Copy ${reconnect ? "reconnect" : "pairing"} link</button>
 <textarea id="link" readonly hidden aria-label="Pairing link">${escapeHTML(computerPairingURI(invitation))}</textarea>
-<footer>You can close this page after pairing.</footer>
+<footer>You can close this page after ${reconnect ? "reconnecting" : "pairing"}.</footer>
 </main><script>
 const expiry=document.getElementById('expiry'),code=document.getElementById('code'),copy=document.getElementById('copy'),link=document.getElementById('link');
 function tick(){const seconds=Math.max(0,Math.ceil((Date.parse(expiry.dataset.expires)-Date.now())/1000));
-if(!seconds){code.remove();copy.disabled=true;link.value='';link.hidden=true;expiry.textContent='Code expired. Run mindwire connect for a new code.';return;}
+if(!seconds){code.remove();copy.disabled=true;link.value='';link.hidden=true;expiry.textContent='Code expired. Run mindwire ${reconnect ? "reconnect" : "connect pair"} for a new code.';return;}
 expiry.textContent='Expires in '+Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');}
 tick();setInterval(tick,1000);
 copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(link.value);copy.textContent='Copied';}
@@ -97,14 +99,18 @@ async function openBrowser(url: string): Promise<boolean> {
 }
 
 /** Display one existing invitation. Resizing never starts another service or pairing. */
-export async function showPairingInvitation(invitation: ComputerInvitation, options: DisplayOptions = {}): Promise<PairingDisplay> {
+export async function showPairingInvitation(invitation: ComputerConnectionCode, options: DisplayOptions = {}): Promise<PairingDisplay> {
+  const reconnect = "mode" in invitation && invitation.mode === "reconnect";
+  const nextStep = reconnect ? "Scan with a saved phone, then press Enter here." : "Return here to approve your phone.";
+  const waiting = reconnect ? "Your saved pairing stays the same." : "Waiting for your phone…";
+  const command = reconnect ? "mindwire reconnect" : "mindwire connect pair";
   const output = options.output ?? process.stdout;
   const environment = options.environment ?? process.env;
   const mode = options.mode ?? "auto";
   const interactive = !!output.isTTY && environment.TERM !== "dumb";
   const linkOnly = mode === "none" || (!interactive && mode !== "browser");
   if (linkOnly) {
-    output.write(`Paste this link in Mindwire → Add computer (expires in 5 minutes):\n${computerPairingURI(invitation)}\n\nWaiting for your phone…\n`);
+    output.write(`Paste this link in Mindwire → Add computer (expires in 5 minutes):\n${computerPairingURI(invitation)}\n\n${waiting}\n`);
     return { close() {} };
   }
 
@@ -119,12 +125,12 @@ export async function showPairingInvitation(invitation: ComputerInvitation, opti
     if (closed || !useScreen) return;
     let lines: string[];
     if (fits()) {
-      lines = [scanInstruction, "", ...qr.lines, "", "Waiting for your phone…"];
+      lines = [scanInstruction, "", ...qr.lines, "", waiting];
     } else {
       const size = `Terminal QR needs ${qr.columns} columns × ${qr.rows} rows.`;
-      lines = browser === "opened" ? ["QR opened in your browser.", scanInstruction, "Return here to approve your phone."]
-        : browser === "opening" ? ["Opening a resizable QR in your browser…", "Return here to approve your phone."]
-        : browser === "failed" ? ["Couldn't open a browser here.", size, "Enlarge this terminal, or run:", "mindwire connect --no-qr"]
+      lines = browser === "opened" ? ["QR opened in your browser.", scanInstruction, nextStep]
+        : browser === "opening" ? ["Opening a resizable QR in your browser…", nextStep]
+        : browser === "failed" ? ["Couldn't open a browser here.", size, "Enlarge this terminal, or run:", `${command} --no-qr`]
         : [size, "Enlarge this terminal, or use --qr browser."];
       // Tiny windows may clip instructions; they must never wrap a QR or scroll the display.
       lines = lines.map(line => line.slice(0, Math.max(0, (output.columns ?? 80) - 1)))
@@ -153,8 +159,8 @@ export async function showPairingInvitation(invitation: ComputerInvitation, opti
       if (closed) return;
       if (useScreen) draw();
       else output.write(browser === "opened"
-        ? `QR opened in your browser.\n${scanInstruction}\nReturn here to approve your phone.\n`
-        : `Open this local QR page in a browser:\n${pageURL ?? "Page unavailable. Run mindwire connect --no-qr for a pairing link."}\n\nWaiting for your phone…\n`);
+        ? `QR opened in your browser.\n${scanInstruction}\n${nextStep}\n`
+        : `Open this local QR page in a browser:\n${pageURL ?? `Page unavailable. Run ${command} --no-qr for a link.`}\n\n${waiting}\n`);
     })();
     return browserAttempt;
   };

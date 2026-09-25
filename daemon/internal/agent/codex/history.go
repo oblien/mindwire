@@ -73,12 +73,9 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 	if path == "" {
 		return nil, nil // no rollout on disk (e.g. --ephemeral); caller falls back
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	messages, err := parseRollout(f, q.ChatID)
+	messages, err := agent.NativeTranscripts.Read(path, q.ChatID, func(f *os.File) ([]agent.Message, error) {
+		return parseRollout(f, q.ChatID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +125,8 @@ type rolloutEnvelope struct {
 type eventMsgPayload struct {
 	Type             string          `json:"type"` // user_message | agent_message | …
 	Message          string          `json:"message"`
+	Images           []string        `json:"images"`
+	LocalImages      []string        `json:"local_images"`
 	Item             json.RawMessage `json:"item"`
 	Error            json.RawMessage `json:"error"`
 	LastAgentMessage string          `json:"last_agent_message"`
@@ -172,6 +171,25 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 	// Older rollouts can carry the same assistant message in both event_msg and response_item.
 	eventTexts, responseTexts := map[string]int{}, map[string]int{}
 	nextID := func() string { return "codex-" + strconv.Itoa(len(out)) }
+	userSources := map[string]bool{}
+	appendUser := func(source, text, timestamp string, images []agent.Attachment) {
+		if text == "" && len(images) == 0 {
+			return
+		}
+		// Rollouts can record the same input as an event, response item and completed
+		// item. Merge those adjacent echoes, but keep repeated prompts from one source.
+		if n := len(out); n > 0 && curAsst < 0 && out[n-1].Role == "user" && out[n-1].Text == text && !userSources[source] {
+			out[n-1].Attachments = agent.MergeInputAttachments(out[n-1].Attachments, images)
+			userSources[source] = true
+			return
+		}
+		curAsst = -1
+		nativeState = newStreamState()
+		modern = false
+		eventTexts, responseTexts = map[string]int{}, map[string]int{}
+		userSources = map[string]bool{source: true}
+		out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "user", Text: text, CreatedAt: timestamp, Attachments: images})
+	}
 
 	// ensureAsst returns the open assistant message's index, opening one if needed.
 	ensureAsst := func(ts string) int {
@@ -261,11 +279,12 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 					continue
 				}
 				if n.rawType == "userMessage" {
-					curAsst = -1
-					nativeState = newStreamState()
-					if text := strings.TrimSpace(n.Text); text != "" {
-						out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "user", Text: text, CreatedAt: env.Timestamp})
+					var item struct {
+						Content json.RawMessage `json:"content"`
 					}
+					_ = json.Unmarshal(p.Item, &item)
+					appendUser("completed", strings.TrimSpace(n.Text), env.Timestamp, agent.ImagesFromContent(item.Content))
+					modern = true
 					continue
 				}
 				emitNorm(n, phaseCompleted, p.Item, func(ev agent.Event) {
@@ -310,15 +329,16 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 						Meta: map[string]any{"source": "codex"}})
 				}
 			case "user_message":
-				modern = false
-				nativeState = newStreamState()
-				eventTexts, responseTexts = map[string]int{}, map[string]int{}
-				txt := strings.TrimSpace(p.Message)
-				if txt == "" {
-					continue
+				var images []agent.Attachment
+				for _, value := range p.Images {
+					if image, ok := agent.ImageFromDataURL(value); ok {
+						images = append(images, image)
+					}
 				}
-				curAsst = -1 // a user turn closes the current assistant message
-				out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "user", Text: txt, CreatedAt: env.Timestamp})
+				for _, path := range p.LocalImages {
+					images = append(images, agent.Attachment{Path: path, Name: filepath.Base(path)})
+				}
+				appendUser("event", strings.TrimSpace(p.Message), env.Timestamp, images)
 			case "agent_message":
 				if modern {
 					continue
@@ -331,11 +351,19 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 				}
 			}
 		case "response_item":
-			if modern {
-				continue
-			}
 			var p responseItemPayload
 			if json.Unmarshal(env.Payload, &p) != nil {
+				continue
+			}
+			if p.Type == "message" && p.Role == "user" {
+				// Text-only response records include injected environment/developer context;
+				// human text is read from user_message events. Recover image-bearing input here.
+				if images := agent.ImagesFromContent(p.Content); len(images) > 0 {
+					appendUser("response", imageInputText(p.Content), env.Timestamp, images)
+				}
+				continue
+			}
+			if modern {
 				continue
 			}
 			switch p.Type {
@@ -411,6 +439,32 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 		return nil, err // truncated transcript — let the caller fall back rather than serve a partial
 	}
 	return out, nil
+}
+
+// Codex 0.155 wraps a local image with separate input_text open/close tags in
+// response_item, then emits the original text in UserMessage. Strip only that
+// exact three-block wrapper so both echoes match without hiding user-authored text.
+func imageInputText(raw json.RawMessage) string {
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) != nil {
+		return ""
+	}
+	var text []string
+	for i := 0; i < len(parts); i++ {
+		part := parts[i]
+		if part.Type == "input_text" && strings.HasPrefix(part.Text, "<image name=[Image #") && strings.HasSuffix(part.Text, ">") && i+2 < len(parts) &&
+			parts[i+1].Type == "input_image" && parts[i+2].Type == "input_text" && parts[i+2].Text == "</image>" {
+			i += 2
+			continue
+		}
+		if (part.Type == "input_text" || part.Type == "text") && part.Text != "" {
+			text = append(text, part.Text)
+		}
+	}
+	return strings.TrimSpace(strings.Join(text, "\n\n"))
 }
 
 // appendText adds a visible-text part and keeps Message.Text as the joined back-compat text.

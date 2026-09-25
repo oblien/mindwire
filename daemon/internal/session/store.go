@@ -20,12 +20,13 @@ import (
 )
 
 type Message struct {
-	ID        string       `json:"id"`
-	ChatID    string       `json:"chatId"`
-	Role      string       `json:"role"` // "user" | "assistant"
-	Text      string       `json:"text"`
-	CreatedAt string       `json:"createdAt"`
-	Parts     []agent.Part `json:"parts,omitempty"` // ordered rich transcript (text/thinking/tool)
+	ID          string             `json:"id"`
+	ChatID      string             `json:"chatId"`
+	Role        string             `json:"role"` // "user" | "assistant"
+	Text        string             `json:"text"`
+	CreatedAt   string             `json:"createdAt"`
+	Parts       []agent.Part       `json:"parts,omitempty"` // ordered rich transcript (text/thinking/tool)
+	Attachments []agent.Attachment `json:"attachments,omitempty"`
 }
 
 // Run is one durable agent turn. The daemon owns it: it keeps running (and is

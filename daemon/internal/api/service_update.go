@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
@@ -29,6 +30,10 @@ func (a *API) externalServiceActivity() int {
 
 // Computer connections are optional and share the same service-update admission.
 func (a *API) SetConnectionActivity(activity func() int) { a.connectionActivity = activity }
+
+// The daemon owns the durable manual-update policy, so an older computer CLI can
+// keep using its existing lease/download/restart loop without losing owner intent.
+func (a *API) SetConnectionUpdateForce(force func() bool) { a.connectionUpdateForce = force }
 func (a *API) ConnectionOperation(next http.HandlerFunc) http.HandlerFunc {
 	return a.serviceOperation(next)
 }
@@ -41,15 +46,23 @@ func (a *API) serviceUpdateStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) serviceUpdateAcquire(w http.ResponseWriter, r *http.Request) {
-	lease, err := a.sup.AcquireServiceUpdate()
+	var req struct {
+		Force bool `json:"force"`
+	}
+	if err := decode(w, r, &req); err != nil && !errors.Is(err, io.EOF) {
+		badRequest(w, "invalid service update request")
+		return
+	}
+	force := req.Force || (a.connectionUpdateForce != nil && a.connectionUpdateForce())
+	lease, err := a.sup.AcquireServiceUpdate(force)
 	if err != nil {
 		serviceUpdateError(w, err)
 		return
 	}
-	// Admission is now closed. Every earlier mutating request has returned and
-	// registered any background job. Inspect services outside the supervisor's
-	// mutex to avoid reversing their existing lock order with run admission.
-	if a.externalServiceActivity() > 0 {
+	// Admission is now closed. Automatic updates require earlier mutations and
+	// their background jobs to finish; manual updates may interrupt them. Inspect
+	// services outside the supervisor's mutex to preserve lock order.
+	if !force && a.externalServiceActivity() > 0 {
 		a.sup.ReleaseServiceUpdate(lease.ID)
 		serviceUpdateError(w, orchestrator.ErrServiceBusy)
 		return

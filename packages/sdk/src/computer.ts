@@ -5,7 +5,17 @@ export interface ComputerInvitation {
   version: 1; computerId: string; name: string; fingerprint: string; routes: ComputerRoute[];
   pairingId: string; secret: string; expiresAt: string;
 }
-export interface ComputerDevice { id: string; name: string; publicKey: string; createdAt: string; revoked: boolean }
+/** Address refresh for an already paired phone. Contains no credential and grants no access;
+ * the phone must authenticate with its saved key and verify its saved host fingerprint. */
+export interface ComputerReconnectCode {
+  version: 1; mode: "reconnect"; computerId: string; registryId: string; name: string;
+  fingerprint: string; routes: ComputerRoute[]; expiresAt: string;
+}
+export type ComputerConnectionCode = ComputerInvitation | ComputerReconnectCode;
+export interface ComputerDevice {
+  id: string; name: string; publicKey: string; createdAt: string; revoked: boolean;
+  connected?: boolean;
+}
 export interface ComputerPairRequest { id: string; name: string; publicKey: string }
 export interface ComputerPairing {
   id: string; expiresAt: string; status: "waiting" | "pending" | "approved" | "rejected";
@@ -14,6 +24,8 @@ export interface ComputerPairing {
 }
 export interface ComputerUpdate {
   id: string; version: string; updatedAt: string; error?: string;
+  /** Explicit owner restart; automatic requests omit this and wait for idle. */
+  force?: boolean;
   status: "idle" | "queued" | "downloading" | "waiting" | "restarting" | "complete" | "failed";
 }
 export interface ComputerInfo {
@@ -31,8 +43,10 @@ export class ComputerApi {
     return this.client.http.request("PUT", "/computer/routes", { body: { routes } });
   }
   updateStatus(): Promise<ComputerUpdate> { return this.client.http.request("GET", "/computer/update"); }
-  requestUpdate(version: string): Promise<ComputerUpdate> {
-    return this.client.http.request("POST", "/computer/update", { body: { version } });
+  /** Automatic requests wait for idle. With serviceUpdateVersion >= 2, force
+   * promotes the same active request to an explicit restart without re-downloading. */
+  requestUpdate(version: string, options: { force?: boolean } = {}): Promise<ComputerUpdate> {
+    return this.client.http.request("POST", "/computer/update", { body: { version, ...options } });
   }
   invite(routes: ComputerRoute[]): Promise<ComputerInvitation> {
     return this.client.http.request("POST", "/computer/pairings", { body: { routes } });
@@ -60,16 +74,17 @@ export class ComputerApi {
 /** The mobile scanner accepts raw JSON. Avoid base64 overhead in QR codes without
  * dropping routes, shortening the host pin or changing the pairing protocol.
  * This includes a short-lived secret; never log it to shared service logs. */
-export function computerPairingQRData(invitation: ComputerInvitation): string {
+export function computerPairingQRData(invitation: ComputerConnectionCode): string {
   return JSON.stringify(invitation);
 }
 
 /** A URI carries an invitation, not permanent credentials. Never log it to shared service logs. */
-export function computerPairingURI(invitation: ComputerInvitation): string {
+export function computerPairingURI(invitation: ComputerConnectionCode): string {
   // UTF-8/base64url works in browsers too; no Node-only dependency in the protocol layer.
   const bytes = new TextEncoder().encode(computerPairingQRData(invitation));
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   const encoded = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return `mindwire://pair?v=1#${encoded}`;
+  const action = "mode" in invitation && invitation.mode === "reconnect" ? "reconnect" : "pair";
+  return `mindwire://${action}?v=1#${encoded}`;
 }

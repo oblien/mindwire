@@ -261,6 +261,65 @@ func TestPairingReservesServiceUntilPhoneAcknowledgesApproval(t *testing.T) {
 	}
 }
 
+func TestRestartKeepsApprovedPhoneAndNativeConnectedStatus(t *testing.T) {
+	s, directory := fixture(t)
+	inv := invite(t, s)
+	key := clientKey(t)
+	req := PairRequest{ID: "restart-phone", Name: "Saved phone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))}
+	if _, err := s.Request(inv.PairingID, req); err != nil {
+		t.Fatal(err)
+	}
+	device, err := s.Decide(inv.PairingID, req.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := s.Fingerprint()
+	s.Close()
+	restored, err := New(directory, s.apiAddress, s.apiToken, s.registryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restored.Start("127.0.0.1:0", "127.0.0.1:0", directory); err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	if restored.Fingerprint() != fingerprint {
+		t.Fatal("Restart changed the host identity")
+	}
+	mux := http.NewServeMux()
+	restored.Register(mux)
+	status := func() bool {
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httptest.NewRequest("GET", "/computer/devices", nil))
+		var devices []struct {
+			Device
+			Connected bool `json:"connected"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &devices); err != nil || len(devices) != 1 || devices[0].ID != device.ID {
+			t.Fatalf("Saved device lost: %s", response.Body.String())
+		}
+		return devices[0].Connected
+	}
+	if status() {
+		t.Fatal("Persisted device was falsely marked connected")
+	}
+	phone := connect(t, restored, "device", ssh.PublicKeys(key), true)
+	defer phone.Close()
+	for i := 0; i < 100 && !status(); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !status() {
+		t.Fatal("Saved phone could not reconnect after restart")
+	}
+	phone.Close()
+	for i := 0; i < 100 && status(); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if status() {
+		t.Fatal("Disconnected phone still marked connected")
+	}
+}
+
 func TestComputerOwnershipLockRejectsDuplicateAndReleases(t *testing.T) {
 	directory := t.TempDir()
 	unlock, err := Lock(directory)

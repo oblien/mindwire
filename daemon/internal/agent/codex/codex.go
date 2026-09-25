@@ -423,9 +423,11 @@ func buildExecCommand(in agent.TurnInput, files materialized) string {
 		cli += " -i " + agent.ShellQuote(img)
 	}
 
-	// Prompt argument last, if non-empty (a resume with no new prompt is valid).
-	if strings.TrimSpace(in.Message) != "" {
-		cli += " " + agent.ShellQuote(in.Message)
+	// --image consumes trailing positional values unless separated by --. An
+	// explicit empty prompt also lets an image-only turn avoid reading from stdin.
+	// A resume with neither new text nor images retains its existing no-prompt form.
+	if strings.TrimSpace(in.Message) != "" || len(files.imagePaths) > 0 {
+		cli += " -- " + agent.ShellQuote(in.Message)
 	}
 	if in.Env[azureProviderMarker] == "openai" {
 		cli = "(" + subscriptionShell + cli + ")"

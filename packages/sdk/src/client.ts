@@ -23,6 +23,7 @@ import type {
   MemoryDoc,
   MemoryScope,
   Message,
+  MessagePage,
   ModelInfo,
   Notification,
   NotifyChannel,
@@ -358,6 +359,27 @@ export class Mindwire {
     return this.http.request<Message[]>("GET", `/chats/${encodeURIComponent(chatId)}/messages`, {
       query,
     });
+  }
+
+  /**
+   * Byte-budgeted history (default 1 MiB). Whole messages are retained, including
+   * up to two newest messages even when oversized. Older services return their
+   * bounded array, normalized here without a probe or duplicate request.
+   */
+  async messagePage(
+    chatId: string,
+    opts: AgentScoped & { limit?: number; before?: string; maxBytes?: number } = {},
+  ): Promise<MessagePage> {
+    const limit = opts.limit ?? 12;
+    const result = await this.http.request<MessagePage | Message[] | null>(
+      "GET", `/chats/${encodeURIComponent(chatId)}/messages`, {
+        query: { ...this.agentParam(opts), limit, before: opts.before,
+          paged: "true", maxBytes: opts.maxBytes ?? 1_048_576 },
+      },
+    );
+    if (result === null) return { messages: [], hasMore: false };
+    if (!Array.isArray(result)) return result;
+    return { messages: result, hasMore: result.length === limit, before: result[0]?.id };
   }
 
   /** `GET /chats/{id}/run` — the latest run for a chat (reattach anchor), or `null` if none yet. */

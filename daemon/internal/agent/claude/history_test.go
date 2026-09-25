@@ -29,6 +29,19 @@ func userLine(text string) string {
 	return fmt.Sprintf(`{"type":"user","uuid":"u1","timestamp":"2026-01-01T00:00:00Z","message":{"content":%q}}`+"\n", text)
 }
 
+func TestImageOnlyUserMessageRetainedInNativeHistory(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", base)
+	mkTranscript(t, base, projectSlug("/repo"), "images", `{"type":"user","uuid":"photo","message":{"content":[{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"AQID"}}]}}`)
+	messages, err := (adapter{}).History(agent.HistoryQuery{ChatID: "chat", SessionID: "images", CWD: "/repo"})
+	if err != nil || len(messages) != 1 || messages[0].Role != "user" || messages[0].Text != "" || len(messages[0].Attachments) != 1 {
+		t.Fatalf("Image-only native message lost: %+v %v", messages, err)
+	}
+	if messages[0].Attachments[0].Mime != "image/jpeg" || len(messages[0].Attachments[0].Data) != 3 {
+		t.Fatal("Native image bytes lost")
+	}
+}
+
 // symlinkDir creates a canonical real dir plus a symlink pointing at it, skipping the test if the OS
 // won't make symlinks. It returns (resolvedReal, linkPath).
 func symlinkDir(t *testing.T) (string, string) {
