@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -140,7 +141,18 @@ func (s *Server) forward(conn *ssh.ServerConn, incoming ssh.NewChannel) {
 		return
 	}
 	pairing := conn.Permissions.Extensions["mode"] == "pair"
-	if pairing && target.Port != PairingPort || !pairing && target.Port != APIPort {
+	var revoked <-chan struct{}
+	address := s.apiAddress
+	if !pairing && target.Port != APIPort {
+		var allowed bool
+		revoked, allowed = s.forwardedPort(conn.Permissions.Extensions["device"], target.Port)
+		if !allowed {
+			_ = incoming.Reject(ssh.Prohibited, "authorize this port through the workspace API first")
+			return
+		}
+		address = net.JoinHostPort("127.0.0.1", strconv.FormatUint(uint64(target.Port), 10))
+	}
+	if pairing && target.Port != PairingPort {
 		_ = incoming.Reject(ssh.Prohibited, "target not allowed")
 		return
 	}
@@ -156,7 +168,7 @@ func (s *Server) forward(conn *ssh.ServerConn, incoming ssh.NewChannel) {
 	var local net.Conn
 	var err error
 	if !pairing {
-		local, err = net.DialTimeout("tcp", s.apiAddress, 5*time.Second)
+		local, err = net.DialTimeout("tcp", address, 5*time.Second)
 		if err != nil {
 			_ = incoming.Reject(ssh.ConnectionFailed, "workspace unavailable")
 			return
@@ -184,7 +196,13 @@ func (s *Server) forward(conn *ssh.ServerConn, incoming ssh.NewChannel) {
 	done := make(chan struct{}, 2)
 	go func() { _, _ = io.Copy(channel, local); done <- struct{}{} }()
 	go func() { _, _ = io.Copy(local, channel); done <- struct{}{} }()
-	<-done
+	select {
+	case <-done:
+	case <-revoked:
+		_ = channel.Close()
+		_ = local.Close()
+		<-done
+	}
 	_ = channel.Close()
 	_ = local.Close()
 	<-done
@@ -193,6 +211,9 @@ func (s *Server) forward(conn *ssh.ServerConn, incoming ssh.NewChannel) {
 func (s *Server) Close() {
 	s.mu.Lock()
 	s.closed = true
+	for id := range s.forwards {
+		s.closeForwardLocked(id)
+	}
 	connections := []*ssh.ServerConn{}
 	for conn := range s.connections {
 		connections = append(connections, conn)

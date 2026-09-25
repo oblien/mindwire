@@ -4930,6 +4930,10 @@
           },
           "websocketPort": {
             "type": "integer"
+          },
+          "portForwardingVersion": {
+            "type": "integer",
+            "description": "1 when expiring, device-bound loopback forwards are supported."
           }
         },
         "required": [
@@ -4973,6 +4977,59 @@
         },
         "required": [
           "status"
+        ]
+      },
+      "ComputerForwardRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "id",
+          "deviceId",
+          "port"
+        ]
+      },
+      "ComputerForward": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "deviceId",
+          "port",
+          "expiresAt"
         ]
       }
     }
@@ -12906,6 +12963,126 @@
             "description": "Daemon authentication required"
           }
         }
+      }
+    },
+    "/computer/forwards": {
+      "get": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "List active private port grants",
+        "operationId": "getComputerForwards",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ComputerForward"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid grant, reserved control port, unknown or revoked device"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Service update in progress"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Authorize or renew a private loopback port for a paired device",
+        "operationId": "postComputerForwards",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerForward"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid grant, reserved control port, unknown or revoked device"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Service update in progress"
+          }
+        },
+        "description": "Requires the daemon bearer token. Renew the same ID every 30 seconds; grants expire after two minutes and are not persisted. Only the named approved device may use SSH direct-tcpip to 127.0.0.1 at this port. Hostnames, LAN targets, and Mindwire control ports are disallowed. Closing, expiry, and device revocation terminate existing forwarded connections. Active grants defer idle updates.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComputerForwardRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/computer/forwards/{id}": {
+      "delete": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Close a port grant and its active channels",
+        "operationId": "deleteComputerForwardsId",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid grant, reserved control port, unknown or revoked device"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "409": {
+            "description": "Service update in progress"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     }
   }

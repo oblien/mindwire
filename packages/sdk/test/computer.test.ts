@@ -42,3 +42,23 @@ test("pairing URI retains Unicode and relay URLs enforce transport safety", () =
     expect(() => websocketURL(url)).toThrow();
   }
 });
+
+test("private forward grants use authenticated, unscoped computer routes", async () => {
+  const grant = { id: "phone-forward", deviceId: "approved-device", port: 3000 };
+  const calls: string[] = [];
+  const client = new Mindwire({ agent: "codex", target: remote("https://workspace.test", { token: "fixture" }), fetch: async (url, init) => {
+    const parsed = new URL(url);
+    expect(parsed.search).toBe("");
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer fixture");
+    calls.push(`${init?.method} ${parsed.pathname}`);
+    if (init?.method === "POST") {
+      expect(JSON.parse(init.body as string)).toEqual(grant);
+      return Response.json({ ...grant, expiresAt: "2099-01-01T00:00:00Z" });
+    }
+    return Response.json(init?.method === "GET" ? [] : { ok: true });
+  } });
+  expect((await client.computer.forward(grant)).id).toBe(grant.id);
+  await client.computer.forwards();
+  await client.computer.closeForward("phone/forward");
+  expect(calls).toEqual(["POST /computer/forwards", "GET /computer/forwards", "DELETE /computer/forwards/phone%2Fforward"]);
+});

@@ -85,6 +85,7 @@ type Server struct {
 	wsServer    *http.Server
 	closed      bool
 	registryID  string
+	forwards    map[string]*portForward
 }
 
 func randomID(n int) string {
@@ -107,7 +108,7 @@ func New(directory, apiAddress, apiToken, registryID string) (*Server, error) {
 	if err = os.MkdirAll(directory, 0700); err != nil {
 		return nil, err
 	}
-	s := &Server{path: filepath.Join(directory, "computer.json"), offers: map[string]*Offer{}, connections: map[*ssh.ServerConn]string{}, limit: make(chan struct{}, 64), apiAddress: apiAddress, apiToken: apiToken, registryID: registryID}
+	s := &Server{path: filepath.Join(directory, "computer.json"), offers: map[string]*Offer{}, connections: map[*ssh.ServerConn]string{}, forwards: map[string]*portForward{}, limit: make(chan struct{}, 64), apiAddress: apiAddress, apiToken: apiToken, registryID: registryID}
 	data, err := os.ReadFile(s.path)
 	if os.IsNotExist(err) {
 		_, key, e := ed25519.GenerateKey(rand.Reader)
@@ -323,6 +324,11 @@ func (s *Server) Revoke(id string) error {
 		return err
 	}
 	connections := []*ssh.ServerConn{}
+	for key, forward := range s.forwards {
+		if forward.DeviceID == id {
+			s.closeForwardLocked(key)
+		}
+	}
 	for conn, owner := range s.connections {
 		if owner == id {
 			connections = append(connections, conn)
@@ -428,7 +434,7 @@ func (s *Server) PendingActivity() int {
 			return 1
 		}
 	}
-	return 0
+	return len(s.forwards)
 }
 
 // ControlPatterns is generated from the actual registration for OpenAPI parity.
@@ -440,6 +446,7 @@ func ControlPatterns() []string {
 
 func (s *Server) routes(register func(string, http.HandlerFunc)) {
 	s.updateRoutes(register)
+	s.forwardRoutes(register)
 	register("POST /computer/pairings/{id}/complete", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			RequestID string `json:"requestId"`
@@ -547,7 +554,7 @@ func (s *Server) routes(register func(string, http.HandlerFunc)) {
 func (s *Server) Info() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	info := map[string]any{"version": Version, "computerId": s.state.ID, "registryId": s.registryID, "fingerprint": s.Fingerprint(), "routes": append([]Route{}, s.state.Routes...), "pid": os.Getpid(), "apiAddress": s.apiAddress}
+	info := map[string]any{"version": Version, "portForwardingVersion": 1, "computerId": s.state.ID, "registryId": s.registryID, "fingerprint": s.Fingerprint(), "routes": append([]Route{}, s.state.Routes...), "pid": os.Getpid(), "apiAddress": s.apiAddress}
 	if s.sshListener != nil {
 		info["sshPort"] = s.sshListener.Addr().(*net.TCPAddr).Port
 	}

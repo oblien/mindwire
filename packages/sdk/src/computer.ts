@@ -19,7 +19,10 @@ export interface ComputerUpdate {
 export interface ComputerInfo {
   version: number; computerId: string; registryId: string; fingerprint: string; routes: ComputerRoute[];
   pid: number; apiAddress: string; sshPort: number; websocketPort: number;
+  portForwardingVersion?: number;
 }
+export interface ComputerForwardRequest { id: string; deviceId: string; port: number }
+export interface ComputerForward extends ComputerForwardRequest { expiresAt: string }
 /** Available only in computer mode. All calls use the existing authenticated transport. */
 export class ComputerApi {
   constructor(private readonly client: Mindwire) {}
@@ -43,6 +46,15 @@ export class ComputerApi {
   }
   devices(): Promise<ComputerDevice[]> { return this.client.http.request("GET", "/computer/devices"); }
   revoke(id: string): Promise<{ ok: boolean }> { return this.client.http.request("DELETE", `/computer/devices/${encodeURIComponent(id)}`); }
+  forwards(): Promise<ComputerForward[]> { return this.client.http.request("GET", "/computer/forwards"); }
+  /** Authorize a loopback port for this paired device. Renew the same ID every 30s;
+   * grants expire after two minutes. Carry traffic using SSH direct-tcpip. */
+  forward(request: ComputerForwardRequest): Promise<ComputerForward> {
+    return this.client.http.request("POST", "/computer/forwards", { body: request });
+  }
+  closeForward(id: string): Promise<{ ok: boolean }> {
+    return this.client.http.request("DELETE", `/computer/forwards/${encodeURIComponent(id)}`);
+  }
 }
 
 /** A URI carries an invitation, not permanent credentials. Never log it to shared service logs. */
