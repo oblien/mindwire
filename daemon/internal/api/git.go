@@ -243,19 +243,23 @@ func (a *API) projectGitRun(w http.ResponseWriter, r *http.Request) {
 }
 
 type gitOperationRequest struct {
-	ID       string                `json:"id"`
-	Action   string                `json:"action"`
-	Paths    []string              `json:"paths,omitempty"`
-	Message  string                `json:"message,omitempty"`
-	Branch   string                `json:"branch,omitempty"`
-	Remote   bool                  `json:"remote,omitempty"`
-	Identity *registry.GitIdentity `json:"identity,omitempty"`
-	Auth     *gitaccess.Auth       `json:"auth,omitempty"`
+	ID             string                `json:"id"`
+	Action         string                `json:"action"`
+	Paths          []string              `json:"paths,omitempty"`
+	Message        string                `json:"message,omitempty"`
+	Branch         string                `json:"branch,omitempty"`
+	Remote         bool                  `json:"remote,omitempty"`
+	Identity       *registry.GitIdentity `json:"identity,omitempty"`
+	CommitID       string                `json:"commitId,omitempty"`
+	ExpectedHead   string                `json:"expectedHead,omitempty"`
+	ExpectedBranch string                `json:"expectedBranch,omitempty"`
+	Auth           *gitaccess.Auth       `json:"auth,omitempty"`
 }
 
 func (a *API) startGitOperation(ctx context.Context, projectID string, req gitOperationRequest) (registry.GitOperation, error) {
 	spec := registry.GitSpec{ID: req.ID, ProjectID: projectID, Action: req.Action, Paths: req.Paths, Message: req.Message,
-		Branch: req.Branch, Remote: req.Remote, Identity: req.Identity}
+		Branch: req.Branch, Remote: req.Remote, Identity: req.Identity,
+		CommitID: req.CommitID, ExpectedHead: req.ExpectedHead, ExpectedBranch: req.ExpectedBranch}
 	if err := gitops.Normalize(&spec); err != nil {
 		return registry.GitOperation{}, err
 	}

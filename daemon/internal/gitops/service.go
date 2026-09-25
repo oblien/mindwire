@@ -15,8 +15,8 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 )
 
-// Version 3 adds repository-scoped author setup to a durable commit and structured identity errors.
-const Version = 3
+// Version 4 adds guarded commit restoration without moving HEAD or rewriting history.
+const Version = 4
 const maxDuration = 15 * time.Minute
 
 type running struct {
@@ -169,6 +169,7 @@ func (s *Service) work(ctx context.Context, cancel context.CancelFunc, o registr
 	}
 	result.Output = gitaccess.Redact(result.Output, redact)
 	identityRequired := errors.Is(err, ErrIdentityRequired)
+	operationErrorCode := restoreErrorCode(err)
 	if err != nil {
 		err = errors.New(gitaccess.Redact(err.Error(), redact))
 	}
@@ -181,6 +182,9 @@ func (s *Service) work(ctx context.Context, cancel context.CancelFunc, o registr
 			v.ErrorCode = "git_command_failed"
 			if identityRequired {
 				v.ErrorCode = "git_identity_required"
+			}
+			if operationErrorCode != "" {
+				v.ErrorCode = operationErrorCode
 			}
 			if ctx.Err() != nil {
 				v.ErrorCode = ""

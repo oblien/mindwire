@@ -13,15 +13,18 @@ import (
 // GitSpec is the non-secret intent and idempotency key. Path is the canonical
 // repository root, resolved by the daemon rather than supplied by the client.
 type GitSpec struct {
-	ID        string       `json:"id"`
-	ProjectID string       `json:"projectId"`
-	Path      string       `json:"path"`
-	Action    string       `json:"action"`
-	Paths     []string     `json:"paths,omitempty"`
-	Message   string       `json:"message,omitempty"`
-	Branch    string       `json:"branch,omitempty"`
-	Remote    bool         `json:"remote,omitempty"`
-	Identity  *GitIdentity `json:"identity,omitempty"`
+	ID             string       `json:"id"`
+	ProjectID      string       `json:"projectId"`
+	Path           string       `json:"path"`
+	Action         string       `json:"action"`
+	Paths          []string     `json:"paths,omitempty"`
+	Message        string       `json:"message,omitempty"`
+	Branch         string       `json:"branch,omitempty"`
+	Remote         bool         `json:"remote,omitempty"`
+	Identity       *GitIdentity `json:"identity,omitempty"`
+	CommitID       string       `json:"commitId,omitempty"`
+	ExpectedHead   string       `json:"expectedHead,omitempty"`
+	ExpectedBranch string       `json:"expectedBranch,omitempty"`
 }
 
 // GitIdentity is explicit, user-provided attribution for author settings.

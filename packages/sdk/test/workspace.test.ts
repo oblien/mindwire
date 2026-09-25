@@ -53,10 +53,31 @@ test("branch operations preserve their intent and request compatible history", a
       expect(JSON.parse(String(init.body))).toEqual(request);
       return Response.json(operation);
     }
-    expect(url.searchParams.get("actionsVersion")).toBe("2");
+    expect(url.searchParams.get("actionsVersion")).toBe("4");
     return Response.json({ operations: [operation] });
   } });
   expect(await mw.workspace.git.start("project", request)).toEqual(operation);
+  expect(await mw.workspace.git.operations("project")).toEqual([operation]);
+});
+
+test("restore operations retain the confirmed commit and repository guards in their receipt", async () => {
+  const request = { id: "restore-version", action: "restore_commit", commitId: "a".repeat(40),
+    expectedHead: "b".repeat(40), expectedBranch: "main" } as const;
+  const operation = { ...request, projectId: "project", path: "/work", status: "failed",
+    errorCode: "git_restore_dirty", createdAt: "2026-09-25T00:00:00Z", updatedAt: "2026-09-25T00:00:01Z", sequence: 3 };
+  const mw = new Mindwire({ target: remote("http://registry"), fetch: async (input, init) => {
+    if (init?.method === "POST") {
+      expect(JSON.parse(String(init.body))).toEqual(request);
+      return Response.json(operation);
+    }
+    expect(new URL(input).searchParams.get("actionsVersion")).toBe("4");
+    return Response.json({ operations: [operation] });
+  } });
+  const result = await mw.workspace.git.start("project", request);
+  expect(result.commitId).toBe(request.commitId);
+  expect(result.expectedHead).toBe(request.expectedHead);
+  expect(result.expectedBranch).toBe(request.expectedBranch);
+  expect(result.errorCode).toBe("git_restore_dirty");
   expect(await mw.workspace.git.operations("project")).toEqual([operation]);
 });
 

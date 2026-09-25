@@ -70,6 +70,9 @@ func Normalize(spec *registry.GitSpec) error {
 	if !branchAction && (spec.Branch != "" || spec.Remote) {
 		return invalid("this Git operation does not accept a branch")
 	}
+	if spec.Action != "restore_commit" && (spec.CommitID != "" || spec.ExpectedHead != "" || spec.ExpectedBranch != "") {
+		return invalid("only commit restoration accepts a source commit and expected repository state")
+	}
 	switch spec.Action {
 	case "stage", "unstage", "discard":
 		if len(spec.Paths) == 0 || spec.Message != "" {
@@ -93,6 +96,13 @@ func Normalize(spec *registry.GitSpec) error {
 				return invalid("select a remote tracking branch")
 			}
 		}
+	case "restore_commit":
+		if len(spec.Paths) != 0 || spec.Message != "" || !validObjectID(spec.CommitID) || !validObjectID(spec.ExpectedHead) ||
+			(spec.ExpectedBranch != "" && !validBranchName(spec.ExpectedBranch)) {
+			return invalid("restoration requires full commit IDs and the current branch")
+		}
+		spec.CommitID = strings.ToLower(spec.CommitID)
+		spec.ExpectedHead = strings.ToLower(spec.ExpectedHead)
 	default:
 		return invalid("unsupported Git operation")
 	}
@@ -133,6 +143,9 @@ func Root(ctx context.Context, directory string) (string, error) {
 func (s *Service) execute(ctx context.Context, spec registry.GitSpec, c *gitaccess.Connection, auth *gitaccess.Auth) (gitaccess.Result, error) {
 	if Network(spec.Action) {
 		return s.access.Run(ctx, spec.Path, spec.Action, c, auth)
+	}
+	if spec.Action == "restore_commit" {
+		return restoreCommit(ctx, spec)
 	}
 	output := &tailOutput{}
 	command := func(input string, args ...string) error {

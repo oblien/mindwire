@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/oblien/mindwire/daemon/internal/gitops"
 )
 
 func (a *API) projectGitStart(w http.ResponseWriter, r *http.Request) {
@@ -34,19 +36,19 @@ func (a *API) projectGitOperations(w http.ResponseWriter, r *http.Request) {
 		workspaceError(w, err)
 		return
 	}
-	// Older clients decode actions as a closed enum. Keep new branch receipts out of their
-	// history while the same server lock still protects them from overlapping mutations.
+	// Older clients decode actions as a closed enum. Filter newer receipts while
+	// retaining the same repository lock against overlapping mutations.
 	version, _ := strconv.Atoi(r.URL.Query().Get("actionsVersion"))
-	if version < 2 {
-		visible := operations[:0]
-		for _, operation := range operations {
-			if operation.Action != "switch_branch" && operation.Action != "create_branch" {
-				visible = append(visible, operation)
-			}
-		}
-		operations = visible
+	if version < 1 {
+		version = 1
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"operations": operations})
+	visible := operations[:0]
+	for _, operation := range operations {
+		if gitops.ActionVersion(operation.Action) <= version {
+			visible = append(visible, operation)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"operations": visible})
 }
 
 func (a *API) gitOperation(w http.ResponseWriter, r *http.Request) {

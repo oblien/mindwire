@@ -7,7 +7,7 @@ diff, and file reads can continue through workspace exec. The `internal/gitops`
 service hosts durable mutations and coordination below HTTP; `internal/gitaccess`
 supplies credentials and invokes native Git for network operations.
 
-`GET /healthz` advertises `gitAccessVersion: 1` and `gitOperationsVersion: 1`.
+`GET /healthz` advertises `gitAccessVersion: 1` and `gitOperationsVersion: 4`.
 All routes below use the existing
 workspace bearer authentication. The complete wire schemas are in
 [openapi.json](./openapi.json).
@@ -76,13 +76,28 @@ connection. `ghCli` deliberately uses the server's current GitHub CLI login.
 
 ## Durable Git operations
 
-Actions are `stage`, `unstage`, `discard`, `commit`, `fetch`, `pull`, and `push`.
+Actions are `stage`, `unstage`, `discard`, `commit`, `fetch`, `pull`, `push`,
+`switch_branch`, `create_branch`, and `restore_commit`.
 Local actions do not require or accept a forwarded GitHub credential. Paths are
 literal, relative to the canonical repository root, and exclude traversal and
 Git internals. Discard restores tracked files first, then uses Git clean for the
 selected untracked files; failures never trigger a fallback deletion. Unstaging
 on an unborn branch preserves working-tree files. Commit uses the existing Git
 author configuration and reports missing identity instead of inventing one.
+
+Commit restoration requires version 4 and a full `commitId`, `expectedHead`, and
+the observed `expectedBranch` (omit the branch only for detached HEAD). The daemon
+checks that HEAD and the branch still match, requires a clean working tree, and
+refuses active merges/rebases or collisions with ignored local files. It restores
+the selected tree into the index and working tree without moving HEAD or making
+a commit. Clients return to staged changes for review. The same durable receipt,
+repository reservation, cancellation, and retry rules apply. Failure codes start
+with `git_restore_` and identify the precondition that needs attention.
+
+Operation history accepts `actionsVersion=4` for restoration or `2` for branch
+operations. Older clients retain their known action set; the repository lock
+still covers every action. Clients must check the advertised capability before
+submitting a mutation and must not fall back to an uncoordinated restore command.
 
 The SQLite registry persists each intent before execution and retains its bounded,
 redacted result. ID reuse with the same intent returns the existing operation;

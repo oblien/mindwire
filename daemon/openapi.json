@@ -222,7 +222,7 @@
           },
           "gitOperationsVersion": {
             "type": "integer",
-            "description": "Durable Git operation protocol: 1 for worktree/network operations, 2 adds branch operations, 3 adds repository-scoped commit author setup and machine-readable identity errors."
+            "description": "Durable Git operation protocol: 1 for worktree/network operations, 2 adds branch operations, 3 adds repository-scoped commit author setup and machine-readable identity errors. Version 4 adds guarded restoration of a commit as staged changes while preserving HEAD and history."
           },
           "serviceUpdateVersion": {
             "type": "integer",
@@ -4069,7 +4069,8 @@
               "pull",
               "push",
               "switch_branch",
-              "create_branch"
+              "create_branch",
+              "restore_commit"
             ]
           },
           "paths": {
@@ -4107,6 +4108,21 @@
           "identity": {
             "$ref": "#/components/schemas/GitIdentity",
             "description": "Commit only. Requires gitOperationsVersion >= 3. Author setup and commit share one durable operation; retain the same identity on retries."
+          },
+          "commitId": {
+            "type": "string",
+            "pattern": "^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$",
+            "description": "restore_commit only. Required full source commit ID; requires gitOperationsVersion >= 4."
+          },
+          "expectedHead": {
+            "type": "string",
+            "pattern": "^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$",
+            "description": "restore_commit only. Required full HEAD ID observed before the user confirmed restoration."
+          },
+          "expectedBranch": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "restore_commit only. Observed local branch name; omit only for detached HEAD. A changed branch rejects restoration."
           }
         }
       },
@@ -4140,7 +4156,8 @@
               "pull",
               "push",
               "switch_branch",
-              "create_branch"
+              "create_branch",
+              "restore_commit"
             ]
           },
           "paths": {
@@ -4210,7 +4227,22 @@
           },
           "errorCode": {
             "type": "string",
-            "description": "Machine-readable failure. git_identity_required means the commit has not run and the client should ask for author name/email. Submit a new commit intent with identity after user confirmation."
+            "description": "Machine-readable failure. git_identity_required means the commit has not run and the client should ask for author name/email. Submit a new commit intent with identity after user confirmation. Restoration failures include git_restore_dirty, git_restore_changed, git_restore_in_progress, git_restore_commit_unavailable, and git_restore_local_files."
+          },
+          "commitId": {
+            "type": "string",
+            "pattern": "^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$",
+            "description": "restore_commit only. Required full source commit ID; requires gitOperationsVersion >= 4."
+          },
+          "expectedHead": {
+            "type": "string",
+            "pattern": "^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$",
+            "description": "restore_commit only. Required full HEAD ID observed before the user confirmed restoration."
+          },
+          "expectedBranch": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "restore_commit only. Observed local branch name; omit only for detached HEAD. A changed branch rejects restoration."
           }
         }
       },
@@ -11104,7 +11136,7 @@
             }
           }
         },
-        "description": "Requires gitOperationsVersion >= 1, >= 2 for switch_branch/create_branch, or >= 3 for commit with identity. Missing commit attribution returns a failed operation with errorCode git_identity_required; collect the user's name and email before a new commit request. Supplied identity is saved only in this repository. Persists the intent before executing native Git. The same ID and intent returns the existing operation, even after completion or restart; a different intent with that ID returns 409. Network writes use the selected project connection. Local mutations need no GitHub credential. Disconnecting only detaches the observer. Active Git, project, and agent work in overlapping directories conflicts. After a daemon restart, unfinished operations become interrupted and are never replayed automatically. Operations are bounded to 15 minutes."
+        "description": "Requires gitOperationsVersion >= 1, >= 2 for switch_branch/create_branch, or >= 3 for commit with identity. Missing commit attribution returns a failed operation with errorCode git_identity_required; collect the user's name and email before a new commit request. Supplied identity is saved only in this repository. Persists the intent before executing native Git. The same ID and intent returns the existing operation, even after completion or restart; a different intent with that ID returns 409. Network writes use the selected project connection. Local mutations need no GitHub credential. Disconnecting only detaches the observer. Active Git, project, and agent work in overlapping directories conflicts. After a daemon restart, unfinished operations become interrupted and are never replayed automatically. Operations are bounded to 15 minutes. restore_commit requires version 4, commitId, expectedHead, and expectedBranch (omitted for detached HEAD). It requires a clean working tree, checks for in-progress Git work and ignored-file collisions, and stages the selected tree without creating a commit or moving HEAD."
       },
       "get": {
         "tags": [
@@ -11254,7 +11286,7 @@
               "minimum": 1,
               "default": 1
             },
-            "description": "Use 2 to include branch operations. The default preserves the action set understood by older clients; repository locking always includes every active operation."
+            "description": "Use 2 to include branch operations or 4 to include commit restoration. The default preserves the action set understood by older clients; repository locking always includes every active operation."
           }
         ]
       }

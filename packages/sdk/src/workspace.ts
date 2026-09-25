@@ -30,7 +30,7 @@ export interface ProjectGitState {
 }
 
 export type GitAction = "stage" | "unstage" | "discard" | "commit" | "fetch" | "pull" | "push"
-  | "switch_branch" | "create_branch";
+  | "switch_branch" | "create_branch" | "restore_commit";
 
 export interface GitIdentity { name: string; email: string }
 
@@ -68,6 +68,12 @@ export interface GitOperationRequest {
   /** Commit only; requires gitOperationsVersion >= 3. Saves attribution in this repository,
    * then commits under the same durable lock. Never changes global Git configuration. */
   identity?: GitIdentity;
+  /** restore_commit only; requires gitOperationsVersion >= 4. Full source commit object ID. */
+  commitId?: string;
+  /** restore_commit only: full HEAD object ID observed before confirmation. */
+  expectedHead?: string;
+  /** restore_commit only: observed local branch name; omit for detached HEAD. */
+  expectedBranch?: string;
   /** Write-only, for network operations only. Never part of an operation snapshot. */
   auth?: ProjectAuth;
 }
@@ -80,7 +86,8 @@ export interface GitOperation extends Omit<GitOperationRequest, "auth"> {
   output?: string;
   error?: string;
   /** git_identity_required asks the client to collect a name/email before a new commit intent. */
-  errorCode?: "git_identity_required" | (string & {});
+  errorCode?: "git_identity_required" | "git_restore_dirty" | "git_restore_changed"
+    | "git_restore_in_progress" | "git_restore_commit_unavailable" | "git_restore_local_files" | (string & {});
   createdAt: string;
   updatedAt: string;
   sequence: number;
@@ -320,7 +327,7 @@ export class GitAccessApi {
     return this.mw.http.request("POST", `/workspace/projects/${encodeURIComponent(projectId)}/git/${operation}`, { body: { auth } });
   }
 
-  /** Requires health.gitOperationsVersion >= 1 (>= 2 for branch changes). Acceptance persists before Git runs;
+  /** Requires health.gitOperationsVersion >= 1 (>= 2 for branches, >= 4 for restore_commit). Acceptance persists before Git runs;
    * disconnecting only detaches the client. The same ID/intent never runs twice.
    */
   start(projectId: string, request: GitOperationRequest): Promise<GitOperation> {
@@ -328,7 +335,7 @@ export class GitAccessApi {
   }
   async operations(projectId: string, activeOnly = false): Promise<GitOperation[]> {
     const result = await this.mw.http.request<{ operations: GitOperation[] }>("GET",
-      `/workspace/projects/${encodeURIComponent(projectId)}/git/operations`, { query: { active: activeOnly, actionsVersion: 2 } });
+      `/workspace/projects/${encodeURIComponent(projectId)}/git/operations`, { query: { active: activeOnly, actionsVersion: 4 } });
     return result.operations;
   }
   operation(id: string): Promise<GitOperation> {
