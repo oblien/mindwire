@@ -1,10 +1,12 @@
 package mindwire
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 
+	"github.com/oblien/mindwire/daemon/internal/conversations"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 )
@@ -61,22 +63,38 @@ func workspaceError(op string, err error) error {
 	return &APIError{Message: err.Error(), Status: status, Op: op, Cause: err}
 }
 
-func (w *Workspace) Snapshot() (WorkspaceSnapshot, error) {
+type WorkspaceSyncOptions struct{ Refresh bool }
+
+func (w *Workspace) Snapshot(options ...WorkspaceSyncOptions) (WorkspaceSnapshot, error) {
+	issues, err := w.c.core.conversations.Refresh(context.Background(), conversations.Query{Refresh: len(options) > 0 && options[0].Refresh})
+	if err != nil {
+		return WorkspaceSnapshot{}, workspaceError("Workspace.Snapshot", err)
+	}
 	w.c.core.registryMu.Lock()
 	defer w.c.core.registryMu.Unlock()
 	s, err := w.c.core.registry.Snapshot(nil)
+	s.SessionDiscoveryIssues = issues
 	return s, workspaceError("Workspace.Snapshot", err)
 }
 
 // Changes uses both fields of a prior snapshot's cursor. A replaced/restored database returns 409;
 // recover by replacing the cache with Snapshot, never by re-importing an authoritative cache.
-func (w *Workspace) Changes(since int64, workspaceID string) (WorkspaceSnapshot, error) {
-	w.c.core.registryMu.Lock()
-	defer w.c.core.registryMu.Unlock()
+func (w *Workspace) Changes(since int64, workspaceID string, options ...WorkspaceSyncOptions) (WorkspaceSnapshot, error) {
 	s, err := w.c.core.registry.Snapshot(&since)
 	if err == nil && workspaceID != "" && workspaceID != s.WorkspaceID {
 		err = registry.ErrConflict
 	}
+	if err != nil {
+		return s, workspaceError("Workspace.Changes", err)
+	}
+	issues, err := w.c.core.conversations.Refresh(context.Background(), conversations.Query{Refresh: len(options) > 0 && options[0].Refresh})
+	if err != nil {
+		return s, workspaceError("Workspace.Changes", err)
+	}
+	w.c.core.registryMu.Lock()
+	defer w.c.core.registryMu.Unlock()
+	s, err = w.c.core.registry.Snapshot(&since)
+	s.SessionDiscoveryIssues = issues
 	return s, workspaceError("Workspace.Changes", err)
 }
 
@@ -98,8 +116,6 @@ func (w *Workspace) Import(records WorkspaceImport) (WorkspaceSnapshot, error) {
 // expected matches its latest revision. Retrying an identical acknowledged write is idempotent.
 func (collection *WorkspaceCollection[T]) Put(id string, record T, expected *int64) (WorkspaceSnapshot, error) {
 	co := collection.c.core
-	co.registryMu.Lock()
-	defer co.registryMu.Unlock()
 	data, err := json.Marshal(record)
 	if err != nil {
 		return WorkspaceSnapshot{}, workspaceError("Workspace.Put", err)
@@ -111,15 +127,25 @@ func (collection *WorkspaceCollection[T]) Put(id string, record T, expected *int
 			return WorkspaceSnapshot{}, &APIError{Message: "unknown harness type", Status: http.StatusBadRequest, Op: "Workspace.Put"}
 		}
 	}
+	co.registryMu.Lock()
 	if collection.kind == "projects" {
 		err = co.projects.Save(id, data, expected)
 	} else {
 		err = co.registry.Put(collection.kind, id, data, expected)
 	}
+	co.registryMu.Unlock()
 	if err != nil {
 		return WorkspaceSnapshot{}, workspaceError("Workspace.Put", err)
 	}
+	var issues []registry.SessionDiscoveryIssue
+	if collection.kind == "projects" {
+		issues, err = co.conversations.Refresh(context.Background(), conversations.Query{ProjectID: id})
+		if err != nil {
+			return WorkspaceSnapshot{}, workspaceError("Workspace.Put", err)
+		}
+	}
 	s, err := co.registry.Snapshot(nil)
+	s.SessionDiscoveryIssues = issues
 	return s, workspaceError("Workspace.Put", err)
 }
 
@@ -147,7 +173,7 @@ func (collection *WorkspaceCollection[T]) Delete(id string, expected *int64) (Wo
 				Status: http.StatusConflict, Op: "Workspace.Delete"}
 		}
 	}
-	if err := co.registry.Delete(collection.kind, id, expected, false); err != nil {
+	if err := co.registry.Delete(collection.kind, id, expected, false, co.store); err != nil {
 		return WorkspaceSnapshot{}, workspaceError("Workspace.Delete", err)
 	}
 	s, err = co.registry.Snapshot(nil)
@@ -155,7 +181,7 @@ func (collection *WorkspaceCollection[T]) Delete(id string, expected *int64) (Wo
 }
 
 func (c *Client) resolveChat(op, chatID, selected, cwd string) (*orchestrator.Agent, string, error) {
-	chat, profile, project, err := c.core.registry.ChatContext(chatID)
+	chat, profile, project, err := c.core.registry.NativeChatContext(chatID, c.core.store)
 	if err != nil {
 		return nil, "", workspaceError(op, err)
 	}

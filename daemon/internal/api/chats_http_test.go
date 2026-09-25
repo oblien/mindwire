@@ -134,6 +134,42 @@ func TestDeleteChatHTTP(t *testing.T) {
 	}
 }
 
+func TestDeletingPendingForkRetainsSharedNativeHistory(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	h, store := newChatTestEnv(t, cwd)
+	if err := store.SetSession("claude-code", "source", "native-shared"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetChatCWD("source", cwd); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ForkChat("source", "fork"); err != nil {
+		t.Fatal(err)
+	}
+	path := claudeTranscriptPath(home, cwd, "native-shared")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{\"type\":\"user\"}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	response := serve(t, h, "DELETE", "/chats/fork", "")
+	if response.Code != 200 {
+		t.Fatalf("delete fork: %s", response.Body.String())
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("deleting a pending fork deleted its parent's native history")
+	}
+	response = serve(t, h, "DELETE", "/chats/source", "")
+	if response.Code != 200 {
+		t.Fatalf("delete source: %s", response.Body.String())
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("last native reference was not purged")
+	}
+}
+
 // TestCompactChatHTTP exercises the compact-now gates (POST /chats/{id}/compact). The happy path spawns
 // a real run (and thus the CLI), so this asserts only the deterministic gate wiring that returns before
 // StartCompact: unknown agent, the no-session guard, and — with a session seeded so the no-session gate

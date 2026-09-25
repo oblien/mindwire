@@ -2,14 +2,58 @@ package mindwire
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestWorkspaceDiscoversAndReadsNativeCLIConversations(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	t.Setenv("CODEX_HOME", t.TempDir())
+	path := filepath.Join(home, "projects", strings.ReplaceAll(cwd, "/", "-"), "external-claude.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	user, _ := json.Marshal(map[string]any{"type": "user", "uuid": "native-user", "sessionId": "external-claude", "cwd": cwd, "timestamp": "2026-09-24T00:00:00Z", "message": map[string]any{"role": "user", "content": "Started outside Mindwire"}})
+	if err := os.WriteFile(path, append(user, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := New(Options{StatePath: filepath.Join(t.TempDir(), "state.json"), CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	full, err := c.WithAgent("codex").Workspace.Projects.Put("project", WorkspaceProject{Name: "Existing folder", Path: cwd}, nil)
+	if err != nil || len(full.Chats) != 1 || len(full.Agents) != 1 || full.Agents[0].AgentType != "claude-code" {
+		t.Fatalf("native metadata: %+v %v", full, err)
+	}
+	chat := full.Chats[0]
+	if chat.SessionID != "external-claude" || chat.UpdatedAt == "" {
+		t.Fatal(chat)
+	}
+	messages, err := c.Messages(chat.ID, MessagesOptions{})
+	if err != nil || len(messages) != 1 || messages[0].Text != "Started outside Mindwire" {
+		t.Fatalf("native history: %+v %v", messages, err)
+	}
+	chats, err := c.ListChats(context.Background(), ChatListOptions{ProjectID: "project", Refresh: true})
+	if err != nil || len(chats) != 1 || chats[0].ChatID != chat.ID {
+		t.Fatalf("native list: %+v %v", chats, err)
+	}
+	if len(c.core.store.Messages(chat.ID)) != 0 {
+		t.Fatal("SDK copied a native transcript into daemon state")
+	}
+	delta, err := c.Workspace.Changes(full.Revision, full.WorkspaceID, WorkspaceSyncOptions{Refresh: true})
+	if err != nil || len(delta.Chats) != 0 {
+		t.Fatalf("unchanged native metadata duplicated: %+v %v", delta, err)
+	}
+}
 
 func TestWorkspaceUsesSharedRegistryAndProtectsActiveChats(t *testing.T) {
 	c := newFakeClient(t, nil)

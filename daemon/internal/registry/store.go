@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/gitaccess"
+	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 
 	_ "modernc.org/sqlite"
@@ -24,7 +25,7 @@ import (
 
 const Version = 1
 const NotificationPreferencesVersion = 1
-const schemaVersion = 4
+const schemaVersion = 5
 
 var (
 	ErrConflict = errors.New("record changed on another client; refresh and try again")
@@ -61,8 +62,10 @@ type Chat struct {
 	AgentID        string `json:"agentId"`
 	ProjectID      string `json:"projectId"`
 	Title          string `json:"title"`
+	NativeTitle    string `json:"nativeTitle,omitempty"` // cached harness title, retained underneath a user's override
 	TitleIsUserSet bool   `json:"titleIsUserSet,omitempty"`
-	SessionID      string `json:"sessionId,omitempty"` // migration hint; native mappings remain in the session store
+	SessionID      string `json:"sessionId,omitempty"` // native reference; a newer active mapping in the session store wins
+	UpdatedAt      string `json:"updatedAt,omitempty"` // activity reported by the native harness, not an app-open timestamp
 	// Explicit false clears this chat's mute; it does not override its agent's mute.
 	NotificationsMuted *bool `json:"notificationsMuted,omitempty"`
 }
@@ -81,11 +84,12 @@ type Import struct {
 
 type Snapshot struct {
 	Import
-	Version     int        `json:"version"`
-	WorkspaceID string     `json:"workspaceId"` // identity of this registry, independent of a cloud/SSH provider
-	Revision    int64      `json:"revision"`
-	Full        bool       `json:"full"`
-	Deleted     []Deletion `json:"deleted"`
+	Version                int                     `json:"version"`
+	WorkspaceID            string                  `json:"workspaceId"` // identity of this registry, independent of a cloud/SSH provider
+	Revision               int64                   `json:"revision"`
+	Full                   bool                    `json:"full"`
+	Deleted                []Deletion              `json:"deleted"`
+	SessionDiscoveryIssues []SessionDiscoveryIssue `json:"sessionDiscoveryIssues,omitempty"`
 }
 
 type Store struct {
@@ -166,7 +170,11 @@ CREATE TABLE IF NOT EXISTS surface_records (kind TEXT NOT NULL, id TEXT NOT NULL
 CREATE TABLE IF NOT EXISTS git_operations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, path TEXT NOT NULL,
  status TEXT NOT NULL, updated_at TEXT NOT NULL, data BLOB NOT NULL);
 CREATE INDEX IF NOT EXISTS git_operations_project ON git_operations(project_id,updated_at);
-PRAGMA user_version=4;`); err != nil {
+CREATE TABLE IF NOT EXISTS native_chat_links (project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ agent_type TEXT NOT NULL, session_id TEXT NOT NULL, chat_id TEXT NOT NULL, hidden INTEGER NOT NULL DEFAULT 0,
+ PRIMARY KEY(project_id,agent_type,session_id));
+CREATE INDEX IF NOT EXISTS native_chat_links_chat ON native_chat_links(chat_id);
+PRAGMA user_version=5;`); err != nil {
 		return err
 	}
 	identity := make([]byte, 16)
@@ -257,8 +265,13 @@ func (st *Store) normalize(kind, id string, data []byte, revision int64) ([]byte
 		if row.Title == "" {
 			row.Title = "New chat"
 		}
-		if !validID(row.AgentID) || !validID(row.ProjectID) || len(row.Title) > 4096 || len(row.SessionID) > 512 {
+		if !validID(row.AgentID) || !validID(row.ProjectID) || len(row.Title) > 4096 || len(row.NativeTitle) > 4096 || len(row.SessionID) > 512 {
 			return nil, "", "", invalid("chat parents or title")
+		}
+		if row.UpdatedAt != "" {
+			if _, err := time.Parse(time.RFC3339Nano, row.UpdatedAt); err != nil {
+				return nil, "", "", invalid("updatedAt must be an ISO timestamp")
+			}
 		}
 		agentID, projectID, value = row.AgentID, row.ProjectID, row
 	}
@@ -348,6 +361,15 @@ func (st *Store) Put(kind, id string, data []byte, expected *int64) error {
 				if _, present := incoming["notificationsMuted"]; !present {
 					if muted, exists := previous["notificationsMuted"]; exists {
 						incoming["notificationsMuted"] = muted
+					}
+				}
+			}
+			if kind == "chats" {
+				// Native references/activity are daemon-owned. A client's rename or
+				// notification edit must not clear them or roll them back.
+				for _, key := range []string{"sessionId", "updatedAt", "nativeTitle"} {
+					if v, exists := previous[key]; exists {
+						incoming[key] = v
 					}
 				}
 			}
@@ -506,9 +528,13 @@ func (st *Store) Import(batch Import) error {
 
 // Delete removes registry membership (not files/native transcripts). Child chat links get durable
 // tombstones in the same transaction. force is reserved for the existing DELETE /chats API.
-func (st *Store) Delete(kind, id string, expected *int64, force bool) error {
+func (st *Store) Delete(kind, id string, expected *int64, force bool, native ...*session.Store) error {
 	if !validKind(kind) || !validID(id) {
 		return invalid("kind or id")
+	}
+	var refs []session.ChatSession
+	if len(native) > 0 && native[0] != nil {
+		refs = native[0].ChatSessions()
 	}
 	return st.write(func(tx *sql.Tx, revision int64) (bool, error) {
 		if kind == "projects" {
@@ -525,6 +551,9 @@ func (st *Store) Delete(kind, id string, expected *int64, force bool) error {
 				}
 			}
 		}
+		if err := rememberRemovedSessions(tx, kind, id, refs); err != nil {
+			return false, err
+		}
 		return deleteRecord(tx, kind, id, expected, force, revision)
 	})
 }
@@ -536,7 +565,15 @@ func deleteRecord(tx *sql.Tx, kind, id string, expected *int64, force bool, revi
 		return false, err
 	}
 	if gone {
-		return false, nil
+		if kind == "chats" {
+			// A stale client can explicitly remove a conversation that a native
+			// refresh already marked absent. Preserve that intent if it returns.
+			_, err = tx.Exec("UPDATE native_chat_links SET hidden=1 WHERE chat_id=?", id)
+			if err == nil {
+				_, err = tx.Exec("DELETE FROM chats WHERE id=?", id)
+			}
+		}
+		return false, err
 	}
 	_, oldRevision, err := record(tx, kind, id)
 	if err != nil {
@@ -544,6 +581,18 @@ func deleteRecord(tx *sql.Tx, kind, id string, expected *int64, force bool, revi
 	}
 	if oldRevision != 0 && !force && (expected == nil || *expected != oldRevision) {
 		return false, ErrConflict
+	}
+	// Retain a suppression link when a chat/profile is explicitly removed, so a
+	// native inventory refresh cannot resurrect it under another app ID. Removing
+	// a project cascades its links; re-adding the folder can find its native chats.
+	if kind == "chats" {
+		if _, err = tx.Exec("UPDATE native_chat_links SET hidden=1 WHERE chat_id=?", id); err != nil {
+			return false, err
+		}
+	} else if kind == "agents" {
+		if _, err = tx.Exec("UPDATE native_chat_links SET hidden=1 WHERE chat_id IN (SELECT id FROM chats WHERE agent_id=?)", id); err != nil {
+			return false, err
+		}
 	}
 	if kind != "chats" {
 		column := "agent_id"
@@ -580,7 +629,14 @@ func (st *Store) Snapshot(since *int64) (Snapshot, error) {
 		}
 	}
 	for _, kind := range []string{"agents", "projects", "chats"} {
-		rows, err := tx.Query("SELECT data FROM "+kind+" WHERE revision>? ORDER BY id", minimum)
+		query := "SELECT data FROM " + kind + " WHERE revision>?"
+		if kind == "chats" {
+			// A native session that disappeared may retain only its app
+			// preferences for a later unarchive. Tombstones keep it out of every
+			// public snapshot. Explicit deletion removes this cached row too.
+			query += " AND NOT EXISTS (SELECT 1 FROM deleted WHERE kind='chats' AND deleted.id=chats.id)"
+		}
+		rows, err := tx.Query(query+" ORDER BY id", minimum)
 		if err != nil {
 			return s, err
 		}
@@ -684,6 +740,9 @@ func (st *Store) RenameChat(id, title string) error {
 		return err
 	}
 	chat.Title, chat.TitleIsUserSet = strings.TrimSpace(title), strings.TrimSpace(title) != ""
+	if !chat.TitleIsUserSet {
+		chat.Title = chat.NativeTitle
+	}
 	data, err := json.Marshal(chat)
 	if err != nil {
 		return err

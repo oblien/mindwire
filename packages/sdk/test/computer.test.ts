@@ -2,6 +2,17 @@ import { expect, test } from "bun:test";
 import { Mindwire, remote, computerPairingURI } from "../src/index.js";
 import { websocketURL } from "../src/computer/relay.js";
 
+test("turn retries preserve the caller's receipt ID for both normal and resolve runs", async () => {
+  const requests: Record<string, unknown>[] = [];
+  const client = new Mindwire({ target: remote("https://workspace.test"), fetch: async (_url, init) => {
+    requests.push(JSON.parse(init?.body as string));
+    return Response.json({ id: "original-run", chatId: "chat", status: "done", createdAt: "now" });
+  } });
+  for (let i = 0; i < 2; i++) await client.turn({ requestId: "same-request", chatId: "chat", message: "Do it once" });
+  await client.resolve({ requestId: "resolve-request", chatId: "chat", message: "Resolve once" });
+  expect(requests.map(request => request.requestId)).toEqual(["same-request", "same-request", "resolve-request"]);
+});
+
 test("execution streams preserve argv, input and raw output without harness scoping", async () => {
   const command = { argv: ["printf", "%s", "' $HOME\nمرحبا"], directory: "/work/a b", input: "stdin" };
   const client = new Mindwire({ agent: "codex", target: remote("https://workspace.test", { token: "fixture" }), fetch: async (url, init) => {

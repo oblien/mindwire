@@ -1124,6 +1124,7 @@ export interface Health {
   workspaceIsolationVersion?: number;
   workspaceExecutionVersion?: number;
   terminalProtocolVersion?: number;
+  turnRequestVersion?: number;
   computerConnectionVersion?: number;
   workspaceIsolation?: "direct" | "container";
 }

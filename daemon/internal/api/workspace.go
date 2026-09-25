@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oblien/mindwire/daemon/internal/conversations"
 	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 )
@@ -42,8 +43,6 @@ func (a *API) workspaceSnapshot(w http.ResponseWriter, r *http.Request) {
 	if !a.requireRegistry(w) {
 		return
 	}
-	a.registryMu.Lock()
-	defer a.registryMu.Unlock()
 	var since *int64
 	if strings.HasSuffix(r.URL.Path, "/changes") {
 		n, err := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
@@ -62,6 +61,19 @@ func (a *API) workspaceSnapshot(w http.ResponseWriter, r *http.Request) {
 		workspaceError(w, registry.ErrConflict)
 		return
 	}
+	issues, err := a.conversations.Refresh(r.Context(), conversations.Query{Refresh: r.URL.Query().Get("refresh") == "true"})
+	if err != nil {
+		workspaceError(w, err)
+		return
+	}
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
+	snapshot, err = a.registry.Snapshot(since)
+	if err != nil {
+		workspaceError(w, err)
+		return
+	}
+	snapshot.SessionDiscoveryIssues = issues
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
@@ -115,19 +127,35 @@ func (a *API) workspacePut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	a.registryMu.Lock()
-	defer a.registryMu.Unlock()
 	var err error
+	a.registryMu.Lock()
 	if kind == "projects" {
 		if !a.requireProjects(w) {
+			a.registryMu.Unlock()
 			return
 		}
 		err = a.projects.Save(id, req.Record, req.ExpectedRevision)
 	} else {
 		err = a.registry.Put(kind, id, req.Record, req.ExpectedRevision)
 	}
+	a.registryMu.Unlock()
 	if err != nil {
 		workspaceError(w, err)
+		return
+	}
+	if kind == "projects" {
+		issues, err := a.conversations.Refresh(r.Context(), conversations.Query{ProjectID: id})
+		if err != nil {
+			workspaceError(w, err)
+			return
+		}
+		snapshot, err := a.registry.Snapshot(nil)
+		if err != nil {
+			workspaceError(w, err)
+			return
+		}
+		snapshot.SessionDiscoveryIssues = issues
+		writeJSON(w, http.StatusOK, snapshot)
 		return
 	}
 	a.writeWorkspaceSnapshot(w)
@@ -171,7 +199,7 @@ func (a *API) workspaceDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := a.registry.Delete(kind, id, expected, false); err != nil {
+	if err := a.registry.Delete(kind, id, expected, false, a.store); err != nil {
 		workspaceError(w, err)
 		return
 	}

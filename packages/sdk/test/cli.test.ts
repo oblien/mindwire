@@ -31,6 +31,14 @@ test("the direct CLI entry still prints help", () => {
   expect(result.status).toBe(0);
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain("connect this computer to your phone");
+  expect(result.stdout).toContain("--qr auto|terminal|browser");
+});
+
+test("invalid QR display mode fails before starting a service", () => {
+  const result = spawnSync("node", [cli, "connect", "--qr", "invalid"], { encoding: "utf8", timeout: 5000 });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain("Choose --qr auto, terminal or browser.");
+  expect(result.stdout).toBe("");
 });
 
 test("importing the CLI from eval with a non-file argument has no command side effects", () => {

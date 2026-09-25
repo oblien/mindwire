@@ -201,7 +201,7 @@ func startMetadataRPC(ctx context.Context, command string) (*authRPC, error) {
 		defer close(c.done)
 		defer close(c.frames)
 		sc := bufio.NewScanner(stdout)
-		sc.Buffer(make([]byte, 4096), 1<<20)
+		sc.Buffer(make([]byte, 4096), 16<<20) // bounded native metadata pages can exceed a single message
 		for sc.Scan() {
 			var frame rpcIn
 			if json.Unmarshal(sc.Bytes(), &frame) != nil {
@@ -236,7 +236,7 @@ func (c *authRPC) call(ctx context.Context, method string, params any, result an
 	c.seq++
 	id := strconv.Itoa(c.seq)
 	if err := json.NewEncoder(c.stdin).Encode(rpcRequest{ID: json.RawMessage(id), Method: method, Params: params}); err != nil {
-		return errors.New("Codex sign-in connection closed")
+		return errors.New("Codex metadata connection closed")
 	}
 	for {
 		frame, err := c.read(ctx)
@@ -250,7 +250,7 @@ func (c *authRPC) call(ctx context.Context, method string, params any, result an
 			continue
 		}
 		if frame.Error != nil {
-			if frame.Error.Code == -32601 || strings.Contains(frame.Error.Message, "chatgptDeviceCode") {
+			if strings.HasPrefix(method, "account/") && (frame.Error.Code == -32601 || strings.Contains(frame.Error.Message, "chatgptDeviceCode")) {
 				return errors.New("update Codex to use ChatGPT device-code sign-in")
 			}
 			return fmt.Errorf("%s", frame.Error.Message)
@@ -274,7 +274,7 @@ func (c *authRPC) read(ctx context.Context) (rpcIn, error) {
 	select {
 	case frame, ok := <-c.frames:
 		if !ok {
-			return rpcIn{}, errors.New("Codex sign-in connection closed")
+			return rpcIn{}, errors.New("Codex metadata connection closed")
 		}
 		return frame, nil
 	case <-ctx.Done():

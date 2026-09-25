@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import type { ComputerRoute } from "../computer.js";
 import { cloudflareCommand } from "./cloudflare-binary.js";
+import { ownChild, type OwnedProcess } from "./process.js";
 
 export interface RelayOptions {
   kind: "none" | "cloudflare" | "ngrok" | "custom";
@@ -9,7 +10,7 @@ export interface RelayOptions {
   url?: string;
   cloudflareTokenFile?: string;
 }
-export interface RelayHandle { route?: ComputerRoute; process?: ChildProcess; close(): void }
+export interface RelayHandle { route?: ComputerRoute; process?: ChildProcess; owner?: OwnedProcess; close(): void | Promise<void> }
 
 export function websocketURL(value: string): string {
   const url = new URL(value);
@@ -24,7 +25,9 @@ export function websocketURL(value: string): string {
 /** Both providers forward encrypted SSH bytes to one loopback WebSocket bridge. */
 export async function startRelay(options: RelayOptions, port: number, runtime: {
   cacheDir?: string; onProgress?: (message: string) => void | Promise<void>;
+  signal?: AbortSignal; onSpawn?: (owner: OwnedProcess) => Promise<void>;
 } = {}): Promise<RelayHandle> {
+  runtime.signal?.throwIfAborted();
   if (options.kind === "none") return { close() {} };
   if (options.kind === "custom") {
     if (!options.url) throw new Error("A custom relay needs --relay-url wss://your-host/ssh.");
@@ -52,14 +55,16 @@ export async function startRelay(options: RelayOptions, port: number, runtime: {
       args.push("--url", `https://${url.host}`);
     }
   }
+  runtime.signal?.throwIfAborted();
   const child = spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   let buffer = "";
   try {
-    const address = await new Promise<string>((resolve, reject) => {
+    const address = new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => { cleanup(); reject(new Error(`${command} did not establish its tunnel. Check its account and tunnel configuration.`)); }, 45_000);
-      const cleanup = () => { clearTimeout(timer); child.off("error", fail); child.off("exit", exited); };
+      const cleanup = () => { clearTimeout(timer); child.off("error", fail); child.off("exit", exited); runtime.signal?.removeEventListener("abort", aborted); };
       const fail = (error: Error) => { cleanup(); reject(new Error(`Could not run ${command}. Install it on the computer first.`, { cause: error })); };
       const exited = () => { cleanup(); reject(new Error(`${command} exited before the tunnel connected. Check its account configuration.`)); };
+      const aborted = () => { cleanup(); child.kill(); reject(runtime.signal?.reason ?? new Error("Tunnel startup cancelled.")); };
       let cloudflareAddress = options.url;
       let cloudflareConnected = false;
       const receive = (chunk: Buffer) => {
@@ -84,11 +89,24 @@ export async function startRelay(options: RelayOptions, port: number, runtime: {
       };
       child.once("error", fail); child.once("exit", exited);
       child.stdout!.on("data", receive); child.stderr!.on("data", receive);
+      runtime.signal?.addEventListener("abort", aborted, { once: true });
+      if (runtime.signal?.aborted) aborted();
     });
+    // Install the readiness listeners before recording process ownership. A fast
+    // helper can print its hostname while its process identity is being read.
+    void address.catch(() => {});
+    const owner = await ownChild(child);
+    await runtime.onSpawn?.(owner);
+    const url = await address;
+    runtime.signal?.throwIfAborted();
     // Drain provider output without copying potentially sensitive provider logs into ours.
     child.stdout!.removeAllListeners("data"); child.stderr!.removeAllListeners("data");
     child.stdout!.resume(); child.stderr!.resume();
     child.on("error", () => {});
-    return { route: { kind: "websocket", url: address }, process: child, close() { child.kill(); } };
-  } catch (error) { child.kill(); throw error; }
+    return { route: { kind: "websocket", url }, process: child, owner, close: () => owner.close() };
+  } catch (error) {
+    child.on("error", () => {});
+    if (child.pid) await (await ownChild(child)).close();
+    throw error;
+  }
 }

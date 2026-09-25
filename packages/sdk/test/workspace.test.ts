@@ -6,6 +6,32 @@ const snapshot: WorkspaceSnapshot = {
   agents: [], projects: [], chats: [], deleted: [],
 };
 
+test("native conversation discovery keeps directory context, IDs, activity and manual refresh", async () => {
+  const calls: URL[] = [];
+  const native = { id: "native-chat", workspaceId: "workspace-identity", revision: 5,
+    createdAt: "2026-09-20T00:00:00Z", updatedAt: "2026-09-25T00:00:00Z",
+    agentId: "codex-profile", projectId: "project", sessionId: "native-session", title: "From Codex" };
+  const issues = [{ projectId: "project", agent: "codex", message: "Refresh conversations" }];
+  const mw = new Mindwire({ target: remote("http://registry"), fetch: async (input, init) => {
+    const url = new URL(input); calls.push(url);
+    expect(init?.method).toBe("GET");
+    return Response.json(url.pathname === "/chats" ? [{ chatId: native.id, agent: "codex", title: native.title,
+      messages: 0, updatedAt: native.updatedAt }] : { ...snapshot, chats: [native], sessionDiscoveryIssues: issues });
+  } });
+  const chats = await mw.chats({ cwd: "/work/an existing folder", projectId: "project", refresh: true });
+  expect(chats[0]?.chatId).toBe("native-chat");
+  expect(calls[0]?.searchParams.get("cwd")).toBe("/work/an existing folder");
+  expect(calls[0]?.searchParams.get("projectId")).toBe("project");
+  expect(calls[0]?.searchParams.get("refresh")).toBe("true");
+  const full = await mw.workspace.snapshot({ refresh: true });
+  expect(full.chats[0]?.sessionId).toBe("native-session");
+  expect(full.chats[0]?.updatedAt).toBe(native.updatedAt);
+  expect(full.sessionDiscoveryIssues).toEqual(issues);
+  await mw.workspace.changes(5, snapshot.workspaceId, { refresh: true });
+  expect(calls[2]?.searchParams.get("since")).toBe("5");
+  expect(calls[2]?.searchParams.get("refresh")).toBe("true");
+});
+
 test("author settings save independently and keep nullable overrides and default receipts", async () => {
   const calls: { path: string; method: string; body: unknown }[] = [];
   const author = { name: "Shared", email: "shared@example.invalid" };

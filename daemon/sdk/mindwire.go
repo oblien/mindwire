@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/conversations"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/projects"
@@ -49,15 +51,16 @@ type Options struct {
 // per StatePath, plus the set of run ids this client tree started (so Close can cancel them). It is
 // pointer-shared, never copied, so the mutex and run set stay singular across WithAgent.
 type core struct {
-	store      *session.Store
-	hub        *stream.Hub
-	sup        *orchestrator.Supervisor
-	cwd        string
-	registry   *registry.Store
-	projects   *projects.Service
-	surfaces   *surface.Service
-	execution  *workspaceexec.Service
-	registryMu sync.Mutex
+	store         *session.Store
+	hub           *stream.Hub
+	sup           *orchestrator.Supervisor
+	cwd           string
+	registry      *registry.Store
+	conversations *conversations.Index
+	projects      *projects.Service
+	surfaces      *surface.Service
+	execution     *workspaceexec.Service
+	registryMu    sync.Mutex
 
 	mu     sync.Mutex
 	runs   map[string]struct{} // run ids started via this client tree, cancelled on Close
@@ -151,6 +154,7 @@ func New(opts Options) (*Client, error) {
 		runs:      map[string]struct{}{},
 		execution: workspaceexec.New(opts.CWD),
 	}
+	co.conversations = conversations.New(workspaceRegistry, store, agent.All(), &co.registryMu, sup.Busy)
 	c := &Client{core: co, defaultAgent: opts.Agent}
 	c.Auth = &Auth{c: c}
 	c.Prompts = &Prompts{c: c}
@@ -252,11 +256,12 @@ type Health struct {
 	WorkspaceIsolation             string `json:"workspaceIsolation"`
 	WorkspaceExecutionVersion      int    `json:"workspaceExecutionVersion"`
 	TerminalProtocolVersion        int    `json:"terminalProtocolVersion"`
+	TurnRequestVersion             int    `json:"turnRequestVersion"`
 }
 
 // Health returns the liveness snapshot. It cannot fail in-process.
 func (c *Client) Health() Health {
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package
@@ -472,17 +477,38 @@ func (c *Client) SetConfig(values map[string]string, opts ...ScopedOption) error
 
 // ---- chats, messages, runs -------------------------------------------------
 
-// Chats lists recorded chats (newest first). For each chat whose adapter owns a native title (a
-// Titler, e.g. Claude Code's transcript ai-title), that title overrides the derived first-message
-// snippet — the same enrichment the HTTP /chats route applies. A user rename (SetTitle via RenameChat)
-// always wins over the native title.
+// Chats lists native conversations linked to projects plus drafts/emulated chats.
+// Use ListChats for directory/project filtering, explicit refresh and error handling.
 func (c *Client) Chats() []ChatSummary {
+	summaries, _ := c.ListChats(context.Background(), ChatListOptions{})
+	return summaries
+}
+
+type ChatListOptions = conversations.Query
+
+func (c *Client) ListChats(ctx context.Context, options ChatListOptions) ([]ChatSummary, error) {
+	if _, err := c.core.conversations.Refresh(ctx, options); err != nil {
+		return nil, workspaceError("ListChats", err)
+	}
+	c.core.registryMu.Lock()
+	defer c.core.registryMu.Unlock()
 	summaries := c.core.store.Chats()
-	summaries, _ = c.core.registry.MergeSummaries(summaries)
+	summaries, err := c.core.registry.MergeSummaries(summaries)
+	if err != nil {
+		return nil, workspaceError("ListChats", err)
+	}
 	for i := range summaries {
 		c.enrichNativeTitle(&summaries[i])
 	}
-	return summaries
+	if options.ProjectID != "" || options.CWD != "" {
+		snapshot, err := c.core.registry.Snapshot(nil)
+		if err != nil {
+			return nil, workspaceError("ListChats", err)
+		}
+		summaries = conversations.Filter(summaries, snapshot, c.core.store, options)
+	}
+	sort.SliceStable(summaries, func(i, j int) bool { return summaries[i].UpdatedAt > summaries[j].UpdatedAt })
+	return summaries, nil
 }
 
 // enrichNativeTitle overlays the agent's own auto-generated title (a Titler) onto a summary UNLESS the
@@ -555,7 +581,7 @@ func (c *Client) DeleteChat(chatID string) (DeleteResult, error) {
 	if c.core.sup.Busy(chatID) {
 		return DeleteResult{}, &APIError{Message: "a turn is running for this chat", Status: http.StatusConflict, Op: "DeleteChat"}
 	}
-	if err := c.core.registry.Delete("chats", chatID, nil, true); err != nil {
+	if err := c.core.registry.Delete("chats", chatID, nil, true, c.core.store); err != nil {
 		return DeleteResult{}, workspaceError("DeleteChat", err)
 	}
 	if err := c.core.surfaces.Artifacts().DeleteChat(chatID); err != nil {
@@ -567,6 +593,9 @@ func (c *Client) DeleteChat(chatID string) (DeleteResult, error) {
 	}
 	res := DeleteResult{Deleted: true, Sessions: len(refs)}
 	for _, ref := range refs {
+		if ref.Shared {
+			continue
+		}
 		ag, ok := c.core.sup.Resolve(ref.Agent)
 		if !ok {
 			continue
@@ -642,9 +671,11 @@ type MessagesOptions struct {
 // the daemon's recorded log. Either way the result is windowed by Limit/Before. The recorded fallback
 // is converted from the store's Message to the unified agent.Message shape.
 func (c *Client) Messages(chatID string, opts MessagesOptions) ([]Message, error) {
-	ag, ok := c.core.sup.Resolve(orDefault(opts.Agent, c.defaultAgent))
-	if !ok {
-		return nil, &APIError{Message: "unknown agent", Status: http.StatusBadRequest, Op: "Messages"}
+	c.core.registryMu.Lock()
+	ag, _, err := c.resolveChat("Messages", chatID, orDefault(opts.Agent, c.defaultAgent), "")
+	c.core.registryMu.Unlock()
+	if err != nil {
+		return nil, err
 	}
 	if ag.Adapter.Capabilities().History == agent.SupportNative {
 		cwd := c.core.store.ChatCWD(chatID)
@@ -686,11 +717,12 @@ func (c *Client) LatestRun(chatID string) (*Run, error) {
 // overrides the working directory for this turn only; Options carries per-turn settings, prompts, and
 // structured passthroughs.
 type TurnRequest struct {
-	ChatID  string
-	Message string
-	CWD     string
-	Options TurnOptions
-	Agent   string
+	RequestID string
+	ChatID    string
+	Message   string
+	CWD       string
+	Options   TurnOptions
+	Agent     string
 }
 
 // Turn starts a turn and returns a handle to the running Run. It enforces the same gates as POST
@@ -711,10 +743,16 @@ func (c *Client) Turn(ctx context.Context, req TurnRequest) (*Run, error) {
 	if msg, ok := agent.UnsupportedTurnOption(ag.Adapter.Capabilities(), req.Options); !ok {
 		return nil, &APIError{Message: msg, Status: http.StatusBadRequest, Op: "Turn"}
 	}
-	run, ok := c.core.sup.StartTurn(ag, orchestrator.StartTurnInput{
-		ChatID: req.ChatID, Message: req.Message, CWD: cwd, Options: req.Options,
+	run, startErr := c.core.sup.StartTurnChecked(ag, orchestrator.StartTurnInput{
+		RequestID: req.RequestID, ChatID: req.ChatID, Message: req.Message, CWD: cwd, Options: req.Options,
 	})
-	if !ok {
+	if startErr != nil {
+		if errors.Is(startErr, orchestrator.ErrInvalidTurnRequest) {
+			return nil, &APIError{Message: startErr.Error(), Status: http.StatusBadRequest, Op: "Turn"}
+		}
+		if errors.Is(startErr, session.ErrTurnRequestConflict) {
+			return nil, &APIError{Message: startErr.Error(), Status: http.StatusConflict, Op: "Turn"}
+		}
 		return nil, &APIError{Message: c.core.sup.StartConflict(ag), Status: http.StatusConflict, Op: "Turn"}
 	}
 	c.core.track(run.ID)
@@ -768,6 +806,7 @@ func (c *Client) Compact(ctx context.Context, req CompactRequest) (*Run, error) 
 // Deadline is the overall wall-clock budget for the whole resolve. Both are optional: a zero value
 // falls back to the daemon defaults.
 type ResolveRequest struct {
+	RequestID     string
 	ChatID        string
 	Message       string
 	CWD           string
@@ -800,10 +839,16 @@ func (c *Client) Resolve(ctx context.Context, req ResolveRequest) (*Run, error) 
 	if msg, ok := agent.UnsupportedTurnOption(ag.Adapter.Capabilities(), req.Options); !ok {
 		return nil, &APIError{Message: msg, Status: http.StatusBadRequest, Op: "Resolve"}
 	}
-	run, ok := c.core.sup.StartResolve(ag, orchestrator.StartTurnInput{
-		ChatID: req.ChatID, Message: req.Message, CWD: cwd, Options: req.Options,
+	run, startErr := c.core.sup.StartResolveChecked(ag, orchestrator.StartTurnInput{
+		RequestID: req.RequestID, ChatID: req.ChatID, Message: req.Message, CWD: cwd, Options: req.Options,
 	}, orchestrator.ResolveOptions{MaxIterations: req.MaxIterations, Deadline: req.Deadline})
-	if !ok {
+	if startErr != nil {
+		if errors.Is(startErr, orchestrator.ErrInvalidTurnRequest) {
+			return nil, &APIError{Message: startErr.Error(), Status: http.StatusBadRequest, Op: "Resolve"}
+		}
+		if errors.Is(startErr, session.ErrTurnRequestConflict) {
+			return nil, &APIError{Message: startErr.Error(), Status: http.StatusConflict, Op: "Resolve"}
+		}
 		return nil, &APIError{Message: c.core.sup.StartConflict(ag), Status: http.StatusConflict, Op: "Resolve"}
 	}
 	c.core.track(run.ID)

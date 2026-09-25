@@ -57,6 +57,7 @@ type state struct {
 	Titles       map[string]string          `json:"titles"`   // chatId -> user-set title (wins over the native auto-title)
 	Messages     []Message                  `json:"messages"`
 	Runs         []Run                      `json:"runs"`
+	TurnRequests map[string]turnReceipt     `json:"turnRequests,omitempty"`
 	Interactions map[string]MessageQuestion `json:"interactions,omitempty"`
 	Notify       notifyConfig               `json:"notify,omitempty"` // legacy single notification webhook config
 	// Channels + Rules are the daemon-driven notification fan-out: named delivery targets and the
@@ -74,9 +75,10 @@ type state struct {
 // SessionRef identifies one agent's native session for a chat. DeleteChat returns these so the API
 // layer can drive native-transcript deletion per agent (the store never learns transcript paths).
 type SessionRef struct {
-	Agent string
-	SID   string
-	CWD   string
+	Agent  string
+	SID    string
+	CWD    string
+	Shared bool // another chat (including a pending fork) still resumes this native session
 }
 
 // notifyConfig holds the notification webhook the client provisioned
@@ -254,7 +256,15 @@ func (st *Store) DeleteChat(chatID string) ([]SessionRef, error) {
 	var refs []SessionRef
 	for k, sid := range st.s.Sessions {
 		if strings.HasSuffix(k, suffix) {
-			refs = append(refs, SessionRef{Agent: strings.TrimSuffix(k, suffix), SID: sid, CWD: cwd})
+			agentType := strings.TrimSuffix(k, suffix)
+			shared := false
+			for other, otherSID := range st.s.Sessions {
+				if other != k && strings.HasPrefix(other, agentType+"\x1f") && otherSID == sid {
+					shared = true
+					break
+				}
+			}
+			refs = append(refs, SessionRef{Agent: agentType, SID: sid, CWD: cwd, Shared: shared})
 			delete(st.s.Sessions, k)
 		}
 	}

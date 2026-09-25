@@ -57,10 +57,17 @@ export class ComputerApi {
   }
 }
 
+/** The mobile scanner accepts raw JSON. Avoid base64 overhead in QR codes without
+ * dropping routes, shortening the host pin or changing the pairing protocol.
+ * This includes a short-lived secret; never log it to shared service logs. */
+export function computerPairingQRData(invitation: ComputerInvitation): string {
+  return JSON.stringify(invitation);
+}
+
 /** A URI carries an invitation, not permanent credentials. Never log it to shared service logs. */
 export function computerPairingURI(invitation: ComputerInvitation): string {
   // UTF-8/base64url works in browsers too; no Node-only dependency in the protocol layer.
-  const bytes = new TextEncoder().encode(JSON.stringify(invitation));
+  const bytes = new TextEncoder().encode(computerPairingQRData(invitation));
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   const encoded = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");

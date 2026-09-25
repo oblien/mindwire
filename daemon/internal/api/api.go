@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/conversations"
 	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/gitauthor"
 	"github.com/oblien/mindwire/daemon/internal/gitops"
@@ -57,6 +58,7 @@ type API struct {
 	surfaces           *surface.Service
 	initError          error
 	registry           *registry.Store
+	conversations      *conversations.Index
 	registryMu         sync.Mutex // order registry mutations against starting/deleting a chat
 	store              *session.Store
 	hub                *stream.Hub
@@ -72,6 +74,7 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 	if len(registries) > 0 {
 		a.registry = registries[0]
 		if a.registry != nil {
+			a.conversations = conversations.New(a.registry, store, agent.All(), &a.registryMu, sup.Busy)
 			a.gitAuthors = gitauthor.New(a.registry)
 			sup.SetNotificationPreferences(a.registry)
 			sup.SetInteractionContext(a.registry)
@@ -322,11 +325,12 @@ func (a *API) agentFor(w http.ResponseWriter, r *http.Request) *orchestrator.Age
 // ---- turns -----------------------------------------------------------------
 
 type turnReq struct {
-	GitAuth *gitaccess.Auth   `json:"gitAuth,omitempty"`
-	ChatID  string            `json:"chatId"`
-	Message string            `json:"message"`
-	Cwd     string            `json:"cwd,omitempty"`     // run this turn in a specific dir (a project workdir); else the daemon default
-	Options agent.TurnOptions `json:"options,omitempty"` // per-turn options (canon-addressed overrides + structured fields)
+	RequestID string            `json:"requestId,omitempty"`
+	GitAuth   *gitaccess.Auth   `json:"gitAuth,omitempty"`
+	ChatID    string            `json:"chatId"`
+	Message   string            `json:"message"`
+	Cwd       string            `json:"cwd,omitempty"`     // run this turn in a specific dir (a project workdir); else the daemon default
+	Options   agent.TurnOptions `json:"options,omitempty"` // per-turn options (canon-addressed overrides + structured fields)
 	// Mode selects the run shape. "" / "turn" (default) = one ordinary turn that ends at the CLI's
 	// terminal result. "resolve" = a GLOBAL-RESOLVE run: the daemon holds the run open and auto-continues
 	// the agent's own multi-step work until the task is globally complete, returning a parent Run whose
@@ -358,7 +362,7 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 	a.registryMu.Lock()
 	defer a.registryMu.Unlock()
 	if a.registry != nil {
-		chat, profile, project, err := a.registry.ChatContext(req.ChatID)
+		chat, profile, project, err := a.registry.NativeChatContext(req.ChatID, a.store)
 		if err != nil {
 			workspaceError(w, err)
 			return
@@ -397,7 +401,7 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in := orchestrator.StartTurnInput{
-		ChatID: req.ChatID, Message: req.Message, CWD: req.Cwd, Options: req.Options, GitAuth: req.GitAuth,
+		RequestID: req.RequestID, ChatID: req.ChatID, Message: req.Message, CWD: req.Cwd, Options: req.Options, GitAuth: req.GitAuth,
 	}
 	// Mode routing: "resolve" holds the run open and auto-continues to global completion (a parent Run);
 	// "" / "turn" is the unchanged single-turn path. Any other value is a caller error.
@@ -405,6 +409,9 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 	case "", "turn":
 		run, err := a.sup.StartTurnChecked(ag, in)
 		if err != nil {
+			if turnRequestError(w, err) {
+				return
+			}
 			if isGitError(err) {
 				gitError(w, err)
 				return
@@ -421,6 +428,9 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 		}
 		run, err := a.sup.StartResolveChecked(ag, in, ro)
 		if err != nil {
+			if turnRequestError(w, err) {
+				return
+			}
 			if isGitError(err) {
 				gitError(w, err)
 				return
@@ -782,12 +792,22 @@ func (a *API) streamRun(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// chats lists the chats the daemon has recorded (for a sessions sidebar). Shared across
-// agents (keyed by chatId); each summary carries the agent that last ran it.
-func (a *API) chats(w http.ResponseWriter, _ *http.Request) {
+// chats lists native conversations linked to registered project directories plus
+// drafts/emulated chats. Harness history is read on demand, never copied here.
+func (a *API) chats(w http.ResponseWriter, r *http.Request) {
+	query := conversations.Query{ProjectID: r.URL.Query().Get("projectId"), CWD: r.URL.Query().Get("cwd"), Refresh: r.URL.Query().Get("refresh") == "true"}
+	issues, err := a.conversations.Refresh(r.Context(), query)
+	if err != nil {
+		workspaceError(w, err)
+		return
+	}
+	if len(issues) > 0 {
+		w.Header().Set("X-Mindwire-Session-Discovery", "incomplete")
+	}
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
 	summaries := a.store.Chats()
 	if a.registry != nil {
-		var err error
 		summaries, err = a.registry.MergeSummaries(summaries)
 		if err != nil {
 			workspaceError(w, err)
@@ -797,6 +817,18 @@ func (a *API) chats(w http.ResponseWriter, _ *http.Request) {
 	for i := range summaries {
 		a.enrichNativeTitle(&summaries[i])
 	}
+	if query.ProjectID != "" || query.CWD != "" {
+		var snapshot registry.Snapshot
+		if a.registry != nil {
+			snapshot, err = a.registry.Snapshot(nil)
+			if err != nil {
+				workspaceError(w, err)
+				return
+			}
+		}
+		summaries = conversations.Filter(summaries, snapshot, a.store, query)
+	}
+	sort.SliceStable(summaries, func(i, j int) bool { return summaries[i].UpdatedAt > summaries[j].UpdatedAt })
 	writeJSON(w, http.StatusOK, summaries)
 }
 
@@ -883,7 +915,7 @@ func (a *API) deleteChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.registry != nil {
-		if err := a.registry.Delete("chats", id, nil, true); err != nil {
+		if err := a.registry.Delete("chats", id, nil, true, a.store); err != nil {
 			workspaceError(w, err)
 			return
 		}
@@ -901,6 +933,9 @@ func (a *API) deleteChat(w http.ResponseWriter, r *http.Request) {
 	}
 	res := deleteResult{Deleted: true, Sessions: len(refs)}
 	for _, ref := range refs {
+		if ref.Shared {
+			continue
+		}
 		ag, ok := a.sup.Resolve(ref.Agent)
 		if !ok {
 			continue
@@ -1061,6 +1096,27 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chatID := r.PathValue("id")
+	if a.registry != nil {
+		a.registryMu.Lock()
+		chat, profile, _, err := a.registry.NativeChatContext(chatID, a.store)
+		a.registryMu.Unlock()
+		if err != nil {
+			workspaceError(w, err)
+			return
+		}
+		if chat != nil {
+			if selected := r.URL.Query().Get("agent"); selected != "" && selected != profile.AgentType {
+				badRequest(w, "agent differs from this chat's saved profile")
+				return
+			}
+			var ok bool
+			ag, ok = a.sup.Resolve(profile.AgentType)
+			if !ok {
+				badRequest(w, "saved harness is unavailable")
+				return
+			}
+		}
+	}
 	// Pagination (additive, back-compat): no params = whole transcript. `limit` caps to the newest N;
 	// `before` is a cursor (message id) that trims to everything strictly older than it, for the app's
 	// scroll-to-top load-more. Applied to BOTH the native transcript and the store fallback.

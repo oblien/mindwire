@@ -476,7 +476,9 @@ func (s *Server) routes(register func(string, http.HandlerFunc)) {
 		if !decode(w, r, &req) {
 			return
 		}
-		if !validRoutes(req.Routes) {
+		// A controller must be able to withdraw every stale route while offline.
+		// Pairing still requires at least one usable address via Invite.
+		if len(req.Routes) > 0 && !validRoutes(req.Routes) {
 			reject(w, errors.New("invalid computer routes"))
 			return
 		}

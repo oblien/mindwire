@@ -200,8 +200,12 @@ export interface WorkspaceChat extends WorkspaceRecord {
   agentId: string;
   projectId: string;
   title: string;
+  /** Cached native title beneath an optional user rename. Owned by the daemon. */
+  nativeTitle?: string;
   titleIsUserSet?: boolean;
   sessionId?: string;
+  /** Native harness activity, retained across app restarts. Not the last app-open time. */
+  updatedAt?: string;
   /** Mutes this chat. False clears its own mute but never overrides a muted parent profile. Omit to preserve. */
   notificationsMuted?: boolean;
 }
@@ -228,6 +232,8 @@ export interface WorkspaceSnapshot {
   projects: WorkspaceProject[];
   chats: WorkspaceChat[];
   deleted: { kind: WorkspaceKind; id: string; revision: number }[];
+  /** Cached chats are retained when a harness's native list could not be refreshed. */
+  sessionDiscoveryIssues?: { projectId: string; agent: string; message: string }[];
 }
 
 export class WorkspaceCollection<T extends WorkspaceRecord> {
@@ -266,7 +272,9 @@ export class WorkspaceApi {
     this.chats = new WorkspaceCollection(mw, "chats");
   }
 
-  snapshot(): Promise<WorkspaceSnapshot> { return this.mw.http.request("GET", "/workspace"); }
+  snapshot(options: { refresh?: boolean } = {}): Promise<WorkspaceSnapshot> {
+    return this.mw.http.request("GET", "/workspace", { query: options });
+  }
 
   /** Start an operation owned by the daemon. The same ID/payload returns the existing operation. */
   createProject(request: ProjectRequest): Promise<ProjectOperation> {
@@ -283,8 +291,8 @@ export class WorkspaceApi {
   /** Incremental reconciliation. Pass the previous identity to detect a replaced/restored workspace.
    * A 409 requires fetching snapshot() again; never apply a delta to a different registry.
    */
-  changes(since: number, workspaceId: string): Promise<WorkspaceSnapshot> {
-    return this.mw.http.request("GET", "/workspace/changes", { query: { since, workspaceId } });
+  changes(since: number, workspaceId: string, options: { refresh?: boolean } = {}): Promise<WorkspaceSnapshot> {
+    return this.mw.http.request("GET", "/workspace/changes", { query: { since, workspaceId, ...options } });
   }
 
   /** Import legacy metadata before replacing a local cache. Safe to repeat after interruption. */

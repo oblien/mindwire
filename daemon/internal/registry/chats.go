@@ -8,9 +8,21 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/session"
 )
 
+// NativeChatContext also recovers references after a state-file repair/restore.
+// The registry stores only this pointer; the harness still owns every message.
+func (st *Store) NativeChatContext(id string, native *session.Store) (*Chat, *Agent, *Project, error) {
+	chat, profile, project, err := st.ChatContext(id)
+	if err != nil || chat == nil {
+		return chat, profile, project, err
+	}
+	err = native.RestoreChatSessions([]session.ChatSession{{ChatID: id, Agent: profile.AgentType, SID: chat.SessionID, CWD: project.Path}})
+	return chat, profile, project, err
+}
+
 // RestoreSessions preserves migration hints without replacing newer native session mappings.
 // HTTP and the embedded Go SDK use the same bridge between membership and native history.
 func (st *Store) RestoreSessions(chats []Chat, native *session.Store) error {
+	refs := make([]session.ChatSession, 0, len(chats))
 	for _, row := range chats {
 		chat, profile, project, err := st.ChatContext(row.ID)
 		if errors.Is(err, ErrDeleted) {
@@ -22,18 +34,9 @@ func (st *Store) RestoreSessions(chats []Chat, native *session.Store) error {
 		if chat == nil {
 			continue
 		}
-		if native.Session(profile.AgentType, row.ID) == "" && chat.SessionID != "" {
-			if err := native.SetSession(profile.AgentType, row.ID, chat.SessionID); err != nil {
-				return err
-			}
-		}
-		if native.ChatCWD(row.ID) == "" {
-			if err := native.SetChatCWD(row.ID, project.Path); err != nil {
-				return err
-			}
-		}
+		refs = append(refs, session.ChatSession{ChatID: row.ID, Agent: profile.AgentType, SID: chat.SessionID, CWD: project.Path})
 	}
-	return nil
+	return native.RestoreChatSessions(refs)
 }
 
 // MergeSummaries includes saved empty chats and removes tombstoned native listings.
@@ -62,14 +65,19 @@ func (st *Store) MergeSummaries(summaries []session.ChatSummary) ([]session.Chat
 	}
 	for _, row := range snapshot.Chats {
 		if !seen[row.ID] {
-			kept = append(kept, session.ChatSummary{ChatID: row.ID, Agent: profiles[row.AgentID], Title: row.Title, UpdatedAt: row.CreatedAt})
+			updated := row.UpdatedAt
+			if updated == "" {
+				updated = row.CreatedAt
+			}
+			kept = append(kept, session.ChatSummary{ChatID: row.ID, Agent: profiles[row.AgentID], Title: row.Title, UpdatedAt: updated})
 		}
 	}
 	sort.SliceStable(kept, func(i, j int) bool { return kept[i].UpdatedAt > kept[j].UpdatedAt })
 	return kept, nil
 }
 
-// OverlaySummary fills metadata absent from native state. The return value says the title is pinned.
+// OverlaySummary applies saved preferences and native metadata. true means the
+// title is already resolved; the caller need not rescan its native transcript.
 func (st *Store) OverlaySummary(summary *session.ChatSummary) bool {
 	chat, profile, _, err := st.ChatContext(summary.ChatID)
 	if err != nil || chat == nil {
@@ -81,10 +89,15 @@ func (st *Store) OverlaySummary(summary *session.ChatSummary) bool {
 	if summary.UpdatedAt == "" {
 		summary.UpdatedAt = chat.CreatedAt
 	}
-	if summary.Title == "" || summary.Title == "New chat" || chat.TitleIsUserSet {
+	if chat.UpdatedAt > summary.UpdatedAt {
+		summary.UpdatedAt = chat.UpdatedAt
+	}
+	if summary.Title == "" || summary.Title == "New chat" || chat.TitleIsUserSet || chat.UpdatedAt != "" {
 		summary.Title = chat.Title
 	}
-	return chat.TitleIsUserSet
+	// A discovered title is already read from native metadata in a bounded,
+	// cached pass. Do not rescan a whole transcript for every sidebar poll.
+	return chat.TitleIsUserSet || chat.UpdatedAt != ""
 }
 
 // ForkChat forks registered membership and native mappings together. false means an unregistered

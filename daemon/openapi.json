@@ -194,7 +194,7 @@
           },
           "version": {
             "type": "string",
-            "description": "agent.Version — the definitions/protocol version."
+            "description": "agent.Version \u2014 the definitions/protocol version."
           },
           "workspaceMetadataVersion": {
             "type": "integer",
@@ -255,6 +255,10 @@
           "computerConnectionVersion": {
             "type": "integer",
             "description": "Protocol capability version; zero means unavailable."
+          },
+          "turnRequestVersion": {
+            "type": "integer",
+            "description": "Version 1 supports durable requestId receipts on POST /turns."
           }
         },
         "required": [
@@ -285,7 +289,7 @@
           },
           "numGoroutine": {
             "type": "integer",
-            "description": "Live goroutines — a rough concurrency gauge."
+            "description": "Live goroutines \u2014 a rough concurrency gauge."
           },
           "memAllocBytes": {
             "type": "integer",
@@ -321,7 +325,7 @@
       },
       "ProcessSample": {
         "type": "object",
-        "description": "One running turn's live resource use at a single sampling tick. Labels and numbers only — never a secret. A turn runs in its own process group; the figures are summed over that whole group (bash → node → the agent).",
+        "description": "One running turn's live resource use at a single sampling tick. Labels and numbers only \u2014 never a secret. A turn runs in its own process group; the figures are summed over that whole group (bash \u2192 node \u2192 the agent).",
         "properties": {
           "agent": {
             "type": "string",
@@ -337,12 +341,12 @@
           },
           "pid": {
             "type": "integer",
-            "description": "Group-leader pid — the whole turn's process tree."
+            "description": "Group-leader pid \u2014 the whole turn's process tree."
           },
           "cpuPercent": {
             "type": "number",
             "format": "double",
-            "description": "CPU% over the last sampling window (delta of cumulative CPU seconds ÷ wall-clock). 0 on the first tick a group is seen."
+            "description": "CPU% over the last sampling window (delta of cumulative CPU seconds \u00f7 wall-clock). 0 on the first tick a group is seen."
           },
           "rssBytes": {
             "type": "integer",
@@ -412,6 +416,12 @@
             "$ref": "#/components/schemas/ProjectCloneAuth",
             "writeOnly": true,
             "description": "Fresh authorization for this turn or for a completed message question that starts another turn. Never placed in the transcript."
+          },
+          "requestId": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "description": "Optional durable idempotency key. Retry the same request ID and payload to recover its original run, including after completion or restart. Reusing an ID with a different payload returns 409. Requires turnRequestVersion >= 1."
           }
         },
         "required": [
@@ -442,7 +452,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Per-turn setting overrides addressed by canonical key (see Field.canon). Resolved canon→the selected agent's key and filtered to declared non-secret keys server-side; overrides win over the sticky config."
+            "description": "Per-turn setting overrides addressed by canonical key (see Field.canon). Resolved canon\u2192the selected agent's key and filtered to declared non-secret keys server-side; overrides win over the sticky config."
           },
           "systemPrompt": {
             "type": "string",
@@ -559,7 +569,7 @@
               "error",
               "cancelled"
             ],
-            "description": "Parent-only: why the resolve loop ended — \"done\" (the agent signalled completion), \"capped\" (hit the iteration/deadline bound), \"error\", or \"cancelled\"."
+            "description": "Parent-only: why the resolve loop ended \u2014 \"done\" (the agent signalled completion), \"capped\" (hit the iteration/deadline bound), \"error\", or \"cancelled\"."
           },
           "iterations": {
             "type": "integer",
@@ -635,7 +645,7 @@
           },
           "subtype": {
             "type": "string",
-            "description": "The agent's own terminal-result classifier when it distinguishes one (Claude's result subtype: \"success\", \"error_max_turns\", \"error_max_budget_usd\", …). Absent for agents whose terminal event is always fully settled (Codex)."
+            "description": "The agent's own terminal-result classifier when it distinguishes one (Claude's result subtype: \"success\", \"error_max_turns\", \"error_max_budget_usd\", \u2026). Absent for agents whose terminal event is always fully settled (Codex)."
           },
           "incomplete": {
             "type": "boolean",
@@ -664,7 +674,7 @@
               "max_turns",
               "max_budget"
             ],
-            "description": "Why this iteration is running: \"start\" (first), \"max_turns\"/\"max_budget\" (resuming a continuable stop), or \"probe\" (a clean settle with no completion sentinel — probing for done)."
+            "description": "Why this iteration is running: \"start\" (first), \"max_turns\"/\"max_budget\" (resuming a continuable stop), or \"probe\" (a clean settle with no completion sentinel \u2014 probing for done)."
           },
           "childRunId": {
             "type": "string",
@@ -1067,7 +1077,7 @@
       },
       "ForkRequest": {
         "type": "object",
-        "description": "Fork a chat. newChatId is optional — a random id is generated when omitted.",
+        "description": "Fork a chat. newChatId is optional \u2014 a random id is generated when omitted.",
         "properties": {
           "newChatId": {
             "type": "string"
@@ -1076,7 +1086,7 @@
       },
       "CompactRequest": {
         "type": "object",
-        "description": "On-demand compaction. instructions is optional — when present it focuses the continuation summary (Claude's `/compact <instructions>`); agents that don't honor focus still compact.",
+        "description": "On-demand compaction. instructions is optional \u2014 when present it focuses the continuation summary (Claude's `/compact <instructions>`); agents that don't honor focus still compact.",
         "properties": {
           "instructions": {
             "type": "string"
@@ -1244,7 +1254,7 @@
           },
           "resolve": {
             "type": "boolean",
-            "description": "Agent supports global-resolve runs (POST /turns {mode:\"resolve\"}). Unlike the other switches this is NOT gated in the daemon — resolve is pure daemon logic over the existing resume path, so every agent that can resume can be resolved; the flag is a UI hint only."
+            "description": "Agent supports global-resolve runs (POST /turns {mode:\"resolve\"}). Unlike the other switches this is NOT gated in the daemon \u2014 resolve is pure daemon logic over the existing resume path, so every agent that can resume can be resolved; the flag is a UI hint only."
           },
           "protocol": {
             "type": "string",
@@ -1371,7 +1381,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Resolved absolute path — always set, even when the file is absent."
+            "description": "Resolved absolute path \u2014 always set, even when the file is absent."
           },
           "exists": {
             "type": "boolean",
@@ -1415,7 +1425,7 @@
       },
       "SubagentMeta": {
         "type": "object",
-        "description": "Best-effort parsed view of a subagent definition's frontmatter. A convenience only — the raw `content` is canonical. Every field is optional; absent frontmatter yields no meta object.",
+        "description": "Best-effort parsed view of a subagent definition's frontmatter. A convenience only \u2014 the raw `content` is canonical. Every field is optional; absent frontmatter yields no meta object.",
         "properties": {
           "name": {
             "type": "string"
@@ -1517,7 +1527,7 @@
       },
       "CustomProvider": {
         "type": "object",
-        "description": "One registered custom OpenAI-compatible LLM provider. SECURITY: the API key is NEVER part of this shape — it is supplied write-only on PUT and reported only as `hasKey`. The harness config references the key solely through an env-var placeholder; the value lives in the daemon and enters a run only via the auth env path.",
+        "description": "One registered custom OpenAI-compatible LLM provider. SECURITY: the API key is NEVER part of this shape \u2014 it is supplied write-only on PUT and reported only as `hasKey`. The harness config references the key solely through an env-var placeholder; the value lives in the daemon and enters a run only via the auth env path.",
         "properties": {
           "id": {
             "type": "string",
@@ -1750,7 +1760,7 @@
       },
       "Interaction": {
         "type": "object",
-        "description": "A structured, self-describing request the agent surfaces mid-turn for the client to render generically — and, when needsResponse, for the user to answer.",
+        "description": "A structured, self-describing request the agent surfaces mid-turn for the client to render generically \u2014 and, when needsResponse, for the user to answer.",
         "properties": {
           "id": {
             "type": "string"
@@ -1976,7 +1986,7 @@
       },
       "AuthMethod": {
         "type": "object",
-        "description": "One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin→step→status flow.",
+        "description": "One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin\u2192step\u2192status flow.",
         "properties": {
           "id": {
             "type": "string"
@@ -2356,7 +2366,7 @@
       },
       "NotifyChannelMasked": {
         "type": "object",
-        "description": "The read-side view of a notification channel. Secrets are never returned — the URL, token, HMAC secret, and header values are all withheld; only their presence (and the URL host, as a display hint) is reported.",
+        "description": "The read-side view of a notification channel. Secrets are never returned \u2014 the URL, token, HMAC secret, and header values are all withheld; only their presence (and the URL host, as a display hint) is reported.",
         "properties": {
           "id": {
             "type": "string",
@@ -2433,7 +2443,7 @@
           },
           "url": {
             "type": "string",
-            "description": "Destination URL. Required (on create). For slack/discord this is the incoming-webhook URL; for telegram the full bot `sendMessage` URL. Write-only — never returned."
+            "description": "Destination URL. Required (on create). For slack/discord this is the incoming-webhook URL; for telegram the full bot `sendMessage` URL. Write-only \u2014 never returned."
           },
           "headers": {
             "type": "object",
@@ -2458,7 +2468,7 @@
       },
       "NotifyChannelTestResult": {
         "type": "object",
-        "description": "Outcome of a synthetic delivery to one channel. The send result is DATA — a failed delivery still returns HTTP 200 with `ok:false` and an `error` message.",
+        "description": "Outcome of a synthetic delivery to one channel. The send result is DATA \u2014 a failed delivery still returns HTTP 200 with `ok:false` and an `error` message.",
         "properties": {
           "ok": {
             "type": "boolean"
@@ -2766,6 +2776,16 @@
           "notificationsMuted": {
             "type": "boolean",
             "description": "Mutes this chat; false clears its own mute but does not override a muted parent profile. Omit to preserve an existing value; send false to clear. Applies to every notification channel and condition. Requires notificationPreferencesVersion >= 1."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Native harness activity. Preserved across unrelated metadata edits."
+          },
+          "nativeTitle": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Cached native harness title underneath an optional user rename; clearing a rename restores this title."
           }
         }
       },
@@ -2903,6 +2923,29 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/WorkspaceDeletion"
+            }
+          },
+          "sessionDiscoveryIssues": {
+            "type": "array",
+            "description": "Native listing errors retain the last known chat links; workspace availability is unaffected.",
+            "items": {
+              "type": "object",
+              "required": [
+                "projectId",
+                "agent",
+                "message"
+              ],
+              "properties": {
+                "projectId": {
+                  "type": "string"
+                },
+                "agent": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
             }
           }
         }
@@ -5348,7 +5391,7 @@
           "Health"
         ],
         "summary": "Daemon process resource snapshot",
-        "description": "The daemon PROCESS's own runtime stats (heap in use, memory reserved from the OS, goroutines, GC cycles) plus host facts (cores, platform, uptime). Cheap and on-demand — a single runtime.ReadMemStats, no background sampling. Not the whole machine's RAM/CPU.",
+        "description": "The daemon PROCESS's own runtime stats (heap in use, memory reserved from the OS, goroutines, GC cycles) plus host facts (cores, platform, uptime). Cheap and on-demand \u2014 a single runtime.ReadMemStats, no background sampling. Not the whole machine's RAM/CPU.",
         "responses": {
           "200": {
             "description": "Snapshot",
@@ -5369,7 +5412,7 @@
           "Health"
         ],
         "summary": "Stream live per-turn CPU/memory (SSE)",
-        "description": "Server-Sent Events of live resource use for currently-running turns, grouped by agent. On-demand and refcounted: the daemon starts sampling only while at least one client is connected and stops the instant the last one disconnects — zero background work when nothing is watching. Each turn runs in its own process group; a sample is the whole group's summed RSS and its CPU% over the sampling window. Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream; one ProcessFrame per frame. Optional `?agent=` filters each frame's samples to one agent. Payload carries labels and numbers only — no secrets.",
+        "description": "Server-Sent Events of live resource use for currently-running turns, grouped by agent. On-demand and refcounted: the daemon starts sampling only while at least one client is connected and stops the instant the last one disconnects \u2014 zero background work when nothing is watching. Each turn runs in its own process group; a sample is the whole group's summed RSS and its CPU% over the sampling window. Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream; one ProcessFrame per frame. Optional `?agent=` filters each frame's samples to one agent. Payload carries labels and numbers only \u2014 no secrets.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5651,7 +5694,7 @@
           "Prompts"
         ],
         "summary": "Delete a persistent memory file",
-        "description": "Removes one scope's memory file (?scope=, default user) and returns the resulting doc (exists:false). Idempotent — deleting an absent file still succeeds.",
+        "description": "Removes one scope's memory file (?scope=, default user) and returns the resulting doc (exists:false). Idempotent \u2014 deleting an absent file still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5829,7 +5872,7 @@
           "Prompts"
         ],
         "summary": "Delete a prompt template",
-        "description": "Removes one template by name at a scope (?scope=, default user). Idempotent — deleting an absent template still succeeds.",
+        "description": "Removes one template by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent template still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6020,7 +6063,7 @@
           "Prompts"
         ],
         "summary": "Delete a subagent definition",
-        "description": "Removes one definition by name at a scope (?scope=, default user). Idempotent — deleting an absent definition still succeeds.",
+        "description": "Removes one definition by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent definition still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6073,7 +6116,7 @@
           "MCP"
         ],
         "summary": "List persistent MCP servers",
-        "description": "Returns the agent's persistent MCP-server config across every supported scope, keyed scope→name→server. A missing config file yields an empty object for that scope. 400 if the agent has no persistent MCP-config module. Carries only an env-var NAME for HTTP auth (bearerTokenEnvVar), never a secret value; on Claude only the mcpServers subtree of the config is ever read.",
+        "description": "Returns the agent's persistent MCP-server config across every supported scope, keyed scope\u2192name\u2192server. A missing config file yields an empty object for that scope. 400 if the agent has no persistent MCP-config module. Carries only an env-var NAME for HTTP auth (bearerTokenEnvVar), never a secret value; on Claude only the mcpServers subtree of the config is ever read.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6214,7 +6257,7 @@
           "MCP"
         ],
         "summary": "Delete a persistent MCP server",
-        "description": "Removes one MCP server by name at a scope (?scope=, default user). Idempotent — deleting an absent server still succeeds.",
+        "description": "Removes one MCP server by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent server still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6267,7 +6310,7 @@
           "Providers"
         ],
         "summary": "List custom LLM providers",
-        "description": "Returns the agent's registered custom LLM providers across every supported scope, keyed scope→id→provider. A missing config file yields an empty object for that scope. 400 if the agent has no custom-provider module. `hasKey` reports whether a secret is stored; the key is never returned.",
+        "description": "Returns the agent's registered custom LLM providers across every supported scope, keyed scope\u2192id\u2192provider. A missing config file yields an empty object for that scope. 400 if the agent has no custom-provider module. `hasKey` reports whether a secret is stored; the key is never returned.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6355,7 +6398,7 @@
           "Providers"
         ],
         "summary": "Register a custom LLM provider",
-        "description": "Registers one custom provider at a scope (?scope=, default user), writing the harness's native custom-endpoint config and preserving all sibling config. The write-only apiKey (when supplied) is stored in the daemon and referenced only via an env-var placeholder — never written literally. Echoes the stored provider back (hasKey reflects whether a key is stored; the key itself is never returned).",
+        "description": "Registers one custom provider at a scope (?scope=, default user), writing the harness's native custom-endpoint config and preserving all sibling config. The write-only apiKey (when supplied) is stored in the daemon and referenced only via an env-var placeholder \u2014 never written literally. Echoes the stored provider back (hasKey reflects whether a key is stored; the key itself is never returned).",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6408,7 +6451,7 @@
           "Providers"
         ],
         "summary": "Delete a custom LLM provider",
-        "description": "Removes one custom provider by id at a scope (?scope=, default user) and clears its stored key. Idempotent — deleting an absent provider still succeeds.",
+        "description": "Removes one custom provider by id at a scope (?scope=, default user) and clears its stored key. Idempotent \u2014 deleting an absent provider still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6677,7 +6720,7 @@
           "Turns & runs"
         ],
         "summary": "List a resolve run's child iterations",
-        "description": "Returns the child runs of a global-resolve parent, oldest→newest — the per-iteration turns of a resolve run (each streams onto the parent's topic). An ordinary turn (or a parent with no iterations yet) returns an empty list.",
+        "description": "Returns the child runs of a global-resolve parent, oldest\u2192newest \u2014 the per-iteration turns of a resolve run (each streams onto the parent's topic). An ordinary turn (or a parent with no iterations yet) returns an empty list.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -6862,7 +6905,7 @@
           "Turns & runs"
         ],
         "summary": "Soft-stop a running turn",
-        "description": "Ask the agent to halt its current work WITHOUT the hard context kill `/cancel` does — the turn stays active for a follow-up over `/input`. Requires the agent's `interrupt` capability.",
+        "description": "Ask the agent to halt its current work WITHOUT the hard context kill `/cancel` does \u2014 the turn stays active for a follow-up over `/input`. Requires the agent's `interrupt` capability.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -7070,7 +7113,36 @@
               }
             }
           }
-        }
+        },
+        "description": "Lists native harness conversations for registered project folders plus saved drafts/emulated chats. Native session IDs and history are retained; this does not copy transcripts. Omit filters for all projects. Native listing failures retain cached links and set X-Mindwire-Session-Discovery: incomplete; workspace snapshots include details.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by saved project membership."
+          },
+          {
+            "name": "cwd",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by the exact project directory (canonical filesystem path), not child/sibling directories."
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Refresh native conversation metadata now, bypassing the short cache. Concurrent requests share one native scan."
+          }
+        ]
       }
     },
     "/chats/{id}": {
@@ -7409,7 +7481,7 @@
           "Notifications"
         ],
         "summary": "List notification channels",
-        "description": "Returns every configured channel, masked. Secrets (URL, token, HMAC secret, header values) are never returned — only their presence and the URL host.",
+        "description": "Returns every configured channel, masked. Secrets (URL, token, HMAC secret, header values) are never returned \u2014 only their presence and the URL host.",
         "responses": {
           "200": {
             "description": "Channels (masked)",
@@ -7526,7 +7598,7 @@
           "Notifications"
         ],
         "summary": "Delete a notification channel",
-        "description": "Removes a channel by id. Idempotent — deleting an absent channel still succeeds.",
+        "description": "Removes a channel by id. Idempotent \u2014 deleting an absent channel still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -7710,7 +7782,7 @@
           "Notifications"
         ],
         "summary": "Delete a routing rule",
-        "description": "Removes a rule by id. Idempotent — deleting an absent rule still succeeds.",
+        "description": "Removes a rule by id. Idempotent \u2014 deleting an absent rule still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -7741,7 +7813,7 @@
           "Workspace"
         ],
         "summary": "Read workspace metadata",
-        "description": "A consistent full snapshot of saved agent profiles, projects, and chat links. Native transcripts and credentials are not included.",
+        "description": "A consistent full snapshot of saved agent profiles, projects, and chat links. Native transcripts and credentials are not included. Refreshes a cached native conversation inventory for registered project folders; transcript content stays in the harness.",
         "security": [
           {
             "bearer": []
@@ -7818,7 +7890,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Refresh native conversation metadata now, bypassing the short cache. Concurrent requests share one native scan."
+          }
+        ]
       }
     },
     "/workspace/changes": {
@@ -7827,7 +7911,7 @@
           "Workspace"
         ],
         "summary": "Read workspace changes",
-        "description": "Apply changed records and deletion tombstones since the previous revision. Fetch a full snapshot after 409.",
+        "description": "Apply changed records and deletion tombstones since the previous revision. Fetch a full snapshot after 409. Refreshes a cached native conversation inventory for registered project folders; transcript content stays in the harness.",
         "security": [
           {
             "bearer": []
@@ -7923,6 +8007,16 @@
               "type": "string"
             },
             "description": "Previous registry identity; detects a restored/replaced database."
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Refresh native conversation metadata now, bypassing the short cache. Concurrent requests share one native scan."
           }
         ]
       }

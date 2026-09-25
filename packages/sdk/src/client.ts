@@ -302,9 +302,12 @@ export class Mindwire {
 
   // ---- chats & history -----------------------------------------------------
 
-  /** `GET /chats` — recorded chats (newest first), shared across agents. */
-  chats(): Promise<ChatSummary[]> {
-    return this.http.request<ChatSummary[]>("GET", "/chats");
+  /** Native project conversations and drafts, newest first, shared across agents.
+   * `cwd` matches an exact directory; `projectId` selects saved membership.
+   * `refresh` bypasses the daemon's short native metadata cache.
+   */
+  chats(options: { cwd?: string; projectId?: string; refresh?: boolean } = {}): Promise<ChatSummary[]> {
+    return this.http.request<ChatSummary[]>("GET", "/chats", { query: options });
   }
 
   /**
@@ -379,6 +382,8 @@ export class Mindwire {
    */
   async turn(
     input: {
+      /** Keep this ID when retrying an unacknowledged turn. Requires turnRequestVersion >= 1. */
+      requestId?: string;
       chatId: string;
       message: string;
       cwd?: string;
@@ -389,6 +394,7 @@ export class Mindwire {
     } & AgentScoped,
   ): Promise<Run> {
     const body: {
+      requestId?: string;
       chatId: string;
       message: string;
       cwd?: string;
@@ -400,6 +406,7 @@ export class Mindwire {
       chatId: input.chatId,
       message: input.message,
     };
+    if (input.requestId !== undefined) body.requestId = input.requestId;
     if (input.cwd !== undefined) body.cwd = input.cwd;
     if (input.options !== undefined) body.options = input.options;
     if (input.mode !== undefined) body.mode = input.mode;
@@ -426,6 +433,7 @@ export class Mindwire {
    */
   async resolve(
     input: {
+      requestId?: string;
       chatId: string;
       message: string;
       cwd?: string;

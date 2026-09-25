@@ -36,11 +36,33 @@ initial folder, not the filesystem permissions or sandbox boundary. Git features
 need Git. On Windows, install Git for Windows for its Bash support as well. Harness
 availability still depends on the harness's operating-system requirements.
 
-You can close the pairing terminal after approval. The background service keeps
-running. The computer must remain awake and connected; after restarting it, run
-`mindwire start` to restore the saved connection settings. The default quick tunnel
-gets a new address after restart and needs a new pairing link. Choose a stable
-hostname or VPN below for regular use across computer restarts.
+You can close the pairing terminal after approval. Mindwire enables automatic
+startup for your user account and runs after you sign in to the computer. It retries
+dropped tunnels and recovers the background controller without restarting a healthy
+daemon. The computer must remain awake and online.
+
+The default quick tunnel can get a new address after a tunnel restart. For unattended
+access across restarts, choose a stable hostname or VPN below. If all saved addresses
+change while the phone is away, scan a new code to refresh the connection; this
+keeps the same computer identity, workspace and projects.
+
+### Automatic startup
+
+```sh
+mindwire startup status
+mindwire startup enable
+mindwire startup disable
+```
+
+Mindwire uses launchd on macOS, a systemd user service on Linux, and Task Scheduler
+on Windows. No administrator service or password is required. If native startup
+is unavailable, the CLI says so and the current connection still works. Use
+`mindwire start` to start it manually. `mindwire connect --no-startup` pairs without
+changing startup settings, and an explicitly disabled preference stays disabled.
+
+`mindwire stop` keeps the service stopped, including after login, until you run
+`mindwire start` or `mindwire connect`. Disabling automatic startup leaves an
+already-running workspace alone.
 
 ## Choose a connection
 
@@ -135,9 +157,10 @@ daemon's authenticated HTTP API remains on loopback and is reached through SSH
 forwarding. Do not point a tunnel directly at that HTTP API.
 
 Direct and relay routes can coexist. The app selects an authenticated route before
-sending workspace requests. To change saved connection settings, stop the service
-when idle and run `mindwire connect` with the new options. Pair again to update a
-phone's saved routes; the computer identity and existing workspace are retained.
+sending workspace requests and learns current addresses from the verified computer.
+To change saved connection settings, stop the service when idle and run
+`mindwire connect` with the new options. If no saved route remains reachable, scan
+the new code; the computer identity and existing workspace are retained.
 
 ## Terminals and reconnecting
 
@@ -150,6 +173,16 @@ Output replay is bounded to 2 MiB per terminal. If a client falls behind that
 window, it receives the current terminal screen and resumes from there. Input
 uses sequential receipts so retrying a lost acknowledgment does not type a command
 twice. macOS/Linux use a PTY; Windows uses ConPTY.
+
+iOS detects Wi-Fi/mobile-data changes immediately, waits while offline, and
+reconnects using the existing stream cursor. Foregrounding also refreshes stale
+connections. A private port preview retains its local address after reconnection.
+Tunnels retry independently, including while a service update waits for idle work.
+
+On current daemons, Send uses a durable request ID. If its acknowledgement is lost,
+retrying returns the original run instead of submitting the message again. API/SDK
+clients can provide `requestId` to `turn`/`resolve` when `/healthz` advertises
+`turnRequestVersion: 1`; keep the same ID and payload when retrying.
 
 Terminals survive client disconnects, not a computer reboot or daemon restart.
 The controller waits for running shells and other work before updating.

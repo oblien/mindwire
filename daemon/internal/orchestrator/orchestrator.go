@@ -250,13 +250,14 @@ func (s *Supervisor) CWD() string { return s.cwd }
 // StartTurnInput is one turn's request from the API layer. Bundled into a value object so the
 // StartTurn signature doesn't grow per-field as per-turn options expand.
 type StartTurnInput struct {
-	ChatID   string
-	Message  string
-	CWD      string // run this turn in a specific dir (a project workdir); else the daemon default
-	Options  agent.TurnOptions
-	GitAuth  *gitaccess.Auth // write-only; never session or transcript state
-	gitLease *gitaccess.Lease
-	reply    *session.InteractionReply // internal: atomically commit a resumed async answer with the turn
+	RequestID string // stable client receipt; retrying returns the same durable run
+	ChatID    string
+	Message   string
+	CWD       string // run this turn in a specific dir (a project workdir); else the daemon default
+	Options   agent.TurnOptions
+	GitAuth   *gitaccess.Auth // write-only; never session or transcript state
+	gitLease  *gitaccess.Lease
+	reply     *session.InteractionReply // internal: atomically commit a resumed async answer with the turn
 }
 
 // StartTurn records the user message, creates a running Run, registers cancellation, and
@@ -301,6 +302,11 @@ func (s *Supervisor) StartResolveChecked(a *Agent, req StartTurnInput, ro Resolv
 		ro.Deadline = resolveDeadline
 	}
 	s.mu.Lock()
+	replayed, found, digest, replayErr := s.replayTurn(a, req, "resolve", &ro)
+	if found || replayErr != nil {
+		s.mu.Unlock()
+		return replayed, replayErr
+	}
 	if s.serviceUpdatingLocked() {
 		s.mu.Unlock()
 		return session.Run{}, ErrServiceUpdating
@@ -324,12 +330,19 @@ func (s *Supervisor) StartResolveChecked(a *Agent, req StartTurnInput, ro Resolv
 		}
 	}
 	req.GitAuth = nil
-	s.active[req.ChatID] = s.activePath(req.CWD)
-	s.activeAgents[a.ID()]++
 	// The parent context bounds the WHOLE resolve (overall deadline); each child turn derives a 30-min
 	// timeout from it. Register the cancel under the parent id BEFORE returning, so an immediate cancel
 	// can't race an unregistered run into a 404 (same anti-race as start()).
 	parent := session.Run{ID: newID(), ChatID: req.ChatID, Agent: a.ID(), Status: "running", Kind: "resolve", CreatedAt: nowISO()}
+	message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO()}
+	if err := s.store.SaveTurnStart(parent, &message, req.RequestID, digest); err != nil {
+		req.closeGit()
+		cancel()
+		s.mu.Unlock()
+		return session.Run{}, err
+	}
+	s.active[req.ChatID] = s.activePath(req.CWD)
+	s.activeAgents[a.ID()]++
 	s.cancels[parent.ID] = cancel
 	s.inflight++ // paired with execResolve's deferred runDone; unconditional launch below
 	s.mu.Unlock()
@@ -337,11 +350,6 @@ func (s *Supervisor) StartResolveChecked(a *Agent, req StartTurnInput, ro Resolv
 	// Resolve reuses one process group per child turn; the reporter re-Tracks under the parent id on
 	// each spawn (last spawn wins, which is the currently-live turn). execResolve's teardown Untracks.
 	ctx = proc.WithReporter(ctx, func(pid int) { s.mon.Track(parent.ID, a.ID(), parent.ChatID, pid) })
-
-	_ = s.store.AddMessage(session.Message{
-		ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(),
-	})
-	_ = s.store.SaveRun(parent)
 
 	go s.execResolve(ctx, cancel, a, parent, req, ro)
 	return parent, nil
@@ -358,6 +366,15 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 		return session.Run{}, err
 	}
 	s.mu.Lock()
+	mode := "turn"
+	if compact {
+		mode = "compact"
+	}
+	replayed, found, digest, replayErr := s.replayTurn(a, req, mode, nil)
+	if found || replayErr != nil {
+		s.mu.Unlock()
+		return replayed, replayErr
+	}
 	if s.serviceUpdatingLocked() {
 		s.mu.Unlock()
 		return session.Run{}, ErrServiceUpdating
@@ -390,6 +407,17 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 			s.mu.Unlock()
 			return session.Run{}, err
 		}
+	} else {
+		var message *session.Message
+		if !compact {
+			message = &session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO()}
+		}
+		if err := s.store.SaveTurnStart(run, message, req.RequestID, digest); err != nil {
+			req.closeGit()
+			cancel()
+			s.mu.Unlock()
+			return session.Run{}, err
+		}
 	}
 	s.active[req.ChatID] = s.activePath(req.CWD)
 	s.activeAgents[a.ID()]++
@@ -417,18 +445,6 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 	// ctx (survives the driver's per-turn spawn) and Tracks the group leader pid the instant a spawn
 	// site reports it; execRun's teardown Untracks. No-op unless a client is watching /processes/stream.
 	ctx = proc.WithReporter(ctx, func(pid int) { s.mon.Track(run.ID, a.ID(), run.ChatID, pid) })
-
-	// Thin recorded log (universal fallback; native-history agents are read from their store). A
-	// compaction records no user message — the /compact trigger isn't a user turn; only its
-	// compaction boundary (accumulated as a Part on the assistant reply) belongs in the transcript.
-	if !compact && req.reply == nil {
-		_ = s.store.AddMessage(session.Message{
-			ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(),
-		})
-	}
-	if req.reply == nil {
-		_ = s.store.SaveRun(run)
-	}
 
 	go s.execRun(ctx, cancel, a, run, req, inbound, compact)
 	return run, nil

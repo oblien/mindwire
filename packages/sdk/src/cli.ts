@@ -10,6 +10,8 @@ import { computerPairingURI, type ComputerUpdate } from "./computer.js";
 import { SDK_VERSION } from "./version.js";
 import { computerClient, defaultStateDirectory, ensureComputer, readJSON, stopComputer, superviseComputer, type ComputerConfig } from "./computer/lifecycle.js";
 import type { RelayOptions } from "./computer/relay.js";
+import { showPairingInvitation, type PairingQRMode } from "./computer/pairing-display.js";
+import { configureStartup, startupStatus, watchComputer } from "./computer/startup.js";
 
 const help = `Mindwire — connect this computer to your phone
 
@@ -22,6 +24,8 @@ const help = `Mindwire — connect this computer to your phone
   mindwire connect --relay custom --relay-url wss://computer.example/ssh
 
   mindwire start                         Start the saved connection in the background
+  mindwire startup enable|disable        Manage automatic startup after computer login
+  mindwire startup status                Check automatic startup
   mindwire status                        Show connection and running service
   mindwire devices                       List paired phones
   mindwire revoke DEVICE_ID              Disconnect and revoke one phone
@@ -36,7 +40,9 @@ Options:
   --cloudflare-token-file PATH            Named Cloudflare tunnel token file
   --state-dir PATH                       Private state directory
   --json                                 Structured output (QR invitation includes a secret)
+  --qr auto|terminal|browser              Fit the QR to your terminal or open a local page
   --no-qr                                Print only the pairing link
+  --no-startup                           Pair without changing automatic startup
 
 The default works across Wi-Fi and mobile networks. Mindwire privately downloads
 a verified Cloudflare helper when needed. Relays carry encrypted SSH.
@@ -49,20 +55,31 @@ function safeName(text: string): string { return text.replace(/[\x00-\x1f\x7f-\x
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
-    help: { type: "boolean", short: "h" }, json: { type: "boolean" }, "no-qr": { type: "boolean" },
+    help: { type: "boolean", short: "h" }, json: { type: "boolean" }, "no-qr": { type: "boolean" }, qr: { type: "string" },
     "state-dir": { type: "string" }, directory: { type: "string" }, host: { type: "string" },
     relay: { type: "string" }, "relay-url": { type: "string" }, "cloudflare-token-file": { type: "string" },
     "daemon-bin": { type: "string" }, bind: { type: "string" }, port: { type: "string" }, "websocket-port": { type: "string" },
-    version: { type: "string" }, force: { type: "boolean" },
+    version: { type: "string" }, force: { type: "boolean" }, "no-startup": { type: "boolean" },
   } });
   const command = positionals[0] ?? "help";
   if (values.help || command === "help") { process.stdout.write(help); return; }
+  if (values.qr && !["auto", "terminal", "browser"].includes(values.qr)) throw new Error("Choose --qr auto, terminal or browser.");
   const directory = path.resolve(values["state-dir"] ?? defaultStateDirectory());
   const emit = (event: string, data: object = {}, text?: string) => {
     if (values.json) process.stdout.write(JSON.stringify({ event, ...data }) + "\n");
     else if (text) process.stdout.write(text + "\n");
   };
   if (command === "_serve") { await superviseComputer(directory); return; }
+  if (command === "_watch") { await watchComputer(directory, fileURLToPath(import.meta.url)); return; }
+  if (command === "startup") {
+    const action = positionals[1] ?? "status";
+    if (!["enable", "disable", "status"].includes(action)) throw new Error("Use mindwire startup enable, disable or status.");
+    const state = action === "status" ? await startupStatus(directory)
+      : await configureStartup(directory, fileURLToPath(import.meta.url), action === "enable");
+    emit("startup", state, state.enabled ? "Mindwire starts after you sign in to this computer and recovers automatically."
+      : "Automatic startup is off. Use mindwire start to run the service.");
+    return;
+  }
   if (["connect", "start"].includes(command)) {
     const patch: Partial<ComputerConfig> = {};
     if (values.directory) patch.directory = path.resolve(values.directory);
@@ -89,53 +106,64 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     const info = await client.computer.info();
     emit("ready", { computerId: info.computerId, routes: info.routes }, "Mindwire is running in the background.");
     if (command === "start") return;
+    const startupPreference = await startupStatus(directory);
+    if (!values["no-startup"] && (startupPreference.enabled || !startupPreference.kind)) {
+      try {
+        const startup = await configureStartup(directory, fileURLToPath(import.meta.url), true);
+        emit("startup", startup, "Automatic startup enabled. Mindwire will recover after you sign in to this computer.");
+      } catch {
+        emit("startup_unavailable", {}, "Mindwire is running, but automatic startup couldn't be enabled. Run mindwire startup enable to check your system's startup service.");
+      }
+    }
+    if (info.routes.some(route => route.kind === "websocket")) {
+      emit("secure_connection", {}, "Your phone connects over end-to-end encrypted SSH. The tunnel carries encrypted traffic; only phones you approve can connect.");
+    }
     if (info.routes.some(route => route.kind === "websocket" && new URL(route.url).hostname.endsWith(".trycloudflare.com"))) {
-      emit("temporary_address", {}, "Internet access is ready. This quick-tunnel address changes after a restart; use a stable hostname or VPN for regular access.");
+      emit("temporary_address", {}, "Cloudflare internet access is ready. For a permanent address, configure a named Cloudflare tunnel or your VPN; a free temporary address can change after a tunnel restart.");
     }
     const invitation = await client.computer.invite(info.routes);
     const uri = computerPairingURI(invitation);
-    emit("invitation", { invitation, uri }, "Open Mindwire on your phone → Add computer → Scan QR code.");
-    if (!values.json) {
-      if (!values["no-qr"]) {
-        const QR = await import("qrcode");
-        process.stdout.write(await QR.toString(uri, { type: "terminal", small: true, errorCorrectionLevel: "L" }));
-      }
-      process.stdout.write(`\nPairing link (expires in 5 minutes):\n${uri}\n\nWaiting for your phone…\n`);
-    }
-    let shownRequest: string | undefined;
-    while (Date.now() < Date.parse(invitation.expiresAt)) {
-      const pairing = await client.computer.pairing(invitation.pairingId);
-      if (pairing.status === "approved") { emit("paired", {}, "Phone connected. You can close this terminal; Mindwire keeps running."); return; }
-      if (pairing.status === "rejected") { emit("rejected", {}, "Pairing declined."); return; }
-      if (pairing.request && shownRequest !== pairing.request.id) {
-        shownRequest = pairing.request.id;
-        const key = Buffer.from(pairing.request.publicKey.split(" ")[1] ?? "", "base64");
-        const fingerprint = "SHA256:" + createHash("sha256").update(key).digest("base64").replace(/=+$/, "");
-        emit("approval_required", { pairingId: invitation.pairingId, request: pairing.request, fingerprint },
-          `\n${safeName(pairing.request.name)} wants to connect.\nDevice key: ${fingerprint}`);
-        if (!process.stdin.isTTY) {
-          emit("approval_command", { command: `mindwire approve ${invitation.pairingId} ${pairing.request.id}` },
-            `Review this device, then run:\nmindwire approve ${invitation.pairingId} ${pairing.request.id}`);
-        } else {
-          const input = createInterface({ input: process.stdin, output: process.stderr });
-          try {
-            const answer = await input.question("Allow this phone to access this workspace? [y/N] ");
-            await client.computer.decide(invitation.pairingId, pairing.request.id, /^y(es)?$/i.test(answer.trim()));
-          } finally { input.close(); }
+    emit("invitation", { invitation, uri });
+    const display = values.json ? undefined : await showPairingInvitation(invitation, {
+      mode: values["no-qr"] ? "none" : (values.qr ?? "auto") as PairingQRMode,
+    });
+    try {
+      let shownRequest: string | undefined;
+      while (Date.now() < Date.parse(invitation.expiresAt)) {
+        const pairing = await client.computer.pairing(invitation.pairingId);
+        if (pairing.status === "approved") { display?.close(); emit("paired", {}, "Phone connected. You can close this terminal; Mindwire keeps running."); return; }
+        if (pairing.status === "rejected") { display?.close(); emit("rejected", {}, "Pairing declined."); return; }
+        if (pairing.request && shownRequest !== pairing.request.id) {
+          display?.close();
+          shownRequest = pairing.request.id;
+          const key = Buffer.from(pairing.request.publicKey.split(" ")[1] ?? "", "base64");
+          const fingerprint = "SHA256:" + createHash("sha256").update(key).digest("base64").replace(/=+$/, "");
+          emit("approval_required", { pairingId: invitation.pairingId, request: pairing.request, fingerprint },
+            `\n${safeName(pairing.request.name)} wants to connect.\nDevice key: ${fingerprint}`);
+          if (!process.stdin.isTTY) {
+            emit("approval_command", { command: `mindwire approve ${invitation.pairingId} ${pairing.request.id}` },
+              `Review this device, then run:\nmindwire approve ${invitation.pairingId} ${pairing.request.id}`);
+          } else {
+            const input = createInterface({ input: process.stdin, output: process.stderr });
+            try {
+              const answer = await input.question("Allow this phone to access this workspace? [y/N] ");
+              await client.computer.decide(invitation.pairingId, pairing.request.id, /^y(es)?$/i.test(answer.trim()));
+            } finally { input.close(); }
+          }
         }
+        await delay(750);
       }
-      await delay(750);
-    }
-    throw new Error("Pairing expired. Run mindwire connect to show a new QR code.");
+      throw new Error("Pairing expired. Run mindwire connect to show a new QR code.");
+    } finally { display?.close(); }
   }
   if (command === "stop") { await stopComputer(directory, values.force === true); emit("stopped", {}, "Mindwire stopped."); return; }
   const client = await computerClient(directory);
   switch (command) {
     case "status": {
-      const [info, health, work, controller] = await Promise.all([client.computer.info(), client.health(), client.service.updateStatus(),
-        readJSON<{ error?: string }>(path.join(directory, "computer-controller.json"))]);
-      emit("status", { ...info, daemonVersion: health.version, ...work, relayError: controller?.error },
-        `Mindwire ${health.version} · ${work.idle ? "idle" : "working"}\n${info.routes.map(route => route.kind === "ssh" ? `SSH ${route.host}:${route.port}` : route.url).join("\n")}${controller?.error ? `\n${controller.error}` : ""}`);
+      const [info, health, work, controller, startup] = await Promise.all([client.computer.info(), client.health(), client.service.updateStatus(),
+        readJSON<{ error?: string; phase?: string; recovering?: boolean }>(path.join(directory, "computer-controller.json")), startupStatus(directory)]);
+      emit("status", { ...info, daemonVersion: health.version, ...work, startup, recovering: controller?.recovering, relayError: controller?.error },
+        `Mindwire ${health.version} · ${work.idle ? "idle" : "working"}\nStartup: ${startup.enabled ? "on" : "off"}\n${info.routes.map(route => route.kind === "ssh" ? `SSH ${route.host}:${route.port}` : route.url).join("\n")}${controller?.error ? `\n${controller.error}` : ""}`);
       break;
     }
     case "devices": {
