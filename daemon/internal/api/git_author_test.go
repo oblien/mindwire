@@ -25,7 +25,7 @@ func TestAuthorSettingsDoNotSubmitACommit(t *testing.T) {
 	}
 	read := serve(t, h, "GET", url, "")
 	if read.Code != http.StatusOK || !strings.Contains(read.Body.String(), `"email":"app@example.invalid"`) {
-		 t.Fatal(read.Body.String())
+		t.Fatal(read.Body.String())
 	}
 	if apiGit(t, "-C", root, "write-tree") != before {
 		t.Fatal("author settings changed the index")
