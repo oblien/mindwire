@@ -1119,6 +1119,8 @@ export interface Health {
   projectOperationsVersion?: number;
   /** Project-relative icons and authenticated image previews. */
   projectIconsVersion?: number;
+  /** Preserved workspace replicas, native chat checkpoints and recoverable three-way import. */
+  projectSyncVersion?: number;
   /** Workspace/project GitHub bindings and operation/run credential forwarding. */
   gitAccessVersion?: number;
   /** Durable Git writes: v2 adds branches; v3 adds repository-scoped commit author setup. */

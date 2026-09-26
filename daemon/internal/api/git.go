@@ -305,11 +305,11 @@ func (a *API) startGitOperation(ctx context.Context, projectID string, req gitOp
 
 func (a *API) Busy(chatID string) bool { return a.sup.Busy(chatID) }
 func (a *API) BusyPath(path string) bool {
-	canonical, err := workspacepath.WorkingDirectory(path)
+	canonical, err := workspacepath.Canonical(path)
 	if err != nil {
 		return true
 	}
-	return a.sup.BusyPath(canonical) || a.gitBusyPath(canonical)
+	return a.sup.BusyPath(canonical) || a.gitBusyPath(canonical) || a.execution.BusyPath(canonical)
 }
 func (a *API) gitBusyPath(path string) bool {
 	return a.gitJobs != nil && a.gitJobs.BusyPath(path)

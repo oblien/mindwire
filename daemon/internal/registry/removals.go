@@ -22,6 +22,9 @@ func checkProjectRemoval(q queryer, data []byte) error {
 }
 
 func checkRemovalAtPath(q queryer, path string) error {
+	if err := checkSyncAtPath(q, path, ""); err != nil {
+		return err
+	}
 	if err := checkGitAtPath(q, path); err != nil {
 		return err
 	}
@@ -68,6 +71,9 @@ func removalTarget(tx *sql.Tx, o ProjectOperation) error {
 }
 
 func removalReservation(tx *sql.Tx, o ProjectOperation) error {
+	if err := checkSyncAtPath(tx, o.Path, ""); err != nil {
+		return err
+	}
 	if err := checkGitAtPath(tx, o.Path); err != nil {
 		return err
 	}

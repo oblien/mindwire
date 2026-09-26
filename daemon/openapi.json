@@ -194,7 +194,7 @@
           },
           "version": {
             "type": "string",
-            "description": "agent.Version — the definitions/protocol version."
+            "description": "agent.Version \u2014 the definitions/protocol version."
           },
           "workspaceMetadataVersion": {
             "type": "integer",
@@ -271,6 +271,10 @@
           "projectIconsVersion": {
             "type": "integer",
             "description": "Project-relative icons and authenticated previews. Version 1 supports SVG, PNG, JPEG and GIF images up to 1 MiB."
+          },
+          "projectSyncVersion": {
+            "type": "integer",
+            "description": "Version 1 supports native Codex/Claude project checkpoints, verified chunks and recoverable three-way synchronization on macOS/Linux. Zero means this host is unsupported."
           }
         },
         "required": [
@@ -301,7 +305,7 @@
           },
           "numGoroutine": {
             "type": "integer",
-            "description": "Live goroutines — a rough concurrency gauge."
+            "description": "Live goroutines \u2014 a rough concurrency gauge."
           },
           "memAllocBytes": {
             "type": "integer",
@@ -337,7 +341,7 @@
       },
       "ProcessSample": {
         "type": "object",
-        "description": "One running turn's live resource use at a single sampling tick. Labels and numbers only — never a secret. A turn runs in its own process group; the figures are summed over that whole group (bash → node → the agent).",
+        "description": "One running turn's live resource use at a single sampling tick. Labels and numbers only \u2014 never a secret. A turn runs in its own process group; the figures are summed over that whole group (bash \u2192 node \u2192 the agent).",
         "properties": {
           "agent": {
             "type": "string",
@@ -353,12 +357,12 @@
           },
           "pid": {
             "type": "integer",
-            "description": "Group-leader pid — the whole turn's process tree."
+            "description": "Group-leader pid \u2014 the whole turn's process tree."
           },
           "cpuPercent": {
             "type": "number",
             "format": "double",
-            "description": "CPU% over the last sampling window (delta of cumulative CPU seconds ÷ wall-clock). 0 on the first tick a group is seen."
+            "description": "CPU% over the last sampling window (delta of cumulative CPU seconds \u00f7 wall-clock). 0 on the first tick a group is seen."
           },
           "rssBytes": {
             "type": "integer",
@@ -465,7 +469,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Per-turn setting overrides addressed by canonical key (see Field.canon). Resolved canon→the selected agent's key and filtered to declared non-secret keys server-side; overrides win over the sticky config."
+            "description": "Per-turn setting overrides addressed by canonical key (see Field.canon). Resolved canon\u2192the selected agent's key and filtered to declared non-secret keys server-side; overrides win over the sticky config."
           },
           "systemPrompt": {
             "type": "string",
@@ -582,7 +586,7 @@
               "error",
               "cancelled"
             ],
-            "description": "Parent-only: why the resolve loop ended — \"done\" (the agent signalled completion), \"capped\" (hit the iteration/deadline bound), \"error\", or \"cancelled\"."
+            "description": "Parent-only: why the resolve loop ended \u2014 \"done\" (the agent signalled completion), \"capped\" (hit the iteration/deadline bound), \"error\", or \"cancelled\"."
           },
           "iterations": {
             "type": "integer",
@@ -658,7 +662,7 @@
           },
           "subtype": {
             "type": "string",
-            "description": "The agent's own terminal-result classifier when it distinguishes one (Claude's result subtype: \"success\", \"error_max_turns\", \"error_max_budget_usd\", …). Absent for agents whose terminal event is always fully settled (Codex)."
+            "description": "The agent's own terminal-result classifier when it distinguishes one (Claude's result subtype: \"success\", \"error_max_turns\", \"error_max_budget_usd\", \u2026). Absent for agents whose terminal event is always fully settled (Codex)."
           },
           "incomplete": {
             "type": "boolean",
@@ -687,7 +691,7 @@
               "max_turns",
               "max_budget"
             ],
-            "description": "Why this iteration is running: \"start\" (first), \"max_turns\"/\"max_budget\" (resuming a continuable stop), or \"probe\" (a clean settle with no completion sentinel — probing for done)."
+            "description": "Why this iteration is running: \"start\" (first), \"max_turns\"/\"max_budget\" (resuming a continuable stop), or \"probe\" (a clean settle with no completion sentinel \u2014 probing for done)."
           },
           "childRunId": {
             "type": "string",
@@ -1097,7 +1101,7 @@
       },
       "ForkRequest": {
         "type": "object",
-        "description": "Fork a chat. newChatId is optional — a random id is generated when omitted.",
+        "description": "Fork a chat. newChatId is optional \u2014 a random id is generated when omitted.",
         "properties": {
           "newChatId": {
             "type": "string"
@@ -1106,7 +1110,7 @@
       },
       "CompactRequest": {
         "type": "object",
-        "description": "On-demand compaction. instructions is optional — when present it focuses the continuation summary (Claude's `/compact <instructions>`); agents that don't honor focus still compact.",
+        "description": "On-demand compaction. instructions is optional \u2014 when present it focuses the continuation summary (Claude's `/compact <instructions>`); agents that don't honor focus still compact.",
         "properties": {
           "instructions": {
             "type": "string"
@@ -1274,7 +1278,7 @@
           },
           "resolve": {
             "type": "boolean",
-            "description": "Agent supports global-resolve runs (POST /turns {mode:\"resolve\"}). Unlike the other switches this is NOT gated in the daemon — resolve is pure daemon logic over the existing resume path, so every agent that can resume can be resolved; the flag is a UI hint only."
+            "description": "Agent supports global-resolve runs (POST /turns {mode:\"resolve\"}). Unlike the other switches this is NOT gated in the daemon \u2014 resolve is pure daemon logic over the existing resume path, so every agent that can resume can be resolved; the flag is a UI hint only."
           },
           "protocol": {
             "type": "string",
@@ -1401,7 +1405,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Resolved absolute path — always set, even when the file is absent."
+            "description": "Resolved absolute path \u2014 always set, even when the file is absent."
           },
           "exists": {
             "type": "boolean",
@@ -1445,7 +1449,7 @@
       },
       "SubagentMeta": {
         "type": "object",
-        "description": "Best-effort parsed view of a subagent definition's frontmatter. A convenience only — the raw `content` is canonical. Every field is optional; absent frontmatter yields no meta object.",
+        "description": "Best-effort parsed view of a subagent definition's frontmatter. A convenience only \u2014 the raw `content` is canonical. Every field is optional; absent frontmatter yields no meta object.",
         "properties": {
           "name": {
             "type": "string"
@@ -1547,7 +1551,7 @@
       },
       "CustomProvider": {
         "type": "object",
-        "description": "One registered custom OpenAI-compatible LLM provider. SECURITY: the API key is NEVER part of this shape — it is supplied write-only on PUT and reported only as `hasKey`. The harness config references the key solely through an env-var placeholder; the value lives in the daemon and enters a run only via the auth env path.",
+        "description": "One registered custom OpenAI-compatible LLM provider. SECURITY: the API key is NEVER part of this shape \u2014 it is supplied write-only on PUT and reported only as `hasKey`. The harness config references the key solely through an env-var placeholder; the value lives in the daemon and enters a run only via the auth env path.",
         "properties": {
           "id": {
             "type": "string",
@@ -1780,7 +1784,7 @@
       },
       "Interaction": {
         "type": "object",
-        "description": "A structured, self-describing request the agent surfaces mid-turn for the client to render generically — and, when needsResponse, for the user to answer.",
+        "description": "A structured, self-describing request the agent surfaces mid-turn for the client to render generically \u2014 and, when needsResponse, for the user to answer.",
         "properties": {
           "id": {
             "type": "string"
@@ -2006,7 +2010,7 @@
       },
       "AuthMethod": {
         "type": "object",
-        "description": "One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin→step→status flow.",
+        "description": "One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin\u2192step\u2192status flow.",
         "properties": {
           "id": {
             "type": "string"
@@ -2386,7 +2390,7 @@
       },
       "NotifyChannelMasked": {
         "type": "object",
-        "description": "The read-side view of a notification channel. Secrets are never returned — the URL, token, HMAC secret, and header values are all withheld; only their presence (and the URL host, as a display hint) is reported.",
+        "description": "The read-side view of a notification channel. Secrets are never returned \u2014 the URL, token, HMAC secret, and header values are all withheld; only their presence (and the URL host, as a display hint) is reported.",
         "properties": {
           "id": {
             "type": "string",
@@ -2463,7 +2467,7 @@
           },
           "url": {
             "type": "string",
-            "description": "Destination URL. Required (on create). For slack/discord this is the incoming-webhook URL; for telegram the full bot `sendMessage` URL. Write-only — never returned."
+            "description": "Destination URL. Required (on create). For slack/discord this is the incoming-webhook URL; for telegram the full bot `sendMessage` URL. Write-only \u2014 never returned."
           },
           "headers": {
             "type": "object",
@@ -2488,7 +2492,7 @@
       },
       "NotifyChannelTestResult": {
         "type": "object",
-        "description": "Outcome of a synthetic delivery to one channel. The send result is DATA — a failed delivery still returns HTTP 200 with `ok:false` and an `error` message.",
+        "description": "Outcome of a synthetic delivery to one channel. The send result is DATA \u2014 a failed delivery still returns HTTP 200 with `ok:false` and an `error` message.",
         "properties": {
           "ok": {
             "type": "boolean"
@@ -2724,6 +2728,12 @@
             "nullable": true,
             "maxLength": 4096,
             "description": "Project-relative SVG/PNG/JPEG/GIF file. Requires projectIconsVersion >= 1. Omit to preserve an existing icon; explicit null resets it. The daemon validates the file when changed. Image bytes are read through the authenticated project icon endpoint."
+          },
+          "syncId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Daemon-owned logical identity shared by preserved workspace replicas. Local IDs remain different.",
+            "readOnly": true
           }
         }
       },
@@ -2818,6 +2828,12 @@
             "type": "string",
             "readOnly": true,
             "description": "Cached native harness title underneath an optional user rename; clearing a rename restores this title."
+          },
+          "syncId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Daemon-owned logical identity shared by preserved workspace replicas. Local IDs remain different.",
+            "readOnly": true
           }
         }
       },
@@ -5208,6 +5224,219 @@
             "description": "SHA-256 of the source image bytes."
           }
         }
+      },
+      "ProjectSyncEntry": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "directory",
+              "symlink"
+            ]
+          },
+          "mode": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "chunks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "link": {
+            "type": "string"
+          },
+          "jsonLines": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "mode",
+          "size"
+        ]
+      },
+      "ProjectSyncCheckpoint": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "projectId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "parents": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/ProjectSyncEntry"
+          },
+          "objectCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "parents",
+          "manifest",
+          "objectCount",
+          "bytes"
+        ]
+      },
+      "ProjectSyncRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_-]+$"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "checkpointId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "ProjectSyncConflict": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "conversation",
+              "git",
+              "recovery"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "kind",
+          "message"
+        ]
+      },
+      "ProjectSyncOperation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_-]+$"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "checkpointId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "export",
+              "import"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "exporting",
+              "preparing",
+              "applying",
+              "succeeded",
+              "conflicts",
+              "failed",
+              "recovery_required"
+            ]
+          },
+          "phase": {
+            "type": "string"
+          },
+          "progress": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "resultProjectId": {
+            "type": "string"
+          },
+          "resultCheckpointId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "recoveryCheckpointId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSyncConflict"
+            }
+          },
+          "error": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "phase",
+          "progress",
+          "createdAt",
+          "updatedAt"
+        ]
       }
     }
   },
@@ -5525,7 +5754,7 @@
           "Health"
         ],
         "summary": "Daemon process resource snapshot",
-        "description": "The daemon PROCESS's own runtime stats (heap in use, memory reserved from the OS, goroutines, GC cycles) plus host facts (cores, platform, uptime). Cheap and on-demand — a single runtime.ReadMemStats, no background sampling. Not the whole machine's RAM/CPU.",
+        "description": "The daemon PROCESS's own runtime stats (heap in use, memory reserved from the OS, goroutines, GC cycles) plus host facts (cores, platform, uptime). Cheap and on-demand \u2014 a single runtime.ReadMemStats, no background sampling. Not the whole machine's RAM/CPU.",
         "responses": {
           "200": {
             "description": "Snapshot",
@@ -5546,7 +5775,7 @@
           "Health"
         ],
         "summary": "Stream live per-turn CPU/memory (SSE)",
-        "description": "Server-Sent Events of live resource use for currently-running turns, grouped by agent. On-demand and refcounted: the daemon starts sampling only while at least one client is connected and stops the instant the last one disconnects — zero background work when nothing is watching. Each turn runs in its own process group; a sample is the whole group's summed RSS and its CPU% over the sampling window. Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream; one ProcessFrame per frame. Optional `?agent=` filters each frame's samples to one agent. Payload carries labels and numbers only — no secrets.",
+        "description": "Server-Sent Events of live resource use for currently-running turns, grouped by agent. On-demand and refcounted: the daemon starts sampling only while at least one client is connected and stops the instant the last one disconnects \u2014 zero background work when nothing is watching. Each turn runs in its own process group; a sample is the whole group's summed RSS and its CPU% over the sampling window. Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream; one ProcessFrame per frame. Optional `?agent=` filters each frame's samples to one agent. Payload carries labels and numbers only \u2014 no secrets.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -5828,7 +6057,7 @@
           "Prompts"
         ],
         "summary": "Delete a persistent memory file",
-        "description": "Removes one scope's memory file (?scope=, default user) and returns the resulting doc (exists:false). Idempotent — deleting an absent file still succeeds.",
+        "description": "Removes one scope's memory file (?scope=, default user) and returns the resulting doc (exists:false). Idempotent \u2014 deleting an absent file still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6006,7 +6235,7 @@
           "Prompts"
         ],
         "summary": "Delete a prompt template",
-        "description": "Removes one template by name at a scope (?scope=, default user). Idempotent — deleting an absent template still succeeds.",
+        "description": "Removes one template by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent template still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6197,7 +6426,7 @@
           "Prompts"
         ],
         "summary": "Delete a subagent definition",
-        "description": "Removes one definition by name at a scope (?scope=, default user). Idempotent — deleting an absent definition still succeeds.",
+        "description": "Removes one definition by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent definition still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6250,7 +6479,7 @@
           "MCP"
         ],
         "summary": "List persistent MCP servers",
-        "description": "Returns the agent's persistent MCP-server config across every supported scope, keyed scope→name→server. A missing config file yields an empty object for that scope. 400 if the agent has no persistent MCP-config module. Carries only an env-var NAME for HTTP auth (bearerTokenEnvVar), never a secret value; on Claude only the mcpServers subtree of the config is ever read.",
+        "description": "Returns the agent's persistent MCP-server config across every supported scope, keyed scope\u2192name\u2192server. A missing config file yields an empty object for that scope. 400 if the agent has no persistent MCP-config module. Carries only an env-var NAME for HTTP auth (bearerTokenEnvVar), never a secret value; on Claude only the mcpServers subtree of the config is ever read.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6391,7 +6620,7 @@
           "MCP"
         ],
         "summary": "Delete a persistent MCP server",
-        "description": "Removes one MCP server by name at a scope (?scope=, default user). Idempotent — deleting an absent server still succeeds.",
+        "description": "Removes one MCP server by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent server still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6444,7 +6673,7 @@
           "Providers"
         ],
         "summary": "List custom LLM providers",
-        "description": "Returns the agent's registered custom LLM providers across every supported scope, keyed scope→id→provider. A missing config file yields an empty object for that scope. 400 if the agent has no custom-provider module. `hasKey` reports whether a secret is stored; the key is never returned.",
+        "description": "Returns the agent's registered custom LLM providers across every supported scope, keyed scope\u2192id\u2192provider. A missing config file yields an empty object for that scope. 400 if the agent has no custom-provider module. `hasKey` reports whether a secret is stored; the key is never returned.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6532,7 +6761,7 @@
           "Providers"
         ],
         "summary": "Register a custom LLM provider",
-        "description": "Registers one custom provider at a scope (?scope=, default user), writing the harness's native custom-endpoint config and preserving all sibling config. The write-only apiKey (when supplied) is stored in the daemon and referenced only via an env-var placeholder — never written literally. Echoes the stored provider back (hasKey reflects whether a key is stored; the key itself is never returned).",
+        "description": "Registers one custom provider at a scope (?scope=, default user), writing the harness's native custom-endpoint config and preserving all sibling config. The write-only apiKey (when supplied) is stored in the daemon and referenced only via an env-var placeholder \u2014 never written literally. Echoes the stored provider back (hasKey reflects whether a key is stored; the key itself is never returned).",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6585,7 +6814,7 @@
           "Providers"
         ],
         "summary": "Delete a custom LLM provider",
-        "description": "Removes one custom provider by id at a scope (?scope=, default user) and clears its stored key. Idempotent — deleting an absent provider still succeeds.",
+        "description": "Removes one custom provider by id at a scope (?scope=, default user) and clears its stored key. Idempotent \u2014 deleting an absent provider still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -6854,7 +7083,7 @@
           "Turns & runs"
         ],
         "summary": "List a resolve run's child iterations",
-        "description": "Returns the child runs of a global-resolve parent, oldest→newest — the per-iteration turns of a resolve run (each streams onto the parent's topic). An ordinary turn (or a parent with no iterations yet) returns an empty list.",
+        "description": "Returns the child runs of a global-resolve parent, oldest\u2192newest \u2014 the per-iteration turns of a resolve run (each streams onto the parent's topic). An ordinary turn (or a parent with no iterations yet) returns an empty list.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -7039,7 +7268,7 @@
           "Turns & runs"
         ],
         "summary": "Soft-stop a running turn",
-        "description": "Ask the agent to halt its current work WITHOUT the hard context kill `/cancel` does — the turn stays active for a follow-up over `/input`. Requires the agent's `interrupt` capability.",
+        "description": "Ask the agent to halt its current work WITHOUT the hard context kill `/cancel` does \u2014 the turn stays active for a follow-up over `/input`. Requires the agent's `interrupt` capability.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -7644,7 +7873,7 @@
           "Notifications"
         ],
         "summary": "List notification channels",
-        "description": "Returns every configured channel, masked. Secrets (URL, token, HMAC secret, header values) are never returned — only their presence and the URL host.",
+        "description": "Returns every configured channel, masked. Secrets (URL, token, HMAC secret, header values) are never returned \u2014 only their presence and the URL host.",
         "responses": {
           "200": {
             "description": "Channels (masked)",
@@ -7761,7 +7990,7 @@
           "Notifications"
         ],
         "summary": "Delete a notification channel",
-        "description": "Removes a channel by id. Idempotent — deleting an absent channel still succeeds.",
+        "description": "Removes a channel by id. Idempotent \u2014 deleting an absent channel still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -7945,7 +8174,7 @@
           "Notifications"
         ],
         "summary": "Delete a routing rule",
-        "description": "Removes a rule by id. Idempotent — deleting an absent rule still succeeds.",
+        "description": "Removes a rule by id. Idempotent \u2014 deleting an absent rule still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -13513,6 +13742,1132 @@
           }
         ],
         "description": "Requires projectIconsVersion >= 1. Without a path, reads the saved icon. A path previews a candidate inside this project. Follows internal symlinks but rejects escapes, non-regular files, oversized/invalid images and external SVG resources. Never exposes a public file URL."
+      }
+    },
+    "/workspace/sync/exports": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Export an immutable project checkpoint",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "202": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSyncOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectSyncRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/sync/imports": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Compare and safely apply a project checkpoint",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "202": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSyncOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectSyncRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/sync/operations": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "List durable project synchronizations",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "200": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "operations": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ProjectSyncOperation"
+                      }
+                    }
+                  },
+                  "required": [
+                    "operations"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/sync/operations/{id}": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read synchronization progress and conflicts",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "200": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSyncOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workspace/sync/operations/{id}/retry": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Retry project synchronization",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "202": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSyncOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workspace/sync/operations/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Cancel project synchronization",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "200": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSyncOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/workspace/sync/checkpoints/{id}": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read immutable checkpoint descriptor",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "200": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSyncCheckpoint"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Verify and acknowledge a complete checkpoint",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "200": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSyncCheckpoint"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectSyncCheckpoint"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/sync/checkpoints/{id}/objects": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "List a checkpoint\u2019s content objects in pages of 512",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "200": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "objects": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      }
+                    },
+                    "next": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "objects"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ]
+      }
+    },
+    "/workspace/sync/objects/missing": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Find missing or corrupt content chunks",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "200": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "objects": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      }
+                    }
+                  },
+                  "required": [
+                    "objects"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "objects": {
+                    "type": "array",
+                    "maxItems": 1024,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  }
+                },
+                "required": [
+                  "objects"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/sync/objects/{id}": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read a verified content chunk",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "200": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "string",
+                      "format": "byte",
+                      "description": "Base64 content, at most 256 KiB decoded. SHA-256 must equal the URL object ID."
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Idempotently store a checksum-verified chunk",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "responses": {
+          "200": {
+            "description": "Current durable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "data": {
+                    "type": "string",
+                    "format": "byte",
+                    "description": "Base64 content, at most 256 KiB decoded. SHA-256 must equal the URL object ID."
+                  }
+                },
+                "required": [
+                  "data"
+                ]
+              }
+            }
+          }
+        }
       }
     }
   }

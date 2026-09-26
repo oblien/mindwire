@@ -32,6 +32,7 @@ type Workspace struct {
 	Projects   *WorkspaceCollection[WorkspaceProject]
 	Chats      *WorkspaceCollection[WorkspaceChat]
 	Operations *ProjectOperations
+	Sync       *ProjectSync
 }
 
 type WorkspaceCollection[T any] struct {
@@ -41,6 +42,7 @@ type WorkspaceCollection[T any] struct {
 
 func newWorkspace(c *Client) *Workspace {
 	return &Workspace{c: c,
+		Sync:       &ProjectSync{c: c},
 		Operations: &ProjectOperations{c: c},
 		Agents:     &WorkspaceCollection[WorkspaceAgent]{c, "agents"},
 		Projects:   &WorkspaceCollection[WorkspaceProject]{c, "projects"},

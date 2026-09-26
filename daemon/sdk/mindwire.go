@@ -20,6 +20,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/projecticon"
 	"github.com/oblien/mindwire/daemon/internal/projects"
+	"github.com/oblien/mindwire/daemon/internal/projectsync"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/stream"
@@ -59,6 +60,7 @@ type core struct {
 	registry      *registry.Store
 	conversations *conversations.Index
 	projects      *projects.Service
+	projectSync   *projectsync.Service
 	surfaces      *surface.Service
 	execution     *workspaceexec.Service
 	registryMu    sync.Mutex
@@ -156,6 +158,14 @@ func New(opts Options) (*Client, error) {
 		execution: workspaceexec.New(opts.CWD),
 	}
 	co.conversations = conversations.New(workspaceRegistry, store, agent.All(), &co.registryMu, sup.Busy)
+	co.execution.SetMutationGuard(&co.registryMu, workspaceRegistry.CheckSyncPath)
+	co.projectSync, err = projectsync.New(workspaceRegistry, store, co, &co.registryMu, agent.All(), co.discoverForSync)
+	if err != nil {
+		surfaceService.Close()
+		projectService.Close()
+		workspaceRegistry.Close()
+		return nil, err
+	}
 	c := &Client{core: co, defaultAgent: opts.Agent}
 	c.Auth = &Auth{c: c}
 	c.Prompts = &Prompts{c: c}
@@ -206,6 +216,7 @@ func (c *Client) Close() error {
 		c.core.sup.Cancel(id) // no-op/false for already-finished runs
 	}
 	c.core.sup.Wait() // drain: every cancelled turn's final SaveRun lands before we return
+	c.core.projectSync.Close()
 	c.core.projects.Close()
 	c.core.execution.Terminals.Close()
 	c.core.registryMu.Lock()
@@ -251,6 +262,7 @@ type Health struct {
 	WorkspaceMetadataVersion       int    `json:"workspaceMetadataVersion"`
 	ProjectOperationsVersion       int    `json:"projectOperationsVersion"`
 	ProjectIconsVersion            int    `json:"projectIconsVersion"`
+	ProjectSyncVersion             int    `json:"projectSyncVersion"`
 	SurfaceProtocolVersion         int    `json:"surfaceProtocolVersion"`
 	NotificationPreferencesVersion int    `json:"notificationPreferencesVersion"`
 	HarnessPolicyVersion           int    `json:"harnessPolicyVersion"`
@@ -264,7 +276,7 @@ type Health struct {
 
 // Health returns the liveness snapshot. It cannot fail in-process.
 func (c *Client) Health() Health {
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package

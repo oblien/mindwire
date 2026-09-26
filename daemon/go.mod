@@ -13,6 +13,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.25.1
 	golang.org/x/crypto v0.56.0
 	golang.org/x/sys v0.47.0
+	golang.org/x/text v0.41.0
 	modernc.org/sqlite v1.59.0
 )
 

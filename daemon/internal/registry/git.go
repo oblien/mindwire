@@ -113,6 +113,9 @@ func (st *Store) ReserveGitOperation(spec GitSpec) (GitOperation, bool, error) {
 	if err := checkGitAtPath(tx, spec.Path); err != nil {
 		return GitOperation{}, false, err
 	}
+	if err := checkSyncAtPath(tx, spec.Path, ""); err != nil {
+		return GitOperation{}, false, err
+	}
 	if _, err := conflictingOperation(tx, spec.Path, true, ""); err == nil {
 		return GitOperation{}, false, fmt.Errorf("%w: a project operation is using this repository", ErrConflict)
 	} else if !errors.Is(err, ErrNotFound) {

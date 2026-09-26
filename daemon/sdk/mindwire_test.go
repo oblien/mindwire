@@ -609,6 +609,19 @@ func TestSDKRouteParity(t *testing.T) {
 	// Each HTTP route → the SDK method covering it. A new route with no entry (or an entry naming a
 	// route that no longer exists) fails the test.
 	coverage := map[string]string{
+		"POST /workspace/sync/exports":                 "Workspace.Sync.Export",
+		"POST /workspace/sync/imports":                 "Workspace.Sync.Import",
+		"GET /workspace/sync/operations":               "Workspace.Sync.List",
+		"GET /workspace/sync/operations/{id}":          "Workspace.Sync.Get",
+		"POST /workspace/sync/operations/{id}/retry":   "Workspace.Sync.Retry",
+		"POST /workspace/sync/operations/{id}/cancel":  "Workspace.Sync.Cancel",
+		"GET /workspace/sync/checkpoints/{id}":         "Workspace.Sync.Checkpoint",
+		"PUT /workspace/sync/checkpoints/{id}":         "Workspace.Sync.AcceptCheckpoint",
+		"GET /workspace/sync/checkpoints/{id}/objects": "Workspace.Sync.Objects",
+		"POST /workspace/sync/objects/missing":         "Workspace.Sync.Missing",
+		"GET /workspace/sync/objects/{id}":             "Workspace.Sync.GetObject",
+		"PUT /workspace/sync/objects/{id}":             "Workspace.Sync.PutObject",
+
 		"GET /workspace/host":                  "Execution.Info",
 		"GET /workspace/resources":             "Execution.Resources",
 		"GET /workspace/files":                 "Execution.Files",

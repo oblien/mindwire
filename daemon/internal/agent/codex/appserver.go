@@ -901,6 +901,9 @@ func (a appServer) resumeParams() map[string]any {
 	if a.model != "" {
 		p["model"] = a.model
 	}
+	if a.cwd != "" {
+		p["cwd"] = a.cwd
+	}
 	a.threadOptions(p)
 	return p
 }

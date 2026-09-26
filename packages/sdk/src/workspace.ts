@@ -1,5 +1,6 @@
 import type { Mindwire } from "./client.js";
 import { readSSE } from "./sse.js";
+import { ProjectSyncApi } from "./project-sync.js";
 
 /** Write-only credentials. Never persisted in operation snapshots or conversation state. */
 export type ProjectAuth = (
@@ -195,6 +196,9 @@ export interface WorkspaceAgent extends WorkspaceRecord {
 }
 
 export interface WorkspaceProject extends WorkspaceRecord {
+
+  /** Logical project identity shared by preserved workspace copies. */
+  syncId?: string;
   name: string;
   path: string;
   repoUrl?: string;
@@ -214,6 +218,8 @@ export interface ProjectIcon {
 
 /** Chat membership; transcript content continues to come from /chats/:id/messages. */
 export interface WorkspaceChat extends WorkspaceRecord {
+  /** Logical conversation identity; the local id remains unique per workspace. */
+  syncId?: string;
   agentId: string;
   projectId: string;
   title: string;
@@ -275,6 +281,7 @@ export class WorkspaceCollection<T extends WorkspaceRecord> {
 
 /** Workspace metadata is shared by all harnesses; withAgent() never scopes these requests. */
 export class WorkspaceApi {
+  readonly sync: ProjectSyncApi;
   readonly git: GitAccessApi;
   readonly operations: ProjectOperationsApi;
   readonly agents: WorkspaceCollection<WorkspaceAgent>;
@@ -282,6 +289,7 @@ export class WorkspaceApi {
   readonly chats: WorkspaceCollection<WorkspaceChat>;
 
   constructor(private readonly mw: Mindwire) {
+    this.sync = new ProjectSyncApi(mw);
     this.git = new GitAccessApi(mw);
     this.operations = new ProjectOperationsApi(mw);
     this.agents = new WorkspaceCollection(mw, "agents");

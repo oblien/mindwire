@@ -28,9 +28,13 @@ const Version = 1
 const MaxFileBytes = 4 << 20
 
 type Service struct {
-	Root      string
-	jobs      chan struct{}
-	Terminals *Terminals
+	Root          string
+	jobs          chan struct{}
+	Terminals     *Terminals
+	gate          *sync.Mutex
+	checkMutation func(string) error
+	activityMu    sync.Mutex
+	activePaths   map[string]int
 }
 
 func New(root string) *Service {
@@ -224,6 +228,11 @@ func (s *Service) Write(path, content string) error {
 	} else if !os.IsNotExist(e) {
 		return e
 	}
+	release, err := s.beginMutation(path)
+	if err != nil {
+		return err
+	}
+	defer release()
 	mode := fs.FileMode(0600)
 	if info, e := os.Stat(path); e == nil {
 		if !info.Mode().IsRegular() {
@@ -259,6 +268,11 @@ func (s *Service) Delete(path string) error {
 	if path == filepath.Dir(path) || path == s.Root {
 		return errors.New("cannot delete the workspace root")
 	}
+	release, err := s.beginMutation(path)
+	if err != nil {
+		return err
+	}
+	defer release()
 	return os.RemoveAll(path)
 }
 
@@ -315,6 +329,11 @@ func (s *Service) Exec(ctx context.Context, req ExecRequest, output func(string,
 	if err != nil {
 		return ExecResult{}, err
 	}
+	release, err := s.beginMutation(directory)
+	if err != nil {
+		return ExecResult{}, err
+	}
+	defer release()
 	cmd := exec.CommandContext(ctx, path, req.Argv[1:]...)
 	proc.Group(cmd)
 	cmd.Dir = directory

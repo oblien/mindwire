@@ -31,6 +31,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/procmon"
 	"github.com/oblien/mindwire/daemon/internal/projects"
+	"github.com/oblien/mindwire/daemon/internal/projectsync"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/stream"
@@ -56,6 +57,7 @@ type API struct {
 	gitAuthors            *gitauthor.Service
 	gitJobs               *gitops.Service
 	projects              *projects.Service
+	projectSync           *projectsync.Service
 	surfaces              *surface.Service
 	initError             error
 	registry              *registry.Store
@@ -75,6 +77,7 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 	if len(registries) > 0 {
 		a.registry = registries[0]
 		if a.registry != nil {
+			a.execution.SetMutationGuard(&a.registryMu, a.registry.CheckSyncPath)
 			a.conversations = conversations.New(a.registry, store, agent.All(), &a.registryMu, sup.Busy)
 			a.gitAuthors = gitauthor.New(a.registry)
 			sup.SetNotificationPreferences(a.registry)
@@ -86,6 +89,9 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 			if a.initError == nil {
 				sup.SetGitPreparation(a.prepareGitRun)
 				a.projects, a.initError = projects.New(a.registry, a, a.gitAccess)
+			}
+			if a.initError == nil {
+				a.projectSync, a.initError = projectsync.New(a.registry, store, a, &a.registryMu, agent.All(), a.discoverForSync)
 			}
 			if a.initError == nil {
 				a.surfaces, a.initError = surface.NewConfigured(a.registry, store)
@@ -100,6 +106,9 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 
 func (a *API) InitError() error { return a.initError }
 func (a *API) Close() {
+	if a.projectSync != nil {
+		a.projectSync.Close()
+	}
 	if a.execution != nil {
 		a.execution.Terminals.Close()
 	}
@@ -162,6 +171,18 @@ func (a *API) Routes() []Route {
 		{"GET", "/workspace", a.workspaceSnapshot},
 		{"GET", "/workspace/changes", a.workspaceSnapshot},
 		{"POST", "/workspace/import", a.workspaceImport},
+		{"POST", "/workspace/sync/exports", a.projectSyncExport},
+		{"POST", "/workspace/sync/imports", a.projectSyncImport},
+		{"GET", "/workspace/sync/operations", a.projectSyncOperations},
+		{"GET", "/workspace/sync/operations/{id}", a.projectSyncOperation},
+		{"POST", "/workspace/sync/operations/{id}/retry", a.projectSyncRetry},
+		{"POST", "/workspace/sync/operations/{id}/cancel", a.projectSyncCancel},
+		{"GET", "/workspace/sync/checkpoints/{id}", a.projectSyncCheckpoint},
+		{"PUT", "/workspace/sync/checkpoints/{id}", a.projectSyncAccept},
+		{"GET", "/workspace/sync/checkpoints/{id}/objects", a.projectSyncObjects},
+		{"POST", "/workspace/sync/objects/missing", a.projectSyncMissing},
+		{"GET", "/workspace/sync/objects/{id}", a.projectSyncObject},
+		{"PUT", "/workspace/sync/objects/{id}", a.projectSyncObjectPut},
 		{"GET", "/workspace/git", a.gitState},
 		{"GET", "/workspace/git/identity", a.gitIdentity},
 		{"PUT", "/workspace/git/identity", a.gitIdentitySave},

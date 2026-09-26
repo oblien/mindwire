@@ -164,6 +164,9 @@ func (st *Store) ReserveProject(spec ProjectSpec) (ProjectOperation, bool, error
 	if err := checkGitAtPath(tx, spec.Path); err != nil {
 		return ProjectOperation{}, false, err
 	}
+	if err := checkSyncAtPath(tx, spec.Path, ""); err != nil {
+		return ProjectOperation{}, false, err
+	}
 	if old, err := activeAtPath(tx, spec.Path); err == nil {
 		if !sameProjectIntent(old.ProjectSpec, spec) {
 			return old, false, fmt.Errorf("%w: another project operation owns this directory", ErrConflict)

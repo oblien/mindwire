@@ -19,6 +19,9 @@ func (a *API) externalServiceActivity() int {
 	if a.projects != nil {
 		n += a.projects.ActiveCount()
 	}
+	if a.projectSync != nil {
+		n += a.projectSync.ActiveCount()
+	}
 	if a.gitJobs != nil {
 		n += a.gitJobs.ActiveCount()
 	}

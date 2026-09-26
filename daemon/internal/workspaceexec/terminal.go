@@ -63,23 +63,24 @@ type Terminals struct {
 	closed    map[string]bool
 }
 type Terminal struct {
-	mu          sync.Mutex
-	inputMu     sync.Mutex
-	writeMu     sync.Mutex
-	state       TerminalState
-	pty         pty.Pty
-	cmd         *pty.Cmd
-	emulator    *vt.Emulator
-	modes       map[ansi.Mode]bool
-	events      []TerminalEvent
-	bytes       int
-	sequence    uint64
-	subs        map[chan TerminalEvent]bool
-	inputs      map[string]inputReceipt
-	done        chan struct{}
-	repliesDone chan struct{}
-	replyPipe   io.Closer
-	closeOnce   sync.Once
+	mu              sync.Mutex
+	inputMu         sync.Mutex
+	writeMu         sync.Mutex
+	state           TerminalState
+	pty             pty.Pty
+	cmd             *pty.Cmd
+	emulator        *vt.Emulator
+	modes           map[ansi.Mode]bool
+	events          []TerminalEvent
+	bytes           int
+	sequence        uint64
+	subs            map[chan TerminalEvent]bool
+	inputs          map[string]inputReceipt
+	done            chan struct{}
+	repliesDone     chan struct{}
+	replyPipe       io.Closer
+	closeOnce       sync.Once
+	releaseMutation func()
 }
 
 func NewTerminals(s *Service) *Terminals {
@@ -112,6 +113,16 @@ func (m *Terminals) Open(req TerminalRequest) (TerminalState, error) {
 	if !info.IsDir() {
 		return TerminalState{}, errors.New("select a directory")
 	}
+	release, err := m.workspace.beginMutation(directory)
+	if err != nil {
+		return TerminalState{}, err
+	}
+	retained := false
+	defer func() {
+		if !retained {
+			release()
+		}
+	}()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed[req.ID] {
@@ -190,6 +201,8 @@ func (m *Terminals) Open(req TerminalRequest) (TerminalState, error) {
 		_, _ = io.Copy(terminalReplyWriter{t}, t.emulator)
 	}()
 	m.sessions[req.ID] = t
+	t.releaseMutation = release
+	retained = true
 	go t.read()
 	return t.State(), nil
 }
@@ -271,6 +284,7 @@ func (t *Terminal) Close() {
 }
 
 func (t *Terminal) read() {
+	defer t.releaseMutation()
 	defer close(t.done)
 	buffer := make([]byte, 8192)
 	for {

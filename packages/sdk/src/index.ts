@@ -56,6 +56,9 @@ export * from "./types.js";
 export { ServiceApi } from "./service.js";
 export type { ServiceUpdateState, ServiceUpdateLease } from "./service.js";
 export { WorkspaceApi, WorkspaceCollection, ProjectOperationsApi, GitAccessApi } from "./workspace.js";
+export { ProjectSyncApi, ProjectSyncError } from "./project-sync.js";
+export type { ProjectSyncEntry, ProjectSyncCheckpoint, ProjectSyncRequest, ProjectSyncOperation,
+  ProjectSyncConflict, ProjectSyncProgress } from "./project-sync.js";
 export type { ProjectRequest, ProjectAuth, ProjectOperation, ProjectRemoveRequest,
   GitConnection, GitAccessState, ProjectGitState, GitAction, GitIdentity, GitIdentityScope, GitIdentitySettings,
   GitIdentityUpdate, GitOperationRequest, GitOperation } from "./workspace.js";

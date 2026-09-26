@@ -26,7 +26,7 @@ import (
 
 const Version = 1
 const NotificationPreferencesVersion = 1
-const schemaVersion = 5
+const schemaVersion = 6
 
 var (
 	ErrConflict = errors.New("record changed on another client; refresh and try again")
@@ -52,6 +52,7 @@ type Agent struct {
 
 type Project struct {
 	Record
+	SyncID        string                `json:"syncId,omitempty"` // logical identity shared by preserved workspace copies
 	Name          string                `json:"name"`
 	Path          string                `json:"path"`
 	RepoURL       string                `json:"repoUrl,omitempty"`
@@ -61,6 +62,7 @@ type Project struct {
 
 type Chat struct {
 	Record
+	SyncID         string `json:"syncId,omitempty"`
 	AgentID        string `json:"agentId"`
 	ProjectID      string `json:"projectId"`
 	Title          string `json:"title"`
@@ -176,7 +178,10 @@ CREATE TABLE IF NOT EXISTS native_chat_links (project_id TEXT NOT NULL REFERENCE
  agent_type TEXT NOT NULL, session_id TEXT NOT NULL, chat_id TEXT NOT NULL, hidden INTEGER NOT NULL DEFAULT 0,
  PRIMARY KEY(project_id,agent_type,session_id));
 CREATE INDEX IF NOT EXISTS native_chat_links_chat ON native_chat_links(chat_id);
-PRAGMA user_version=5;`); err != nil {
+CREATE TABLE IF NOT EXISTS project_sync_locks (id TEXT PRIMARY KEY, path TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS project_sync_records (kind TEXT NOT NULL, id TEXT NOT NULL, data BLOB NOT NULL,
+ PRIMARY KEY(kind,id));
+PRAGMA user_version=6;`); err != nil {
 		return err
 	}
 	identity := make([]byte, 16)
@@ -339,6 +344,11 @@ func save(tx *sql.Tx, kind, id string, data []byte, revision int64, agentID, pro
 // Put is create-only without expectedRevision, or a compare-and-swap update with it.
 // A request retried after losing its acknowledgement is harmless when its value is unchanged.
 func (st *Store) Put(kind, id string, data []byte, expected *int64) error {
+	var err error
+	data, err = withoutSyncIdentity(kind, data)
+	if err != nil {
+		return err
+	}
 	return st.write(func(tx *sql.Tx, revision int64) (bool, error) {
 		gone, err := isDeleted(tx, kind, id)
 		if err != nil {
@@ -362,6 +372,10 @@ func (st *Store) Put(kind, id string, data []byte, expected *int64) error {
 			_ = json.Unmarshal(value, &incoming)
 			incoming["createdAt"] = previous["createdAt"]
 			incoming["revision"] = previous["revision"]
+			// Logical replica identities are daemon-owned, including for older clients.
+			if v, exists := previous["syncId"]; exists {
+				incoming["syncId"] = v
+			}
 			// Older clients do not know this optional field. Their unrelated metadata
 			// edits must preserve a mute; clearing one requires an explicit false.
 			if kind == "agents" || kind == "chats" {
@@ -419,6 +433,9 @@ func (st *Store) Put(kind, id string, data []byte, expected *int64) error {
 			if err != nil {
 				return false, invalid(err.Error())
 			}
+			if err := checkSyncAtPath(tx, canonical, ""); err != nil {
+				return false, err
+			}
 			if _, err := activeAtPath(tx, canonical); err == nil {
 				return false, fmt.Errorf("%w: a project operation owns this directory", ErrConflict)
 			} else if err != nil && !errors.Is(err, ErrNotFound) {
@@ -461,6 +478,10 @@ func (st *Store) Import(batch Import) error {
 		changed := false
 		insert := func(kind, id string, value any) error {
 			data, err := json.Marshal(value)
+			if err != nil {
+				return err
+			}
+			data, err = withoutSyncIdentity(kind, data)
 			if err != nil {
 				return err
 			}
@@ -546,6 +567,9 @@ func (st *Store) Delete(kind, id string, expected *int64, force bool, native ...
 		refs = native[0].ChatSessions()
 	}
 	return st.write(func(tx *sql.Tx, revision int64) (bool, error) {
+		if err := checkRecordSync(tx, kind, id); err != nil {
+			return false, err
+		}
 		if kind == "projects" {
 			if op, err := operation(tx, id); err == nil && op.Active() {
 				return false, ErrConflict
