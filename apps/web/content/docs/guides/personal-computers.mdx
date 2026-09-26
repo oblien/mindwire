@@ -49,20 +49,28 @@ keeps the same computer identity, workspace and projects.
 
 ### Return to a saved connection
 
-Run `mindwire connect` again to see your saved phones and choose **Resume saved
-connection**, **Refresh address**, or **Pair another phone**. Press Enter to resume.
-It reuses the existing computer identity and approved phone keys.
+Run `mindwire connect` again. It detects an active phone connection or shows a QR
+that works for both saved and new phones. Saved keys reconnect automatically; if
+the app no longer has its key, the computer asks you to approve it again.
 
 ```sh
-mindwire connect resume   # Resume without creating a QR code
-mindwire reconnect        # Refresh a saved phone's changed address
-mindwire connect pair     # Pair another phone, with approval
+mindwire connect          # Connect, reconnect, or repair a removed connection
+mindwire reconnect        # Show a connection QR again
+mindwire connect pair     # Show a QR even when another phone is connected
 ```
 
-A reconnect code grants no access on its own. The phone verifies the computer
-using its saved keys before updating the address. Open **Computers & Servers →
-your computer → Reconnect computer** in the app, or scan through **Add computer**.
-Both update the same workspace without adding a duplicate.
+Open **Computers & Servers → your computer → Reconnect computer** in the app, or
+scan through **Add computer**. Both reuse the same workspace. A saved phone proves
+it still owns its approved key; a new key needs your approval on the computer.
+The terminal confirms success after the phone saves its connection.
+
+If you removed the connection or reinstalled the app, the computer may still list
+the old approval. When approving the new key, choose **replace** for the listed
+old approvals or **add** for a different phone. Two phones can share the name
+“iPhone,” so Mindwire never replaces keys just because their names match.
+
+Older address-only reconnect codes require the phone's saved key. If it is missing,
+update Mindwire on the computer and run `mindwire connect` for a fresh connection code.
 
 ### Automatic startup
 

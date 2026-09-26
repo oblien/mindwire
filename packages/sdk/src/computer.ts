@@ -16,7 +16,10 @@ export interface ComputerDevice {
   id: string; name: string; publicKey: string; createdAt: string; revoked: boolean;
   connected?: boolean;
 }
-export interface ComputerPairRequest { id: string; name: string; publicKey: string }
+/** Signature is a base64 Ed25519 proof over
+ * `mindwire-computer-pairing-v1\n${pairingId}\n${id}\n${name}\n${publicKey}`.
+ * With pairingVersion >= 2 an already approved key reconnects without a prompt. */
+export interface ComputerPairRequest { id: string; name: string; publicKey: string; signature?: string }
 export interface ComputerPairing {
   id: string; expiresAt: string; status: "waiting" | "pending" | "approved" | "rejected";
   request?: ComputerPairRequest;
@@ -32,6 +35,8 @@ export interface ComputerInfo {
   version: number; computerId: string; registryId: string; fingerprint: string; routes: ComputerRoute[];
   pid: number; apiAddress: string; sshPort: number; websocketPort: number;
   portForwardingVersion?: number;
+  /** 2 supports signed reconnection and atomic replacement of lost device keys. */
+  pairingVersion?: number;
 }
 export interface ComputerForwardRequest { id: string; deviceId: string; port: number }
 export interface ComputerForward extends ComputerForwardRequest { expiresAt: string }
@@ -52,11 +57,19 @@ export class ComputerApi {
     return this.client.http.request("POST", "/computer/pairings", { body: { routes } });
   }
   pairing(id: string): Promise<ComputerPairing> { return this.client.http.request("GET", `/computer/pairings/${encodeURIComponent(id)}`); }
+  /** pairingVersion >= 2. Releases an unused QR when a saved phone reconnects.
+   * Returns false if a phone already submitted a request, which must be handled. */
+  closeUnusedPairing(id: string): Promise<{ cancelled: boolean }> {
+    return this.client.http.request("DELETE", `/computer/pairings/${encodeURIComponent(id)}`);
+  }
   completePairing(id: string, requestId: string): Promise<{ ok: boolean }> {
     return this.client.http.request("POST", `/computer/pairings/${encodeURIComponent(id)}/complete`, { body: { requestId } });
   }
-  decide(id: string, requestId: string, approve: boolean): Promise<{ ok: boolean; device: ComputerDevice }> {
-    return this.client.http.request("POST", `/computer/pairings/${encodeURIComponent(id)}/decision`, { body: { requestId, approve } });
+  async decide(id: string, requestId: string, approve: boolean, options: { replaceDeviceIds?: string[] } = {}): Promise<{ ok: boolean; device: ComputerDevice }> {
+    if (options.replaceDeviceIds?.length && ((await this.info()).pairingVersion ?? 0) < 2) {
+      throw new Error("Update the Mindwire service before replacing saved phone approvals.");
+    }
+    return this.client.http.request("POST", `/computer/pairings/${encodeURIComponent(id)}/decision`, { body: { requestId, approve, ...options } });
   }
   devices(): Promise<ComputerDevice[]> { return this.client.http.request("GET", "/computer/devices"); }
   revoke(id: string): Promise<{ ok: boolean }> { return this.client.http.request("DELETE", `/computer/devices/${encodeURIComponent(id)}`); }

@@ -4923,6 +4923,10 @@
           },
           "publicKey": {
             "type": "string"
+          },
+          "signature": {
+            "type": "string",
+            "description": "Optional base64 Ed25519 proof over mindwire-computer-pairing-v1\\n${pairingId}\\n${id}\\n${name}\\n${publicKey}. A verified, unrevoked key reconnects without another approval when pairingVersion is at least 2."
           }
         },
         "required": [
@@ -4952,7 +4956,8 @@
             "$ref": "#/components/schemas/ComputerPairRequest"
           },
           "completed": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "True only after the phone acknowledges saving its connection and workspace."
           }
         },
         "required": [
@@ -4997,6 +5002,10 @@
           "portForwardingVersion": {
             "type": "integer",
             "description": "1 when expiring, device-bound loopback forwards are supported."
+          },
+          "pairingVersion": {
+            "type": "integer",
+            "description": "2 supports signed reconnection and atomic replacement of explicitly selected lost device keys."
           }
         },
         "required": [
@@ -12875,6 +12884,43 @@
             }
           }
         ]
+      },
+      "delete": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Close an unused connection code",
+        "description": "Requires pairingVersion >= 2. Releases a QR after a saved phone reconnects. Returns cancelled=false if a phone already submitted a request, so an approval race cannot silently drop that request.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether the unused invitation was closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cancelled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "cancelled"
+                  ]
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/computer/pairings/{id}/decision": {
@@ -12935,6 +12981,15 @@
                   },
                   "approve": {
                     "type": "boolean"
+                  },
+                  "replaceDeviceIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 64,
+                    "uniqueItems": true,
+                    "description": "With approve=true and pairingVersion >= 2, atomically replace these exact saved keys with the approved new key. Requires an explicit owner choice; never infer replacement from a matching display name."
                   }
                 },
                 "required": [

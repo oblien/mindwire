@@ -77,14 +77,14 @@ textarea{width:100%;margin-top:12px;padding:8px;color:inherit;background:#252528
 <div class="steps"><p>${reconnect
     ? "In Mindwire, open your computer in <strong>Workspaces</strong>, then <strong>Reconnect Computer → Scan Connection Code</strong>."
     : "In Mindwire, open <strong>Add computer</strong> and scan."}</p>
-<p>${reconnect ? "Your saved pairing and workspace stay the same. No new approval is needed." : "Then return to the terminal to approve your phone."}</p></div>
+<p>${reconnect ? "Your saved pairing and workspace stay the same. No new approval is needed." : "Saved keys reconnect automatically. Approve on this computer only if asked."}</p></div>
 <button type="button" id="copy">Copy ${reconnect ? "reconnect" : "pairing"} link</button>
 <textarea id="link" readonly hidden aria-label="Pairing link">${escapeHTML(computerPairingURI(invitation))}</textarea>
 <footer>You can close this page after ${reconnect ? "reconnecting" : "pairing"}.</footer>
 </main><script>
 const expiry=document.getElementById('expiry'),code=document.getElementById('code'),copy=document.getElementById('copy'),link=document.getElementById('link');
 function tick(){const seconds=Math.max(0,Math.ceil((Date.parse(expiry.dataset.expires)-Date.now())/1000));
-if(!seconds){code.remove();copy.disabled=true;link.value='';link.hidden=true;expiry.textContent='Code expired. Run mindwire ${reconnect ? "reconnect" : "connect pair"} for a new code.';return;}
+if(!seconds){code.remove();copy.disabled=true;link.value='';link.hidden=true;expiry.textContent='Code expired. Run mindwire connect for a new code.';return;}
 expiry.textContent='Expires in '+Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');}
 tick();setInterval(tick,1000);
 copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(link.value);copy.textContent='Copied';}
@@ -108,9 +108,9 @@ async function openBrowser(url: string): Promise<boolean> {
 export async function showPairingInvitation(invitation: ComputerConnectionCode, options: DisplayOptions = {}): Promise<PairingDisplay> {
   const reconnect = "mode" in invitation && invitation.mode === "reconnect";
   const instruction = scanInstruction(invitation);
-  const nextStep = reconnect ? "Scan with a saved phone, then press Enter here." : "Return here to approve your phone.";
+  const nextStep = reconnect ? "Scan with a saved phone." : "Approve on this computer only if asked.";
   const waiting = reconnect ? "Your saved pairing stays the same." : "Waiting for your phone…";
-  const command = reconnect ? "mindwire reconnect" : "mindwire connect pair";
+  const command = "mindwire connect";
   const output = options.output ?? process.stdout;
   const environment = options.environment ?? process.env;
   const mode = options.mode ?? "auto";

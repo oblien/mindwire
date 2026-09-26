@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chooseConnectionAction, chooseStartupAction, connectionAction, deviceSummary, reconnectCode } from "../src/computer/connection-flow.js";
+import { chooseConnectionAction, choosePairingDecision, chooseStartupAction, connectionAction, deviceSummary, reconnectCode } from "../src/computer/connection-flow.js";
 import { computerPairingURI, type ComputerDevice, type ComputerInfo } from "../src/computer.js";
 
 const phone: ComputerDevice = { id: "saved-phone", name: "iPhone", publicKey: "fixture", createdAt: "now", revoked: false };
@@ -13,17 +13,34 @@ test("same-name phones keep distinct key identities; only authenticated connecti
   expect(deviceSummary([phone])).toBe("  iPhone · paired");
 });
 
-test("saved phones default to resume; a new QR needs an explicit action", async () => {
+test("one connect flow handles missing phone state; only an authenticated phone counts as resumed", async () => {
   expect(await chooseConnectionAction({ devices: [] })).toBe("pair");
-  expect(await chooseConnectionAction({ devices: [phone] })).toBe("resume");
+  expect(await chooseConnectionAction({ devices: [phone] })).toBe("pair");
   expect(await chooseConnectionAction({ devices: [{ ...phone, revoked: true }] })).toBe("pair");
-  expect(await chooseConnectionAction({ devices: [phone], question: async () => "" })).toBe("resume");
-  expect(await chooseConnectionAction({ devices: [phone], question: async () => "2" })).toBe("reconnect");
+  expect(await chooseConnectionAction({ devices: [{ ...phone, connected: true }] })).toBe("resume");
+  expect(await chooseConnectionAction({ devices: [{ ...phone, connected: true, revoked: true }] })).toBe("pair");
   expect(await chooseConnectionAction({ devices: [phone], requested: "pair" })).toBe("pair");
+  expect(await chooseConnectionAction({ devices: [{ ...phone, connected: true }], requested: "pair" })).toBe("pair");
   for (const requested of ["resume", "reconnect"] as const) {
-    await expect(chooseConnectionAction({ devices: [], requested })).rejects.toThrow("No saved phones");
+    expect(await chooseConnectionAction({ devices: [], requested })).toBe("pair");
+    expect(await chooseConnectionAction({ devices: [phone], requested })).toBe("pair");
   }
   expect(() => connectionAction("again")).toThrow();
+});
+
+test("same-name approvals are replaced only through an explicit choice; default denies access", async () => {
+  const replacements = [phone, { ...phone, id: "second-key" }];
+  const question = (answer: string) => async (prompt: string) => {
+    expect(prompt).toContain("key saved-ph");
+    expect(prompt).toContain("key second-k");
+    expect(prompt).toContain("replace these approvals");
+    return answer;
+  };
+  expect(await choosePairingDecision({ replacements, question: question("") })).toEqual({ approve: false });
+  expect(await choosePairingDecision({ replacements, question: question("r") })).toEqual({ approve: true, replaceDeviceIds: [phone.id, "second-key"] });
+  expect(await choosePairingDecision({ replacements, question: question("a") })).toEqual({ approve: true });
+  expect(await choosePairingDecision({ replacements: [], question: async () => "yes" })).toEqual({ approve: true });
+  expect(await choosePairingDecision({ replacements: [], question: async () => "" })).toEqual({ approve: false });
 });
 
 test("startup asks once and respects saved choices, scripts, and explicit opt-in", async () => {

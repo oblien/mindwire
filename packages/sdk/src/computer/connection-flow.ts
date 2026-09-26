@@ -8,27 +8,34 @@ export function connectionAction(value: string | undefined): ConnectionAction | 
   throw new Error("Use mindwire connect, mindwire connect resume, mindwire reconnect, or mindwire connect pair.");
 }
 
-/** Noninteractive runs never unexpectedly create a new invitation for a paired computer. */
+/** Saved approvals do not prove that the phone still has its key or address.
+ * Every disconnected phone uses the same QR; the signed handshake chooses resume
+ * or fresh approval. The old commands remain aliases, not separate UX paths. */
 export async function chooseConnectionAction(options: {
   requested?: ConnectionAction;
   devices: ComputerDevice[];
-  question?: (prompt: string) => Promise<string>;
 }): Promise<ConnectionAction> {
-  const paired = options.devices.filter(device => !device.revoked);
-  if (options.requested) {
-    if (options.requested !== "pair" && paired.length === 0) {
-      throw new Error("No saved phones yet. Run mindwire connect to pair one first.");
-    }
-    return options.requested;
-  }
-  if (paired.length === 0) return "pair";
-  if (!options.question) return "resume";
+  if (options.requested === "pair" || options.requested === "reconnect") return "pair";
+  return options.devices.some(device => !device.revoked && device.connected) ? "resume" : "pair";
+}
+
+/** A fresh key is never merged by name. Replacement requires the owner's explicit
+ * choice of the exact approvals shown here; a different same-name phone can be added. */
+export async function choosePairingDecision(options: {
+  replacements: ComputerDevice[];
+  question: (prompt: string) => Promise<string>;
+}): Promise<{ approve: boolean; replaceDeviceIds?: string[] }> {
+  const replacements = options.replacements.filter(device => !device.revoked);
+  const prompt = replacements.length
+    ? `\nPrevious approvals with this name:\n${deviceSummary(replacements, true)}\n\nAllow this phone? [r = replace these approvals, a = add a different phone, N = deny]: `
+    : "Allow this phone to access this workspace? [y/N] ";
   for (;;) {
-    const answer = (await options.question(
-      "\n  1  Resume saved connection\n  2  Refresh address on a saved phone (QR)\n  3  Pair another phone\n\nChoose [1]: ")).trim().toLowerCase();
-    if (answer === "" || answer === "1" || answer === "resume") return "resume";
-    if (answer === "2" || answer === "reconnect") return "reconnect";
-    if (answer === "3" || answer === "pair") return "pair";
+    const answer = (await options.question(prompt)).trim().toLowerCase();
+    if (["", "n", "no"].includes(answer)) return { approve: false };
+    if (replacements.length) {
+      if (["r", "replace"].includes(answer)) return { approve: true, replaceDeviceIds: replacements.map(device => device.id) };
+      if (["a", "add"].includes(answer)) return { approve: true };
+    } else if (["y", "yes"].includes(answer)) return { approve: true };
   }
 }
 
@@ -59,7 +66,7 @@ export function reconnectCode(info: ComputerInfo, name: string, now = new Date()
     expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString() };
 }
 
-export function deviceSummary(devices: ComputerDevice[]): string {
+export function deviceSummary(devices: ComputerDevice[], showKeys = false): string {
   const saved = devices.filter(device => !device.revoked);
   const names = new Map<string, number>();
   const safeName = (device: ComputerDevice) => device.name.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
@@ -69,7 +76,7 @@ export function deviceSummary(devices: ComputerDevice[]): string {
     .map(device => {
       const name = safeName(device);
       const status = device.connected === true ? "connected" : "paired";
-      const identity = (names.get(name) ?? 0) > 1 ? ` · key ${device.id.slice(0, 8)}` : "";
+      const identity = showKeys || (names.get(name) ?? 0) > 1 ? ` · key ${device.id.slice(0, 8)}` : "";
       return `  ${name} · ${status}${identity}`;
     }).join("\n");
 }

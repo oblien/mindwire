@@ -73,3 +73,20 @@ test("private forward grants use authenticated, unscoped computer routes", async
   await client.computer.closeForward("phone/forward");
   expect(calls).toEqual(["POST /computer/forwards", "GET /computer/forwards", "DELETE /computer/forwards/phone%2Fforward"]);
 });
+
+test("lost-key replacement is one decision and cannot silently degrade on an old daemon", async () => {
+  let pairingVersion = 1;
+  const decisions: unknown[] = [];
+  const client = new Mindwire({ target: remote("https://workspace.test"), fetch: async (url, init) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === "/computer") return Response.json({ pairingVersion });
+    expect(pathname).toBe("/computer/pairings/invitation%2Fid/decision");
+    decisions.push(JSON.parse(init!.body as string));
+    return Response.json({ ok: true });
+  } });
+  await expect(client.computer.decide("invitation/id", "request", true, { replaceDeviceIds: ["old-key"] })).rejects.toThrow("Update the Mindwire service");
+  expect(decisions).toEqual([]);
+  pairingVersion = 2;
+  await client.computer.decide("invitation/id", "request", true, { replaceDeviceIds: ["old-key", "older-key"] });
+  expect(decisions).toEqual([{ requestId: "request", approve: true, replaceDeviceIds: ["old-key", "older-key"] }]);
+});

@@ -152,7 +152,7 @@ test("auto mode in an SSH shell asks for a resize or a link instead of opening t
     openBrowser: async () => { opened = true; return true; } });
   try {
     expect(opened).toBe(false);
-    expect(output.text).toContain("mindwire connect pair --no-qr");
+    expect(output.text).toContain("mindwire connect --no-qr");
     output.resize(120, 65);
     expect(output.text).toContain("█");
   } finally { display.close(); }

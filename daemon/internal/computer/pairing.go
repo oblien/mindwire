@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -60,6 +61,7 @@ type PairRequest struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	PublicKey string `json:"publicKey"`
+	Signature string `json:"signature,omitempty"`
 }
 type Offer struct {
 	ID        string       `json:"id"`
@@ -233,19 +235,29 @@ func (s *Server) authenticatePair(id string, secret []byte) bool {
 	return o.Status != "rejected" && subtle.ConstantTimeCompare(hash[:], o.secret[:]) == 1
 }
 
-func validateRequest(req PairRequest) (string, error) {
-	if len(req.ID) < 8 || len(req.ID) > 128 || strings.TrimSpace(req.Name) == "" || len(req.Name) > 100 || strings.ContainsAny(req.Name, "\r\n\x00") || len(req.PublicKey) > 2048 {
+func pairingProof(offerID string, req PairRequest) []byte {
+	return []byte("mindwire-computer-pairing-v1\n" + offerID + "\n" + req.ID + "\n" + req.Name + "\n" + req.PublicKey)
+}
+
+func validateRequest(offerID string, req PairRequest) (string, error) {
+	if len(req.ID) < 8 || len(req.ID) > 128 || strings.ContainsAny(req.ID, "\r\n\x00") || strings.TrimSpace(req.Name) == "" || len(req.Name) > 100 || strings.ContainsAny(req.Name, "\r\n\x00") || len(req.PublicKey) > 2048 {
 		return "", errors.New("invalid device pairing request")
 	}
 	key, _, _, rest, err := ssh.ParseAuthorizedKey([]byte(req.PublicKey))
 	if err != nil || len(rest) != 0 || key.Type() != ssh.KeyAlgoED25519 {
 		return "", errors.New("an Ed25519 device public key is required")
 	}
+	if req.Signature != "" {
+		signature, err := base64.StdEncoding.DecodeString(req.Signature)
+		if err != nil || len(signature) != ed25519.SignatureSize || key.Verify(pairingProof(offerID, req), &ssh.Signature{Format: ssh.KeyAlgoED25519, Blob: signature}) != nil {
+			return "", errors.New("invalid device pairing proof")
+		}
+	}
 	return keyID(key), nil
 }
 
 func (s *Server) Request(offerID string, req PairRequest) (*Offer, error) {
-	deviceID, err := validateRequest(req)
+	deviceID, err := validateRequest(offerID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -256,28 +268,43 @@ func (s *Server) Request(offerID string, req PairRequest) (*Offer, error) {
 		return nil, err
 	}
 	if o.Request != nil {
-		if *o.Request != req {
+		// A signature authenticates the payload; it is not its identity. Some
+		// Ed25519 implementations randomize valid signatures for the same message.
+		if o.Request.ID != req.ID || o.Request.Name != req.Name || o.Request.PublicKey != req.PublicKey {
 			return nil, errors.New("this invitation already has a different device request")
 		}
-		copy := *o
-		return &copy, nil
+	} else {
+		o.Request = &req
+		o.deviceID = deviceID
+		o.Status = "pending"
 	}
-	o.Request = &req
-	o.deviceID = deviceID
-	o.Status = "pending"
+	// A name or a public key alone proves nothing. Only a signature for this
+	// invitation can reuse an existing, unrevoked approval without a new prompt.
+	if device, exists := s.state.Devices[deviceID]; o.Status == "pending" && req.Signature != "" && exists && !device.Revoked {
+		o.Status = "approved"
+	}
 	copy := *o
 	return &copy, nil
 }
 
-func (s *Server) Decide(id, requestID string, approve bool) (Device, error) {
+func (s *Server) Decide(id, requestID string, approve bool, replaceDeviceIDs ...string) (Device, error) {
+	var disconnect []*ssh.ServerConn
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer func() {
+		s.mu.Unlock()
+		for _, conn := range disconnect {
+			_ = conn.Close()
+		}
+	}()
 	o, err := s.offer(id)
 	if err != nil {
 		return Device{}, err
 	}
 	if o.Request == nil || o.Request.ID != requestID {
 		return Device{}, errors.New("the requested device changed; review the request again")
+	}
+	if len(replaceDeviceIDs) > 64 || !approve && len(replaceDeviceIDs) > 0 {
+		return Device{}, errors.New("invalid pairing replacement")
 	}
 	if o.Status == "approved" && approve {
 		return s.state.Devices[o.deviceID], nil
@@ -289,24 +316,51 @@ func (s *Server) Decide(id, requestID string, approve bool) (Device, error) {
 		o.Status = "rejected"
 		return Device{}, nil
 	}
-	if len(s.state.Devices) >= 64 {
-		if _, exists := s.state.Devices[o.deviceID]; !exists {
-			return Device{}, errors.New("paired device limit reached")
+	replaced := map[string]bool{}
+	for _, id := range replaceDeviceIDs {
+		if _, exists := s.state.Devices[id]; !exists || id == o.deviceID || replaced[id] {
+			return Device{}, errors.New("the saved pairing changed; review the device list again")
 		}
+		replaced[id] = true
 	}
 	device := Device{ID: o.deviceID, Name: o.Request.Name, PublicKey: o.Request.PublicKey, CreatedAt: time.Now().UTC()}
-	previous, exists := s.state.Devices[device.ID]
-	s.state.Devices[device.ID] = device
+	previous := s.state.Devices
+	next := maps.Clone(previous)
+	if saved, exists := previous[device.ID]; exists {
+		device.CreatedAt = saved.CreatedAt
+	}
+	for id := range replaced {
+		delete(next, id)
+	}
+	next[device.ID] = device
+	if len(next) > 64 {
+		return Device{}, errors.New("paired device limit reached")
+	}
+	// Replacing a lost key is one explicit owner decision and one durable write.
+	// Never infer physical-device identity from a shared name such as "iPhone".
+	s.state.Devices = next
 	if err = s.persist(); err != nil {
-		if exists {
-			s.state.Devices[device.ID] = previous
-		} else {
-			delete(s.state.Devices, device.ID)
-		}
+		s.state.Devices = previous
 		return Device{}, err
 	}
 	o.Status = "approved"
+	disconnect = s.disconnectDevicesLocked(replaced)
 	return device, nil
+}
+
+func (s *Server) disconnectDevicesLocked(ids map[string]bool) []*ssh.ServerConn {
+	for key, forward := range s.forwards {
+		if ids[forward.DeviceID] {
+			s.closeForwardLocked(key)
+		}
+	}
+	var connections []*ssh.ServerConn
+	for conn, owner := range s.connections {
+		if ids[owner] {
+			connections = append(connections, conn)
+		}
+	}
+	return connections
 }
 
 func (s *Server) Revoke(id string) error {
@@ -324,17 +378,7 @@ func (s *Server) Revoke(id string) error {
 		s.mu.Unlock()
 		return err
 	}
-	connections := []*ssh.ServerConn{}
-	for key, forward := range s.forwards {
-		if forward.DeviceID == id {
-			s.closeForwardLocked(key)
-		}
-	}
-	for conn, owner := range s.connections {
-		if owner == id {
-			connections = append(connections, conn)
-		}
-	}
+	connections := s.disconnectDevicesLocked(map[string]bool{id: true})
 	s.mu.Unlock()
 	for _, conn := range connections {
 		_ = conn.Close()
@@ -521,15 +565,29 @@ func (s *Server) routes(register func(string, http.HandlerFunc)) {
 		}
 		send(w, 200, o)
 	})
+	register("DELETE /computer/pairings/{id}", func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		offer := s.offers[r.PathValue("id")]
+		if offer != nil && offer.Request != nil {
+			// A phone may have scanned while the CLI noticed another saved phone
+			// reconnecting. Do not discard a request that now needs a decision.
+			send(w, 200, map[string]bool{"cancelled": false})
+			return
+		}
+		delete(s.offers, r.PathValue("id"))
+		send(w, 200, map[string]bool{"cancelled": true})
+	})
 	register("POST /computer/pairings/{id}/decision", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			RequestID string `json:"requestId"`
-			Approve   bool   `json:"approve"`
+			RequestID        string   `json:"requestId"`
+			Approve          bool     `json:"approve"`
+			ReplaceDeviceIDs []string `json:"replaceDeviceIds"`
 		}
 		if !decode(w, r, &req) {
 			return
 		}
-		device, err := s.Decide(r.PathValue("id"), req.RequestID, req.Approve)
+		device, err := s.Decide(r.PathValue("id"), req.RequestID, req.Approve, req.ReplaceDeviceIDs...)
 		if err != nil {
 			reject(w, err)
 			return
@@ -567,7 +625,7 @@ func (s *Server) routes(register func(string, http.HandlerFunc)) {
 func (s *Server) Info() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	info := map[string]any{"version": Version, "portForwardingVersion": 1, "computerId": s.state.ID, "registryId": s.registryID, "fingerprint": s.Fingerprint(), "routes": append([]Route{}, s.state.Routes...), "pid": os.Getpid(), "apiAddress": s.apiAddress}
+	info := map[string]any{"version": Version, "pairingVersion": 2, "portForwardingVersion": 1, "computerId": s.state.ID, "registryId": s.registryID, "fingerprint": s.Fingerprint(), "routes": append([]Route{}, s.state.Routes...), "pid": os.Getpid(), "apiAddress": s.apiAddress}
 	if s.sshListener != nil {
 		info["sshPort"] = s.sshListener.Addr().(*net.TCPAddr).Port
 	}

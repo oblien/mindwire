@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { hostname } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { computerPairingURI, type ComputerUpdate } from "./computer.js";
@@ -13,14 +12,13 @@ import { computerClient, defaultStateDirectory, ensureComputer, readJSON, stopCo
 import type { RelayOptions } from "./computer/relay.js";
 import { showPairingInvitation, type PairingQRMode } from "./computer/pairing-display.js";
 import { configureStartup, startupStatus, watchComputer } from "./computer/startup.js";
-import { chooseConnectionAction, chooseStartupAction, connectionAction, deviceSummary, reconnectCode } from "./computer/connection-flow.js";
+import { chooseConnectionAction, choosePairingDecision, chooseStartupAction, connectionAction, deviceSummary } from "./computer/connection-flow.js";
 
 const help = `Mindwire — connect this computer to your phone
 
   npm install -g mindwire
-  mindwire connect                       Resume a saved connection, or pair your first phone
-  mindwire connect resume                Resume without creating another pairing
-  mindwire reconnect                     Refresh a saved phone's address with a QR code
+  mindwire connect                       Connect your phone; saved keys reconnect automatically
+  mindwire reconnect                     Show a connection QR again (also repairs a missing pairing)
   mindwire connect pair                  Pair another phone with this computer
   mindwire connect --relay none --host laptop.tailnet  Use your existing VPN
   mindwire connect --relay none           Direct SSH only (reachable network required)
@@ -49,6 +47,7 @@ Options:
   --no-qr                                Print only the pairing link
   --startup                              Enable automatic startup without a prompt
   --no-startup                            Skip automatic startup setup
+  --replace-device DEVICE_ID              With approve: replace a lost phone key (repeatable)
 
 The default works across Wi-Fi and mobile networks. Mindwire privately downloads
 a verified Cloudflare helper when needed. Relays carry encrypted SSH.
@@ -66,6 +65,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     relay: { type: "string" }, "relay-url": { type: "string" }, "cloudflare-token-file": { type: "string" },
     "daemon-bin": { type: "string" }, bind: { type: "string" }, port: { type: "string" }, "websocket-port": { type: "string" },
     version: { type: "string" }, force: { type: "boolean" }, startup: { type: "boolean" }, "no-startup": { type: "boolean" },
+    "replace-device": { type: "string", multiple: true },
   } });
   const command = positionals[0] ?? "help";
   if (values.help || command === "help") { process.stdout.write(help); return; }
@@ -119,12 +119,12 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     }
     const devices = await client.computer.devices();
     const saved = devices.filter(device => !device.revoked);
-    if (saved.length) emit("saved_devices", { devices: saved }, `\nSaved phones\n${deviceSummary(saved)}`);
+    if (saved.length) emit("saved_devices", { devices: saved }, `\nSaved approvals on this computer\n${deviceSummary(saved)}`);
     const question = !values.json && process.stdin.isTTY ? async (prompt: string): Promise<string> => {
       const input = createInterface({ input: process.stdin, output: process.stderr });
       try { return await input.question(prompt); } finally { input.close(); }
     } : undefined;
-    const action = await chooseConnectionAction({ requested: requestedAction, devices, question });
+    const action = await chooseConnectionAction({ requested: requestedAction, devices });
     const startupPreference = await startupStatus(directory);
     const startupAction = await chooseStartupAction({ state: startupPreference,
       startup: values.startup, noStartup: values["no-startup"],
@@ -144,31 +144,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         : "Automatic startup is off. Enable it with mindwire startup enable.");
     }
     if (action === "resume") {
-      emit("resumed", { computerId: info.computerId, devices: saved }, "\nReady for your saved phone. Open this computer in Mindwire.");
-      if (info.routes.some(route => route.kind === "websocket" && new URL(route.url).hostname.endsWith(".trycloudflare.com"))) {
-        emit("reconnect_hint", {}, "If its temporary tunnel address changed, run mindwire reconnect to refresh your phone.");
-      }
-      return;
-    }
-    if (action === "reconnect") {
-      const code = reconnectCode(await client.computer.info(), hostname());
-      emit("reconnect_code", { code, uri: computerPairingURI(code) });
-      if (values.json) return;
-      emit("reconnect_instructions", {}, "\nOn your iPhone: Workspaces → your computer → Reconnect Computer → Scan Connection Code.\nThis refreshes the saved connection; it does not pair another phone.");
-      const display = await showPairingInvitation(code, {
-        mode: values["no-qr"] ? "none" : (values.qr ?? "auto") as PairingQRMode,
-      });
-      try {
-        if (question) await question("\nScan with your saved phone, then press Enter to close this code. ");
-        else if (values.qr === "browser") {
-          emit("waiting", {}, "This code stays open until it expires. Press Ctrl+C to close it; Mindwire keeps running.");
-          await delay(Math.max(0, Date.parse(code.expiresAt) - Date.now()));
-        }
-      } finally { display.close(); }
-      const connected = (await client.computer.devices()).filter(device => !device.revoked && device.connected);
-      emit(connected.length ? "connected" : "waiting_for_phone", { computerId: info.computerId, devices: connected }, connected.length
-        ? `Connected:\n${deviceSummary(connected)}\nMindwire continues running in the background.`
-        : "Mindwire is running. Open Reconnect Computer on your iPhone and scan the code to refresh its address.");
+      const connected = saved.filter(device => device.connected);
+      emit("connected", { computerId: info.computerId, devices: connected }, `\nConnected:\n${deviceSummary(connected)}\nMindwire continues running in the background.`);
+      emit("connect_hint", {}, "To scan again or add a phone, run mindwire reconnect.");
       return;
     }
     const invitation = await client.computer.invite((await client.computer.info()).routes);
@@ -179,31 +157,55 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     });
     try {
       let shownRequest: string | undefined;
+      let authorized = false;
       while (Date.now() < Date.parse(invitation.expiresAt)) {
         const pairing = await client.computer.pairing(invitation.pairingId);
-        if (pairing.status === "approved") { display?.close(); emit("paired", {}, "Phone connected. You can close this terminal; Mindwire keeps running."); return; }
+        if (pairing.status === "waiting" && requestedAction !== "pair" && requestedAction !== "reconnect") {
+          const connected = (await client.computer.devices()).filter(device => !device.revoked && device.connected);
+          if (connected.length && ((info.pairingVersion ?? 0) < 2 || (await client.computer.closeUnusedPairing(invitation.pairingId)).cancelled)) {
+            display?.close();
+            emit("connected", { computerId: info.computerId, devices: connected }, `Connected:\n${deviceSummary(connected)}\nMindwire continues running in the background.`);
+            return;
+          }
+        }
+        if (pairing.status === "approved") {
+          display?.close();
+          if (pairing.completed) {
+            emit("paired", { computerId: info.computerId, completed: true }, "Phone connected and saved. You can close this terminal; Mindwire keeps running.");
+            return;
+          }
+          if (!authorized) {
+            authorized = true;
+            emit("authorized", {}, "Phone authorized. Waiting for it to save the connection…");
+          }
+          await delay(750);
+          continue;
+        }
         if (pairing.status === "rejected") { display?.close(); emit("rejected", {}, "Pairing declined."); return; }
         if (pairing.request && shownRequest !== pairing.request.id) {
           display?.close();
           shownRequest = pairing.request.id;
           const key = Buffer.from(pairing.request.publicKey.split(" ")[1] ?? "", "base64");
           const fingerprint = "SHA256:" + createHash("sha256").update(key).digest("base64").replace(/=+$/, "");
-          emit("approval_required", { pairingId: invitation.pairingId, request: pairing.request, fingerprint },
+          const deviceId = createHash("sha256").update(key).digest("base64url");
+          const replacements = (info.pairingVersion ?? 0) >= 2 ? (await client.computer.devices()).filter(device =>
+            !device.revoked && device.id !== deviceId && device.name === pairing.request!.name) : [];
+          emit("approval_required", { pairingId: invitation.pairingId, request: pairing.request, fingerprint, replacements },
             `\n${safeName(pairing.request.name)} wants to connect.\nDevice key: ${fingerprint}`);
-          if (!process.stdin.isTTY) {
+          if (!question) {
             emit("approval_command", { command: `mindwire approve ${invitation.pairingId} ${pairing.request.id}` },
               `Review this device, then run:\nmindwire approve ${invitation.pairingId} ${pairing.request.id}`);
           } else {
-            const input = createInterface({ input: process.stdin, output: process.stderr });
-            try {
-              const answer = await input.question("Allow this phone to access this workspace? [y/N] ");
-              await client.computer.decide(invitation.pairingId, pairing.request.id, /^y(es)?$/i.test(answer.trim()));
-            } finally { input.close(); }
+            const decision = await choosePairingDecision({ replacements, question });
+            await client.computer.decide(invitation.pairingId, pairing.request.id, decision.approve,
+              decision.replaceDeviceIds ? { replaceDeviceIds: decision.replaceDeviceIds } : {});
           }
         }
         await delay(750);
       }
-      throw new Error("Pairing expired. Run mindwire connect to show a new QR code.");
+      throw new Error(authorized
+        ? "The phone was approved but did not finish saving. Run mindwire connect and scan again; its saved key will be reused."
+        : "Connection code expired. Run mindwire connect to show a new QR code.");
     } finally { display?.close(); }
   }
   if (command === "stop") { await stopComputer(directory, values.force === true); emit("stopped", {}, "Mindwire stopped."); return; }
@@ -227,7 +229,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     }
     case "approve": case "reject": {
       if (!positionals[1] || !positionals[2]) throw new Error(`Use mindwire ${command} PAIRING_ID REQUEST_ID.`);
-      await client.computer.decide(positionals[1], positionals[2], command === "approve"); emit(command, {}, command === "approve" ? "Phone approved." : "Phone declined."); break;
+      await client.computer.decide(positionals[1], positionals[2], command === "approve",
+        values["replace-device"] ? { replaceDeviceIds: values["replace-device"] } : {});
+      emit(command, {}, command === "approve" ? "Phone approved. Waiting for it to save the connection." : "Phone declined."); break;
     }
     case "update": {
       const version = (values.version ?? SDK_VERSION).replace(/^v/, "");

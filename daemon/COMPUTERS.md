@@ -54,23 +54,41 @@ There is no third-party address registry: if every saved route changes while the
 phone is away, a temporary tunnel needs another QR scan. A named Cloudflare tunnel,
 stable ngrok hostname, custom stable WSS endpoint or VPN avoids this limitation.
 
-`mindwire connect` recognizes approved phones and offers Resume, Refresh address,
-or Pair another phone. Noninteractive connect resumes by default. `mindwire connect resume`
-never creates an invitation; `mindwire connect pair` explicitly pairs another phone.
-`GET /computer/devices` reports `connected` from live authenticated SSH connections.
+`mindwire connect` uses one flow. If an approved phone is actually connected it reports
+that connection; otherwise it shows an expiring connection QR, even when the computer
+has old approvals. `mindwire reconnect` and `mindwire connect pair` explicitly show a QR.
+The legacy `mindwire connect resume` command follows the same automatic flow. A saved
+approval alone is never reported as a resumed phone.
+If a saved phone connects while its code is open, the CLI detects that authenticated
+connection and closes the unused invitation. Closing an unused code cannot discard a
+request submitted concurrently by another phone.
 
-`mindwire reconnect` generates a five-minute `mindwire://reconnect` code containing only
-the computer/registry IDs, pinned fingerprint and routes. It contains no pairing secret or
-access credential. The phone must already hold the matching identity and device key,
-authenticate over SSH using its saved pin, and verify `/computer` before saving routes.
-Scanning it updates the existing workspace. It does not request `/pair` or create another key.
+The same QR works for a saved, new, or locally removed connection. Mobile clients retain
+their per-computer key before attempting the handshake and reuse their request when the
+same code is scanned again. With `/computer.pairingVersion >= 2`, the request includes a
+base64 Ed25519 signature of
+`mindwire-computer-pairing-v1\n${pairingId}\n${id}\n${name}\n${publicKey}`. The daemon
+reuses an unrevoked approval only after verifying this proof against that exact invitation.
+Public keys or matching names without proof still require approval. Older clients can
+continue pairing with explicit approval.
+
+When a phone has lost its key, the CLI asks the owner whether to replace the exact saved
+approvals it shows or add a different phone. `replaceDeviceIds` on the approval decision
+atomically saves the new key and removes those old keys, closing only their connections
+and forwards. Names alone never merge or remove devices. The CLI reports completion only
+after the phone persists its connection/workspace and acknowledges `/complete`.
+
+Legacy `mindwire://reconnect` address-only codes remain supported for phones that still
+have their matching saved identity and key. Those codes cannot grant fresh access; a
+phone without its saved connection uses a new code from `mindwire connect`.
+`GET /computer/devices` reports `connected` from live authenticated SSH connections.
 
 On iPhone, open the saved workspace's **Reconnect Computer** action, then **Scan
 Connection Code**. The same action is available in its list context menu and connection
 settings, including when the computer is offline. Recovery first tries the saved routes;
 scanning supplies changed routes and clears stale offline status after verifying SSH.
-Concurrent recovery actions join one attempt. `mindwire reconnect` does not interrupt
-recovery with the first-pairing startup prompt, and prints the exact mobile scan path.
+Concurrent recovery actions join one attempt. Reconnecting does not interrupt
+recovery with the first-pairing startup prompt, and prints the mobile scan path.
 Phones with the same display name show separate key identifiers instead of being conflated.
 
 **Remove from This iPhone** forgets the connection, keys, and mobile caches without contacting
