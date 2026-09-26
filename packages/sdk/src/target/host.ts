@@ -8,16 +8,8 @@
 // The daemon wire protocol is untouched — this only changes *where* the daemon runs and how its bytes
 // get there. The launch is byte-for-byte the loopback daemon, just inside the sandbox.
 import { MindwireError } from "../errors.js";
-import { SDK_VERSION } from "../version.js";
+import { SDK_VERSION, versionAtLeast } from "../version.js";
 import { ensureDaemonBinary } from "../daemon-binary.js";
-
-function versionAtLeast(actual: string | undefined, desired: string): boolean {
-  if (actual === desired) return true;
-  if (!actual || !/^\d+\.\d+\.\d+$/.test(actual) || !/^\d+\.\d+\.\d+$/.test(desired)) return false;
-  const a = actual.split(".").map(Number), b = desired.split(".").map(Number);
-  for (let i = 0; i < 3; i++) { if (a[i] !== b[i]) return a[i]! > b[i]!; }
-  return true;
-}
 
 const versionCheckScript = String.raw`version_at_least() {
   [ "$1" != "$2" ] || return 0

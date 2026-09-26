@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -30,9 +29,7 @@ type portForward struct {
 }
 
 func (s *Server) openForward(req ForwardRequest) (Forward, error) {
-	if len(req.ID) < 8 || len(req.ID) > 128 || strings.IndexFunc(req.ID, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_')
-	}) >= 0 || req.Port < 1 || req.Port > 65535 {
+	if !validRequestID(req.ID) || req.Port < 1 || req.Port > 65535 {
 		return Forward{}, errors.New("invalid forward ID or port")
 	}
 	s.mu.Lock()

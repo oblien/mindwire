@@ -6,6 +6,7 @@ import { delimiter, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { computerClient, readJSON, writeJSON, type ControllerState } from "../src/computer/lifecycle.js";
 import { processAlive, type ProcessIdentity } from "../src/computer/process.js";
+import { installRelayFixture } from "./fixtures/relay-fixture.js";
 
 const binary = process.env.MINDWIRE_COMPUTER_TEST_BINARY;
 const cli = resolve(import.meta.dir, "../dist/cli.js");
@@ -29,33 +30,68 @@ async function until<T>(read: () => Promise<T | undefined>, timeout = 20_000): P
 
 (binary && process.platform !== "win32" ? test : test.skip)("relay and controller crashes preserve the live daemon; a deliberate stop stays stopped", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mindwire-computer-recovery-"));
-  const env = { ...process.env, PATH: directory + delimiter + (process.env.PATH ?? ""), MINDWIRE_RELAY_FIXTURE: directory };
+  const env: NodeJS.ProcessEnv = { ...process.env, PATH: directory + delimiter + (process.env.PATH ?? ""), MINDWIRE_RELAY_FIXTURE: directory };
   const common = ["--state-dir", directory, "--json"];
   let guardian: ChildProcess | undefined;
+  let suspendedController: number | undefined;
   try {
     const staleOwner = { pid: process.pid, start: "a previous boot" };
     await writeJSON(join(directory, "launch.lock"), staleOwner);
     await utimes(join(directory, "launch.lock"), 1, 1);
-    await writeFile(join(directory, "cloudflared"), `#!/usr/bin/env node
-if (process.argv.includes('--version')) process.exit(0);
-require('node:fs').appendFileSync(process.env.MINDWIRE_RELAY_FIXTURE + '/relay-starts', process.pid + '\\n');
-console.log('https://fixture-' + process.pid + '.trycloudflare.com');
-console.log('Registered tunnel connection');
-setInterval(() => {}, 1000);
-`, { mode: 0o700 });
-    const started = await run(["start", ...common, "--relay", "cloudflare", "--daemon-bin", binary!, "--directory", directory,
+    env.NODE_EXTRA_CA_CERTS = await installRelayFixture(directory);
+    const started = await run(["start", ...common, "--relay", "ngrok", "--daemon-bin", binary!, "--directory", directory,
       "--bind", "127.0.0.1", "--port", "0", "--websocket-port", "0"], env);
     expect(started.code, started.output).toBe(0);
     const client = await computerClient(directory);
     const initial = await client.computer.info();
-    const relayState = () => readJSON<{ owner: ProcessIdentity }>(join(directory, "computer-relay.json"));
+    const relayState = () => readJSON<{ owner: ProcessIdentity; route?: { url: string } }>(join(directory, "computer-relay.json"));
     const initialRelay = (await relayState())!.owner.pid;
     await client.execution.terminals.open({ id: "preserved-terminal", directory, columns: 80, rows: 24 });
+
+    // A live helper with an unavailable byte path must not certify a fresh
+    // Connect. Both concurrent callers join recovery; a brief outage retains
+    // the same address, daemon and terminal.
+    await writeFile(join(directory, "relay-unavailable"), "");
+    let finished = 0;
+    const reconnects = [run(["start", ...common], env), run(["start", ...common], env)]
+      .map(result => result.then(value => { finished++; return value; }));
+    await until(async () => (await readJSON<ControllerState>(join(directory, "computer-controller.json")))?.ready === false || undefined);
+    expect(finished).toBe(0);
+    await rm(join(directory, "relay-unavailable"));
+    for (const result of await Promise.all(reconnects)) expect(result.code, result.output).toBe(0);
+    expect((await relayState())?.owner.pid).toBe(initialRelay);
+    expect((await client.computer.info()).routes).toEqual(initial.routes);
+    expect((await client.execution.terminals.get("preserved-terminal")).running).toBe(true);
+
+    // Upgrade a controller from the old PID-only readiness format. In particular,
+    // its graceful stop must not kill the daemon or the provider it is adopting.
+    const oldState = (await readJSON<ControllerState>(join(directory, "computer-controller.json")))!;
+    process.kill(oldState.pid, "SIGSTOP"); suspendedController = oldState.pid;
+    await writeJSON(join(directory, "computer-controller.json"), { pid: oldState.pid, ready: true, routes: initial.routes });
+    const migrated = await run(["start", ...common], env);
+    expect(migrated.code, migrated.output).toBe(0);
+    expect((await readJSON<ControllerState>(join(directory, "computer-controller.json")))?.pid).not.toBe(oldState.pid);
+    expect((await client.computer.info()).pid).toBe(initial.pid);
+    expect((await relayState())?.owner.pid).toBe(initialRelay);
+    expect((await client.execution.terminals.get("preserved-terminal")).running).toBe(true);
+
+    // Installing another npm release must also refresh its still-running
+    // controller even when the connection protocol itself has not changed.
+    const previousRelease = (await readJSON<ControllerState>(join(directory, "computer-controller.json")))!;
+    process.kill(previousRelease.pid, "SIGSTOP"); suspendedController = previousRelease.pid;
+    await writeJSON(join(directory, "computer-controller.json"), { ...previousRelease, cliVersion: "0.0.1" });
+    const upgraded = await run(["start", ...common], env);
+    expect(upgraded.code, upgraded.output).toBe(0);
+    expect((await readJSON<ControllerState>(join(directory, "computer-controller.json")))?.pid).not.toBe(previousRelease.pid);
+    expect((await client.computer.info()).pid).toBe(initial.pid);
+    expect((await relayState())?.owner.pid).toBe(initialRelay);
+    expect((await client.execution.terminals.get("preserved-terminal")).running).toBe(true);
+
     process.kill(initialRelay, "SIGKILL");
     const replacementRelay = await until(async () => {
       const current = await relayState();
       const info = await client.computer.info();
-      return current && current.owner.pid !== initialRelay && info.routes.some(route => route.kind === "websocket" && route.url.includes(String(current.owner.pid))) ? current.owner.pid : undefined;
+      return current && current.owner.pid !== initialRelay && info.routes.some(route => route.kind === "websocket" && route.url === current.route?.url) ? current.owner.pid : undefined;
     });
     expect((await client.computer.info()).pid).toBe(initial.pid);
     expect((await client.execution.terminals.get("preserved-terminal")).running).toBe(true);
@@ -97,7 +133,11 @@ setInterval(() => {}, 1000);
     expect(processAlive(recovered.pid)).toBe(false);
     expect(processAlive(replacementRelay)).toBe(false);
     expect((await readJSON<ControllerState>(join(directory, "computer-controller.json")))?.ready).toBe(false);
+  } catch (error) {
+    console.error((await readFile(join(directory, "computer.log"), "utf8").catch(() => "")).slice(-3000));
+    throw error;
   } finally {
+    if (suspendedController && processAlive(suspendedController)) process.kill(suspendedController, "SIGCONT");
     guardian?.kill("SIGTERM");
     await run(["stop", ...common, "--force"], env).catch(() => {});
     await rm(directory, { recursive: true, force: true });

@@ -24,6 +24,7 @@ import (
 )
 
 const Version = 1
+const PairingVersion = 3
 const APIPort = 8790
 const PairingPort = 8793
 
@@ -239,19 +240,25 @@ func pairingProof(offerID string, req PairRequest) []byte {
 	return []byte("mindwire-computer-pairing-v1\n" + offerID + "\n" + req.ID + "\n" + req.Name + "\n" + req.PublicKey)
 }
 
+func validRequestID(id string) bool {
+	return len(id) >= 8 && len(id) <= 128 && strings.IndexFunc(id, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_')
+	}) < 0
+}
+
 func validateRequest(offerID string, req PairRequest) (string, error) {
-	if len(req.ID) < 8 || len(req.ID) > 128 || strings.ContainsAny(req.ID, "\r\n\x00") || strings.TrimSpace(req.Name) == "" || len(req.Name) > 100 || strings.ContainsAny(req.Name, "\r\n\x00") || len(req.PublicKey) > 2048 {
+	if !validRequestID(req.ID) || strings.TrimSpace(req.Name) == "" || len(req.Name) > 100 || strings.ContainsAny(req.Name, "\r\n\x00") || len(req.PublicKey) > 2048 {
 		return "", errors.New("invalid device pairing request")
 	}
-	key, _, _, rest, err := ssh.ParseAuthorizedKey([]byte(req.PublicKey))
-	if err != nil || len(rest) != 0 || key.Type() != ssh.KeyAlgoED25519 {
+	key, _, options, rest, err := ssh.ParseAuthorizedKey([]byte(req.PublicKey))
+	if err != nil || len(options) != 0 || len(rest) != 0 || key.Type() != ssh.KeyAlgoED25519 {
 		return "", errors.New("an Ed25519 device public key is required")
 	}
-	if req.Signature != "" {
-		signature, err := base64.StdEncoding.DecodeString(req.Signature)
-		if err != nil || len(signature) != ed25519.SignatureSize || key.Verify(pairingProof(offerID, req), &ssh.Signature{Format: ssh.KeyAlgoED25519, Blob: signature}) != nil {
-			return "", errors.New("invalid device pairing proof")
-		}
+	// The invitation authorizes asking, not receiving a device's credential. Each
+	// request and acknowledgement retry must prove possession of its private key.
+	signature, err := base64.StdEncoding.DecodeString(req.Signature)
+	if err != nil || len(signature) != ed25519.SignatureSize || key.Verify(pairingProof(offerID, req), &ssh.Signature{Format: ssh.KeyAlgoED25519, Blob: signature}) != nil {
+		return "", errors.New("invalid device pairing proof")
 	}
 	return keyID(key), nil
 }
@@ -274,13 +281,15 @@ func (s *Server) Request(offerID string, req PairRequest) (*Offer, error) {
 			return nil, errors.New("this invitation already has a different device request")
 		}
 	} else {
-		o.Request = &req
+		// Owner-facing status may be logged by CLI clients. Do not retain a proof
+		// that could be replayed to retrieve the acknowledgement during this offer.
+		o.Request = &PairRequest{ID: req.ID, Name: req.Name, PublicKey: req.PublicKey}
 		o.deviceID = deviceID
 		o.Status = "pending"
 	}
 	// A name or a public key alone proves nothing. Only a signature for this
 	// invitation can reuse an existing, unrevoked approval without a new prompt.
-	if device, exists := s.state.Devices[deviceID]; o.Status == "pending" && req.Signature != "" && exists && !device.Revoked {
+	if device, exists := s.state.Devices[deviceID]; o.Status == "pending" && exists && !device.Revoked {
 		o.Status = "approved"
 	}
 	copy := *o
@@ -349,6 +358,11 @@ func (s *Server) Decide(id, requestID string, approve bool, replaceDeviceIDs ...
 }
 
 func (s *Server) disconnectDevicesLocked(ids map[string]bool) []*ssh.ServerConn {
+	for _, offer := range s.offers {
+		if ids[offer.deviceID] {
+			offer.Status = "rejected"
+		}
+	}
 	for key, forward := range s.forwards {
 		if ids[forward.DeviceID] {
 			s.closeForwardLocked(key)
@@ -356,7 +370,8 @@ func (s *Server) disconnectDevicesLocked(ids map[string]bool) []*ssh.ServerConn 
 	}
 	var connections []*ssh.ServerConn
 	for conn, owner := range s.connections {
-		if ids[owner] {
+		offer := s.offers[conn.Permissions.Extensions["offer"]]
+		if ids[owner] || offer != nil && ids[offer.deviceID] {
 			connections = append(connections, conn)
 		}
 	}
@@ -406,14 +421,14 @@ func decode(w http.ResponseWriter, r *http.Request, value any) bool {
 
 func (s *Server) PairHandler(offerID string) http.Handler {
 	mux := http.NewServeMux()
-	writeStatus := func(w http.ResponseWriter, o *Offer) {
+	writeStatus := func(w http.ResponseWriter, o *Offer, includeCredential bool) {
 		result := map[string]any{"status": o.Status, "requestId": o.Request.ID, "expiresAt": o.ExpiresAt}
 		if o.Status == "approved" {
 			s.mu.Lock()
-			device := s.state.Devices[o.deviceID]
+			device, exists := s.state.Devices[o.deviceID]
 			routes := append([]Route{}, s.state.Routes...)
 			s.mu.Unlock()
-			if device.Revoked {
+			if !exists || device.Revoked {
 				reject(w, errors.New("this device was revoked"))
 				return
 			}
@@ -422,7 +437,9 @@ func (s *Server) PairHandler(offerID string) http.Handler {
 			result["registryId"] = s.registryID
 			result["routes"] = routes
 			result["fingerprint"] = s.Fingerprint()
-			result["daemonToken"] = s.apiToken
+			if includeCredential {
+				result["daemonToken"] = s.apiToken
+			}
 			result["apiPort"] = APIPort
 		}
 		send(w, 200, result)
@@ -437,7 +454,7 @@ func (s *Server) PairHandler(offerID string) http.Handler {
 			reject(w, err)
 			return
 		}
-		writeStatus(w, o)
+		writeStatus(w, o, true)
 	})
 	mux.HandleFunc("GET /pair/{id}", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
@@ -455,7 +472,9 @@ func (s *Server) PairHandler(offerID string) http.Handler {
 			reject(w, errors.New("pairing request not found"))
 			return
 		}
-		writeStatus(w, &copy)
+		// Status is not proof of key ownership. Only a signed POST can return the
+		// credential; knowing a request ID (or scanning the same QR) is insufficient.
+		writeStatus(w, &copy, false)
 	})
 	return mux
 }
@@ -625,7 +644,7 @@ func (s *Server) routes(register func(string, http.HandlerFunc)) {
 func (s *Server) Info() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	info := map[string]any{"version": Version, "pairingVersion": 2, "portForwardingVersion": 1, "computerId": s.state.ID, "registryId": s.registryID, "fingerprint": s.Fingerprint(), "routes": append([]Route{}, s.state.Routes...), "pid": os.Getpid(), "apiAddress": s.apiAddress}
+	info := map[string]any{"version": Version, "pairingVersion": PairingVersion, "portForwardingVersion": 1, "computerId": s.state.ID, "registryId": s.registryID, "fingerprint": s.Fingerprint(), "routes": append([]Route{}, s.state.Routes...), "pid": os.Getpid(), "apiAddress": s.apiAddress}
 	if s.sshListener != nil {
 		info["sshPort"] = s.sshListener.Addr().(*net.TCPAddr).Port
 	}

@@ -1,6 +1,6 @@
 module github.com/oblien/mindwire/daemon
 
-go 1.26.4
+go 1.26.8
 
 require (
 	github.com/aymanbagabas/go-pty v0.2.3
@@ -11,7 +11,7 @@ require (
 	github.com/kward/go-vnc v0.0.0-20260515191714-83d72ad87d5f
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/shirou/gopsutil/v4 v4.25.1
-	golang.org/x/crypto v0.53.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.59.0
 )

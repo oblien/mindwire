@@ -24,13 +24,58 @@ unless you prefer to remain anonymous.
 ## Scope & notes
 
 - The **daemon** binds `127.0.0.1` by default and is intended to run on a trusted host/network
-  or behind a gateway/tunnel. When exposed, set `DAEMON_TOKEN` — the auth middleware requires a
+  or behind a gateway/tunnel. Startup requires `DAEMON_TOKEN` — the auth middleware requires a
   matching bearer token and compares it in constant time.
 - The daemon executes agent CLIs and, through them, shell commands and file edits in its working
   directory. Treat the workspace (`AGENT_CWD`) and any configured agent as trusted, and scope
   agent permissions appropriately for automated/headless use.
 - Credentials are stored in the daemon's local state file, namespaced per agent; secrets are
   never returned by the config API.
+
+## Personal computer connections
+
+`mindwire connect` exposes an SSH transport, directly or inside a WebSocket tunnel.
+The workspace HTTP API stays on authenticated loopback. Relay providers terminate
+HTTPS but carry encrypted SSH content; they can observe addresses and traffic timing
+and can interrupt delivery. They cannot impersonate the computer without its pinned
+SSH host key.
+
+- Pairing invitations expire after five minutes and use a random 256-bit secret.
+  The phone verifies the QR's host fingerprint before sending that secret. Scan a
+  code displayed by the computer you intend to trust.
+- A pairing connection can reach only the pairing handler, never workspace APIs,
+  arbitrary ports, or a shell. A new device key needs explicit owner approval.
+- `pairingVersion: 3` requires an Ed25519 signature on every `POST /pair`, including
+  acknowledgement retries. A request ID or the QR secret alone cannot retrieve the
+  approved credential. Status lookups omit credentials and retained request proofs.
+  Existing mobile clients that sign their requests remain compatible; older unsigned
+  pairing clients must update.
+- Device revocation and replacement close the affected device's SSH connections,
+  pairing connections and port grants, invalidate pending acknowledgements, and reject
+  subsequent connections. Pairing transports close at invitation expiry. Revocation
+  does not undo commands the device already executed or stop detached shell processes.
+- Device private keys are generated on the phone. Computer credentials use iOS
+  Keychain's `AfterFirstUnlockThisDeviceOnly` protection; all existing copies, including
+  pending receipts, migrate in place on first Keychain use. New backups must not clone
+  an approval onto another phone. This does not erase backups made before the change.
+  Computer identity files use owner-only permissions. Workspace caches contain
+  credential references.
+- Private port forwards are explicitly granted per device, expire without renewal,
+  and target computer loopback only. The phone's local forwarding listeners also bind
+  loopback. No permission opens an unauthenticated public workspace API.
+
+An approved phone has the files and command privileges of the computer account
+running Mindwire. `--directory` chooses the initial directory; it is not a sandbox.
+Mindwire cannot protect that account from an already compromised approved phone or
+computer, malicious commands the user authorizes, or a compromised software supply
+chain. Only pair devices you trust, and use `mindwire devices` / `mindwire revoke ID`
+to manage access. Removing an offline computer from the app removes local keys; it
+does not send a revocation to the computer.
+
+Daemon and helper downloads use HTTPS and verified release checksums. CI and the
+release gate run the computer security/race tests and `govulncheck`; a known
+vulnerability in reachable daemon code blocks publication. This is defense in depth,
+not a guarantee against unknown vulnerabilities or an independent penetration test.
 
 ## Supported versions
 

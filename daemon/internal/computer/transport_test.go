@@ -127,7 +127,7 @@ func TestPairingCannotAccessWorkspaceUntilSpecificDeviceApproved(t *testing.T) {
 		session.Close()
 		t.Fatal("pairing connection opened a shell")
 	}
-	req := PairRequest{ID: "fixture-request-1", Name: "Test iPhone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))}
+	req := signPairRequest(t, inv, key, PairRequest{ID: "fixture-request-1", Name: "Test iPhone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))})
 	status, body := request(t, pair, PairingPort, "POST", "/pair", req)
 	if status != 200 || !bytes.Contains(body, []byte(`"status":"pending"`)) || bytes.Contains(body, []byte("daemonToken")) {
 		t.Fatalf("unexpected pending response: status=%d", status)
@@ -182,7 +182,7 @@ func TestWebSocketCarriesTheSamePinnedSSHProtocol(t *testing.T) {
 	inv := invite(t, s)
 	key := clientKey(t)
 	pair := connect(t, s, "pair:"+inv.PairingID, ssh.Password(inv.Secret), true)
-	req := PairRequest{ID: "websocket-device", Name: "Android protocol client", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))}
+	req := signPairRequest(t, inv, key, PairRequest{ID: "websocket-device", Name: "Android protocol client", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))})
 	if status, _ := request(t, pair, PairingPort, "POST", "/pair", req); status != 200 {
 		t.Fatal(status)
 	}
@@ -204,7 +204,7 @@ func TestIdentityAndRevocationsSurviveRestartAndExpiredInvitesFail(t *testing.T)
 	s, dir := fixture(t)
 	inv := invite(t, s)
 	key := clientKey(t)
-	req := PairRequest{ID: "persisted-device", Name: "Phone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))}
+	req := signPairRequest(t, inv, key, PairRequest{ID: "persisted-device", Name: "Phone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))})
 	if _, err := s.Request(inv.PairingID, req); err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestPairingReservesServiceUntilPhoneAcknowledgesApproval(t *testing.T) {
 	}
 	inv := invite(t, s)
 	key := clientKey(t)
-	req := PairRequest{ID: "approval-reservation", Name: "Phone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))}
+	req := signPairRequest(t, inv, key, PairRequest{ID: "approval-reservation", Name: "Phone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))})
 	if _, err := s.Request(inv.PairingID, req); err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestRestartKeepsApprovedPhoneAndNativeConnectedStatus(t *testing.T) {
 	s, directory := fixture(t)
 	inv := invite(t, s)
 	key := clientKey(t)
-	req := PairRequest{ID: "restart-phone", Name: "Saved phone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))}
+	req := signPairRequest(t, inv, key, PairRequest{ID: "restart-phone", Name: "Saved phone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))})
 	if _, err := s.Request(inv.PairingID, req); err != nil {
 		t.Fatal(err)
 	}

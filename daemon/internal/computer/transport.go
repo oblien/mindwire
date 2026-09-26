@@ -99,6 +99,16 @@ func (s *Server) Handle(raw net.Conn) {
 	_ = raw.SetDeadline(time.Time{})
 	deviceID := conn.Permissions.Extensions["device"]
 	s.mu.Lock()
+	if conn.Permissions.Extensions["mode"] == "pair" {
+		offer, err := s.offer(conn.Permissions.Extensions["offer"])
+		if err != nil || offer.Status == "rejected" {
+			s.mu.Unlock()
+			return
+		}
+		// Expiry bounds already-authenticated pairing sessions as well as future
+		// handshakes. They must not occupy connection slots indefinitely.
+		_ = raw.SetDeadline(offer.ExpiresAt)
+	}
 	device := s.state.Devices[deviceID]
 	if s.closed || deviceID != "" && (device.ID == "" || device.Revoked) {
 		s.mu.Unlock()

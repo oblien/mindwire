@@ -17,6 +17,11 @@ import (
 func signedPairRequest(t *testing.T, invitation Invitation, key ssh.Signer) PairRequest {
 	t.Helper()
 	req := PairRequest{ID: randomID(18), Name: "iPhone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))}
+	return signPairRequest(t, invitation, key, req)
+}
+
+func signPairRequest(t *testing.T, invitation Invitation, key ssh.Signer, req PairRequest) PairRequest {
+	t.Helper()
 	proof, err := key.Sign(rand.Reader, pairingProof(invitation.PairingID, req))
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +67,7 @@ func TestSavedPhoneUsesSignedQRWithoutAnotherApprovalOrDevice(t *testing.T) {
 	if count != 1 || completed {
 		t.Fatal("resuming must keep one device and still wait for the phone's saved receipt")
 	}
-	if s.Info()["pairingVersion"] != 2 {
+	if s.Info()["pairingVersion"] != PairingVersion || PairingVersion < 3 {
 		t.Fatal("the client cannot discover signed pairing support")
 	}
 	s.mu.Lock()
@@ -94,8 +99,8 @@ func TestPairingProofCannotImpersonateOrReviveAnApproval(t *testing.T) {
 		t.Fatal("a proof was replayed into a different QR invitation")
 	}
 	req.Signature = ""
-	if offer, err := s.Request(invitation.PairingID, req); err != nil || offer.Status != "pending" {
-		t.Fatal("a known public key without proof bypassed approval")
+	if _, err := s.Request(invitation.PairingID, req); err == nil {
+		t.Fatal("a known public key without proof was accepted")
 	}
 	if err := s.Revoke(device.ID); err != nil {
 		t.Fatal(err)

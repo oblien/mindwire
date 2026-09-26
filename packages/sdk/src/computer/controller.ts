@@ -7,8 +7,9 @@ import type { Mindwire } from "../client.js";
 import { ensureDaemonBinary } from "../daemon-binary.js";
 import { SDK_VERSION } from "../version.js";
 import type { ComputerInfo, ComputerRoute, ComputerUpdate } from "../computer.js";
-import { computerClient, directRoutes, readJSON, writeJSON, type ComputerConfig, type ControllerState } from "./lifecycle.js";
+import { computerClient, directRoutes, readJSON, writeJSON, CONTROLLER_PROTOCOL, type ComputerConfig, type ControllerState } from "./lifecycle.js";
 import { startRelay, type RelayHandle } from "./relay.js";
+import { checkRelay, relayProviderReachable } from "./relay-health.js";
 import { adoptProcess, ownChild, currentProcessIdentity, processStateAlive, processIdentity, type OwnedProcess, type ProcessIdentity } from "./process.js";
 
 interface SavedRelay { owner: ProcessIdentity; port: number; options: string; route?: ComputerRoute }
@@ -24,11 +25,13 @@ export async function superviseComputer(directory: string): Promise<void> {
   const previous = await readJSON<ControllerState>(controllerPath);
   if (await processStateAlive(previous)) throw new Error("The computer already has a service controller.");
   const owner = await currentProcessIdentity();
-  const phase = (message: string) => writeJSON(controllerPath, { ...owner, ready: false, phase: message, recovering: true });
+  const phase = (message: string) => writeJSON(controllerPath, { ...owner, protocol: CONTROLLER_PROTOCOL, cliVersion: SDK_VERSION, ready: false, phase: message, recovering: true });
   await phase("Preparing Mindwire…");
   let child: OwnedProcess | undefined, relay: RelayHandle | undefined, stopping = false;
   let relayTask: Promise<void> | undefined, updateTask: Promise<void> | undefined;
   let relayResult: { handle?: RelayHandle; error?: unknown } | undefined;
+  let checkTask: Promise<void> | undefined;
+  let checkResult: { relay: RelayHandle; error?: unknown; canRestart?: boolean } | undefined;
   const abort = new AbortController();
   const stop = () => { stopping = true; abort.abort(); };
   process.on("SIGTERM", stop); process.on("SIGINT", stop);
@@ -93,6 +96,9 @@ export async function superviseComputer(directory: string): Promise<void> {
   let daemonError: string | undefined, nextDaemonAt = 0, daemonFailures = 0;
   let nextRelayAt = 0, relayFailures = 0, changingDaemon = false;
   let daemonReadyAt = Date.now(), relayReadyAt = Date.now();
+  let relayReachable = false, relayWasReachable = false, relayHealthFailures = 0;
+  let relayFailedAt = 0;
+  let nextCheckAt = 0, checkedAt = 0;
   try {
     await phase("Checking the Mindwire service…");
     let binary = config.daemonBin ?? await ensureDaemonBinary({ version: config.version ?? SDK_VERSION, cacheDir: process.env.MINDWIRE_RELEASE_CACHE_DIR });
@@ -127,7 +133,7 @@ export async function superviseComputer(directory: string): Promise<void> {
         nextDaemonAt = Date.now() + recoveryDelay(++daemonFailures);
       }
       if (child?.alive() && Date.now() - daemonReadyAt > 60_000) daemonFailures = 0;
-      if (relay?.owner?.alive() && Date.now() - relayReadyAt > 60_000) relayFailures = 0;
+      if (relayReachable && relay?.owner?.alive() && Date.now() - relayReadyAt > 60_000) relayFailures = 0;
       if (!changingDaemon && !child?.alive() && Date.now() >= nextDaemonAt) {
         daemonError = "The service stopped. Restarting it…";
         await phase(daemonError);
@@ -143,6 +149,7 @@ export async function superviseComputer(directory: string): Promise<void> {
 
       if (relay?.owner && !relay.owner.alive()) {
         relay = undefined;
+        relayReachable = false; relayWasReachable = false;
         relayError = "The internet tunnel disconnected. Reconnecting…";
         nextRelayAt = Date.now() + recoveryDelay(++relayFailures);
       }
@@ -150,6 +157,7 @@ export async function superviseComputer(directory: string): Promise<void> {
         const result = relayResult; relayResult = undefined; relayTask = undefined;
         if (result.handle) {
           relay = result.handle; relayError = undefined; relayReadyAt = Date.now();
+          relayReachable = false; relayWasReachable = false; relayHealthFailures = 0; relayFailedAt = 0; nextCheckAt = 0;
           if (relay.owner?.identity) await writeJSON(relayPath, {
             owner: relay.owner.identity, port: websocketPort, options: JSON.stringify(config.relay), route: relay.route,
           } satisfies SavedRelay);
@@ -171,17 +179,60 @@ export async function superviseComputer(directory: string): Promise<void> {
         }).then(handle => { relayResult = { handle }; }, error => { relayResult = { error }; });
       }
 
+      if (checkResult) {
+        const result = checkResult; checkResult = undefined; checkTask = undefined;
+        // A late failure from a replaced helper cannot invalidate its successor.
+        if (result.relay === relay) {
+          checkedAt = Date.now();
+          relayReachable = !result.error;
+          if (!result.error) {
+            relayWasReachable = true; relayHealthFailures = 0; relayFailedAt = 0; relayError = undefined;
+            nextCheckAt = checkedAt + 30_000;
+          } else {
+            relayError = result.error instanceof Error ? result.error.message : "The internet tunnel couldn't connect. Retrying…";
+            relayFailedAt ||= checkedAt;
+            relayHealthFailures++;
+            nextCheckAt = checkedAt + Math.min(15_000, recoveryDelay(relayHealthFailures));
+            if (result.canRestart) {
+              // Only replace the tunnel after repeated failures with working
+              // internet. The daemon, phone keys, chats and PTYs keep running.
+              await relay!.close(); relay = undefined;
+              relayWasReachable = false; nextRelayAt = Date.now() + recoveryDelay(++relayFailures);
+              await fs.rm(relayPath, { force: true });
+            }
+          }
+        }
+      }
+      const requestedCheck = await readJSON<{ requestedAt: number }>(path.join(directory, "computer-check.json"));
+      if (config.relay.kind === "none") checkedAt = Math.max(checkedAt, requestedCheck?.requestedAt ?? 0);
+      if (relay?.route && !checkTask && (Date.now() >= nextCheckAt || (requestedCheck?.requestedAt ?? 0) > checkedAt)) {
+        const checking = relay;
+        checkTask = (async () => {
+          try {
+            await checkRelay(checking.route!, { signal: abort.signal });
+            checkResult = { relay: checking };
+          } catch (error) {
+            // Quick-tunnel DNS can initially return NXDOMAIN with a 60-second
+            // negative TTL even after its connection registered. Replacing the
+            // helper sooner would keep allocating fresh, negatively cached names.
+            const canRestart = !!checking.owner && relayHealthFailures >= 2 && relayFailedAt > 0 && Date.now() - relayFailedAt >= 90_000
+              && await relayProviderReachable(config!.relay, abort.signal).catch(() => false);
+            checkResult = { relay: checking, error, canRestart };
+          }
+        })();
+      }
+
       routes = directRoutes(config, sshPort);
-      if (relay?.route) routes.push(relay.route);
+      if (relay?.route && relayWasReachable) routes.push(relay.route);
       const routeJSON = JSON.stringify(routes);
       if (!changingDaemon && client && child?.alive() && routeJSON !== published) {
         try { await client.computer.setRoutes(routes); published = routeJSON; }
         catch { /* Retry publication; never claim the new routes are ready yet. */ }
       }
       const ready = !!client && !!child?.alive() && !changingDaemon && routes.length > 0 && published === routeJSON
-        && (config.relay.kind === "none" || !!relay?.route);
-      const state: ControllerState = { ...owner, ready, routes,
-        phase: ready ? undefined : daemonError ?? relayMessage, error: daemonError ?? relayError, recovering: !ready };
+        && (config.relay.kind === "none" || relayReachable);
+      const state: ControllerState = { ...owner, protocol: CONTROLLER_PROTOCOL, cliVersion: SDK_VERSION, ready, routes, checkedAt,
+        phase: ready ? undefined : daemonError ?? relayError ?? relayMessage, error: daemonError ?? relayError, recovering: !ready };
       const serialized = JSON.stringify(state);
       if (serialized !== lastController) { await writeJSON(controllerPath, state); lastController = serialized; }
 
@@ -231,7 +282,7 @@ export async function superviseComputer(directory: string): Promise<void> {
     throw error;
   } finally {
     abort.abort();
-    await relayTask; await updateTask;
+    await relayTask; await checkTask; await updateTask;
     if (relayResult?.handle && relayResult.handle !== relay) await relayResult.handle.close();
     await relay?.close();
     if (child) await child.close();

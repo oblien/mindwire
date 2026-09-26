@@ -13,7 +13,7 @@ func TestControllerWithdrawsOfflineRoutesWithoutLosingIdentity(t *testing.T) {
 	s, _ := fixture(t)
 	inv := invite(t, s)
 	key := clientKey(t)
-	req := PairRequest{ID: "fixture-route-phone", Name: "Phone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))}
+	req := signPairRequest(t, inv, key, PairRequest{ID: "fixture-route-phone", Name: "Phone", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))})
 	if _, err := s.Request(inv.PairingID, req); err != nil {
 		t.Fatal(err)
 	}

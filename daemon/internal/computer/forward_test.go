@@ -18,7 +18,7 @@ func approveForwardDevice(t *testing.T, s *Server, ws bool) (*ssh.Client, string
 	t.Helper()
 	key := clientKey(t)
 	inv := invite(t, s)
-	req := PairRequest{ID: randomID(12), Name: "Forward test", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))}
+	req := signPairRequest(t, inv, key, PairRequest{ID: randomID(12), Name: "Forward test", PublicKey: string(ssh.MarshalAuthorizedKey(key.PublicKey()))})
 	if _, err := s.Request(inv.PairingID, req); err != nil {
 		t.Fatal(err)
 	}

@@ -224,8 +224,10 @@ mindwire stop
 ```
 
 Each paired phone has its own key. Revocation closes that phone's active
-connections and rejects reconnects. Pairing keys and daemon credentials are held in
-the phone's Keychain; cached workspace metadata contains only credential references.
+connections, pending pairing sessions and private forwards, and rejects reconnects.
+It does not undo commands already executed. Pairing keys and daemon credentials stay
+in that phone's Keychain and do not migrate onto another phone through a backup;
+cached workspace metadata contains only credential references.
 Computer state is stored under `~/.mindwire/computer` by default.
 
 To update the CLI and service:
@@ -253,6 +255,11 @@ continue through the standard daemon protocol.
 The SDK exposes native workspace execution through `client.execution` and computer
 management through `client.computer`. See the generated REST and SDK reference for
 file, resource, command, terminal, pairing, and update contracts.
+
+With `pairingVersion: 3` from `/computer`, the phone signs every `POST /pair`,
+including approval polling and retries. `GET /pair/{id}` returns status without
+credentials. Existing clients that sign their requests keep working; unsigned
+pairing clients must update. Pairing sessions close when their invitation expires.
 
 The mobile implementation is currently iOS. The wire protocol can support other
 clients, but this feature does not add an Android app. Personal desktop capture and

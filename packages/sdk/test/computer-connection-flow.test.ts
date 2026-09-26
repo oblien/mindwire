@@ -1,8 +1,19 @@
 import { expect, test } from "bun:test";
-import { chooseConnectionAction, choosePairingDecision, chooseStartupAction, connectionAction, deviceSummary, reconnectCode } from "../src/computer/connection-flow.js";
+import { approvalCommand, chooseConnectionAction, choosePairingDecision, chooseStartupAction, connectionAction, deviceSummary, reconnectCode } from "../src/computer/connection-flow.js";
+import { parseArgs } from "node:util";
 import { computerPairingURI, type ComputerDevice, type ComputerInfo } from "../src/computer.js";
 
 const phone: ComputerDevice = { id: "saved-phone", name: "iPhone", publicKey: "fixture", createdAt: "now", revoked: false };
+
+test("copied approval commands reject shell syntax and keep dashed IDs positional", () => {
+  for (const id of ["request;whoami", "$(whoami)-request", "`whoami`-request", "request id", "request\"id"]) {
+    expect(() => approvalCommand("valid-offer", id)).toThrow("Invalid phone pairing request");
+    expect(() => approvalCommand(id, "valid-request")).toThrow("Invalid phone pairing request");
+  }
+  const command = approvalCommand("-valid-offer", "--valid-request");
+  expect(parseArgs({ args: command.split(" ").slice(1), allowPositionals: true }).positionals)
+    .toEqual(["approve", "-valid-offer", "--valid-request"]);
+});
 
 test("same-name phones keep distinct key identities; only authenticated connections say connected", () => {
   const devices = [phone, { ...phone, id: "second-phone", connected: true }, { ...phone, id: "revoked", revoked: true }];

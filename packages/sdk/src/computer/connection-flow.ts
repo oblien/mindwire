@@ -8,6 +8,15 @@ export function connectionAction(value: string | undefined): ConnectionAction | 
   throw new Error("Use mindwire connect, mindwire connect resume, mindwire reconnect, or mindwire connect pair.");
 }
 
+/** Safe to copy into either a Unix shell or PowerShell, even when an ID starts
+ * with a dash. Validate old daemons too; these values originated on a phone. */
+export function approvalCommand(pairingId: string, requestId: string): string {
+  if (![pairingId, requestId].every(id => /^[A-Za-z0-9_-]{8,128}$/.test(id))) {
+    throw new Error("Invalid phone pairing request. Run mindwire connect to create a new code.");
+  }
+  return `mindwire approve -- ${pairingId} ${requestId}`;
+}
+
 /** Saved approvals do not prove that the phone still has its key or address.
  * Every disconnected phone uses the same QR; the signed handshake chooses resume
  * or fresh approval. The old commands remain aliases, not separate UX paths. */
@@ -28,7 +37,7 @@ export async function choosePairingDecision(options: {
   const replacements = options.replacements.filter(device => !device.revoked);
   const prompt = replacements.length
     ? `\nPrevious approvals with this name:\n${deviceSummary(replacements, true)}\n\nAllow this phone? [r = replace these approvals, a = add a different phone, N = deny]: `
-    : "Allow this phone to access this workspace? [y/N] ";
+    : "Allow this phone to access this computer? [y/N] ";
   for (;;) {
     const answer = (await options.question(prompt)).trim().toLowerCase();
     if (["", "n", "no"].includes(answer)) return { approve: false };

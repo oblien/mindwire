@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Mindwire } from "../client.js";
 import { remote } from "../target/index.js";
+import { SDK_VERSION, versionAtLeast } from "../version.js";
 import type { ComputerInfo, ComputerRoute } from "../computer.js";
 import type { RelayOptions } from "./relay.js";
 import { processStateAlive, type ProcessState } from "./process.js";
@@ -21,7 +22,10 @@ export interface ComputerConfig {
   websocketPort: number;
   relay: RelayOptions;
 }
-export interface ControllerState extends ProcessState { ready: boolean; phase?: string; error?: string; recovering?: boolean; routes?: ComputerRoute[] }
+export const CONTROLLER_PROTOCOL = 2;
+export interface ControllerState extends ProcessState {
+  protocol?: number; cliVersion?: string; ready: boolean; phase?: string; error?: string; recovering?: boolean; routes?: ComputerRoute[]; checkedAt?: number;
+}
 
 export const defaultStateDirectory = () => path.join(homedir(), ".mindwire", "computer");
 export const defaultComputerConfig = (): ComputerConfig => ({ directory: homedir(), bind: "0.0.0.0", sshPort: 8791, websocketPort: 8792, relay: { kind: "cloudflare" } });
@@ -73,6 +77,12 @@ export async function ensureComputer(directory: string, cliPath: string, patch: 
   const configPath = path.join(directory, "computer-config.json");
   const previous = await readJSON<ComputerConfig>(configPath);
   const config = { ...defaultComputerConfig(), ...previous, ...patch };
+  // Every explicit Connect/Start waits for a fresh route check. Background
+  // supervision can reuse readiness and doesn't create navigation-style churn.
+  const requestedAt = resume ? Date.now() : 0;
+  if (resume) await writeJSON(path.join(directory, "computer-check.json"), { requestedAt });
+  const compatible = (controller: ControllerState | undefined) => (controller?.protocol ?? 0) >= CONTROLLER_PROTOCOL
+    && versionAtLeast(controller?.cliVersion, SDK_VERSION);
   let launchedPID: number | undefined;
   let launchFailure: Error | undefined;
   const waitUntilReady = async (): Promise<Mindwire> => {
@@ -83,7 +93,8 @@ export async function ensureComputer(directory: string, cliPath: string, patch: 
       if (launchFailure) throw launchFailure;
       if (launchedPID && controller?.pid !== launchedPID) { await delay(250); continue; }
       if (controller?.error && !controller.recovering) throw new Error(controller.error);
-      if (controller?.ready && await processStateAlive(controller)) return computerClient(directory);
+      if (controller?.ready && compatible(controller) && (controller.checkedAt ?? 0) >= requestedAt
+          && await processStateAlive(controller)) return computerClient(directory);
       if (controller?.phase && controller.phase !== phase) { phase = controller.phase; onProgress?.(phase); }
       await delay(250);
     }
@@ -96,7 +107,7 @@ export async function ensureComputer(directory: string, cliPath: string, patch: 
     // The API may be healthy while the internet helper is still downloading.
     // Pairing must wait for its routes, not expose a partly prepared computer.
     const controller = await readJSON<ControllerState>(path.join(directory, "computer-controller.json"));
-    if (await processStateAlive(controller)) return waitUntilReady();
+    if (compatible(controller) && await processStateAlive(controller)) return waitUntilReady();
     // The controller can crash while its daemon and tunnel remain healthy.
     // Start a new owner below; it adopts those processes without restarting them.
   }
@@ -105,7 +116,7 @@ export async function ensureComputer(directory: string, cliPath: string, patch: 
     signal: options.signal,
     onWait: async () => {
       const controller = await readJSON<ControllerState>(path.join(directory, "computer-controller.json"));
-      if (await processStateAlive(controller)) {
+      if (compatible(controller) && await processStateAlive(controller)) {
         const saved = await readJSON<ComputerConfig>(configPath);
         if (Object.keys(patch).some(key => JSON.stringify(patch[key as keyof ComputerConfig]) !== JSON.stringify(saved?.[key as keyof ComputerConfig]))) {
           throw new Error("Another start used different connection settings. Stop Mindwire when idle before changing them.");
@@ -126,9 +137,15 @@ export async function ensureComputer(directory: string, cliPath: string, patch: 
         throw new Error("Another start used different connection settings. Stop Mindwire when idle before changing them.");
       }
       const controller = await readJSON<ControllerState>(path.join(directory, "computer-controller.json"));
-      if (await processStateAlive(controller)) return waitUntilReady();
+      if (compatible(controller) && await processStateAlive(controller)) return waitUntilReady();
     }
-    const controller = await readJSON<ControllerState>(path.join(directory, "computer-controller.json"));
+    let controller = await readJSON<ControllerState>(path.join(directory, "computer-controller.json"));
+    if (existing && controller && !compatible(controller) && await processStateAlive(controller)) {
+      onProgress?.("Refreshing the background connection service…");
+      const { handoffController } = await import("./controller-handoff.js");
+      await handoffController(directory, controller, config, await existing.computer.info());
+      controller = undefined;
+    }
     if (await processStateAlive(controller)) {
       if (controller?.error && !controller.recovering) throw new Error(controller.error);
     } else {

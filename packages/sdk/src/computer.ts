@@ -18,7 +18,9 @@ export interface ComputerDevice {
 }
 /** Signature is a base64 Ed25519 proof over
  * `mindwire-computer-pairing-v1\n${pairingId}\n${id}\n${name}\n${publicKey}`.
- * With pairingVersion >= 2 an already approved key reconnects without a prompt. */
+ * With pairingVersion >= 2 an already approved key reconnects without a prompt.
+ * Version 3 requires a signature on every device POST /pair (including retries).
+ * Owner-facing pairing status omits the proof; GET /pair/{id} never returns a token. */
 export interface ComputerPairRequest { id: string; name: string; publicKey: string; signature?: string }
 export interface ComputerPairing {
   id: string; expiresAt: string; status: "waiting" | "pending" | "approved" | "rejected";
@@ -35,7 +37,8 @@ export interface ComputerInfo {
   version: number; computerId: string; registryId: string; fingerprint: string; routes: ComputerRoute[];
   pid: number; apiAddress: string; sshPort: number; websocketPort: number;
   portForwardingVersion?: number;
-  /** 2 supports signed reconnection and atomic replacement of lost device keys. */
+  /** 2 supports signed reconnection and atomic replacement of lost device keys.
+   * 3 requires signed pairing acknowledgements and expires/revokes pairing transports. */
   pairingVersion?: number;
 }
 export interface ComputerForwardRequest { id: string; deviceId: string; port: number }

@@ -12,7 +12,7 @@ import { computerClient, defaultStateDirectory, ensureComputer, readJSON, stopCo
 import type { RelayOptions } from "./computer/relay.js";
 import { showPairingInvitation, type PairingQRMode } from "./computer/pairing-display.js";
 import { configureStartup, startupStatus, watchComputer } from "./computer/startup.js";
-import { chooseConnectionAction, choosePairingDecision, chooseStartupAction, connectionAction, deviceSummary } from "./computer/connection-flow.js";
+import { approvalCommand, chooseConnectionAction, choosePairingDecision, chooseStartupAction, connectionAction, deviceSummary } from "./computer/connection-flow.js";
 
 const help = `Mindwire — connect this computer to your phone
 
@@ -191,10 +191,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
           const replacements = (info.pairingVersion ?? 0) >= 2 ? (await client.computer.devices()).filter(device =>
             !device.revoked && device.id !== deviceId && device.name === pairing.request!.name) : [];
           emit("approval_required", { pairingId: invitation.pairingId, request: pairing.request, fingerprint, replacements },
-            `\n${safeName(pairing.request.name)} wants to connect.\nDevice key: ${fingerprint}`);
+            `\n${safeName(pairing.request.name)} wants to connect.\nDevice key: ${fingerprint}\nAccess: files and commands as your computer account.`);
           if (!question) {
-            emit("approval_command", { command: `mindwire approve ${invitation.pairingId} ${pairing.request.id}` },
-              `Review this device, then run:\nmindwire approve ${invitation.pairingId} ${pairing.request.id}`);
+            const command = approvalCommand(invitation.pairingId, pairing.request.id);
+            emit("approval_command", { command }, `Review this device, then run:\n${command}`);
           } else {
             const decision = await choosePairingDecision({ replacements, question });
             await client.computer.decide(invitation.pairingId, pairing.request.id, decision.approve,
