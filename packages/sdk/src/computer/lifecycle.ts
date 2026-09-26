@@ -24,7 +24,7 @@ export interface ComputerConfig {
 }
 export const CONTROLLER_PROTOCOL = 2;
 export interface ControllerState extends ProcessState {
-  protocol?: number; cliVersion?: string; ready: boolean; phase?: string; error?: string; recovering?: boolean; routes?: ComputerRoute[]; checkedAt?: number;
+  protocol?: number; cliVersion?: string; ready: boolean; phase?: string; error?: string; errorCode?: string; recovering?: boolean; routes?: ComputerRoute[]; checkedAt?: number;
 }
 
 export const defaultStateDirectory = () => path.join(homedir(), ".mindwire", "computer");
@@ -87,9 +87,11 @@ export async function ensureComputer(directory: string, cliPath: string, patch: 
   let launchFailure: Error | undefined;
   const waitUntilReady = async (): Promise<Mindwire> => {
     let phase: string | undefined;
+    let lastState: ControllerState | undefined;
     for (let attempt = 0; attempt < 1200; attempt++) {
       options.signal?.throwIfAborted();
       const controller = await readJSON<ControllerState>(path.join(directory, "computer-controller.json"));
+      lastState = controller;
       if (launchFailure) throw launchFailure;
       if (launchedPID && controller?.pid !== launchedPID) { await delay(250); continue; }
       if (controller?.error && !controller.recovering) throw new Error(controller.error);
@@ -98,7 +100,11 @@ export async function ensureComputer(directory: string, cliPath: string, patch: 
       if (controller?.phase && controller.phase !== phase) { phase = controller.phase; onProgress?.(phase); }
       await delay(250);
     }
-    throw new Error(`Mindwire did not finish starting. Inspect ${path.join(directory, "computer.log")}.`);
+    const lastStep = lastState?.errorCode === "dns"
+      ? "Your DNS resolver still cannot find the tunnel address."
+      : lastState?.error ?? phase ?? "The background service hasn't reported readiness.";
+    const recovering = lastState?.recovering && await processStateAlive(lastState).catch(() => false);
+    throw new Error(`Mindwire's connection is not ready. ${lastStep}${recovering ? " Background recovery continues." : ""} Run mindwire status for the current state, then mindwire connect to retry.`);
   };
   if (current) {
     if (Object.keys(patch).some(key => JSON.stringify(config[key as keyof ComputerConfig]) !== JSON.stringify(previous?.[key as keyof ComputerConfig]))) {

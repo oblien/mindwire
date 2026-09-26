@@ -8,11 +8,12 @@ import { ensureDaemonBinary } from "../daemon-binary.js";
 import { SDK_VERSION } from "../version.js";
 import type { ComputerInfo, ComputerRoute, ComputerUpdate } from "../computer.js";
 import { computerClient, directRoutes, readJSON, writeJSON, CONTROLLER_PROTOCOL, type ComputerConfig, type ControllerState } from "./lifecycle.js";
-import { startRelay, type RelayHandle } from "./relay.js";
-import { checkRelay, relayProviderReachable } from "./relay-health.js";
+import { adoptRelay, startRelay, type RelayHandle } from "./relay.js";
+import { checkRelay, relayNeedsRestart, relayProviderReachable, RelayCheckError } from "./relay-health.js";
 import { adoptProcess, ownChild, currentProcessIdentity, processStateAlive, processIdentity, type OwnedProcess, type ProcessIdentity } from "./process.js";
+import { RelayOutput } from "./relay-output.js";
 
-interface SavedRelay { owner: ProcessIdentity; port: number; options: string; route?: ComputerRoute }
+interface SavedRelay { owner: ProcessIdentity; port: number; options: string; route?: ComputerRoute; outputFile?: string }
 export function recoveryDelay(failures: number): number { return Math.min(60_000, 1000 * 2 ** Math.min(6, Math.max(0, failures - 1))); }
 
 /** Own process lifecycle separately from any mobile view or pairing command. */
@@ -93,6 +94,7 @@ export async function superviseComputer(directory: string): Promise<void> {
   let routes: ComputerRoute[] = [], published = "";
   let client: Mindwire | undefined;
   let relayMessage = "Preparing your internet connection…", relayError: string | undefined;
+  let relayErrorCode: string | undefined;
   let daemonError: string | undefined, nextDaemonAt = 0, daemonFailures = 0;
   let nextRelayAt = 0, relayFailures = 0, changingDaemon = false;
   let daemonReadyAt = Date.now(), relayReadyAt = Date.now();
@@ -119,9 +121,19 @@ export async function superviseComputer(directory: string): Promise<void> {
     if (saved) {
       const owner = await adoptProcess(saved.owner);
       if (owner) {
-        if (saved.route && saved.port === websocketPort && saved.options === JSON.stringify(config.relay)) {
-          relay = { route: saved.route, owner, close: () => owner.close() };
-        } else { await owner.close(); }
+        if (saved.outputFile && saved.route && saved.port === websocketPort && saved.options === JSON.stringify(config.relay)) {
+          relay = await adoptRelay(owner, saved.route, directory, saved.outputFile);
+        } else {
+          // An old helper's pipes belonged to the controller we replaced. It
+          // can still answer briefly, then die on its next log write. Migrate
+          // it once before certifying a QR, keeping the daemon and phone keys.
+          if (!saved.outputFile) await phase("Refreshing the internet tunnel for this update…");
+          const abandoned = await adoptRelay(owner, saved.route, directory, saved.outputFile);
+          await abandoned.close();
+          await fs.rm(relayPath, { force: true });
+        }
+      } else if (saved.outputFile) {
+        await (await RelayOutput.adopt(directory, saved.outputFile))?.close();
       }
     }
 
@@ -148,18 +160,20 @@ export async function superviseComputer(directory: string): Promise<void> {
       }
 
       if (relay?.owner && !relay.owner.alive()) {
+        await relay.close();
         relay = undefined;
         relayReachable = false; relayWasReachable = false;
+        relayErrorCode = undefined;
         relayError = "The internet tunnel disconnected. Reconnecting…";
         nextRelayAt = Date.now() + recoveryDelay(++relayFailures);
       }
       if (relayResult) {
         const result = relayResult; relayResult = undefined; relayTask = undefined;
         if (result.handle) {
-          relay = result.handle; relayError = undefined; relayReadyAt = Date.now();
+          relay = result.handle; relayError = undefined; relayErrorCode = undefined; relayReadyAt = Date.now();
           relayReachable = false; relayWasReachable = false; relayHealthFailures = 0; relayFailedAt = 0; nextCheckAt = 0;
           if (relay.owner?.identity) await writeJSON(relayPath, {
-            owner: relay.owner.identity, port: websocketPort, options: JSON.stringify(config.relay), route: relay.route,
+            owner: relay.owner.identity, port: websocketPort, options: JSON.stringify(config.relay), route: relay.route, outputFile: relay.outputFile,
           } satisfies SavedRelay);
         } else {
           relayError = result.error instanceof Error ? result.error.message : "The internet tunnel couldn't connect.";
@@ -167,13 +181,14 @@ export async function superviseComputer(directory: string): Promise<void> {
         }
       }
       if (!relay && !relayTask && Date.now() >= nextRelayAt) {
+        relayError = undefined; relayErrorCode = undefined;
         relayMessage = "Reconnecting your internet tunnel…";
         relayTask = startRelay(config.relay, websocketPort, {
-          cacheDir: path.join(directory, "tools"), signal: abort.signal,
+          cacheDir: path.join(directory, "tools"), outputDirectory: directory, signal: abort.signal,
           onProgress: message => { relayMessage = message; },
-          onSpawn: async owner => {
+          onSpawn: async (owner, outputFile) => {
             if (owner.identity) await writeJSON(relayPath, {
-              owner: owner.identity, port: websocketPort, options: JSON.stringify(config!.relay),
+              owner: owner.identity, port: websocketPort, options: JSON.stringify(config!.relay), outputFile,
             } satisfies SavedRelay);
           },
         }).then(handle => { relayResult = { handle }; }, error => { relayResult = { error }; });
@@ -186,10 +201,11 @@ export async function superviseComputer(directory: string): Promise<void> {
           checkedAt = Date.now();
           relayReachable = !result.error;
           if (!result.error) {
-            relayWasReachable = true; relayHealthFailures = 0; relayFailedAt = 0; relayError = undefined;
+            relayWasReachable = true; relayHealthFailures = 0; relayFailedAt = 0; relayError = undefined; relayErrorCode = undefined;
             nextCheckAt = checkedAt + 30_000;
           } else {
             relayError = result.error instanceof Error ? result.error.message : "The internet tunnel couldn't connect. Retrying…";
+            relayErrorCode = result.error instanceof RelayCheckError ? result.error.code : undefined;
             relayFailedAt ||= checkedAt;
             relayHealthFailures++;
             nextCheckAt = checkedAt + Math.min(15_000, recoveryDelay(relayHealthFailures));
@@ -212,10 +228,8 @@ export async function superviseComputer(directory: string): Promise<void> {
             await checkRelay(checking.route!, { signal: abort.signal });
             checkResult = { relay: checking };
           } catch (error) {
-            // Quick-tunnel DNS can initially return NXDOMAIN with a 60-second
-            // negative TTL even after its connection registered. Replacing the
-            // helper sooner would keep allocating fresh, negatively cached names.
-            const canRestart = !!checking.owner && relayHealthFailures >= 2 && relayFailedAt > 0 && Date.now() - relayFailedAt >= 90_000
+            const canRestart = !!checking.owner && relayFailedAt > 0
+              && relayNeedsRestart(error, relayHealthFailures, Date.now() - relayFailedAt)
               && await relayProviderReachable(config!.relay, abort.signal).catch(() => false);
             checkResult = { relay: checking, error, canRestart };
           }
@@ -232,7 +246,8 @@ export async function superviseComputer(directory: string): Promise<void> {
       const ready = !!client && !!child?.alive() && !changingDaemon && routes.length > 0 && published === routeJSON
         && (config.relay.kind === "none" || relayReachable);
       const state: ControllerState = { ...owner, protocol: CONTROLLER_PROTOCOL, cliVersion: SDK_VERSION, ready, routes, checkedAt,
-        phase: ready ? undefined : daemonError ?? relayError ?? relayMessage, error: daemonError ?? relayError, recovering: !ready };
+        phase: ready ? undefined : daemonError ?? relayError ?? relayMessage, error: daemonError ?? relayError,
+        errorCode: daemonError ? undefined : relayErrorCode, recovering: !ready };
       const serialized = JSON.stringify(state);
       if (serialized !== lastController) { await writeJSON(controllerPath, state); lastController = serialized; }
 

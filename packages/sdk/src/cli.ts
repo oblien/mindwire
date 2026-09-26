@@ -13,6 +13,7 @@ import type { RelayOptions } from "./computer/relay.js";
 import { showPairingInvitation, type PairingQRMode } from "./computer/pairing-display.js";
 import { configureStartup, startupStatus, watchComputer } from "./computer/startup.js";
 import { approvalCommand, chooseConnectionAction, choosePairingDecision, chooseStartupAction, connectionAction, deviceSummary } from "./computer/connection-flow.js";
+import { ConnectionProgress } from "./computer/connection-progress.js";
 
 const help = `Mindwire — connect this computer to your phone
 
@@ -108,9 +109,12 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       patch.relay = { kind: kind as RelayOptions["kind"], url: values["relay-url"],
         cloudflareTokenFile: values["cloudflare-token-file"] ? path.resolve(values["cloudflare-token-file"]) : undefined };
     }
-    emit("starting", {}, "Starting Mindwire…");
-    const client = await ensureComputer(directory, fileURLToPath(import.meta.url), patch,
-      phase => emit("progress", { message: phase }, phase));
+    const progress = !values.json && process.stderr.isTTY && process.env.TERM !== "dumb" ? new ConnectionProgress(process.stderr) : undefined;
+    emit("starting", {}, progress ? undefined : "Starting Mindwire…");
+    const client = await ensureComputer(directory, fileURLToPath(import.meta.url), patch, phase => {
+      if (progress) progress.update(phase);
+      else emit("progress", { message: phase }, phase);
+    }).finally(() => progress?.close());
     const info = await client.computer.info();
     emit("ready", { computerId: info.computerId, routes: info.routes }, "Mindwire is running in the background.");
     if (command === "start") return;
@@ -176,7 +180,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
           }
           if (!authorized) {
             authorized = true;
-            emit("authorized", {}, "Phone authorized. Waiting for it to save the connection…");
+            emit("authorized", {}, "Phone approved. Keep Mindwire open on your phone while it saves the connection…");
           }
           await delay(750);
           continue;
@@ -213,8 +217,8 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   switch (command) {
     case "status": {
       const [info, health, work, controller, startup] = await Promise.all([client.computer.info(), client.health(), client.service.updateStatus(),
-        readJSON<{ error?: string; phase?: string; recovering?: boolean }>(path.join(directory, "computer-controller.json")), startupStatus(directory)]);
-      emit("status", { ...info, daemonVersion: health.version, ...work, startup, recovering: controller?.recovering, relayError: controller?.error },
+        readJSON<{ error?: string; errorCode?: string; phase?: string; recovering?: boolean }>(path.join(directory, "computer-controller.json")), startupStatus(directory)]);
+      emit("status", { ...info, daemonVersion: health.version, ...work, startup, recovering: controller?.recovering, relayError: controller?.error, relayErrorCode: controller?.errorCode },
         `Mindwire ${health.version} · ${work.idle ? "idle" : "working"}\nStartup: ${startup.enabled ? "on" : "off"}\n${info.routes.map(route => route.kind === "ssh" ? `SSH ${route.host}:${route.port}` : route.url).join("\n")}${controller?.error ? `\n${controller.error}` : ""}`);
       break;
     }

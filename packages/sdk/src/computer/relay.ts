@@ -1,8 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import type { ComputerRoute } from "../computer.js";
 import { cloudflareCommand } from "./cloudflare-binary.js";
 import { ownChild, type OwnedProcess } from "./process.js";
+import { RelayOutput } from "./relay-output.js";
 
 export interface RelayOptions {
   kind: "none" | "cloudflare" | "ngrok" | "custom";
@@ -10,7 +12,12 @@ export interface RelayOptions {
   url?: string;
   cloudflareTokenFile?: string;
 }
-export interface RelayHandle { route?: ComputerRoute; process?: ChildProcess; owner?: OwnedProcess; close(): void | Promise<void> }
+export interface RelayHandle { route?: ComputerRoute; process?: ChildProcess; owner?: OwnedProcess; outputFile?: string; close(): void | Promise<void> }
+
+export async function adoptRelay(owner: OwnedProcess, route: ComputerRoute | undefined, directory: string, outputFile?: string): Promise<RelayHandle> {
+  const output = outputFile ? await RelayOutput.adopt(directory, outputFile) : undefined;
+  return { route, owner, outputFile: output?.file, async close() { await owner.close(); await output?.close(); } };
+}
 
 export function websocketURL(value: string): string {
   const url = new URL(value);
@@ -24,8 +31,8 @@ export function websocketURL(value: string): string {
 
 /** Both providers forward encrypted SSH bytes to one loopback WebSocket bridge. */
 export async function startRelay(options: RelayOptions, port: number, runtime: {
-  cacheDir?: string; onProgress?: (message: string) => void | Promise<void>;
-  signal?: AbortSignal; onSpawn?: (owner: OwnedProcess) => Promise<void>;
+  cacheDir?: string; outputDirectory?: string; onProgress?: (message: string) => void | Promise<void>;
+  signal?: AbortSignal; onSpawn?: (owner: OwnedProcess, outputFile: string) => Promise<void>;
 } = {}): Promise<RelayHandle> {
   runtime.signal?.throwIfAborted();
   if (options.kind === "none") return { close() {} };
@@ -56,57 +63,50 @@ export async function startRelay(options: RelayOptions, port: number, runtime: {
     }
   }
   runtime.signal?.throwIfAborted();
-  const child = spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-  let buffer = "";
+  const output = await RelayOutput.create(runtime.outputDirectory);
+  const child = spawn(command, args, { env, detached: true, stdio: ["ignore", output.fd, output.fd], windowsHide: true });
+  let failure: Error | undefined;
+  child.on("error", error => { failure = error; });
+  let owner: OwnedProcess | undefined;
   try {
-    const address = new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => { cleanup(); reject(new Error(`${command} did not establish its tunnel. Check its account and tunnel configuration.`)); }, 45_000);
-      const cleanup = () => { clearTimeout(timer); child.off("error", fail); child.off("exit", exited); runtime.signal?.removeEventListener("abort", aborted); };
-      const fail = (error: Error) => { cleanup(); reject(new Error(`Could not run ${command}. Install it on the computer first.`, { cause: error })); };
-      const exited = () => { cleanup(); reject(new Error(`${command} exited before the tunnel connected. Check its account configuration.`)); };
-      const aborted = () => { cleanup(); child.kill(); reject(runtime.signal?.reason ?? new Error("Tunnel startup cancelled.")); };
-      let cloudflareAddress = options.url;
-      let cloudflareConnected = false;
-      const receive = (chunk: Buffer) => {
-        const received = buffer + chunk.toString();
-        buffer = received.slice(-16_384);
-        let found: string | undefined;
-        if (options.kind === "cloudflare") {
-          cloudflareAddress ??= received.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/)?.[0];
-          cloudflareConnected ||= /Registered tunnel connection/.test(received);
-          // Quick tunnels print a reserved hostname before their outbound
-          // connection succeeds. Do not invite a phone until that path is open.
-          if (cloudflareConnected) found = cloudflareAddress;
-        } else {
-          for (const line of received.split(/\r?\n/)) {
-            try {
-              const event = JSON.parse(line) as { msg?: string; url?: string };
-              if (event.msg === "started tunnel" && event.url?.startsWith("https://")) found = event.url;
-            } catch { /* Wait for a complete JSON log record. */ }
-          }
+    await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
+    owner = await ownChild(child);
+    await runtime.onSpawn?.(owner, output.file);
+    const deadline = Date.now() + 45_000;
+    let buffer = "", cloudflareAddress = options.url, cloudflareConnected = false;
+    while (Date.now() < deadline) {
+      runtime.signal?.throwIfAborted();
+      if (failure) throw new Error(`Could not run ${options.kind}. Check its installation.`, { cause: failure });
+      if (!owner.alive()) throw new Error(`${options.kind} exited before the tunnel connected. Check its account configuration.`);
+      const received = buffer + (await output.read()).toString();
+      buffer = received.slice(-16_384);
+      let found: string | undefined;
+      if (options.kind === "cloudflare") {
+        cloudflareAddress ??= received.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/)?.[0];
+        cloudflareConnected ||= /Registered tunnel connection/.test(received);
+        if (cloudflareConnected) found = cloudflareAddress;
+      } else {
+        for (const line of received.split(/\r?\n/)) {
+          try {
+            const event = JSON.parse(line) as { msg?: string; url?: string };
+            if (event.msg === "started tunnel" && event.url?.startsWith("https://")) found = event.url;
+          } catch { /* Wait for a complete JSON log record. */ }
         }
-        if (found) { cleanup(); resolve(websocketURL(found)); }
-      };
-      child.once("error", fail); child.once("exit", exited);
-      child.stdout!.on("data", receive); child.stderr!.on("data", receive);
-      runtime.signal?.addEventListener("abort", aborted, { once: true });
-      if (runtime.signal?.aborted) aborted();
-    });
-    // Install the readiness listeners before recording process ownership. A fast
-    // helper can print its hostname while its process identity is being read.
-    void address.catch(() => {});
-    const owner = await ownChild(child);
-    await runtime.onSpawn?.(owner);
-    const url = await address;
-    runtime.signal?.throwIfAborted();
-    // Drain provider output without copying potentially sensitive provider logs into ours.
-    child.stdout!.removeAllListeners("data"); child.stderr!.removeAllListeners("data");
-    child.stdout!.resume(); child.stderr!.resume();
-    child.on("error", () => {});
-    return { route: { kind: "websocket", url }, process: child, owner, close: () => owner.close() };
+      }
+      if (found) {
+        const route: ComputerRoute = { kind: "websocket", url: websocketURL(found) };
+        output.discard();
+        const provider = owner;
+        return { route, process: child, owner, outputFile: output.file,
+          async close() { await provider.close(); await output.close(); } };
+      }
+      await delay(50, undefined, { signal: runtime.signal });
+    }
+    throw new Error(`${options.kind} did not establish its tunnel. Check your internet connection and its configuration.`);
   } catch (error) {
-    child.on("error", () => {});
-    if (child.pid) await (await ownChild(child)).close();
+    if (owner) await owner.close();
+    else if (child.pid) await (await ownChild(child)).close();
+    await output.close();
     throw error;
   }
 }

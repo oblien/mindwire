@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -28,6 +28,51 @@ async function until<T>(read: () => Promise<T | undefined>, timeout = 20_000): P
   throw new Error("Recovery did not finish before the test deadline.");
 }
 
+(binary && process.platform !== "win32" ? test : test.skip)("legacy tunnel ownership migrates once before readiness without replacing the daemon or terminals", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mindwire-computer-legacy-relay-"));
+  const env: NodeJS.ProcessEnv = { ...process.env, PATH: directory + delimiter + (process.env.PATH ?? ""), MINDWIRE_RELAY_FIXTURE: directory };
+  const common = ["--state-dir", directory, "--json"];
+  let suspendedController: number | undefined;
+  try {
+    env.NODE_EXTRA_CA_CERTS = await installRelayFixture(directory);
+    const start = await run(["start", ...common, "--relay", "ngrok", "--daemon-bin", binary!, "--directory", directory,
+      "--bind", "127.0.0.1", "--port", "0", "--websocket-port", "0"], env);
+    expect(start.code, start.output).toBe(0);
+    const client = await computerClient(directory);
+    const before = await client.computer.info();
+    await client.execution.terminals.open({ id: "legacy-terminal", directory, columns: 80, rows: 24 });
+    const relayPath = join(directory, "computer-relay.json");
+    const oldRelay = (await readJSON<{ owner: ProcessIdentity; outputFile?: string; route: { url: string } }>(relayPath))!;
+    const oldController = (await readJSON<ControllerState>(join(directory, "computer-controller.json")))!;
+    process.kill(oldController.pid, "SIGSTOP"); suspendedController = oldController.pid;
+    // Older releases recorded process ownership but did not have durable output.
+    await writeJSON(relayPath, { ...oldRelay, outputFile: undefined });
+    await writeJSON(join(directory, "computer-controller.json"), { ...oldController, cliVersion: "0.0.1" });
+    const upgraded = await run(["start", ...common], env);
+    expect(upgraded.code, upgraded.output).toBe(0);
+    const replacement = (await readJSON<typeof oldRelay>(relayPath))!;
+    expect(replacement.owner.pid).not.toBe(oldRelay.owner.pid);
+    expect(replacement.outputFile).toBeTruthy();
+    expect(processAlive(oldRelay.owner.pid)).toBe(false);
+    expect((await client.computer.info()).pid).toBe(before.pid);
+    expect((await client.computer.info()).fingerprint).toBe(before.fingerprint);
+    expect((await client.computer.info()).routes.some(route => route.kind === "websocket" && route.url === replacement.route.url)).toBe(true);
+    expect((await client.execution.terminals.get("legacy-terminal")).running).toBe(true);
+    const retried = await run(["start", ...common], env);
+    expect(retried.code, retried.output).toBe(0);
+    expect((await readJSON<typeof oldRelay>(relayPath))?.owner.pid).toBe(replacement.owner.pid);
+    expect((await readFile(join(directory, "relay-starts"), "utf8")).trim().split("\n").length).toBe(2);
+    await client.execution.terminals.close("legacy-terminal");
+    // This fixture removed the new spool metadata to emulate the old format.
+    // A real old helper has pipes and leaves no spool behind.
+    if (oldRelay.outputFile) await rm(oldRelay.outputFile, { force: true });
+  } finally {
+    if (suspendedController && processAlive(suspendedController)) process.kill(suspendedController, "SIGCONT");
+    await run(["stop", ...common, "--force"], env).catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 30_000);
+
 (binary && process.platform !== "win32" ? test : test.skip)("relay and controller crashes preserve the live daemon; a deliberate stop stays stopped", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mindwire-computer-recovery-"));
   const env: NodeJS.ProcessEnv = { ...process.env, PATH: directory + delimiter + (process.env.PATH ?? ""), MINDWIRE_RELAY_FIXTURE: directory };
@@ -44,8 +89,10 @@ async function until<T>(read: () => Promise<T | undefined>, timeout = 20_000): P
     expect(started.code, started.output).toBe(0);
     const client = await computerClient(directory);
     const initial = await client.computer.info();
-    const relayState = () => readJSON<{ owner: ProcessIdentity; route?: { url: string } }>(join(directory, "computer-relay.json"));
+    const relayState = () => readJSON<{ owner: ProcessIdentity; route?: { url: string }; outputFile: string }>(join(directory, "computer-relay.json"));
     const initialRelay = (await relayState())!.owner.pid;
+    const initialOutput = (await relayState())!.outputFile;
+    expect((await stat(initialOutput)).mode & 0o777).toBe(0o600);
     await client.execution.terminals.open({ id: "preserved-terminal", directory, columns: 80, rows: 24 });
 
     // A live helper with an unavailable byte path must not certify a fresh
@@ -74,6 +121,11 @@ async function until<T>(read: () => Promise<T | undefined>, timeout = 20_000): P
     expect((await client.computer.info()).pid).toBe(initial.pid);
     expect((await relayState())?.owner.pid).toBe(initialRelay);
     expect((await client.execution.terminals.get("preserved-terminal")).running).toBe(true);
+    // The provider writes after adoption too. Its output file remains private,
+    // is drained by the successor, and cannot break the inherited connection.
+    await delay(2500);
+    expect((await stat(initialOutput)).size).toBeLessThan(1024);
+    expect((await relayState())?.owner.pid).toBe(initialRelay);
 
     // Installing another npm release must also refresh its still-running
     // controller even when the connection protocol itself has not changed.
@@ -133,6 +185,7 @@ async function until<T>(read: () => Promise<T | undefined>, timeout = 20_000): P
     expect(processAlive(recovered.pid)).toBe(false);
     expect(processAlive(replacementRelay)).toBe(false);
     expect((await readJSON<ControllerState>(join(directory, "computer-controller.json")))?.ready).toBe(false);
+    expect((await readdir(directory)).filter(file => file.startsWith(".relay-output-"))).toEqual([]);
   } catch (error) {
     console.error((await readFile(join(directory, "computer.log"), "utf8").catch(() => "")).slice(-3000));
     throw error;

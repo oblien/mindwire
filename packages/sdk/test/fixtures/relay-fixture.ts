@@ -38,6 +38,8 @@ server.listen(0,'127.0.0.1',()=>{
   fs.appendFileSync(directory+'/relay-starts',process.pid+'\\n');
   console.log(JSON.stringify({msg:'started tunnel',url:'https://127.0.0.1:'+server.address().port}));
 });
+// A provider writes again during network recovery, even after its controller exits.
+setInterval(()=>console.error('provider heartbeat'),100);
 `, { mode: 0o700 });
   return certificate;
 }
