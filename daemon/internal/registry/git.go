@@ -21,6 +21,9 @@ type GitSpec struct {
 	Message        string       `json:"message,omitempty"`
 	Branch         string       `json:"branch,omitempty"`
 	Remote         bool         `json:"remote,omitempty"`
+	NewName        string       `json:"newName,omitempty"`
+	ExpectedTip    string       `json:"expectedTip,omitempty"`
+	Force          bool         `json:"force,omitempty"`
 	Identity       *GitIdentity `json:"identity,omitempty"`
 	CommitID       string       `json:"commitId,omitempty"`
 	ExpectedHead   string       `json:"expectedHead,omitempty"`

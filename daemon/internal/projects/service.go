@@ -18,6 +18,7 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/gitauthor"
+	"github.com/oblien/mindwire/daemon/internal/projecticon"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 )
@@ -266,6 +267,7 @@ func (s *Service) Save(id string, data []byte, expected *int64) error {
 	var fields map[string]json.RawMessage
 	_ = json.Unmarshal(data, &fields)
 	_, connectionSupplied := fields["gitConnection"]
+	_, iconSupplied := fields["iconPath"]
 	path, err := workspacepath.Canonical(p.Path)
 	if err != nil {
 		return invalid(err.Error())
@@ -279,6 +281,9 @@ func (s *Service) Save(id string, data []byte, expected *int64) error {
 		if !connectionSupplied {
 			p.GitConnection = previous.GitConnection
 		}
+		if !iconSupplied {
+			p.IconPath = previous.IconPath
+		}
 	} else if errors.Is(err, registry.ErrNotFound) {
 		if err = directory(path); err != nil {
 			return invalid(err.Error())
@@ -287,6 +292,11 @@ func (s *Service) Save(id string, data []byte, expected *int64) error {
 		return err
 	}
 	p.Path = path
+	if p.IconPath != nil && (previous == nil || !reflect.DeepEqual(previous.IconPath, p.IconPath)) {
+		if _, err := projecticon.Read(path, *p.IconPath); err != nil {
+			return invalid(err.Error())
+		}
+	}
 	if err := gitauthor.New(s.store).PrepareRepository(context.Background(), path); err != nil {
 		return err
 	}
@@ -304,6 +314,11 @@ func (s *Service) Save(id string, data []byte, expected *int64) error {
 		// omitted field from an older client must still preserve its binding.
 		_ = json.Unmarshal(data, &fields)
 		fields["gitConnection"] = json.RawMessage("null")
+		data, _ = json.Marshal(fields)
+	}
+	if iconSupplied && p.IconPath == nil {
+		_ = json.Unmarshal(data, &fields)
+		fields["iconPath"] = json.RawMessage("null")
 		data, _ = json.Marshal(fields)
 	}
 	changed := previous == nil || !reflect.DeepEqual(previous.GitConnection, p.GitConnection)

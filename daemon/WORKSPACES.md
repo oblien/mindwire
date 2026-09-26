@@ -48,7 +48,7 @@ Use both identity and revision as the sync cursor.
 
 Each record has `id`, `createdAt`, `workspaceId` and `revision`. Agent profiles add
 `name`, `agentType` and optional `agentTypeName`. Projects add `name`, `path` and
-optional `repoUrl`. Chats add `agentId`, `projectId`, `title`, optional
+optional `repoUrl` and `iconPath`. Chats add `agentId`, `projectId`, `title`, optional
 `titleIsUserSet` and the legacy `sessionId` migration hint. See
 [openapi.json](./openapi.json) for exact schemas.
 
@@ -64,6 +64,27 @@ It does not remove files or native transcripts. Running chats block deletion wit
 tombstones registry membership. Existing rename/fork endpoints update the registry.
 Registered turns use their saved profile's harness and project's directory; a
 conflicting explicit harness is rejected.
+
+## Project icons
+
+`projectIconsVersion: 1` enables an optional project-relative `iconPath` in the
+existing revisioned project record. Omission preserves it across older clients'
+metadata edits; explicit `null` resets it without deleting the file. The daemon
+validates a newly selected image before committing the metadata.
+
+`GET /workspace/projects/{id}/icon` reads the saved image. Add `?path=assets/logo.svg`
+to preview a candidate within that project. The response is
+`{path, mediaType, content, etag}`, where `content` is base64 and `etag` is the
+source SHA-256. SVG, PNG, JPEG and GIF are supported up to 1 MiB; raster images
+must be within 8192 pixels per dimension and 32 million pixels total. SVGs must
+be self-contained, without scripts, external references or embedded images.
+Symlinks are allowed only when they stay within the project directory.
+
+The TypeScript SDK exposes `workspace.projectIcon(id, path?)`; the Go SDK exposes
+`Workspace.ProjectIcon(id, path)` and `Workspace.SetProjectIcon(id, path, revision)`.
+Image reads use the same authenticated workspace connection as other operations.
+Clients may cache thumbnails by registry identity, project, directory and icon path.
+Git summaries are separate disposable snapshots of native Git, never project metadata.
 
 ## Client migration and reconciliation
 

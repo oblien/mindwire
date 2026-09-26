@@ -267,6 +267,10 @@
           "imageAttachmentsVersion": {
             "type": "integer",
             "description": "1 supports image-only turns and image attachments retained in message history."
+          },
+          "projectIconsVersion": {
+            "type": "integer",
+            "description": "Project-relative icons and authenticated previews. Version 1 supports SVG, PNG, JPEG and GIF images up to 1 MiB."
           }
         },
         "required": [
@@ -2714,6 +2718,12 @@
             "$ref": "#/components/schemas/GitConnection",
             "description": "Omit to inherit the workspace default on creation. On metadata edits omission preserves the binding; explicit null restores inheritance.",
             "nullable": true
+          },
+          "iconPath": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4096,
+            "description": "Project-relative SVG/PNG/JPEG/GIF file. Requires projectIconsVersion >= 1. Omit to preserve an existing icon; explicit null resets it. The daemon validates the file when changed. Image bytes are read through the authenticated project icon endpoint."
           }
         }
       },
@@ -2744,6 +2754,12 @@
             "$ref": "#/components/schemas/GitConnection",
             "description": "Omit to inherit the workspace default on creation. On metadata edits omission preserves the binding; explicit null restores inheritance.",
             "nullable": true
+          },
+          "iconPath": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4096,
+            "description": "Project-relative SVG/PNG/JPEG/GIF file. Requires projectIconsVersion >= 1. Omit to preserve an existing icon; explicit null resets it. The daemon validates the file when changed. Image bytes are read through the authenticated project icon endpoint."
           }
         }
       },
@@ -4129,7 +4145,9 @@
               "push",
               "switch_branch",
               "create_branch",
-              "restore_commit"
+              "restore_commit",
+              "rename_branch",
+              "delete_branch"
             ]
           },
           "paths": {
@@ -4158,7 +4176,7 @@
           "branch": {
             "type": "string",
             "maxLength": 1024,
-            "description": "Literal branch name for switch_branch/create_branch. Requires gitOperationsVersion >= 2. Creation switches to the new branch without resetting existing refs or discarding local work."
+            "description": "Literal branch name for switch_branch/create_branch. Requires gitOperationsVersion >= 2. Creation switches to the new branch without resetting existing refs or discarding local work. Local rename/delete require version 5 and expectedTip."
           },
           "remote": {
             "type": "boolean",
@@ -4182,6 +4200,19 @@
             "type": "string",
             "maxLength": 1024,
             "description": "restore_commit only. Observed local branch name; omit only for detached HEAD. A changed branch rejects restoration."
+          },
+          "newName": {
+            "type": "string",
+            "description": "rename_branch only: different local branch name. Requires gitOperationsVersion >= 5. An existing branch is never overwritten."
+          },
+          "expectedTip": {
+            "type": "string",
+            "description": "rename_branch/delete_branch: required full selected branch commit ID. A stale selection fails with git_branch_changed."
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "delete_branch only: explicit confirmation to delete unmerged work. Checked-out branches remain protected."
           }
         }
       },
@@ -4216,7 +4247,9 @@
               "push",
               "switch_branch",
               "create_branch",
-              "restore_commit"
+              "restore_commit",
+              "rename_branch",
+              "delete_branch"
             ]
           },
           "paths": {
@@ -4274,7 +4307,7 @@
           "branch": {
             "type": "string",
             "maxLength": 1024,
-            "description": "Literal branch name for switch_branch/create_branch. Requires gitOperationsVersion >= 2. Creation switches to the new branch without resetting existing refs or discarding local work."
+            "description": "Literal branch name for switch_branch/create_branch. Requires gitOperationsVersion >= 2. Creation switches to the new branch without resetting existing refs or discarding local work. Local rename/delete require version 5 and expectedTip."
           },
           "remote": {
             "type": "boolean",
@@ -4302,6 +4335,19 @@
             "type": "string",
             "maxLength": 1024,
             "description": "restore_commit only. Observed local branch name; omit only for detached HEAD. A changed branch rejects restoration."
+          },
+          "newName": {
+            "type": "string",
+            "description": "rename_branch only: different local branch name. Requires gitOperationsVersion >= 5. An existing branch is never overwritten."
+          },
+          "expectedTip": {
+            "type": "string",
+            "description": "rename_branch/delete_branch: required full selected branch commit ID. A stale selection fails with git_branch_changed."
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "delete_branch only: explicit confirmation to delete unmerged work. Checked-out branches remain protected."
           }
         }
       },
@@ -5128,6 +5174,38 @@
           "before": {
             "type": "string",
             "description": "The oldest returned message ID; pass as before for the preceding page."
+          }
+        }
+      },
+      "ProjectIcon": {
+        "type": "object",
+        "required": [
+          "path",
+          "mediaType",
+          "content",
+          "etag"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string",
+            "enum": [
+              "image/svg+xml",
+              "image/png",
+              "image/jpeg",
+              "image/gif"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "format": "byte",
+            "description": "Base64 image bytes, at most 1 MiB before encoding."
+          },
+          "etag": {
+            "type": "string",
+            "description": "SHA-256 of the source image bytes."
           }
         }
       }
@@ -11372,7 +11450,7 @@
             }
           }
         },
-        "description": "Requires gitOperationsVersion >= 1, >= 2 for switch_branch/create_branch, or >= 3 for commit with identity. Missing commit attribution returns a failed operation with errorCode git_identity_required; collect the user's name and email before a new commit request. Supplied identity is saved only in this repository. Persists the intent before executing native Git. The same ID and intent returns the existing operation, even after completion or restart; a different intent with that ID returns 409. Network writes use the selected project connection. Local mutations need no GitHub credential. Disconnecting only detaches the observer. Active Git, project, and agent work in overlapping directories conflicts. After a daemon restart, unfinished operations become interrupted and are never replayed automatically. Operations are bounded to 15 minutes. restore_commit requires version 4, commitId, expectedHead, and expectedBranch (omitted for detached HEAD). It requires a clean working tree, checks for in-progress Git work and ignored-file collisions, and stages the selected tree without creating a commit or moving HEAD."
+        "description": "Requires gitOperationsVersion >= 1, >= 2 for switch_branch/create_branch, or >= 3 for commit with identity. Missing commit attribution returns a failed operation with errorCode git_identity_required; collect the user's name and email before a new commit request. Supplied identity is saved only in this repository. Persists the intent before executing native Git. The same ID and intent returns the existing operation, even after completion or restart; a different intent with that ID returns 409. Network writes use the selected project connection. Local mutations need no GitHub credential. Disconnecting only detaches the observer. Active Git, project, and agent work in overlapping directories conflicts. After a daemon restart, unfinished operations become interrupted and are never replayed automatically. Operations are bounded to 15 minutes. restore_commit requires version 4, commitId, expectedHead, and expectedBranch (omitted for detached HEAD). It requires a clean working tree, checks for in-progress Git work and ignored-file collisions, and stages the selected tree without creating a commit or moving HEAD. Version 5 adds local rename_branch and delete_branch with expectedTip. Rename also requires newName and preserves native branch configuration/reflogs. Deletion uses Git merge checks; git_branch_unmerged requires a separately confirmed force:true request. Checked-out branches cannot be deleted; other worktrees cannot be renamed here."
       },
       "get": {
         "tags": [
@@ -11522,7 +11600,7 @@
               "minimum": 1,
               "default": 1
             },
-            "description": "Use 2 to include branch operations or 4 to include commit restoration. The default preserves the action set understood by older clients; repository locking always includes every active operation."
+            "description": "Use 5 for local branch rename/delete, 4 for commit restoration, or 2 for switch/create. The default preserves the action set understood by older clients; repository locking always includes every active operation."
           }
         ]
       }
@@ -13331,6 +13409,110 @@
             }
           }
         ]
+      }
+    },
+    "/workspace/projects/{id}/icon": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read or preview a project icon",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectIcon"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or saved icon not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update the daemon to use project operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional project-relative candidate path."
+          }
+        ],
+        "description": "Requires projectIconsVersion >= 1. Without a path, reads the saved icon. A path previews a candidate inside this project. Follows internal symlinks but rejects escapes, non-regular files, oversized/invalid images and external SVG resources. Never exposes a public file URL."
       }
     }
   }

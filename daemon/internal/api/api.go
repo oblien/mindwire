@@ -176,6 +176,7 @@ func (a *API) Routes() []Route {
 		{"POST", "/workspace/git/operations/{id}/cancel", a.gitOperationCancel},
 		{"GET", "/workspace/git/operations/{id}/stream", a.gitOperationStream},
 		{"POST", "/workspace/projects", a.projectStart},
+		{"GET", "/workspace/projects/{id}/icon", a.projectIcon},
 		{"POST", "/workspace/projects/{id}/remove", a.projectRemoveFiles},
 		{"GET", "/workspace/operations", a.projectOperations},
 		{"GET", "/workspace/operations/{id}", a.projectOperation},

@@ -79,7 +79,7 @@ test("branch operations preserve their intent and request compatible history", a
       expect(JSON.parse(String(init.body))).toEqual(request);
       return Response.json(operation);
     }
-    expect(url.searchParams.get("actionsVersion")).toBe("4");
+    expect(url.searchParams.get("actionsVersion")).toBe("5");
     return Response.json({ operations: [operation] });
   } });
   expect(await mw.workspace.git.start("project", request)).toEqual(operation);
@@ -96,7 +96,7 @@ test("restore operations retain the confirmed commit and repository guards in th
       expect(JSON.parse(String(init.body))).toEqual(request);
       return Response.json(operation);
     }
-    expect(new URL(input).searchParams.get("actionsVersion")).toBe("4");
+    expect(new URL(input).searchParams.get("actionsVersion")).toBe("5");
     return Response.json({ operations: [operation] });
   } });
   const result = await mw.workspace.git.start("project", request);

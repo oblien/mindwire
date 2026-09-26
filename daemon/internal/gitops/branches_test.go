@@ -2,11 +2,119 @@ package gitops
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/oblien/mindwire/daemon/internal/registry"
 )
+
+func manage(t *testing.T, s *Service, root, id, action, name, newName, tip string, force bool) registry.GitOperation {
+	t.Helper()
+	_, err := s.Start(registry.GitSpec{ID: id, ProjectID: "project", Path: root, Action: action,
+		Branch: name, NewName: newName, ExpectedTip: tip, Force: force}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wait(t, s, id)
+}
+
+func TestBranchManagementRenamesWithoutSwitchingAndReplaysReceipt(t *testing.T) {
+	s, _, root := fixture(t)
+	put(t, root, "tracked", "base\n")
+	git(t, root, "add", "tracked")
+	git(t, root, "commit", "-qm", "base")
+	current := git(t, root, "branch", "--show-current")
+	tip := git(t, root, "rev-parse", "HEAD")
+	git(t, root, "branch", "feature/old")
+	git(t, root, "config", "branch.feature/old.description", "keep my settings")
+	put(t, root, "tracked", "unfinished work\n")
+	renamed := manage(t, s, root, "rename", "rename_branch", "feature/old", "feature/new", tip, false)
+	if renamed.Status != "succeeded" || git(t, root, "branch", "--show-current") != current ||
+		git(t, root, "rev-parse", "feature/new") != tip ||
+		git(t, root, "config", "branch.feature/new.description") != "keep my settings" ||
+		contents(t, root, "tracked") != "unfinished work\n" {
+		t.Fatalf("rename changed repository state: %+v", renamed)
+	}
+	// A repeated request observes the accepted result even though the old ref is gone.
+	duplicate := manage(t, s, root, "rename", "rename_branch", "feature/old", "feature/new", tip, false)
+	if duplicate.Sequence != renamed.Sequence {
+		t.Fatal("rename was executed twice")
+	}
+	conflict := manage(t, s, root, "rename-conflict", "rename_branch", "feature/new", current, tip, false)
+	if conflict.Status != "failed" || git(t, root, "rev-parse", "feature/new") != tip {
+		t.Fatalf("rename overwrote an existing branch: %+v", conflict)
+	}
+	activeRename := manage(t, s, root, "rename-current", "rename_branch", current, "renamed-current", tip, false)
+	if activeRename.Status != "succeeded" || git(t, root, "branch", "--show-current") != "renamed-current" {
+		t.Fatalf("current branch rename: %+v", activeRename)
+	}
+}
+
+func TestBranchDeletionRequiresExplicitUnmergedConfirmationAndProtectsWorktrees(t *testing.T) {
+	s, _, root := fixture(t)
+	put(t, root, "tracked", "base\n")
+	git(t, root, "add", "tracked")
+	git(t, root, "commit", "-qm", "base")
+	current := git(t, root, "branch", "--show-current")
+	base := git(t, root, "rev-parse", "HEAD")
+	git(t, root, "switch", "-c", "unfinished")
+	put(t, root, "tracked", "not merged\n")
+	git(t, root, "commit", "-qam", "unmerged")
+	tip := git(t, root, "rev-parse", "HEAD")
+	git(t, root, "switch", current)
+	blocked := manage(t, s, root, "delete-unmerged", "delete_branch", "unfinished", "", tip, false)
+	if blocked.ErrorCode != "git_branch_unmerged" || git(t, root, "rev-parse", "unfinished") != tip {
+		t.Fatalf("unmerged work was deleted: %+v", blocked)
+	}
+	stale := manage(t, s, root, "delete-stale", "delete_branch", "unfinished", "", base, true)
+	if stale.ErrorCode != "git_branch_changed" {
+		t.Fatalf("stale force confirmation accepted: %+v", stale)
+	}
+	forced := manage(t, s, root, "delete-confirmed", "delete_branch", "unfinished", "", tip, true)
+	if forced.Status != "succeeded" || git(t, root, "branch", "--list", "unfinished") != "" {
+		t.Fatalf("explicit deletion failed: %+v", forced)
+	}
+	active := manage(t, s, root, "delete-current", "delete_branch", current, "", base, true)
+	if active.ErrorCode != "git_branch_in_use" {
+		t.Fatalf("current branch deleted: %+v", active)
+	}
+	git(t, root, "branch", "worktree-branch")
+	git(t, root, "worktree", "add", filepath.Join(t.TempDir(), "other"), "worktree-branch")
+	for _, action := range []string{"rename_branch", "delete_branch"} {
+		name := ""
+		if action == "rename_branch" {
+			name = "another-name"
+		}
+		o := manage(t, s, root, action+"-worktree", action, "worktree-branch", name, base, false)
+		if o.ErrorCode != "git_branch_in_use" {
+			t.Fatalf("branch in another worktree was modified: %+v", o)
+		}
+	}
+	git(t, root, "branch", "merged")
+	deleted := manage(t, s, root, "delete-merged", "delete_branch", "merged", "", base, false)
+	if deleted.Status != "succeeded" || git(t, root, "branch", "--list", "merged") != "" {
+		t.Fatalf("merged branch deletion failed: %+v", deleted)
+	}
+}
+
+func TestBranchManagementRejectsUnrelatedOptions(t *testing.T) {
+	valid := registry.GitSpec{ID: "request", ProjectID: "project", Action: "rename_branch", Branch: "old", NewName: "new", ExpectedTip: strings.Repeat("a", 40)}
+	for _, change := range []func(*registry.GitSpec){
+		func(s *registry.GitSpec) { s.Force = true },
+		func(s *registry.GitSpec) { s.Remote = true },
+		func(s *registry.GitSpec) { s.NewName = "--force" },
+		func(s *registry.GitSpec) { s.NewName = s.Branch },
+		func(s *registry.GitSpec) { s.ExpectedTip = "HEAD" },
+		func(s *registry.GitSpec) { s.Action = "stage"; s.Paths = []string{"file"} },
+	} {
+		spec := valid
+		change(&spec)
+		if err := Normalize(&spec); !errors.Is(err, registry.ErrInvalid) {
+			t.Fatalf("accepted %+v: %v", spec, err)
+		}
+	}
+}
 
 func branch(t *testing.T, s *Service, root, id, action, name string, remote bool) registry.GitOperation {
 	t.Helper()

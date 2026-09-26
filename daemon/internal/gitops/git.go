@@ -66,9 +66,13 @@ func Normalize(spec *registry.GitSpec) error {
 		}
 		spec.Identity = &identity
 	}
-	branchAction := spec.Action == "switch_branch" || spec.Action == "create_branch"
+	manageBranch := spec.Action == "rename_branch" || spec.Action == "delete_branch"
+	branchAction := spec.Action == "switch_branch" || spec.Action == "create_branch" || manageBranch
 	if !branchAction && (spec.Branch != "" || spec.Remote) {
 		return invalid("this Git operation does not accept a branch")
+	}
+	if !manageBranch && (spec.NewName != "" || spec.ExpectedTip != "" || spec.Force) {
+		return invalid("only branch management accepts a new name, expected tip or force flag")
 	}
 	if spec.Action != "restore_commit" && (spec.CommitID != "" || spec.ExpectedHead != "" || spec.ExpectedBranch != "") {
 		return invalid("only commit restoration accepts a source commit and expected repository state")
@@ -96,6 +100,17 @@ func Normalize(spec *registry.GitSpec) error {
 				return invalid("select a remote tracking branch")
 			}
 		}
+	case "rename_branch", "delete_branch":
+		if len(spec.Paths) != 0 || spec.Message != "" || spec.Remote || !validBranchName(spec.Branch) || !validObjectID(spec.ExpectedTip) {
+			return invalid("branch management requires a local branch and its full expected commit ID")
+		}
+		if spec.Action == "rename_branch" && (!validBranchName(spec.NewName) || spec.NewName == spec.Branch || spec.Force) {
+			return invalid("rename requires a different valid branch name and cannot force an overwrite")
+		}
+		if spec.Action == "delete_branch" && spec.NewName != "" {
+			return invalid("branch deletion does not accept a new name")
+		}
+		spec.ExpectedTip = strings.ToLower(spec.ExpectedTip)
 	case "restore_commit":
 		if len(spec.Paths) != 0 || spec.Message != "" || !validObjectID(spec.CommitID) || !validObjectID(spec.ExpectedHead) ||
 			(spec.ExpectedBranch != "" && !validBranchName(spec.ExpectedBranch)) {
@@ -146,6 +161,9 @@ func (s *Service) execute(ctx context.Context, spec registry.GitSpec, c *gitacce
 	}
 	if spec.Action == "restore_commit" {
 		return restoreCommit(ctx, spec)
+	}
+	if spec.Action == "rename_branch" || spec.Action == "delete_branch" {
+		return manageBranch(ctx, spec)
 	}
 	output := &tailOutput{}
 	command := func(input string, args ...string) error {

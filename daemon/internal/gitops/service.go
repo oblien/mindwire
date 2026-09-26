@@ -15,8 +15,8 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 )
 
-// Version 4 adds guarded commit restoration without moving HEAD or rewriting history.
-const Version = 4
+// Version 5 adds guarded local branch rename/deletion, including explicit unmerged deletion.
+const Version = 5
 const maxDuration = 15 * time.Minute
 
 type running struct {
@@ -170,6 +170,9 @@ func (s *Service) work(ctx context.Context, cancel context.CancelFunc, o registr
 	result.Output = gitaccess.Redact(result.Output, redact)
 	identityRequired := errors.Is(err, ErrIdentityRequired)
 	operationErrorCode := restoreErrorCode(err)
+	if code := branchErrorCode(err); code != "" {
+		operationErrorCode = code
+	}
 	if err != nil {
 		err = errors.New(gitaccess.Redact(err.Error(), redact))
 	}

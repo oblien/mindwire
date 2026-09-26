@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/gitaccess"
+	"github.com/oblien/mindwire/daemon/internal/projecticon"
 	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 
@@ -55,6 +56,7 @@ type Project struct {
 	Path          string                `json:"path"`
 	RepoURL       string                `json:"repoUrl,omitempty"`
 	GitConnection *gitaccess.Connection `json:"gitConnection,omitempty"`
+	IconPath      *string               `json:"iconPath,omitempty"`
 }
 
 type Chat struct {
@@ -246,6 +248,11 @@ func (st *Store) normalize(kind, id string, data []byte, revision int64) ([]byte
 		row.Record = base
 		row.Name = strings.TrimSpace(row.Name)
 		row.Path = strings.TrimSpace(row.Path)
+		if row.IconPath != nil {
+			if err := projecticon.ValidatePath(*row.IconPath); err != nil {
+				return nil, "", "", invalid(err.Error())
+			}
+		}
 		if row.GitConnection != nil {
 			if err := row.GitConnection.Validate(); err != nil {
 				return nil, "", "", invalid(err.Error())
@@ -378,9 +385,11 @@ func (st *Store) Put(kind, id string, data []byte, expected *int64) error {
 				// explicit null clears the override and restores the workspace default.
 				var raw map[string]json.RawMessage
 				_ = json.Unmarshal(data, &raw)
-				if _, supplied := raw["gitConnection"]; !supplied {
-					if connection, exists := previous["gitConnection"]; exists {
-						incoming["gitConnection"] = connection
+				for _, key := range []string{"gitConnection", "iconPath"} {
+					if _, supplied := raw[key]; !supplied {
+						if value, exists := previous[key]; exists {
+							incoming[key] = value
+						}
 					}
 				}
 			}

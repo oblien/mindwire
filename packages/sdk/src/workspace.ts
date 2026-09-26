@@ -30,7 +30,7 @@ export interface ProjectGitState {
 }
 
 export type GitAction = "stage" | "unstage" | "discard" | "commit" | "fetch" | "pull" | "push"
-  | "switch_branch" | "create_branch" | "restore_commit";
+  | "switch_branch" | "create_branch" | "restore_commit" | "rename_branch" | "delete_branch";
 
 export interface GitIdentity { name: string; email: string }
 
@@ -61,10 +61,16 @@ export interface GitOperationRequest {
   paths?: string[];
   /** Required for commit. Uses the existing author unless identity is explicitly supplied. */
   message?: string;
-  /** Literal branch name for switch_branch/create_branch; requires gitOperationsVersion >= 2. */
+  /** Literal branch name: switch/create require v2; local rename/delete require v5 and expectedTip. */
   branch?: string;
   /** switch_branch only: branch is a remote tracking name, e.g. origin/feature. */
   remote?: boolean;
+  /** rename_branch only: a new local name. Never overwrites another branch. Requires v5. */
+  newName?: string;
+  /** rename_branch/delete_branch: full selected branch tip, guarding stale confirmation. Requires v5. */
+  expectedTip?: string;
+  /** delete_branch only: explicit confirmation to delete unmerged commits. Checked-out branches stay protected. */
+  force?: boolean;
   /** Commit only; requires gitOperationsVersion >= 3. Saves attribution in this repository,
    * then commits under the same durable lock. Never changes global Git configuration. */
   identity?: GitIdentity;
@@ -87,6 +93,7 @@ export interface GitOperation extends Omit<GitOperationRequest, "auth"> {
   error?: string;
   /** git_identity_required asks the client to collect a name/email before a new commit intent. */
   errorCode?: "git_identity_required" | "git_restore_dirty" | "git_restore_changed"
+    | "git_branch_changed" | "git_branch_in_use" | "git_branch_unmerged"
     | "git_restore_in_progress" | "git_restore_commit_unavailable" | "git_restore_local_files" | (string & {});
   createdAt: string;
   updatedAt: string;
@@ -193,6 +200,16 @@ export interface WorkspaceProject extends WorkspaceRecord {
   repoUrl?: string;
   /** Omit on edits to preserve; explicitly null restores the workspace default. */
   gitConnection?: GitConnection | null;
+  /** Project-relative SVG/PNG/JPEG/GIF file. Omit to preserve, null to reset. Requires projectIconsVersion >= 1. */
+  iconPath?: string | null;
+}
+
+export interface ProjectIcon {
+  path: string;
+  mediaType: string;
+  /** Base64-encoded bytes, capped at 1 MiB; served only through the authenticated workspace connection. */
+  content: string;
+  etag: string;
 }
 
 /** Chat membership; transcript content continues to come from /chats/:id/messages. */
@@ -276,6 +293,11 @@ export class WorkspaceApi {
     return this.mw.http.request("GET", "/workspace", { query: options });
   }
 
+  /** Read the saved icon, or preview a candidate relative path within the project. Requires projectIconsVersion >= 1. */
+  projectIcon(projectId: string, path?: string): Promise<ProjectIcon> {
+    return this.mw.http.request("GET", `/workspace/projects/${encodeURIComponent(projectId)}/icon`, { query: { path } });
+  }
+
   /** Start an operation owned by the daemon. The same ID/payload returns the existing operation. */
   createProject(request: ProjectRequest): Promise<ProjectOperation> {
     return this.mw.http.request("POST", "/workspace/projects", { body: request });
@@ -335,7 +357,7 @@ export class GitAccessApi {
     return this.mw.http.request("POST", `/workspace/projects/${encodeURIComponent(projectId)}/git/${operation}`, { body: { auth } });
   }
 
-  /** Requires health.gitOperationsVersion >= 1 (>= 2 for branches, >= 4 for restore_commit). Acceptance persists before Git runs;
+  /** Requires health.gitOperationsVersion >= 1 (>= 2 for switch/create, >= 4 for restore_commit, >= 5 for rename/delete). Acceptance persists before Git runs;
    * disconnecting only detaches the client. The same ID/intent never runs twice.
    */
   start(projectId: string, request: GitOperationRequest): Promise<GitOperation> {
@@ -343,7 +365,7 @@ export class GitAccessApi {
   }
   async operations(projectId: string, activeOnly = false): Promise<GitOperation[]> {
     const result = await this.mw.http.request<{ operations: GitOperation[] }>("GET",
-      `/workspace/projects/${encodeURIComponent(projectId)}/git/operations`, { query: { active: activeOnly, actionsVersion: 4 } });
+      `/workspace/projects/${encodeURIComponent(projectId)}/git/operations`, { query: { active: activeOnly, actionsVersion: 5 } });
     return result.operations;
   }
   operation(id: string): Promise<GitOperation> {

@@ -25,6 +25,8 @@ var (
 // ActionVersion describes the closed action enum, independently of optional fields.
 func ActionVersion(action string) int {
 	switch action {
+	case "rename_branch", "delete_branch":
+		return 5
 	case "restore_commit":
 		return 4
 	case "switch_branch", "create_branch":

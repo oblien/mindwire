@@ -637,6 +637,7 @@ func TestSDKRouteParity(t *testing.T) {
 		"PUT /workspace/git":                            "HTTP/TypeScript: workspace.git.setDefault; daemon helper required",
 		"DELETE /workspace/git/connections/{id}":        "HTTP/TypeScript: workspace.git.forget; daemon helper required",
 		"GET /workspace/projects/{id}/git":              "HTTP/TypeScript: workspace.git.project; daemon helper required",
+		"GET /workspace/projects/{id}/icon":             "Workspace.ProjectIcon",
 		"PUT /workspace/projects/{id}/git":              "HTTP/TypeScript: workspace.git.setProject; daemon helper required",
 		"POST /workspace/projects/{id}/git/{operation}": "HTTP/TypeScript: workspace.git.run; daemon helper required",
 		"POST /workspace/projects/{id}/git/operations":  "HTTP/TypeScript: workspace.git.start; daemon Git service required",

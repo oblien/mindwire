@@ -8,6 +8,7 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/conversations"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
+	"github.com/oblien/mindwire/daemon/internal/projecticon"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 )
 
@@ -20,6 +21,7 @@ type (
 	WorkspaceDeletion = registry.Deletion
 	WorkspaceImport   = registry.Import
 	WorkspaceSnapshot = registry.Snapshot
+	ProjectIcon       = projecticon.Image
 )
 
 // Workspace is workspace-wide metadata; selecting a different harness never changes its scope.
@@ -51,7 +53,7 @@ func workspaceError(op string, err error) error {
 	}
 	status := http.StatusInternalServerError
 	switch {
-	case errors.Is(err, registry.ErrInvalid):
+	case errors.Is(err, registry.ErrInvalid), errors.Is(err, projecticon.ErrInvalid):
 		status = http.StatusBadRequest
 	case errors.Is(err, registry.ErrConflict):
 		status = http.StatusConflict
@@ -64,6 +66,56 @@ func workspaceError(op string, err error) error {
 }
 
 type WorkspaceSyncOptions struct{ Refresh bool }
+
+// ProjectIcon reads a small image confined to the project's directory. An empty
+// path uses the saved icon; an explicit relative path previews a candidate.
+func (w *Workspace) ProjectIcon(projectID, path string) (ProjectIcon, error) {
+	p, err := w.c.core.registry.Project(projectID)
+	if err != nil {
+		return ProjectIcon{}, workspaceError("Workspace.ProjectIcon", err)
+	}
+	if path == "" && p.IconPath != nil {
+		path = *p.IconPath
+	}
+	if path == "" {
+		return ProjectIcon{}, workspaceError("Workspace.ProjectIcon", registry.ErrNotFound)
+	}
+	image, err := projecticon.Read(p.Path, path)
+	return image, workspaceError("Workspace.ProjectIcon", err)
+}
+
+// SetProjectIcon updates revisioned metadata without copying or changing project
+// files. nil explicitly resets the icon; older Put calls that omit it preserve it.
+func (w *Workspace) SetProjectIcon(projectID string, path *string, expectedRevision int64) (WorkspaceSnapshot, error) {
+	co := w.c.core
+	co.registryMu.Lock()
+	defer co.registryMu.Unlock()
+	p, err := co.registry.Project(projectID)
+	if err != nil {
+		return WorkspaceSnapshot{}, workspaceError("Workspace.SetProjectIcon", err)
+	}
+	data, err := json.Marshal(p)
+	if err != nil {
+		return WorkspaceSnapshot{}, err
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(data, &fields); err != nil {
+		return WorkspaceSnapshot{}, err
+	}
+	fields["iconPath"], err = json.Marshal(path)
+	if err != nil {
+		return WorkspaceSnapshot{}, err
+	}
+	data, err = json.Marshal(fields)
+	if err != nil {
+		return WorkspaceSnapshot{}, err
+	}
+	if err = co.projects.Save(projectID, data, &expectedRevision); err != nil {
+		return WorkspaceSnapshot{}, workspaceError("Workspace.SetProjectIcon", err)
+	}
+	snapshot, err := co.registry.Snapshot(nil)
+	return snapshot, workspaceError("Workspace.SetProjectIcon", err)
+}
 
 func (w *Workspace) Snapshot(options ...WorkspaceSyncOptions) (WorkspaceSnapshot, error) {
 	issues, err := w.c.core.conversations.Refresh(context.Background(), conversations.Query{Refresh: len(options) > 0 && options[0].Refresh})

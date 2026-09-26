@@ -37,3 +37,28 @@ func TestBranchHTTPPersistsIntentAndKeepsOldClientHistoryCompatible(t *testing.T
 		}
 	}
 }
+
+func TestBranchManagementHTTPKeepsOldClientsCompatible(t *testing.T) {
+	h, a, dir := gitHTTPFixture(t)
+	apiGit(t, "-C", dir, "config", "user.email", "fixture@example.invalid")
+	apiGit(t, "-C", dir, "commit", "--allow-empty", "-qm", "initial")
+	apiGit(t, "-C", dir, "branch", "old")
+	tip := apiGit(t, "-C", dir, "rev-parse", "HEAD")
+	response := serve(t, h, "POST", "/workspace/projects/project/git/operations",
+		`{"id":"rename-http","action":"rename_branch","branch":"old","newName":"new","expectedTip":"`+tip+`"}`)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("rename: %d %s", response.Code, response.Body)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	o, err := a.gitJobs.Wait(ctx, "rename-http")
+	if err != nil || o.Status != "succeeded" || o.NewName != "new" || o.ExpectedTip != tip {
+		t.Fatalf("rename intent lost: %+v %v", o, err)
+	}
+	for _, version := range []string{"4", "5"} {
+		response = serve(t, h, "GET", "/workspace/projects/project/git/operations?actionsVersion="+version, "")
+		if response.Code != 200 || strings.Contains(response.Body.String(), "rename_branch") != (version == "5") {
+			t.Fatalf("action compatibility: %d %s", response.Code, response.Body)
+		}
+	}
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/conversations"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
+	"github.com/oblien/mindwire/daemon/internal/projecticon"
 	"github.com/oblien/mindwire/daemon/internal/projects"
 	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/session"
@@ -249,6 +250,7 @@ type Health struct {
 	Version                        string `json:"version"`
 	WorkspaceMetadataVersion       int    `json:"workspaceMetadataVersion"`
 	ProjectOperationsVersion       int    `json:"projectOperationsVersion"`
+	ProjectIconsVersion            int    `json:"projectIconsVersion"`
 	SurfaceProtocolVersion         int    `json:"surfaceProtocolVersion"`
 	NotificationPreferencesVersion int    `json:"notificationPreferencesVersion"`
 	HarnessPolicyVersion           int    `json:"harnessPolicyVersion"`
@@ -262,7 +264,7 @@ type Health struct {
 
 // Health returns the liveness snapshot. It cannot fail in-process.
 func (c *Client) Health() Health {
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package

@@ -249,6 +249,9 @@ type gitOperationRequest struct {
 	Message        string                `json:"message,omitempty"`
 	Branch         string                `json:"branch,omitempty"`
 	Remote         bool                  `json:"remote,omitempty"`
+	NewName        string                `json:"newName,omitempty"`
+	ExpectedTip    string                `json:"expectedTip,omitempty"`
+	Force          bool                  `json:"force,omitempty"`
 	Identity       *registry.GitIdentity `json:"identity,omitempty"`
 	CommitID       string                `json:"commitId,omitempty"`
 	ExpectedHead   string                `json:"expectedHead,omitempty"`
@@ -258,7 +261,7 @@ type gitOperationRequest struct {
 
 func (a *API) startGitOperation(ctx context.Context, projectID string, req gitOperationRequest) (registry.GitOperation, error) {
 	spec := registry.GitSpec{ID: req.ID, ProjectID: projectID, Action: req.Action, Paths: req.Paths, Message: req.Message,
-		Branch: req.Branch, Remote: req.Remote, Identity: req.Identity,
+		Branch: req.Branch, Remote: req.Remote, NewName: req.NewName, ExpectedTip: req.ExpectedTip, Force: req.Force, Identity: req.Identity,
 		CommitID: req.CommitID, ExpectedHead: req.ExpectedHead, ExpectedBranch: req.ExpectedBranch}
 	if err := gitops.Normalize(&spec); err != nil {
 		return registry.GitOperation{}, err

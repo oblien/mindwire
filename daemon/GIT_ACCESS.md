@@ -7,7 +7,7 @@ diff, and file reads can continue through workspace exec. The `internal/gitops`
 service hosts durable mutations and coordination below HTTP; `internal/gitaccess`
 supplies credentials and invokes native Git for network operations.
 
-`GET /healthz` advertises `gitAccessVersion: 1` and `gitOperationsVersion: 4`.
+`GET /healthz` advertises `gitAccessVersion: 1` and `gitOperationsVersion: 5`.
 All routes below use the existing
 workspace bearer authentication. The complete wire schemas are in
 [openapi.json](./openapi.json).
@@ -77,7 +77,7 @@ connection. `ghCli` deliberately uses the server's current GitHub CLI login.
 ## Durable Git operations
 
 Actions are `stage`, `unstage`, `discard`, `commit`, `fetch`, `pull`, `push`,
-`switch_branch`, `create_branch`, and `restore_commit`.
+`switch_branch`, `create_branch`, `restore_commit`, `rename_branch`, and `delete_branch`.
 Local actions do not require or accept a forwarded GitHub credential. Paths are
 literal, relative to the canonical repository root, and exclude traversal and
 Git internals. Discard restores tracked files first, then uses Git clean for the
@@ -94,7 +94,15 @@ a commit. Clients return to staged changes for review. The same durable receipt,
 repository reservation, cancellation, and retry rules apply. Failure codes start
 with `git_restore_` and identify the precondition that needs attention.
 
-Operation history accepts `actionsVersion=4` for restoration or `2` for branch
+Local branch management requires version 5. Send `branch` and its full `expectedTip`;
+rename also needs `newName`. Native Git preserves branch configuration/reflogs,
+refuses to overwrite an existing name, and protects branches checked out in other
+worktrees. Deletion initially uses Git’s merge checks. A `git_branch_unmerged`
+result needs a separate user confirmation and a new `force: true` intent. A
+`git_branch_changed` result requires refreshing the selection. A checked-out
+branch cannot be deleted, including with force. Remote refs are unchanged.
+
+Operation history accepts `actionsVersion=5` for rename/delete, `4` for restoration or `2` for branch
 operations. Older clients retain their known action set; the repository lock
 still covers every action. Clients must check the advertised capability before
 submitting a mutation and must not fall back to an uncoordinated restore command.
