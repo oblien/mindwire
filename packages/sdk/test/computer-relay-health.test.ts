@@ -6,16 +6,61 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer } from "ws";
-import { checkRelay, relayNeedsRestart, RelayCheckError } from "../src/computer/relay-health.js";
+import { checkRelay, relayNeedsRestart, RelayCheckError, resolveCloudflareAddress } from "../src/computer/relay-health.js";
 
 test("DNS caches never rotate a live address; persistent tunnel failures can recover", () => {
   const dns = new RelayCheckError("dns", "DNS has not caught up");
   expect(relayNeedsRestart(dns, 10, 90_000)).toBe(false);
   expect(relayNeedsRestart(dns, 100, 3_600_000)).toBe(false);
+  const expired = new RelayCheckError("dns", "Provider confirms this address is gone", undefined, true);
+  expect(relayNeedsRestart(expired, 3, 89_999)).toBe(false);
+  expect(relayNeedsRestart(expired, 3, 90_000)).toBe(true);
   const proxy = new RelayCheckError("proxy", "The provider lost its origin");
   expect(relayNeedsRestart(proxy, 1, 90_000)).toBe(false);
   expect(relayNeedsRestart(proxy, 3, 89_999)).toBe(false);
   expect(relayNeedsRestart(proxy, 3, 90_000)).toBe(true);
+});
+
+test("provider DNS bypasses stale caches and distinguishes retired addresses from DNS outages", async () => {
+  const hostname = "dns-fixture.trycloudflare.com";
+  let status = 0, calls = 0;
+  const request: typeof fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    expect(url.origin).toBe("https://cloudflare-dns.com");
+    expect(url.searchParams.get("name")).toBe(hostname);
+    calls++;
+    const type = Number(url.searchParams.get("type"));
+    return new Response(JSON.stringify({ Status: status, Question: [{ name: hostname + ".", type }],
+      Answer: status === 0 ? [{ type, data: type === 1 ? "104.16.230.132" : "2606:4700::6810:e684" }] : undefined }));
+  }) as typeof fetch;
+  expect(await resolveCloudflareAddress(hostname, 0, { fetch: request })).toEqual({
+    addresses: [{ address: "104.16.230.132", family: 4 }, { address: "2606:4700::6810:e684", family: 6 }], missing: false });
+  expect(calls).toBe(2);
+  status = 3;
+  expect(await resolveCloudflareAddress(hostname, 4, { fetch: request })).toEqual({ addresses: [], missing: true });
+  status = 2; // SERVFAIL is not proof that an address expired.
+  expect(await resolveCloudflareAddress(hostname, 4, { fetch: request })).toEqual({ addresses: [], missing: false });
+  const before = calls;
+  expect(await resolveCloudflareAddress("private.example", 4, { fetch: request })).toEqual({ addresses: [], missing: false });
+  expect(calls).toBe(before);
+});
+
+test("provider DNS ignores malformed, unrelated and oversized answers and bounds network waits", async () => {
+  const hostname = "dns-fixture.trycloudflare.com";
+  const unknown = { addresses: [], missing: false };
+  for (const body of [
+    "not JSON", "x".repeat(16_385),
+    JSON.stringify({ Status: 3, Question: [{ name: "another.trycloudflare.com", type: 1 }] }),
+    JSON.stringify({ Status: 0, Question: [{ name: hostname, type: 1 }], Answer: [{ type: 1, data: "not an IP" }] }),
+  ]) {
+    expect(await resolveCloudflareAddress(hostname, 4, { fetch: (async () => new Response(body)) as typeof fetch })).toEqual(unknown);
+  }
+  let aborted = false;
+  const stalled = (async (_input: unknown, options: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    options.signal!.addEventListener("abort", () => { aborted = true; reject(options.signal!.reason); }, { once: true });
+  })) as typeof fetch;
+  expect(await resolveCloudflareAddress(hostname, 4, { fetch: stalled, timeoutMs: 10 })).toEqual(unknown);
+  expect(aborted).toBe(true);
 });
 
 test("DNS propagation is identified separately from a disconnected tunnel", async () => {
@@ -34,11 +79,16 @@ test("DNS propagation is identified separately from a disconnected tunnel", asyn
         await assert.rejects(checkRelay({ kind: 'websocket', url: 'wss://pending-fixture.trycloudflare.com/ssh' }, { lookup }), error => {
           assert(error instanceof RelayCheckError);
           assert.equal(error.code, 'dns');
+          assert.equal(error.addressMissing, false);
           assert.match(error.message, /Waiting for Cloudflare's internet address/);
           assert.doesNotMatch(error.message, /Reconnecting|resolver fixture/);
           return true;
         });
       }
+      const expired = (_host, _options, callback) => callback(Object.assign(new Error('retired address'),
+        { code: 'ENOTFOUND', relayAddressMissing: true }), '', 0);
+      await assert.rejects(checkRelay({ kind: 'websocket', url: 'wss://retired.trycloudflare.com/ssh' }, { lookup: expired }),
+        error => error instanceof RelayCheckError && error.code === 'dns' && error.addressMissing);
     `], { stdout: "pipe", stderr: "pipe" });
     const output = await new Response(child.stderr).text();
     expect(await child.exited, output).toBe(0);

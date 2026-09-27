@@ -123,6 +123,11 @@ export async function superviseComputer(directory: string): Promise<void> {
       if (owner) {
         if (saved.outputFile && saved.route && saved.port === websocketPort && saved.options === JSON.stringify(config.relay)) {
           relay = await adoptRelay(owner, saved.route, directory, saved.outputFile);
+          relayWasReachable = !!previous?.routes?.some(route => JSON.stringify(route) === JSON.stringify(saved.route));
+          if (previous?.relayFailureSince && relayWasReachable) {
+            relayFailedAt = Math.min(Date.now(), previous.relayFailureSince);
+            relayHealthFailures = previous.relayFailures ?? 0;
+          }
         } else {
           // An old helper's pipes belonged to the controller we replaced. It
           // can still answer briefly, then die on its next log write. Migrate
@@ -212,6 +217,9 @@ export async function superviseComputer(directory: string): Promise<void> {
             if (result.canRestart) {
               // Only replace the tunnel after repeated failures with working
               // internet. The daemon, phone keys, chats and PTYs keep running.
+              await phase(result.error instanceof RelayCheckError && result.error.addressMissing
+                ? "Cloudflare's address expired. Creating a new secure tunnel…"
+                : "The internet tunnel stopped responding. Replacing it…");
               await relay!.close(); relay = undefined;
               relayWasReachable = false; nextRelayAt = Date.now() + recoveryDelay(++relayFailures);
               await fs.rm(relayPath, { force: true });
@@ -230,7 +238,8 @@ export async function superviseComputer(directory: string): Promise<void> {
           } catch (error) {
             const canRestart = !!checking.owner && relayFailedAt > 0
               && relayNeedsRestart(error, relayHealthFailures, Date.now() - relayFailedAt)
-              && await relayProviderReachable(config!.relay, abort.signal).catch(() => false);
+              && (error instanceof RelayCheckError && error.addressMissing
+                || await relayProviderReachable(config!.relay, abort.signal).catch(() => false));
             checkResult = { relay: checking, error, canRestart };
           }
         })();
@@ -247,7 +256,8 @@ export async function superviseComputer(directory: string): Promise<void> {
         && (config.relay.kind === "none" || relayReachable);
       const state: ControllerState = { ...owner, protocol: CONTROLLER_PROTOCOL, cliVersion: SDK_VERSION, ready, routes, checkedAt,
         phase: ready ? undefined : daemonError ?? relayError ?? relayMessage, error: daemonError ?? relayError,
-        errorCode: daemonError ? undefined : relayErrorCode, recovering: !ready };
+        errorCode: daemonError ? undefined : relayErrorCode, recovering: !ready,
+        relayFailureSince: relayFailedAt || undefined, relayFailures: relayHealthFailures || undefined };
       const serialized = JSON.stringify(state);
       if (serialized !== lastController) { await writeJSON(controllerPath, state); lastController = serialized; }
 

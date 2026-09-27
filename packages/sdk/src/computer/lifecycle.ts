@@ -25,6 +25,7 @@ export interface ComputerConfig {
 export const CONTROLLER_PROTOCOL = 2;
 export interface ControllerState extends ProcessState {
   protocol?: number; cliVersion?: string; ready: boolean; phase?: string; error?: string; errorCode?: string; recovering?: boolean; routes?: ComputerRoute[]; checkedAt?: number;
+  relayFailureSince?: number; relayFailures?: number;
 }
 
 export const defaultStateDirectory = () => path.join(homedir(), ".mindwire", "computer");
@@ -65,7 +66,7 @@ export function directRoutes(config: ComputerConfig, port: number): ComputerRout
 
 /** Launch once; the daemon additionally owns an OS file lock over its identity/state. */
 export async function ensureComputer(directory: string, cliPath: string, patch: Partial<ComputerConfig> = {},
-  onProgress?: (message: string) => void, options: { resume?: boolean; signal?: AbortSignal } = {}): Promise<Mindwire> {
+  onProgress?: (message: string) => void, options: { resume?: boolean; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<Mindwire> {
   const resume = options.resume !== false;
   options.signal?.throwIfAborted();
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
@@ -88,23 +89,24 @@ export async function ensureComputer(directory: string, cliPath: string, patch: 
   const waitUntilReady = async (): Promise<Mindwire> => {
     let phase: string | undefined;
     let lastState: ControllerState | undefined;
-    for (let attempt = 0; attempt < 1200; attempt++) {
+    const deadline = Date.now() + (options.timeoutMs ?? 120_000);
+    while (Date.now() < deadline) {
       options.signal?.throwIfAborted();
       const controller = await readJSON<ControllerState>(path.join(directory, "computer-controller.json"));
       lastState = controller;
       if (launchFailure) throw launchFailure;
-      if (launchedPID && controller?.pid !== launchedPID) { await delay(250); continue; }
+      if (launchedPID && controller?.pid !== launchedPID) { await delay(250, undefined, { signal: options.signal }); continue; }
       if (controller?.error && !controller.recovering) throw new Error(controller.error);
       if (controller?.ready && compatible(controller) && (controller.checkedAt ?? 0) >= requestedAt
           && await processStateAlive(controller)) return computerClient(directory);
       if (controller?.phase && controller.phase !== phase) { phase = controller.phase; onProgress?.(phase); }
-      await delay(250);
+      await delay(250, undefined, { signal: options.signal });
     }
     const lastStep = lastState?.errorCode === "dns"
-      ? "Your DNS resolver still cannot find the tunnel address."
+      ? "The internet address still cannot be resolved."
       : lastState?.error ?? phase ?? "The background service hasn't reported readiness.";
     const recovering = lastState?.recovering && await processStateAlive(lastState).catch(() => false);
-    throw new Error(`Mindwire's connection is not ready. ${lastStep}${recovering ? " Background recovery continues." : ""} Run mindwire status for the current state, then mindwire connect to retry.`);
+    throw new Error(`Mindwire's connection is not ready. ${lastStep}${recovering ? " Background recovery continues." : ""} Run mindwire reconnect to retry, or mindwire status for details.`);
   };
   if (current) {
     if (Object.keys(patch).some(key => JSON.stringify(config[key as keyof ComputerConfig]) !== JSON.stringify(previous?.[key as keyof ComputerConfig]))) {

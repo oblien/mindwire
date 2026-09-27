@@ -4,9 +4,10 @@ import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { computerClient, readJSON, writeJSON, type ControllerState } from "../src/computer/lifecycle.js";
-import { processAlive, type ProcessIdentity } from "../src/computer/process.js";
-import { installRelayFixture } from "./fixtures/relay-fixture.js";
+import { computerClient, defaultComputerConfig, ensureComputer, readJSON, writeJSON, CONTROLLER_PROTOCOL, type ControllerState } from "../src/computer/lifecycle.js";
+import { currentProcessIdentity, processAlive, type ProcessIdentity } from "../src/computer/process.js";
+import { installProviderDNSFixture, installRelayFixture } from "./fixtures/relay-fixture.js";
+import { SDK_VERSION } from "../src/version.js";
 
 const binary = process.env.MINDWIRE_COMPUTER_TEST_BINARY;
 const cli = resolve(import.meta.dir, "../dist/cli.js");
@@ -27,6 +28,79 @@ async function until<T>(read: () => Promise<T | undefined>, timeout = 20_000): P
   }
   throw new Error("Recovery did not finish before the test deadline.");
 }
+
+test("an unavailable connection exits with recovery actions while the background owner remains running", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mindwire-connect-deadline-"));
+  try {
+    const owner = await currentProcessIdentity();
+    const state: ControllerState = { ...owner, protocol: CONTROLLER_PROTOCOL, cliVersion: SDK_VERSION,
+      ready: false, recovering: true, errorCode: "dns", phase: "Waiting for the internet address" };
+    await writeJSON(join(directory, "computer-config.json"), defaultComputerConfig());
+    await writeJSON(join(directory, "computer-controller.json"), state);
+    const progress: string[] = [];
+    await expect(ensureComputer(directory, cli, {}, phase => progress.push(phase), { timeoutMs: 10 }))
+      .rejects.toThrow("Background recovery continues. Run mindwire reconnect to retry");
+    expect(progress).toEqual([state.phase!]);
+    expect(await readJSON(join(directory, "computer-controller.json"))).toEqual(state);
+    expect(processAlive(owner.pid)).toBe(true);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+(binary && process.platform !== "win32" ? test : test.skip)("an expired DNS address is replaced once, preserves the daemon and terminal, and produces a fresh connection code", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mindwire-computer-dns-recovery-"));
+  const env: NodeJS.ProcessEnv = { ...process.env, PATH: directory + delimiter + (process.env.PATH ?? ""), MINDWIRE_RELAY_FIXTURE: directory };
+  const common = ["--state-dir", directory, "--json"];
+  let suspendedController: number | undefined, connect: ChildProcess | undefined;
+  try {
+    env.NODE_EXTRA_CA_CERTS = await installRelayFixture(directory, { providerDNS: true });
+    const preload = await installProviderDNSFixture(directory);
+    env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ""} --import ${JSON.stringify(preload)}`.trim();
+    const start = await run(["start", ...common, "--relay", "ngrok", "--daemon-bin", binary!, "--directory", directory,
+      "--bind", "127.0.0.1", "--port", "0", "--websocket-port", "0"], env);
+    expect(start.code, start.output).toBe(0);
+    const client = await computerClient(directory);
+    const before = await client.computer.info();
+    await client.execution.terminals.open({ id: "dns-terminal", directory, columns: 80, rows: 24 });
+    const relayPath = join(directory, "computer-relay.json");
+    const oldRelay = (await readJSON<{ owner: ProcessIdentity; route: { url: string } }>(relayPath))!;
+    const controllerPath = join(directory, "computer-controller.json");
+    const oldController = (await readJSON<ControllerState>(controllerPath))!;
+    process.kill(oldController.pid, "SIGSTOP"); suspendedController = oldController.pid;
+    await writeFile(join(directory, "expired-" + new URL(oldRelay.route.url).hostname), "");
+    // Recreate an already expired address across a controller handoff, without
+    // spending 90 seconds on the propagation grace period in every test run.
+    await writeJSON(controllerPath, { ...oldController, ready: false, cliVersion: "0.0.1",
+      relayFailureSince: Date.now() - 90_001, relayFailures: 3, errorCode: "dns" });
+    const retries = await Promise.all([run(["start", ...common], env), run(["start", ...common], env)]);
+    for (const retry of retries) expect(retry.code, retry.output).toBe(0);
+    const newRelay = (await readJSON<typeof oldRelay>(relayPath))!;
+    expect(newRelay.owner.pid).not.toBe(oldRelay.owner.pid);
+    expect(processAlive(oldRelay.owner.pid)).toBe(false);
+    expect((await client.computer.info()).pid).toBe(before.pid);
+    expect((await client.computer.info()).fingerprint).toBe(before.fingerprint);
+    expect((await client.execution.terminals.get("dns-terminal")).running).toBe(true);
+    expect((await readFile(join(directory, "relay-starts"), "utf8")).trim().split("\n").length).toBe(2);
+
+    let invitation: { routes: { kind: string; url?: string }[] } | undefined, output = "";
+    connect = spawn("node", [cli, "reconnect", ...common, "--no-startup"], { env, stdio: ["ignore", "pipe", "pipe"] });
+    connect.stdout!.on("data", data => {
+      output += data;
+      for (const line of output.split("\n")) {
+        try { const event = JSON.parse(line); if (event.event === "invitation") invitation = event.invitation; } catch { /* partial record */ }
+      }
+    });
+    const code = await until(async () => invitation);
+    expect(code.routes.some(route => route.kind === "websocket" && route.url === newRelay.route.url)).toBe(true);
+    expect(code.routes.some(route => route.url === oldRelay.route.url)).toBe(false);
+    expect((await readJSON<typeof oldRelay>(relayPath))?.owner.pid).toBe(newRelay.owner.pid);
+    await client.execution.terminals.close("dns-terminal");
+  } finally {
+    connect?.kill("SIGTERM");
+    if (suspendedController && processAlive(suspendedController)) process.kill(suspendedController, "SIGCONT");
+    await run(["stop", ...common, "--force"], env).catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 45_000);
 
 (binary && process.platform !== "win32" ? test : test.skip)("legacy tunnel ownership migrates once before readiness without replacing the daemon or terminals", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mindwire-computer-legacy-relay-"));
