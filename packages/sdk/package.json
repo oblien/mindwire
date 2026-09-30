@@ -16,14 +16,10 @@
     "typescript": "5.9.3"
   },
   "peerDependencies": {
-    "oblien": ">=2.2.0",
     "dockerode": ">=4.0.0",
     "ssh2": ">=1.15.0"
   },
   "peerDependenciesMeta": {
-    "oblien": {
-      "optional": true
-    },
     "dockerode": {
       "optional": true
     },
@@ -78,7 +74,11 @@
   "type": "module",
   "types": "./dist/index.d.ts",
   "dependencies": {
+    "oblien": "^2.5.0",
     "qrcode": "^1.5.4",
     "ws": "^8.18.3"
+  },
+  "optionalDependencies": {
+    "@ngrok/ngrok": "^1.7.0"
   }
 }

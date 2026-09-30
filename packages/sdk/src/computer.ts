@@ -1,6 +1,10 @@
 import type { Mindwire } from "./client.js";
 
 export type ComputerRoute = { kind: "ssh"; host: string; port: number } | { kind: "websocket"; url: string };
+export interface ComputerConnectionInfo {
+  provider: "oblien" | "cloudflare" | "ngrok" | "custom" | "direct";
+  address: "persistent" | "temporary" | "network";
+}
 export interface ComputerInvitation {
   version: 1; computerId: string; name: string; fingerprint: string; routes: ComputerRoute[];
   pairingId: string; secret: string; expiresAt: string;
@@ -40,6 +44,7 @@ export interface ComputerInfo {
   /** 2 supports signed reconnection and atomic replacement of lost device keys.
    * 3 requires signed pairing acknowledgements and expires/revokes pairing transports. */
   pairingVersion?: number;
+  connection?: ComputerConnectionInfo;
 }
 export interface ComputerForwardRequest { id: string; deviceId: string; port: number }
 export interface ComputerForward extends ComputerForwardRequest { expiresAt: string }
@@ -47,8 +52,8 @@ export interface ComputerForward extends ComputerForwardRequest { expiresAt: str
 export class ComputerApi {
   constructor(private readonly client: Mindwire) {}
   info(): Promise<ComputerInfo> { return this.client.http.request("GET", "/computer"); }
-  setRoutes(routes: ComputerRoute[]): Promise<ComputerInfo> {
-    return this.client.http.request("PUT", "/computer/routes", { body: { routes } });
+  setRoutes(routes: ComputerRoute[], connection?: ComputerConnectionInfo): Promise<ComputerInfo> {
+    return this.client.http.request("PUT", "/computer/routes", { body: { routes, connection } });
   }
   updateStatus(): Promise<ComputerUpdate> { return this.client.http.request("GET", "/computer/update"); }
   /** Automatic requests wait for idle. With serviceUpdateVersion >= 2, force

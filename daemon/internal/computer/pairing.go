@@ -41,12 +41,33 @@ type Device struct {
 	CreatedAt time.Time `json:"createdAt"`
 	Revoked   bool      `json:"revoked"`
 }
+
+// ConnectionMetadata is descriptive only. Provider credentials never cross the
+// daemon API; phones still authenticate and pin the SSH identity for every route.
+type ConnectionMetadata struct {
+	Provider string `json:"provider"`
+	Address  string `json:"address"`
+}
+
+func (c *ConnectionMetadata) valid() bool {
+	if c == nil {
+		return true
+	}
+	switch c.Provider {
+	case "oblien", "cloudflare", "ngrok", "custom", "direct":
+	default:
+		return false
+	}
+	return c.Address == "persistent" || c.Address == "temporary" || c.Address == "network"
+}
+
 type state struct {
-	ID             string            `json:"id"`
-	PrivateKey     string            `json:"privateKey"`
-	Devices        map[string]Device `json:"devices"`
-	Routes         []Route           `json:"routes"`
-	ManualUpdateID string            `json:"manualUpdateId,omitempty"`
+	ID             string              `json:"id"`
+	PrivateKey     string              `json:"privateKey"`
+	Devices        map[string]Device   `json:"devices"`
+	Routes         []Route             `json:"routes"`
+	Connection     *ConnectionMetadata `json:"connection,omitempty"`
+	ManualUpdateID string              `json:"manualUpdateId,omitempty"`
 }
 type Invitation struct {
 	Version     int       `json:"version"`
@@ -535,27 +556,33 @@ func (s *Server) routes(register func(string, http.HandlerFunc)) {
 	register("GET /computer", func(w http.ResponseWriter, r *http.Request) { send(w, 200, s.Info()) })
 	register("PUT /computer/routes", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Routes []Route `json:"routes"`
+			Routes     []Route             `json:"routes"`
+			Connection *ConnectionMetadata `json:"connection,omitempty"`
 		}
 		if !decode(w, r, &req) {
 			return
 		}
 		// A controller must be able to withdraw every stale route while offline.
 		// Pairing still requires at least one usable address via Invite.
-		if len(req.Routes) > 0 && !validRoutes(req.Routes) {
+		if len(req.Routes) > 0 && !validRoutes(req.Routes) || !req.Connection.valid() {
 			reject(w, errors.New("invalid computer routes"))
 			return
 		}
 		s.mu.Lock()
 		previous := s.state.Routes
+		previousConnection := s.state.Connection
 		s.state.Routes = req.Routes
+		if req.Connection != nil {
+			s.state.Connection = req.Connection
+		}
 		err := s.persist()
 		if err != nil {
 			s.state.Routes = previous
+			s.state.Connection = previousConnection
 		}
 		s.mu.Unlock()
 		if err != nil {
-			reject(w, err)
+			send(w, http.StatusInternalServerError, map[string]string{"error": "could not save computer routes"})
 			return
 		}
 		send(w, 200, s.Info())
@@ -645,6 +672,9 @@ func (s *Server) Info() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	info := map[string]any{"version": Version, "pairingVersion": PairingVersion, "portForwardingVersion": 1, "computerId": s.state.ID, "registryId": s.registryID, "fingerprint": s.Fingerprint(), "routes": append([]Route{}, s.state.Routes...), "pid": os.Getpid(), "apiAddress": s.apiAddress}
+	if s.state.Connection != nil {
+		info["connection"] = *s.state.Connection
+	}
 	if s.sshListener != nil {
 		info["sshPort"] = s.sshListener.Addr().(*net.TCPAddr).Port
 	}

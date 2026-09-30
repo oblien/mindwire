@@ -4,6 +4,8 @@ import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { createServer, type AddressInfo } from "node:net";
+import { once } from "node:events";
 import { computerClient, defaultComputerConfig, ensureComputer, readJSON, writeJSON, CONTROLLER_PROTOCOL, type ControllerState } from "../src/computer/lifecycle.js";
 import { currentProcessIdentity, processAlive, type ProcessIdentity } from "../src/computer/process.js";
 import { installProviderDNSFixture, installRelayFixture } from "./fixtures/relay-fixture.js";
@@ -45,6 +47,109 @@ test("an unavailable connection exits with recovery actions while the background
     expect(processAlive(owner.pid)).toBe(true);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("a provider login/certificate failure is reported immediately without stopping background recovery", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mindwire-provider-action-"));
+  try {
+    const owner = await currentProcessIdentity();
+    await writeJSON(join(directory, "computer-config.json"), defaultComputerConfig());
+    for (const errorCode of ["provider_sign_in", "provider_certificate"]) {
+      await writeJSON(join(directory, "computer-controller.json"), { ...owner, protocol: CONTROLLER_PROTOCOL, cliVersion: SDK_VERSION,
+        ready: false, recovering: true, errorCode, error: "Fix this provider before reconnecting.", checkedAt: Date.now() + 1000 });
+      await expect(ensureComputer(directory, cli, {}, undefined, { timeoutMs: 2000 })).rejects.toThrow("Fix this provider before reconnecting.");
+      expect(processAlive(owner.pid)).toBe(true);
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+(binary && process.platform !== "win32" ? test : test.skip)("provider changes join once, preserve live work, and restore the old connection after failed setup or reauthentication", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mindwire-provider-change-"));
+  const env: NodeJS.ProcessEnv = { ...process.env, PATH: directory + delimiter + (process.env.PATH ?? ""), MINDWIRE_RELAY_FIXTURE: directory };
+  const common = ["--state-dir", directory, "--json"];
+  const reservePort = async () => {
+    const server = createServer(); server.listen(0, "127.0.0.1"); await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    return port;
+  };
+  try {
+    env.NODE_EXTRA_CA_CERTS = await installRelayFixture(directory);
+    const started = await run(["start", ...common, "--relay", "ngrok", "--daemon-bin", binary!, "--directory", directory,
+      "--bind", "127.0.0.1", "--port", "0", "--websocket-port", "0"], env);
+    expect(started.code, started.output).toBe(0);
+    const client = await computerClient(directory), before = await client.computer.info();
+    await client.execution.terminals.open({ id: "migration-terminal", directory, columns: 80, rows: 24 });
+    await writeFile(join(directory, "preserved-work.txt"), "Uncommitted work stays here");
+    const relayPath = join(directory, "computer-relay.json");
+    const relayState = () => readJSON<{ owner: ProcessIdentity; route: { url: string } }>(relayPath);
+    const original = (await relayState())!;
+    const url = `wss://127.0.0.1:${await reservePort()}/ssh`;
+    const changed = await Promise.all([run(["start", ...common, "--relay", "ngrok", "--relay-url", url], env),
+      run(["start", ...common, "--relay", "ngrok", "--relay-url", url], env)]);
+    for (const result of changed) expect(result.code, result.output).toBe(0);
+    const replacement = (await relayState())!;
+    expect(replacement.route.url).toBe(url); expect(processAlive(original.owner.pid)).toBe(false);
+    expect(replacement.owner.pid).not.toBe(original.owner.pid);
+    expect((await readFile(join(directory, "relay-starts"), "utf8")).trim().split("\n").length).toBe(2);
+    expect((await client.computer.info()).connection).toEqual({ provider: "ngrok", address: "persistent" });
+    const config = await readJSON(join(directory, "computer-config.json"));
+
+    // Invalid credentials for a different endpoint never displace the good one.
+    const other = `wss://127.0.0.1:${await reservePort()}/ssh`;
+    const missingToken = join(directory, "missing-token.json");
+    const failed = await run(["start", ...common, "--relay", "ngrok", "--relay-url", other, "--ngrok-token-file", missingToken], env);
+    expect(failed.code).toBe(1); expect(failed.output).toContain("Sign in to ngrok again");
+    expect((await relayState())!.owner.pid).toBe(replacement.owner.pid);
+    expect(await readJSON(join(directory, "computer-config.json"))).toEqual(config);
+
+    // Reauth at the same reserved address must release the old listener first.
+    // If it fails, restore its prior credentials and listener, never the daemon.
+    const reauth = await run(["start", ...common, "--relay", "ngrok", "--relay-url", url, "--ngrok-token-file", missingToken], env);
+    expect(reauth.code).toBe(1); expect(reauth.output).toContain("Sign in to ngrok again");
+    const restored = await until(async () => {
+      const current = await relayState();
+      const controller = await readJSON<ControllerState>(join(directory, "computer-controller.json"));
+      return current && current.owner.pid !== replacement.owner.pid && controller?.ready ? current : undefined;
+    });
+    expect(restored.route.url).toBe(url); expect(processAlive(replacement.owner.pid)).toBe(false);
+    expect(await readJSON(join(directory, "computer-config.json"))).toEqual(config);
+    expect((await readFile(join(directory, "relay-starts"), "utf8")).trim().split("\n").length).toBe(3);
+    expect((await client.computer.info()).pid).toBe(before.pid);
+    expect((await client.computer.info()).fingerprint).toBe(before.fingerprint);
+    expect((await client.execution.terminals.get("migration-terminal")).running).toBe(true);
+    expect(await readFile(join(directory, "preserved-work.txt"), "utf8")).toBe("Uncommitted work stays here");
+    const status = await run(["status", ...common], env);
+    expect(status.code).toBe(0); expect(status.output).toContain('"connectionChange":{"status":"failed"');
+    await client.execution.terminals.close("migration-terminal");
+  } finally {
+    await run(["stop", ...common, "--force"], env).catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 50_000);
+
+(binary && process.platform !== "win32" ? test : test.skip)("manual reconnect retries the provider immediately instead of reusing a cached sign-in error", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mindwire-provider-retry-"));
+  const env = { ...process.env };
+  const common = ["--state-dir", directory, "--json"];
+  try {
+    const first = await run(["start", ...common, "--relay", "ngrok", "--relay-url", "wss://fixture.example/ssh",
+      "--ngrok-token-file", join(directory, "missing-token.json"), "--daemon-bin", binary!, "--directory", directory,
+      "--bind", "127.0.0.1", "--port", "0", "--websocket-port", "0"], env);
+    expect(first.code).toBe(1); expect(first.output).toContain("Sign in to ngrok again");
+    const client = await computerClient(directory), before = await client.computer.info();
+    const old = (await readJSON<{ owner: ProcessIdentity }>(join(directory, "computer-relay.json")))!;
+    const checked = (await readJSON<ControllerState>(join(directory, "computer-controller.json")))!.checkedAt!;
+    const repeated = await Promise.all([run(["start", ...common], env), run(["start", ...common], env)]);
+    for (const result of repeated) { expect(result.code).toBe(1); expect(result.output).toContain("Sign in to ngrok again"); }
+    const retried = (await readJSON<{ owner: ProcessIdentity }>(join(directory, "computer-relay.json")))!;
+    expect(retried.owner.pid).not.toBe(old.owner.pid);
+    expect((await readJSON<ControllerState>(join(directory, "computer-controller.json")))!.checkedAt!).toBeGreaterThan(checked);
+    expect((await client.computer.info()).pid).toBe(before.pid);
+  } finally {
+    await run(["stop", ...common, "--force"], env).catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 15_000);
 
 (binary && process.platform !== "win32" ? test : test.skip)("an expired DNS address is replaced once, preserves the daemon and terminal, and produces a fresh connection code", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mindwire-computer-dns-recovery-"));

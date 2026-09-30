@@ -9,6 +9,8 @@ const shared = {
   sourcemap: true,
   treeshake: true,
   target: "es2022",
+  // Provider SDKs load their own platform-native helpers at runtime.
+  external: ["@ngrok/ngrok", "oblien"],
   define: { __MINDWIRE_VERSION__: JSON.stringify(pkg.version) },
 };
 

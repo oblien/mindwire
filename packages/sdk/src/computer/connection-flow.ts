@@ -17,15 +17,16 @@ export function approvalCommand(pairingId: string, requestId: string): string {
   return `mindwire approve -- ${pairingId} ${requestId}`;
 }
 
-/** Saved approvals do not prove that the phone still has its key or address.
- * Every disconnected phone uses the same QR; the signed handshake chooses resume
- * or fresh approval. The old commands remain aliases, not separate UX paths. */
+/** Stable endpoints need no new invitation after network loss or restart.
+ * An approval means ready to reconnect, never proof of current connectivity. */
 export async function chooseConnectionAction(options: {
   requested?: ConnectionAction;
   devices: ComputerDevice[];
+  persistent?: boolean;
 }): Promise<ConnectionAction> {
-  if (options.requested === "pair" || options.requested === "reconnect") return "pair";
-  return options.devices.some(device => !device.revoked && device.connected) ? "resume" : "pair";
+  if (options.requested === "pair") return "pair";
+  if (options.requested === "reconnect" && !options.persistent) return "pair";
+  return options.devices.some(device => !device.revoked && (device.connected || options.persistent)) ? "resume" : "pair";
 }
 
 /** A fresh key is never merged by name. Replacement requires the owner's explicit

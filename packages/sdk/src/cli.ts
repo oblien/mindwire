@@ -8,19 +8,28 @@ import { createInterface } from "node:readline/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { computerPairingURI, type ComputerUpdate } from "./computer.js";
 import { SDK_VERSION } from "./version.js";
-import { computerClient, defaultStateDirectory, ensureComputer, readJSON, stopComputer, superviseComputer, type ComputerConfig } from "./computer/lifecycle.js";
+import { computerClient, defaultComputerConfig, defaultStateDirectory, ensureComputer, readJSON, stopComputer, superviseComputer, type ComputerConfig } from "./computer/lifecycle.js";
 import type { RelayOptions } from "./computer/relay.js";
 import { showPairingInvitation, type PairingQRMode } from "./computer/pairing-display.js";
 import { configureStartup, startupStatus, watchComputer } from "./computer/startup.js";
 import { approvalCommand, chooseConnectionAction, choosePairingDecision, chooseStartupAction, connectionAction, deviceSummary } from "./computer/connection-flow.js";
 import { ConnectionProgress } from "./computer/connection-progress.js";
+import { connectionAddress, connectionDescription, connectionInfo } from "./computer/provider-info.js";
+import { chooseProvider, connectionProvider, setupProvider } from "./computer/provider-setup.js";
+import { terminalSetupPrompt } from "./computer/setup-prompt.js";
+import { runManagedRelay } from "./computer/managed-relay.js";
+import type { ComputerConnectionChange } from "./computer/connection-change.js";
 
 const help = `Mindwire — connect this computer to your phone
 
   npm install -g mindwire
   mindwire connect                       Connect your phone; saved keys reconnect automatically
-  mindwire reconnect                     Show a connection QR again (also repairs a missing pairing)
-  mindwire connect pair                  Pair another phone with this computer
+  mindwire reconnect                     Retry the saved connection
+  mindwire connect pair                  Pair a phone, or repair a lost phone key/address
+  mindwire connection                    Choose a persistent connection provider
+  mindwire connection oblien             Sign in and use an Oblien tunnel
+  mindwire connection cloudflare         Sign in and configure your Cloudflare domain
+  mindwire connection ngrok              Connect your ngrok account and reserved domain
   mindwire connect --relay none --host laptop.tailnet  Use your existing VPN
   mindwire connect --relay none           Direct SSH only (reachable network required)
   mindwire connect --relay cloudflare     Cloudflare quick tunnel
@@ -39,9 +48,12 @@ const help = `Mindwire — connect this computer to your phone
 Options:
   --directory PATH                       Initial workspace directory (default: home)
   --host HOST                            Reachable LAN, public or VPN hostname
-  --relay none|cloudflare|ngrok|custom     Provider (default: Cloudflare internet tunnel)
+  --relay none|oblien|cloudflare|ngrok|custom  Explicit provider (skips the setup menu)
   --relay-url URL                        Stable configured WebSocket hostname
   --cloudflare-token-file PATH            Named Cloudflare tunnel token file
+  --ngrok-token-file PATH                 Private JSON file containing {"token":"…"}
+  --oblien-credentials-file PATH          Private Oblien session/API credential JSON
+  --oblien-tunnel-id ID                   This computer's existing Oblien tunnel ID
   --state-dir PATH                       Private state directory
   --json                                 Structured output (QR invitation includes a secret)
   --qr auto|terminal|browser              Fit the QR to your terminal or open a local page
@@ -50,10 +62,10 @@ Options:
   --no-startup                            Skip automatic startup setup
   --replace-device DEVICE_ID              With approve: replace a lost phone key (repeatable)
 
-The default works across Wi-Fi and mobile networks. Mindwire privately downloads
-a verified Cloudflare helper when needed. Relays carry encrypted SSH.
-Quick tunnel addresses change on restart; use a stable hostname/VPN for regular use.
-ngrok needs its installed CLI and account. Direct SSH needs no relay when reachable.
+Interactive setup offers persistent addresses across Wi-Fi and mobile networks.
+Provider logins and tokens stay on your computer. Relays carry encrypted SSH;
+they can see connection metadata, but cannot decrypt files, commands or chats.
+Quick Cloudflare tunnels remain available for temporary use. Direct SSH needs a reachable network or VPN.
 Nothing changes your system SSH login.
 `;
 
@@ -64,6 +76,8 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     help: { type: "boolean", short: "h" }, json: { type: "boolean" }, "no-qr": { type: "boolean" }, qr: { type: "string" },
     "state-dir": { type: "string" }, directory: { type: "string" }, host: { type: "string" },
     relay: { type: "string" }, "relay-url": { type: "string" }, "cloudflare-token-file": { type: "string" },
+    "ngrok-token-file": { type: "string" }, "oblien-credentials-file": { type: "string" }, "oblien-tunnel-id": { type: "string" },
+    "relay-config": { type: "string" },
     "daemon-bin": { type: "string" }, bind: { type: "string" }, port: { type: "string" }, "websocket-port": { type: "string" },
     version: { type: "string" }, force: { type: "boolean" }, startup: { type: "boolean" }, "no-startup": { type: "boolean" },
     "replace-device": { type: "string", multiple: true },
@@ -78,6 +92,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     else if (text) process.stdout.write(text + "\n");
   };
   if (command === "_serve") { await superviseComputer(directory); return; }
+  if (command === "_relay") {
+    if (!values["relay-config"]) throw new Error("Missing relay configuration.");
+    await runManagedRelay(path.resolve(values["relay-config"])); return;
+  }
   if (command === "_watch") { await watchComputer(directory, fileURLToPath(import.meta.url)); return; }
   if (command === "startup") {
     const action = positionals[1] ?? "status";
@@ -88,9 +106,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       : "Automatic startup is off. Use mindwire start to run the service.");
     return;
   }
-  if (["connect", "start", "reconnect"].includes(command)) {
-    const requestedAction = command === "reconnect" ? "reconnect" : command === "connect" ? connectionAction(positionals[1]) : undefined;
+  if (["connect", "start", "reconnect", "connection"].includes(command)) {
+    let requestedAction = command === "reconnect" ? "reconnect" as const : command === "connect" ? connectionAction(positionals[1]) : undefined;
     const patch: Partial<ComputerConfig> = {};
+    const previous = await readJSON<ComputerConfig>(path.join(directory, "computer-config.json"));
     if (values.directory) patch.directory = path.resolve(values.directory);
     if (values.host) patch.host = values.host;
     if (values.bind) patch.bind = values.bind;
@@ -103,11 +122,28 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     }
     if (values["daemon-bin"] || process.env.MINDWIRE_DAEMON) patch.daemonBin = path.resolve(values["daemon-bin"] ?? process.env.MINDWIRE_DAEMON!);
     if (values.version) patch.version = values.version.replace(/^v/, "");
-    if (values.relay || values["relay-url"] || values["cloudflare-token-file"]) {
+    if (values.relay || values["relay-url"] || values["cloudflare-token-file"] || values["ngrok-token-file"] || values["oblien-credentials-file"]) {
       const kind = values.relay ?? "custom";
-      if (!["none", "cloudflare", "ngrok", "custom"].includes(kind)) throw new Error("Choose relay none, cloudflare, ngrok or custom.");
+      if (!["none", "oblien", "cloudflare", "ngrok", "custom"].includes(kind)) throw new Error("Choose relay none, oblien, cloudflare, ngrok or custom.");
+      const tunnelId = values["oblien-tunnel-id"] === undefined ? undefined : Number(values["oblien-tunnel-id"]);
+      if (tunnelId !== undefined && (!Number.isSafeInteger(tunnelId) || tunnelId <= 0)) throw new Error("Invalid Oblien tunnel ID.");
       patch.relay = { kind: kind as RelayOptions["kind"], url: values["relay-url"],
-        cloudflareTokenFile: values["cloudflare-token-file"] ? path.resolve(values["cloudflare-token-file"]) : undefined };
+        cloudflareTokenFile: values["cloudflare-token-file"] ? path.resolve(values["cloudflare-token-file"]) : undefined,
+        ngrokTokenFile: values["ngrok-token-file"] ? path.resolve(values["ngrok-token-file"]) : undefined,
+        oblienCredentialsFile: values["oblien-credentials-file"] ? path.resolve(values["oblien-credentials-file"]) : undefined,
+        oblienTunnelId: tunnelId };
+    }
+    const interactive = !values.json && !!process.stdin.isTTY;
+    const needsSetup = command === "connection" || command === "connect" && !previous && !patch.relay && interactive
+      || patch.relay?.kind === "oblien" && !patch.relay.oblienCredentialsFile;
+    if (needsSetup) {
+      if (!interactive) throw new Error("Run mindwire connection in an interactive terminal, or supply the provider's saved URL and credential-file options.");
+      const provider = command === "connection" && positionals[1] ? connectionProvider(positionals[1])
+        : patch.relay?.kind === "oblien" ? "oblien" : await chooseProvider(terminalSetupPrompt);
+      Object.assign(patch, await setupProvider({ directory, provider, prompt: terminalSetupPrompt,
+        config: { ...defaultComputerConfig(), ...previous, ...patch } }));
+      if (!previous || connectionAddress(patch.relay ?? previous.relay, patch.host ?? previous.host)
+          !== connectionAddress(previous.relay, previous.host)) requestedAction = "pair";
     }
     const progress = !values.json && process.stderr.isTTY && process.env.TERM !== "dumb" ? new ConnectionProgress(process.stderr) : undefined;
     emit("starting", {}, progress ? undefined : "Starting Mindwire…");
@@ -116,7 +152,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       else emit("progress", { message: phase }, phase);
     }).finally(() => progress?.close());
     const info = await client.computer.info();
-    emit("ready", { computerId: info.computerId, routes: info.routes }, "Mindwire is running in the background.");
+    const savedConfig = await readJSON<ComputerConfig>(path.join(directory, "computer-config.json"));
+    const connection = connectionInfo(savedConfig?.relay ?? { kind: "cloudflare" }, savedConfig?.host);
+    emit("ready", { computerId: info.computerId, routes: info.routes, connection }, "Mindwire is running in the background.");
+    emit("connection", connection, connectionDescription(connection));
     if (command === "start") return;
     if (info.routes.some(route => route.kind === "websocket")) {
       emit("secure_connection", {}, "Your phone connects over end-to-end encrypted SSH. The tunnel carries encrypted traffic; only phones you approve can connect.");
@@ -128,7 +167,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       const input = createInterface({ input: process.stdin, output: process.stderr });
       try { return await input.question(prompt); } finally { input.close(); }
     } : undefined;
-    const action = await chooseConnectionAction({ requested: requestedAction, devices });
+    const action = await chooseConnectionAction({ requested: requestedAction, devices, persistent: connection.address === "persistent" });
     const startupPreference = await startupStatus(directory);
     const startupAction = await chooseStartupAction({ state: startupPreference,
       startup: values.startup, noStartup: values["no-startup"],
@@ -149,8 +188,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     }
     if (action === "resume") {
       const connected = saved.filter(device => device.connected);
-      emit("connected", { computerId: info.computerId, devices: connected }, `\nConnected:\n${deviceSummary(connected)}\nMindwire continues running in the background.`);
-      emit("connect_hint", {}, "To scan again or add a phone, run mindwire reconnect.");
+      if (connected.length) emit("connected", { computerId: info.computerId, devices: connected }, `\nConnected:\n${deviceSummary(connected)}\nMindwire continues running in the background.`);
+      else emit("waiting_for_phone", { computerId: info.computerId }, "\nReady for your saved phone. Open Mindwire; it will retry this computer's persistent address.");
+      emit("connect_hint", {}, "If the connection was removed from your phone, run mindwire connect pair to scan again.");
       return;
     }
     const invitation = await client.computer.invite((await client.computer.info()).routes);
@@ -216,10 +256,14 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   const client = await computerClient(directory);
   switch (command) {
     case "status": {
-      const [info, health, work, controller, startup] = await Promise.all([client.computer.info(), client.health(), client.service.updateStatus(),
-        readJSON<{ error?: string; errorCode?: string; phase?: string; recovering?: boolean }>(path.join(directory, "computer-controller.json")), startupStatus(directory)]);
-      emit("status", { ...info, daemonVersion: health.version, ...work, startup, recovering: controller?.recovering, relayError: controller?.error, relayErrorCode: controller?.errorCode },
-        `Mindwire ${health.version} · ${work.idle ? "idle" : "working"}\nStartup: ${startup.enabled ? "on" : "off"}\n${info.routes.map(route => route.kind === "ssh" ? `SSH ${route.host}:${route.port}` : route.url).join("\n")}${controller?.error ? `\n${controller.error}` : ""}`);
+      const [info, health, work, controller, startup, config, change] = await Promise.all([client.computer.info(), client.health(), client.service.updateStatus(),
+        readJSON<{ error?: string; errorCode?: string; phase?: string; recovering?: boolean }>(path.join(directory, "computer-controller.json")), startupStatus(directory),
+        readJSON<ComputerConfig>(path.join(directory, "computer-config.json")), readJSON<ComputerConnectionChange>(path.join(directory, "computer-connection-change.json"))]);
+      const connection = info.connection ?? (config && connectionInfo(config.relay, config.host));
+      const connectionChange = change && { status: change.status, message: change.message };
+      emit("status", { ...info, connection, daemonVersion: health.version, ...work, startup, connectionChange,
+        recovering: controller?.recovering, relayError: controller?.error, relayErrorCode: controller?.errorCode },
+        `Mindwire ${health.version} · ${work.idle ? "idle" : "working"}\nStartup: ${startup.enabled ? "on" : "off"}\n${connection ? connectionDescription(connection) + "\n" : ""}${info.routes.map(route => route.kind === "ssh" ? `SSH ${route.host}:${route.port}` : route.url).join("\n")}${controller?.error ? `\n${controller.error}` : ""}${change && change.status !== "complete" ? `\nConnection change: ${change.status}${change.message ? " · " + change.message : ""}` : ""}`);
       break;
     }
     case "devices": {

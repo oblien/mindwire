@@ -16,10 +16,14 @@ npm install -g mindwire
 mindwire connect
 ```
 
-Mindwire downloads a verified daemon release for the computer, starts it in the
-background, and opens a Cloudflare internet tunnel by default. If needed, it
-downloads a verified connection helper into its private cache, with progress in
-the terminal. You can connect from another Wi-Fi network or mobile data.
+Interactive setup lets you choose **Oblien**, **your Cloudflare account**,
+**ngrok**, **your VPN**, or an **existing tunnel**. Named tunnels keep the same
+internet address across computer and tunnel restarts. Temporary Cloudflare
+connections remain available without an account.
+
+Mindwire downloads a verified daemon release and starts it in the background.
+Cloudflare's helper is downloaded into a private cache when needed; ngrok uses its
+official agent SDK. You can connect from another Wi-Fi network or mobile data.
 
 For a first connection, Mindwire asks whether to start automatically after computer
 login, then displays a QR code. In the mobile app, open **Add computer** and
@@ -42,21 +46,23 @@ Mindwire runs after you sign in to the computer. It retries
 dropped tunnels and recovers the background controller without restarting a healthy
 daemon. The computer must remain awake and online.
 
-The default quick tunnel can get a new address after a tunnel restart. For unattended
-access across restarts, choose a stable hostname or VPN below. If all saved addresses
-change while the phone is away, run `mindwire reconnect` and scan its code to refresh the connection; this
-keeps the same computer identity, workspace and projects.
+Choose a persistent connection with `mindwire connection`. A temporary quick tunnel
+can get a new address after a tunnel restart. If all saved addresses change while
+the phone is away, run `mindwire connect pair` and scan once to refresh the address.
+This keeps the same computer identity, workspace and projects.
 
 ### Return to a saved connection
 
-Run `mindwire connect` again. It detects an active phone connection or shows a QR
-that works for both saved and new phones. Saved keys reconnect automatically; if
-the app no longer has its key, the computer asks you to approve it again.
+Run `mindwire connect` again. With a persistent address and a saved approval it
+starts the background connection without another QR. “Ready for your saved phone”
+means the address is available; “Connected” is shown only after a phone authenticates.
+Open the mobile app to reconnect with its saved key.
 
 ```sh
-mindwire connect          # Connect, reconnect, or repair a removed connection
-mindwire reconnect        # Show a connection QR again
-mindwire connect pair     # Show a QR even when another phone is connected
+mindwire connect          # Set up a first connection or resume an existing one
+mindwire reconnect        # Retry the saved connection
+mindwire connect pair     # Show a QR to pair or repair a phone
+mindwire connection       # Change provider without restarting the daemon
 ```
 
 Open **Computers & Servers → your computer → Reconnect computer** in the app, or
@@ -70,7 +76,7 @@ old approvals or **add** for a different phone. Two phones can share the name
 “iPhone,” so Mindwire never replaces keys just because their names match.
 
 Older address-only reconnect codes require the phone's saved key. If it is missing,
-update Mindwire on the computer and run `mindwire connect` for a fresh connection code.
+update Mindwire on the computer and run `mindwire connect pair` for a fresh connection code.
 
 ### Automatic startup
 
@@ -98,7 +104,8 @@ route according to how the phone can reach the computer:
 
 | Route | Needs a relay? | Suitable for |
 | --- | --- | --- |
-| Cloudflare or ngrok | Yes | Default internet access without inbound port forwarding |
+| Oblien, named Cloudflare, or reserved ngrok domain | Yes | Persistent internet access without inbound port forwarding |
+| Temporary Cloudflare | Yes | Trying the app without an account; a restart may need an address refresh |
 | Existing VPN, including Tailscale | Depends on the VPN's connectivity | Regular use across networks with a stable address |
 | Custom WebSocket tunnel | Your provider | An existing tunnel or self-hosted relay |
 | Reachable public address | No | A host with an existing secure network setup |
@@ -127,9 +134,40 @@ For Tailscale, connect the phone and computer to the same tailnet first. Mindwir
 then uses its own paired SSH identity over the VPN. It does not configure the VPN
 or require Tailscale SSH.
 
+### Oblien
+
+```sh
+mindwire connection oblien
+```
+
+Sign in through the browser. Mindwire creates a named tunnel for this computer and
+keeps its tunnel ID and `*.preview.oblien.com` address. It never selects another
+computer's tunnel just because it uses the same port. No cloud workspace is required.
+Your plan's tunnel and bandwidth allowances apply.
+
+The official Oblien SDK carries traffic to the local SSH WebSocket bridge.
+Mindwire renews the broker token in advance and uses the new token on reconnect,
+without replacing a healthy connection just to rotate credentials. The browser
+session is stored privately on the computer and renewed while it is valid. If the
+computer stays offline beyond the login's expiry or the login is revoked, run
+`mindwire connection oblien` to sign in again. A persistent address does not bypass
+account revocation or expiry.
+Signing in again at the same address keeps the phone's saved pairing and does not
+require another QR.
+
 ### Cloudflare
 
-A quick tunnel is the default and works across networks without a Cloudflare
+```sh
+mindwire connection cloudflare
+```
+
+Enter a hostname in your Cloudflare zone and complete Cloudflare's browser login.
+Mindwire creates a named tunnel, assigns its DNS hostname, and writes a local
+configuration forwarding only the SSH WebSocket bridge. It does not overwrite an
+existing DNS record that belongs to another service. Your domain and tunnel remain
+in your own Cloudflare account.
+
+A quick tunnel is also available and works across networks without a Cloudflare
 account. Mindwire reuses `cloudflared` if installed or downloads a pinned, verified
 copy for its own use:
 
@@ -153,13 +191,18 @@ not supported by this native connection; Mindwire's SSH keys authenticate device
 
 ### ngrok
 
-Install ngrok and configure its account on the computer, then run:
+Use your account's reserved domain, including a dev domain where your plan supports it:
 
 ```sh
-mindwire connect --relay ngrok
+mindwire connection ngrok
 ```
 
-To use your account's configured stable hostname:
+Mindwire opens the ngrok dashboard. Copy an authtoken into the hidden terminal
+prompt and enter your domain. The official ngrok agent manages its heartbeat and
+reconnect using that same domain. Each computer needs its own address. The token
+stays on the computer and is never included in pairing codes.
+
+An already installed and configured ngrok CLI also remains supported:
 
 ```sh
 mindwire connect --relay ngrok --relay-url wss://your-host.ngrok.app/ssh
@@ -175,8 +218,7 @@ mindwire connect --relay custom --relay-url wss://computer.example.com/ssh
 ```
 
 The custom adapter advertises an already-running tunnel; the provider owns that
-tunnel's lifecycle. This is also the extension point for an Oblien tunnel that
-forwards the same WebSocket endpoint. No Oblien workspace needs to be created.
+tunnel's lifecycle. Use it for a self-hosted relay or another provider.
 
 With a relay, SSH bytes travel inside WSS. The phone still pins the computer's SSH
 key, so TLS termination at the provider does not expose workspace content. The
@@ -185,9 +227,18 @@ forwarding. Do not point a tunnel directly at that HTTP API.
 
 Direct and relay routes can coexist. The app selects an authenticated route before
 sending workspace requests and learns current addresses from the verified computer.
-To change saved connection settings, stop the service when idle and run
-`mindwire connect` with the new options. If no saved route remains reachable, scan
-the new code; the computer identity and existing workspace are retained.
+Use `mindwire connection` to change providers. The controller keeps the old service
+running while it starts and verifies the replacement route. Failed setup leaves the
+previous configuration in place. A successful provider change shows a QR to save
+the new address once; subsequent reconnects use it automatically. The computer
+identity, projects and running daemon are retained. Changing listening ports or the
+initial service directory still requires stopping when idle.
+
+Refreshing credentials for the same reserved Oblien/ngrok endpoint briefly
+reconnects the tunnel. A failed refresh restores the prior provider settings;
+terminals and agents keep running. `mindwire status` reports the provider and the
+result of a connection change. Provider login and certificate failures are shown
+directly instead of waiting for a generic connection timeout.
 
 ## Terminals and reconnecting
 
@@ -201,9 +252,12 @@ window, it receives the current terminal screen and resumes from there. Input
 uses sequential receipts so retrying a lost acknowledgment does not type a command
 twice. macOS/Linux use a PTY; Windows uses ConPTY.
 
-iOS detects Wi-Fi/mobile-data changes immediately, waits while offline, and
-reconnects using the existing stream cursor. Foregrounding also refreshes stale
-connections. A private port preview retains its local address after reconnection.
+iOS detects Wi-Fi/mobile-data changes, waits while offline, and retries saved
+computers while active with a delay capped at one minute. Backgrounding pauses this
+work; foregrounding retries immediately. Successful checks stay cached between
+screens. Chat, files and terminal clients share the same authenticated SSH endpoint;
+closing one view does not close another view's connection. A rejected phone key or
+changed host identity stops automatic retries and requires explicit repair.
 Tunnels retry independently, including while a service update waits for idle work.
 
 On current daemons, Send uses a durable request ID. If its acknowledgement is lost,

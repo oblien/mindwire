@@ -9,8 +9,10 @@ import { remote } from "../target/index.js";
 import { SDK_VERSION, versionAtLeast } from "../version.js";
 import type { ComputerInfo, ComputerRoute } from "../computer.js";
 import type { RelayOptions } from "./relay.js";
+import { validateRelayOptions } from "./relay.js";
 import { processStateAlive, type ProcessState } from "./process.js";
 import { acquireProcessLock } from "./lock.js";
+import { providerNeedsAction } from "./provider-errors.js";
 
 export interface ComputerConfig {
   daemonBin?: string;
@@ -22,7 +24,7 @@ export interface ComputerConfig {
   websocketPort: number;
   relay: RelayOptions;
 }
-export const CONTROLLER_PROTOCOL = 2;
+export const CONTROLLER_PROTOCOL = 3;
 export interface ControllerState extends ProcessState {
   protocol?: number; cliVersion?: string; ready: boolean; phase?: string; error?: string; errorCode?: string; recovering?: boolean; routes?: ComputerRoute[]; checkedAt?: number;
   relayFailureSince?: number; relayFailures?: number;
@@ -66,7 +68,7 @@ export function directRoutes(config: ComputerConfig, port: number): ComputerRout
 
 /** Launch once; the daemon additionally owns an OS file lock over its identity/state. */
 export async function ensureComputer(directory: string, cliPath: string, patch: Partial<ComputerConfig> = {},
-  onProgress?: (message: string) => void, options: { resume?: boolean; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<Mindwire> {
+  onProgress?: (message: string) => void, options: { resume?: boolean; signal?: AbortSignal; timeoutMs?: number; waitForRoutes?: boolean } = {}): Promise<Mindwire> {
   const resume = options.resume !== false;
   options.signal?.throwIfAborted();
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
@@ -78,6 +80,7 @@ export async function ensureComputer(directory: string, cliPath: string, patch: 
   const configPath = path.join(directory, "computer-config.json");
   const previous = await readJSON<ComputerConfig>(configPath);
   const config = { ...defaultComputerConfig(), ...previous, ...patch };
+  validateRelayOptions(config.relay);
   // Every explicit Connect/Start waits for a fresh route check. Background
   // supervision can reuse readiness and doesn't create navigation-style churn.
   const requestedAt = resume ? Date.now() : 0;
@@ -96,7 +99,11 @@ export async function ensureComputer(directory: string, cliPath: string, patch: 
       lastState = controller;
       if (launchFailure) throw launchFailure;
       if (launchedPID && controller?.pid !== launchedPID) { await delay(250, undefined, { signal: options.signal }); continue; }
+      if (options.waitForRoutes === false && compatible(controller) && await processStateAlive(controller)) {
+        try { return await computerClient(directory); } catch { /* The daemon may still be starting. */ }
+      }
       if (controller?.error && !controller.recovering) throw new Error(controller.error);
+      if (controller?.error && providerNeedsAction(controller.errorCode) && (controller.checkedAt ?? 0) >= requestedAt) throw new Error(controller.error);
       if (controller?.ready && compatible(controller) && (controller.checkedAt ?? 0) >= requestedAt
           && await processStateAlive(controller)) return computerClient(directory);
       if (controller?.phase && controller.phase !== phase) { phase = controller.phase; onProgress?.(phase); }
@@ -109,8 +116,19 @@ export async function ensureComputer(directory: string, cliPath: string, patch: 
     throw new Error(`Mindwire's connection is not ready. ${lastStep}${recovering ? " Background recovery continues." : ""} Run mindwire reconnect to retry, or mindwire status for details.`);
   };
   if (current) {
-    if (Object.keys(patch).some(key => JSON.stringify(config[key as keyof ComputerConfig]) !== JSON.stringify(previous?.[key as keyof ComputerConfig]))) {
-      throw new Error("Mindwire is running with different connection settings. Run mindwire stop when idle, then retry with the new settings.");
+    const changed = Object.keys(patch).filter(key => JSON.stringify(config[key as keyof ComputerConfig]) !== JSON.stringify(previous?.[key as keyof ComputerConfig]));
+    if (changed.length) {
+      if (changed.some(key => !["relay", "host"].includes(key))) {
+        throw new Error("Changing the service's directory or listening ports requires mindwire stop when idle. Connection providers can be changed live with mindwire connection.");
+      }
+      const controller = await readJSON<ControllerState>(path.join(directory, "computer-controller.json"));
+      if (!compatible(controller) || !await processStateAlive(controller)) {
+        // Adopting a controller must also work when the old internet route is broken.
+        await ensureComputer(directory, cliPath, {}, onProgress, { ...options, waitForRoutes: false });
+      }
+      const { changeComputerConnection } = await import("./connection-change.js");
+      await changeComputerConnection(directory, Object.fromEntries(changed.map(key => [key, patch[key as keyof ComputerConfig]])), { signal: options.signal, onProgress });
+      return computerClient(directory);
     }
     // The API may be healthy while the internet helper is still downloading.
     // Pairing must wait for its routes, not expose a partly prepared computer.

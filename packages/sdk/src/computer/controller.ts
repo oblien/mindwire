@@ -12,8 +12,16 @@ import { adoptRelay, startRelay, type RelayHandle } from "./relay.js";
 import { checkRelay, relayNeedsRestart, relayProviderReachable, RelayCheckError } from "./relay-health.js";
 import { adoptProcess, ownChild, currentProcessIdentity, processStateAlive, processIdentity, type OwnedProcess, type ProcessIdentity } from "./process.js";
 import { RelayOutput } from "./relay-output.js";
+import { connectionInfo } from "./provider-info.js";
+import type { ComputerConnectionChange } from "./connection-change.js";
+import { ProviderConnectionError, providerNeedsAction } from "./provider-errors.js";
 
-interface SavedRelay { owner: ProcessIdentity; port: number; options: string; route?: ComputerRoute; outputFile?: string }
+interface SavedRelay { owner: ProcessIdentity; port: number; options: string; route?: ComputerRoute; outputFile?: string; configFile?: string }
+async function saveRelay(file: string, handle: RelayHandle | undefined, port: number, options: ComputerConfig["relay"]): Promise<void> {
+  if (handle?.owner?.identity) await writeJSON(file, { owner: handle.owner.identity, port, options: JSON.stringify(options),
+    route: handle.route, outputFile: handle.outputFile, configFile: handle.configFile } satisfies SavedRelay);
+  else await fs.rm(file, { force: true });
+}
 export function recoveryDelay(failures: number): number { return Math.min(60_000, 1000 * 2 ** Math.min(6, Math.max(0, failures - 1))); }
 
 /** Own process lifecycle separately from any mobile view or pairing command. */
@@ -30,6 +38,7 @@ export async function superviseComputer(directory: string): Promise<void> {
   await phase("Preparing Mindwire…");
   let child: OwnedProcess | undefined, relay: RelayHandle | undefined, stopping = false;
   let relayTask: Promise<void> | undefined, updateTask: Promise<void> | undefined;
+  let connectionTask: Promise<void> | undefined;
   let relayResult: { handle?: RelayHandle; error?: unknown } | undefined;
   let checkTask: Promise<void> | undefined;
   let checkResult: { relay: RelayHandle; error?: unknown; canRestart?: boolean } | undefined;
@@ -118,11 +127,18 @@ export async function superviseComputer(directory: string): Promise<void> {
     }
 
     const saved = await readJSON<SavedRelay>(relayPath);
+    const candidatePath = path.join(directory, "computer-relay-candidate.json");
+    const abandonedCandidate = await readJSON<SavedRelay>(candidatePath);
+    if (abandonedCandidate && (abandonedCandidate.owner.pid !== saved?.owner.pid || abandonedCandidate.owner.start !== saved?.owner.start)) {
+      const abandonedOwner = await adoptProcess(abandonedCandidate.owner);
+      if (abandonedOwner) await (await adoptRelay(abandonedOwner, abandonedCandidate.route, directory, abandonedCandidate.outputFile, abandonedCandidate.configFile)).close();
+    }
+    await fs.rm(candidatePath, { force: true });
     if (saved) {
       const owner = await adoptProcess(saved.owner);
       if (owner) {
         if (saved.outputFile && saved.route && saved.port === websocketPort && saved.options === JSON.stringify(config.relay)) {
-          relay = await adoptRelay(owner, saved.route, directory, saved.outputFile);
+          relay = await adoptRelay(owner, saved.route, directory, saved.outputFile, saved.configFile);
           relayWasReachable = !!previous?.routes?.some(route => JSON.stringify(route) === JSON.stringify(saved.route));
           if (previous?.relayFailureSince && relayWasReachable) {
             relayFailedAt = Math.min(Date.now(), previous.relayFailureSince);
@@ -133,7 +149,7 @@ export async function superviseComputer(directory: string): Promise<void> {
           // can still answer briefly, then die on its next log write. Migrate
           // it once before certifying a QR, keeping the daemon and phone keys.
           if (!saved.outputFile) await phase("Refreshing the internet tunnel for this update…");
-          const abandoned = await adoptRelay(owner, saved.route, directory, saved.outputFile);
+          const abandoned = await adoptRelay(owner, saved.route, directory, saved.outputFile, saved.configFile);
           await abandoned.close();
           await fs.rm(relayPath, { force: true });
         }
@@ -144,6 +160,101 @@ export async function superviseComputer(directory: string): Promise<void> {
 
     let lastController = "";
     while (!stopping) {
+      const changePath = path.join(directory, "computer-connection-change.json");
+      const change = !connectionTask && !relayTask && !updateTask && !changingDaemon && client && child?.alive()
+        ? await readJSON<ComputerConnectionChange>(changePath) : undefined;
+      if (change && ["queued", "connecting"].includes(change.status)) {
+        connectionTask = (async () => {
+          const previousConfig = config!;
+          const next = { ...previousConfig, ...change.patch };
+          let previousRelay = relay;
+          let releasedPrevious = false;
+          let candidate: RelayHandle | undefined;
+          let committed = false;
+          let lastVerificationError: Error | undefined;
+          const changing = new AbortController();
+          const cancel = () => changing.abort();
+          abort.signal.addEventListener("abort", cancel, { once: true });
+          const timeout = setTimeout(cancel, 115_000);
+          const report = (message: string) => writeJSON(changePath, { ...change, status: "connecting", message });
+          try {
+            await report("Preparing the new connection; your current service keeps running…");
+            if (JSON.stringify(next.relay) === JSON.stringify(previousConfig.relay) && previousRelay
+                && (!previousRelay.owner || previousRelay.owner.alive())) candidate = previousRelay;
+            else {
+              // A reserved endpoint can have only one owner. Reauthentication
+              // briefly replaces that carrier, keeping SSH identity and PTYs.
+              if (previousRelay?.owner && ["ngrok", "oblien"].includes(next.relay.kind)
+                  && next.relay.kind === previousConfig.relay.kind && next.relay.url === previousConfig.relay.url) {
+                await report("Refreshing the saved provider connection; your terminals keep running…");
+                releasedPrevious = true; relayReachable = false;
+                await previousRelay.close();
+              }
+              candidate = await startRelay(next.relay, websocketPort, {
+              cacheDir: path.join(directory, "tools"), outputDirectory: directory, cliPath: process.argv[1], signal: changing.signal,
+              onProgress: report,
+              onSpawn: async (owner, outputFile, configFile) => {
+                if (owner.identity) await writeJSON(candidatePath, { owner: owner.identity, port: websocketPort,
+                  options: JSON.stringify(next.relay), outputFile, configFile } satisfies SavedRelay);
+              },
+              });
+            }
+            if (next.relay.kind !== "none") {
+              if (!candidate?.route) throw new Error("The provider didn't return an address.");
+              await report("Verifying the new secure connection…");
+              for (;;) {
+                changing.signal.throwIfAborted();
+                try { await checkRelay(candidate.route, { signal: changing.signal }); break; }
+                catch (error) {
+                  if (error instanceof Error) lastVerificationError = error;
+                  if (error instanceof RelayCheckError && providerNeedsAction(error.code)) throw error;
+                  await delay(2000, undefined, { signal: changing.signal });
+                }
+              }
+            }
+            changing.signal.throwIfAborted();
+            const nextRoutes = directRoutes(next, sshPort);
+            if (candidate?.route) nextRoutes.push(candidate.route);
+            if (!nextRoutes.length) throw new Error("No reachable address was configured.");
+            await client!.computer.setRoutes(nextRoutes, connectionInfo(next.relay, next.host));
+            await writeJSON(path.join(directory, "computer-config.json"), next);
+            await saveRelay(relayPath, candidate, websocketPort, next.relay);
+            config = next; relay = candidate; routes = nextRoutes; published = "";
+            relayReachable = true; relayWasReachable = true; relayHealthFailures = 0; relayFailedAt = 0;
+            relayError = undefined; relayErrorCode = undefined; checkedAt = Date.now(); nextCheckAt = checkedAt + 30_000;
+            committed = true;
+            if (previousRelay && previousRelay !== candidate) await previousRelay.close();
+            await writeJSON(changePath, { ...change, status: "complete", message: "Persistent connection is ready." });
+          } catch (error) {
+            if (!committed) {
+              if (candidate && candidate !== previousRelay) await candidate.close();
+              await writeJSON(path.join(directory, "computer-config.json"), previousConfig);
+              if (releasedPrevious) {
+                previousRelay = undefined;
+                if (!stopping) {
+                  await report("Restoring the previous provider connection…");
+                  try {
+                    previousRelay = await startRelay(previousConfig.relay, websocketPort, {
+                      cacheDir: path.join(directory, "tools"), outputDirectory: directory, cliPath: process.argv[1], signal: abort.signal,
+                    });
+                  } catch { /* Normal background recovery retries the original provider. */ }
+                }
+                relayReachable = false; nextCheckAt = 0; nextRelayAt = 0;
+              }
+              relay = previousRelay;
+              await saveRelay(relayPath, previousRelay, websocketPort, previousConfig.relay);
+              published = ""; // Re-publish the original routes if a disk write failed during commit.
+            }
+            await writeJSON(changePath, { ...change, status: committed ? "complete" : "failed",
+              message: committed ? "Connection is ready." : `Connection setup didn't finish. ${error instanceof Error && error.name !== "AbortError" ? error.message : lastVerificationError?.message ?? "Check the provider configuration and internet connection."} The previous service keeps running.` });
+          } finally {
+            clearTimeout(timeout); abort.signal.removeEventListener("abort", cancel);
+            await fs.rm(candidatePath, { force: true });
+          }
+        })().catch(() => {
+          relayError = "The connection change could not be saved. Check free disk space, then run mindwire connection again.";
+        }).finally(() => { connectionTask = undefined; });
+      }
       if (!changingDaemon && child && !child.alive()) {
         child = undefined; client = undefined;
         daemonError = "The service stopped. Restarting it…";
@@ -164,7 +275,8 @@ export async function superviseComputer(directory: string): Promise<void> {
         }
       }
 
-      if (relay?.owner && !relay.owner.alive()) {
+      const requestedCheck = await readJSON<{ requestedAt: number }>(path.join(directory, "computer-check.json"));
+      if (!connectionTask && relay?.owner && !relay.owner.alive()) {
         await relay.close();
         relay = undefined;
         relayReachable = false; relayWasReachable = false;
@@ -178,22 +290,24 @@ export async function superviseComputer(directory: string): Promise<void> {
           relay = result.handle; relayError = undefined; relayErrorCode = undefined; relayReadyAt = Date.now();
           relayReachable = false; relayWasReachable = false; relayHealthFailures = 0; relayFailedAt = 0; nextCheckAt = 0;
           if (relay.owner?.identity) await writeJSON(relayPath, {
-            owner: relay.owner.identity, port: websocketPort, options: JSON.stringify(config.relay), route: relay.route, outputFile: relay.outputFile,
+            owner: relay.owner.identity, port: websocketPort, options: JSON.stringify(config.relay), route: relay.route, outputFile: relay.outputFile, configFile: relay.configFile,
           } satisfies SavedRelay);
         } else {
+          checkedAt = Date.now();
           relayError = result.error instanceof Error ? result.error.message : "The internet tunnel couldn't connect.";
-          nextRelayAt = Date.now() + recoveryDelay(++relayFailures);
+          relayErrorCode = result.error instanceof ProviderConnectionError ? result.error.code : undefined;
+          nextRelayAt = Date.now() + (providerNeedsAction(relayErrorCode) ? 60_000 : recoveryDelay(++relayFailures));
         }
       }
-      if (!relay && !relayTask && Date.now() >= nextRelayAt) {
+      if (!relay && !relayTask && !connectionTask && (Date.now() >= nextRelayAt || (requestedCheck?.requestedAt ?? 0) > checkedAt)) {
         relayError = undefined; relayErrorCode = undefined;
         relayMessage = "Reconnecting your internet tunnel…";
         relayTask = startRelay(config.relay, websocketPort, {
-          cacheDir: path.join(directory, "tools"), outputDirectory: directory, signal: abort.signal,
+          cacheDir: path.join(directory, "tools"), outputDirectory: directory, cliPath: process.argv[1], signal: abort.signal,
           onProgress: message => { relayMessage = message; },
-          onSpawn: async (owner, outputFile) => {
+          onSpawn: async (owner, outputFile, configFile) => {
             if (owner.identity) await writeJSON(relayPath, {
-              owner: owner.identity, port: websocketPort, options: JSON.stringify(config!.relay), outputFile,
+              owner: owner.identity, port: websocketPort, options: JSON.stringify(config!.relay), outputFile, configFile,
             } satisfies SavedRelay);
           },
         }).then(handle => { relayResult = { handle }; }, error => { relayResult = { error }; });
@@ -214,7 +328,7 @@ export async function superviseComputer(directory: string): Promise<void> {
             relayFailedAt ||= checkedAt;
             relayHealthFailures++;
             nextCheckAt = checkedAt + Math.min(15_000, recoveryDelay(relayHealthFailures));
-            if (result.canRestart) {
+            if (result.canRestart && !connectionTask) {
               // Only replace the tunnel after repeated failures with working
               // internet. The daemon, phone keys, chats and PTYs keep running.
               await phase(result.error instanceof RelayCheckError && result.error.addressMissing
@@ -227,7 +341,6 @@ export async function superviseComputer(directory: string): Promise<void> {
           }
         }
       }
-      const requestedCheck = await readJSON<{ requestedAt: number }>(path.join(directory, "computer-check.json"));
       if (config.relay.kind === "none") checkedAt = Math.max(checkedAt, requestedCheck?.requestedAt ?? 0);
       if (relay?.route && !checkTask && (Date.now() >= nextCheckAt || (requestedCheck?.requestedAt ?? 0) > checkedAt)) {
         const checking = relay;
@@ -247,9 +360,10 @@ export async function superviseComputer(directory: string): Promise<void> {
 
       routes = directRoutes(config, sshPort);
       if (relay?.route && relayWasReachable) routes.push(relay.route);
-      const routeJSON = JSON.stringify(routes);
+      const metadata = connectionInfo(config.relay, config.host);
+      const routeJSON = JSON.stringify({ routes, connection: metadata });
       if (!changingDaemon && client && child?.alive() && routeJSON !== published) {
-        try { await client.computer.setRoutes(routes); published = routeJSON; }
+        try { await client.computer.setRoutes(routes, metadata); published = routeJSON; }
         catch { /* Retry publication; never claim the new routes are ready yet. */ }
       }
       const ready = !!client && !!child?.alive() && !changingDaemon && routes.length > 0 && published === routeJSON
@@ -262,7 +376,7 @@ export async function superviseComputer(directory: string): Promise<void> {
       if (serialized !== lastController) { await writeJSON(controllerPath, state); lastController = serialized; }
 
       const updatePath = path.join(directory, "computer-update.json");
-      const update = !updateTask && client && child?.alive() ? await readJSON<ComputerUpdate>(updatePath) : undefined;
+      const update = !updateTask && !connectionTask && client && child?.alive() ? await readJSON<ComputerUpdate>(updatePath) : undefined;
       if (update && ["queued", "downloading", "waiting", "restarting"].includes(update.status)) {
         // Waiting for idle does not block relay recovery or address publication.
         updateTask = (async () => {
@@ -294,7 +408,7 @@ export async function superviseComputer(directory: string): Promise<void> {
             binary = replacement;
             config = { ...config!, daemonBin: undefined, version: update.version };
             await writeJSON(path.join(directory, "computer-config.json"), config);
-            await client.computer.setRoutes(routes); published = JSON.stringify(routes);
+            await client.computer.setRoutes(routes, connectionInfo(config.relay, config.host)); published = "";
             await status("complete");
           } catch (error) { await status("failed", error instanceof Error ? error.message : "Service update failed."); }
           finally { changingDaemon = false; published = ""; }
@@ -307,7 +421,7 @@ export async function superviseComputer(directory: string): Promise<void> {
     throw error;
   } finally {
     abort.abort();
-    await relayTask; await checkTask; await updateTask;
+    await relayTask; await checkTask; await updateTask; await connectionTask;
     if (relayResult?.handle && relayResult.handle !== relay) await relayResult.handle.close();
     await relay?.close();
     if (child) await child.close();

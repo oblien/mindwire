@@ -5,9 +5,10 @@ import { isIP, type LookupFunction } from "node:net";
 import WebSocket from "ws";
 import type { ComputerRoute } from "../computer.js";
 import type { RelayOptions } from "./relay.js";
+import { hasCertificateError } from "./provider-errors.js";
 
 export class RelayCheckError extends Error {
-  constructor(readonly code: "dns" | "timeout" | "proxy" | "connection" | "response", message: string, cause?: Error,
+  constructor(readonly code: "dns" | "timeout" | "proxy" | "connection" | "response" | "provider_certificate", message: string, cause?: Error,
     readonly addressMissing = false) {
     super(message, cause ? { cause } : undefined);
     this.name = "RelayCheckError";
@@ -19,6 +20,7 @@ export class RelayCheckError extends Error {
  * Keep a grace period for newly allocated records and ordinary internet outages. */
 export function relayNeedsRestart(error: unknown, failures: number, failedForMs: number): boolean {
   return failures >= 2 && failedForMs >= 90_000
+    && !(error instanceof RelayCheckError && error.code === "provider_certificate")
     && (!(error instanceof RelayCheckError && error.code === "dns") || error.addressMissing);
 }
 
@@ -120,7 +122,9 @@ export async function checkRelay(route: ComputerRoute, options: { signal?: Abort
     const aborted = () => finish(options.signal?.reason ?? new Error("Connection check cancelled."));
     const timer = setTimeout(() => finish(new RelayCheckError("timeout", "The internet tunnel isn't responding. Retrying…")), options.timeoutMs ?? 8000);
     socket.on("error", error => {
-      if (["ENOTFOUND", "EAI_AGAIN"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+      if (hasCertificateError(error)) {
+        finish(new RelayCheckError("provider_certificate", "The tunnel's TLS certificate could not be verified. Check the provider's certificate and this computer's date and time.", error));
+      } else if (["ENOTFOUND", "EAI_AGAIN"].includes((error as NodeJS.ErrnoException).code ?? "")) {
         const provider = new URL(route.url).hostname.endsWith(".trycloudflare.com") ? "Cloudflare's" : "the tunnel's";
         finish(new RelayCheckError("dns", `Waiting for ${provider} internet address (DNS)…`, error,
           (error as Error & { relayAddressMissing?: boolean }).relayAddressMissing === true));
@@ -148,10 +152,11 @@ export async function checkRelay(route: ComputerRoute, options: { signal?: Abort
 /** Don't rotate a quick-tunnel address during an ordinary internet outage.
  * Let the provider reconnect with the same address until it is reachable again. */
 export async function relayProviderReachable(options: RelayOptions, signal?: AbortSignal): Promise<boolean> {
-  if (options.kind !== "cloudflare" && options.kind !== "ngrok") return false;
+  if (!["cloudflare", "ngrok", "oblien"].includes(options.kind)) return false;
   signal?.throwIfAborted();
   return new Promise<boolean>(resolve => {
-    const url = options.kind === "cloudflare" ? "https://api.trycloudflare.com/" : "https://api.ngrok.com/";
+    const url = options.kind === "cloudflare" ? "https://api.trycloudflare.com/"
+      : options.kind === "oblien" ? "https://api.oblien.com/" : "https://api.ngrok.com/";
     let finished = false;
     const done = (reachable: boolean) => {
       if (finished) return;

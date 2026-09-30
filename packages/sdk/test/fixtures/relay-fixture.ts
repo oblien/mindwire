@@ -18,6 +18,8 @@ const https = require('node:https');
 const WebSocket = require(${JSON.stringify(module)});
 const directory = process.env.MINDWIRE_RELAY_FIXTURE;
 const origin = new URL(process.argv[3]);
+const publicFlag = process.argv.indexOf('--url');
+const publicURL = publicFlag >= 0 ? new URL(process.argv[publicFlag + 1]) : undefined;
 const server = https.createServer({key:fs.readFileSync(directory+'/relay-key.pem'),cert:fs.readFileSync(directory+'/relay-certificate.pem')});
 const websocket = new WebSocket.Server({noServer:true});
 server.on('upgrade',(request,socket,head)=>{
@@ -34,9 +36,9 @@ websocket.on('connection',client=>{
   upstream.on('error',()=>client.terminate()); client.on('error',()=>upstream.terminate());
   upstream.on('close',()=>client.terminate()); client.on('close',()=>upstream.terminate());
 });
-server.listen(0,'127.0.0.1',()=>{
+server.listen(publicURL ? Number(publicURL.port) : 0,'127.0.0.1',()=>{
   fs.appendFileSync(directory+'/relay-starts',process.pid+'\\n');
-  console.log(JSON.stringify({msg:'started tunnel',url:'https://' + ${options.providerDNS ? "('relay-' + process.pid + '.trycloudflare.com')" : "'127.0.0.1'"} + ':'+server.address().port}));
+  console.log(JSON.stringify({msg:'started tunnel',url:publicURL ? publicURL.origin : 'https://' + ${options.providerDNS ? "('relay-' + process.pid + '.trycloudflare.com')" : "'127.0.0.1'"} + ':'+server.address().port}));
 });
 // A provider writes again during network recovery, even after its controller exits.
 setInterval(()=>console.error('provider heartbeat'),100);
