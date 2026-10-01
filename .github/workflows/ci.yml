@@ -45,6 +45,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.1
@@ -129,8 +132,23 @@ jobs:
   console:
     name: "console (Vite + Hono)"
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: mindwire_test
+          POSTGRES_PASSWORD: local_test_only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mindwire_test -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.1
@@ -144,3 +162,9 @@ jobs:
         run: bun --filter='@mindwire/console' run check
       - name: Build
         run: bun --filter='@mindwire/console' run build
+      - name: Test Console and directory with SQLite
+        run: bun --filter='@mindwire/console' run test
+      - name: Test directory and CLI key enrollment with PostgreSQL
+        env:
+          MINDWIRE_DIRECTORY_TEST_DATABASE_URL: postgresql://mindwire_test:local_test_only@127.0.0.1:5432/postgres
+        run: bun test apps/console/test/computer-directory.test.ts packages/sdk/test/computer-directory.test.ts

@@ -16,10 +16,15 @@ npm install -g mindwire
 mindwire connect
 ```
 
-Interactive setup lets you choose **Oblien**, **your Cloudflare account**,
-**ngrok**, **your VPN**, or an **existing tunnel**. Named tunnels keep the same
-internet address across computer and tunnel restarts. Temporary Cloudflare
-connections remain available without an account.
+The default **Automatic** option uses a free Cloudflare tunnel and Mindwire’s
+encrypted address directory. **No Mindwire or Oblien login is needed.** Pair once
+by QR; your computer publishes its changing tunnel address under its stable key,
+and your phone uses its saved key to find it again.
+
+You can also choose **Oblien**, **your Cloudflare account**, **ngrok**, **your VPN**,
+an **existing tunnel**, or **temporary Cloudflare without address recovery**.
+Named tunnels keep the same internet address across computer and tunnel restarts.
+Provider login is needed only for the account-based provider you choose.
 
 Mindwire downloads a verified daemon release and starts it in the background.
 Cloudflare's helper is downloaded into a private cache when needed; ngrok uses its
@@ -46,14 +51,16 @@ Mindwire runs after you sign in to the computer. It retries
 dropped tunnels and recovers the background controller without restarting a healthy
 daemon. The computer must remain awake and online.
 
-Choose a persistent connection with `mindwire connection`. A temporary quick tunnel
-can get a new address after a tunnel restart. If all saved addresses change while
+Choose a persistent connection with `mindwire connection`, or enable encrypted
+address recovery as described below. A temporary quick tunnel can get a new address
+after a restart. Without address recovery, if all saved addresses change while
 the phone is away, run `mindwire connect pair` and scan once to refresh the address.
 This keeps the same computer identity, workspace and projects.
 
 ### Return to a saved connection
 
-Run `mindwire connect` again. With a persistent address and a saved approval it
+Run `mindwire connect` again. With a persistent address or an acknowledged address
+recovery key, and a saved approval, it
 starts the background connection without another QR. “Ready for your saved phone”
 means the address is available; “Connected” is shown only after a phone authenticates.
 Open the mobile app to reconnect with its saved key.
@@ -105,6 +112,7 @@ route according to how the phone can reach the computer:
 | Route | Needs a relay? | Suitable for |
 | --- | --- | --- |
 | Oblien, named Cloudflare, or reserved ngrok domain | Yes | Persistent internet access without inbound port forwarding |
+| Cloudflare + Mindwire address directory | Cloudflare carries traffic | Finding a changed address with the phone's existing pairing key |
 | Temporary Cloudflare | Yes | Trying the app without an account; a restart may need an address refresh |
 | Existing VPN, including Tailscale | Depends on the VPN's connectivity | Regular use across networks with a stable address |
 | Custom WebSocket tunnel | Your provider | An existing tunnel or self-hosted relay |
@@ -155,6 +163,54 @@ account revocation or expiry.
 Signing in again at the same address keeps the phone's saved pairing and does not
 require another QR.
 
+### Encrypted address recovery
+
+Address recovery uses the existing Mindwire Console backend without a website
+account. If the updated backend is unavailable, setup reports the problem and
+preserves an existing connection.
+
+```sh
+mindwire connection automatic  # Free Cloudflare carrier + Mindwire address discovery
+mindwire discovery enable      # Add discovery to your current provider
+mindwire discovery status
+mindwire discovery disable
+```
+
+The computer proves its saved SSH key to register and publish encrypted address
+updates. Your phone learns the directory URL and its decryption key through the
+paired SSH connection. No browser login, matching account or account token is
+needed on either device.
+
+You can use your [self-hosted Mindwire Console](https://github.com/oblien/mindwire/tree/main/apps/console)
+as the directory. It uses the same server and persistent database; its normal
+website login remains separate. Set its stable HTTPS URL on the computer:
+
+```sh
+mindwire discovery enable --directory-url https://console.example.com/api/computer-directory/v1
+```
+
+The CLI also accepts `MINDWIRE_DIRECTORY_URL`. It uses the explicit flag first,
+then the environment variable, then a saved URL, then Mindwire’s hosted default.
+Your phone learns the chosen URL automatically; it has no hardcoded directory.
+
+A saved directory stays selected across upgrades. Disable and withdraw the old
+directory before changing URLs, then reconnect each phone once to save the new
+discovery key. A computer’s stable key and directory URL let the phone discover
+a new Cloudflare address without repeating QR pairing.
+
+The directory stores signed, encrypted address records. Files, chats, terminals
+and desktop traffic continue through the selected SSH carrier. Publication happens
+when addresses or approvals change, with a renewal every 12 hours. The phone tries
+cached routes immediately and looks up a replacement when connection is slow or
+fails. A directory outage does not prevent a working cached route from connecting.
+
+After enabling on an already paired computer, open each phone once while its
+current address still works. That saves the discovery key without changing its
+workspace or phone identity. If the old address was already lost before this
+upgrade, scan one new pairing code. Keep the computer awake, online and running
+Mindwire; discovery does not wake sleeping hardware or replace an unavailable
+tunnel provider.
+
 ### Cloudflare
 
 ```sh
@@ -175,8 +231,9 @@ copy for its own use:
 mindwire connect --relay cloudflare
 ```
 
-Quick tunnel hostnames change when the tunnel restarts. For regular access, use a
-named tunnel with a stable public hostname. Configure that hostname to forward to
+Quick tunnel hostnames change when the tunnel restarts. **Automatic** handles
+these changes through the directory. Another option is a named tunnel with a
+stable public hostname. Configure that hostname to forward to
 `http://127.0.0.1:8792`, save its tunnel token in a private file, and run:
 
 ```sh

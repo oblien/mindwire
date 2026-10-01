@@ -101,6 +101,11 @@ docker compose -f packages/docker/docker-compose.selfhost.yml up -d
 
 For deployment, architecture, API reference, and adapter capabilities, see [mindwire.sh/docs](https://mindwire.sh/docs).
 
+Automatic computer-address recovery uses the existing
+[Console backend](./apps/console/README.md) and database, with no Mindwire or Oblien
+login. The directory URL is configurable and self-hostable; computers publish
+encrypted addresses using their saved keys, while traffic stays on the chosen carrier.
+
 ## License
 
 [Apache-2.0](./LICENSE)

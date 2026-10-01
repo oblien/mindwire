@@ -12,23 +12,23 @@ import { signInOblien, type OblienCredentials } from "./oblien-auth.js";
 import { websocketURL, type RelayOptions } from "./relay.js";
 import type { SetupPrompt } from "./setup-prompt.js";
 
-export type ConnectionProvider = "oblien" | "cloudflare" | "ngrok" | "vpn" | "custom" | "temporary";
+export type ConnectionProvider = "oblien" | "cloudflare" | "ngrok" | "vpn" | "custom" | "temporary" | "automatic";
 interface ProviderState { installationId: string; oblien?: { id: number; url: string }; cloudflare?: { id: string; credentialsFile: string } }
 const execute = promisify(execFile);
 
 export async function chooseProvider(prompt: SetupPrompt): Promise<ConnectionProvider> {
-  prompt.print("\nConnect this computer\n\n  1  Oblien — persistent address, browser sign-in\n  2  Cloudflare — your account and domain\n  3  ngrok — your account and reserved domain\n  4  Your VPN — direct SSH\n  5  Existing secure tunnel\n  6  Temporary Cloudflare connection — address can change\n");
+  prompt.print("\nConnect this computer\n\n  1  Automatic — free Cloudflare tunnel + Mindwire address recovery, no account\n  2  Oblien — persistent address, browser sign-in\n  3  Cloudflare — your account and domain\n  4  ngrok — your account and reserved domain\n  5  Your VPN — direct SSH\n  6  Existing secure tunnel\n  7  Temporary Cloudflare connection — no address recovery\n");
   for (;;) {
     const answer = (await prompt.question("Connection [1]: ")).trim();
-    const provider = (["oblien", "cloudflare", "ngrok", "vpn", "custom", "temporary"] as const)[Number(answer || "1") - 1];
+    const provider = (["automatic", "oblien", "cloudflare", "ngrok", "vpn", "custom", "temporary"] as const)[Number(answer || "1") - 1];
     if (provider) return provider;
-    prompt.print("Choose 1–6.");
+    prompt.print("Choose 1–7.");
   }
 }
 
 export function connectionProvider(value: string): ConnectionProvider {
-  if (["oblien", "cloudflare", "ngrok", "vpn", "custom", "temporary"].includes(value)) return value as ConnectionProvider;
-  throw new Error("Choose oblien, cloudflare, ngrok, vpn, custom or temporary.");
+  if (["oblien", "cloudflare", "ngrok", "vpn", "custom", "temporary", "automatic"].includes(value)) return value as ConnectionProvider;
+  throw new Error("Choose automatic, oblien, cloudflare, ngrok, vpn, custom or temporary.");
 }
 
 export function providerHostname(value: string): string {
@@ -125,6 +125,9 @@ export async function setupProvider(options: {
     const stateFile = path.join(directory, "computer-providers.json");
     if (!await readJSON(stateFile)) await writeJSON(stateFile, { installationId: randomUUID() } satisfies ProviderState);
     switch (provider) {
+      case "automatic":
+        prompt.print("No Mindwire or Oblien account is needed. Cloudflare carries encrypted SSH traffic; the Mindwire directory helps your paired phone find this computer when its address changes. Use --directory-url or MINDWIRE_DIRECTORY_URL for a self-hosted directory.");
+        return { relay: { kind: "cloudflare" } };
       case "temporary": return { relay: { kind: "cloudflare" } };
       case "vpn": {
         prompt.print("Use a hostname reachable from your phone's VPN, such as your Tailscale or WireGuard network. Mindwire still checks your paired SSH keys.");

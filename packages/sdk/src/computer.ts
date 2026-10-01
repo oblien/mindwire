@@ -19,7 +19,14 @@ export type ComputerConnectionCode = ComputerInvitation | ComputerReconnectCode;
 export interface ComputerDevice {
   id: string; name: string; publicKey: string; createdAt: string; revoked: boolean;
   connected?: boolean;
+  /** This phone acknowledged securely saving its address-discovery key. */
+  addressRecovery?: boolean;
 }
+export interface ComputerDiscoveryStatus {
+  version: 1; enabled: boolean; directoryId: string; url?: string;
+  sequence?: number; publishedSequence?: number; publishedAt?: number; error?: string;
+}
+export interface ComputerDirectoryEnvelope { publicKey: string; payload: string; signature: string }
 /** Signature is a base64 Ed25519 proof over
  * `mindwire-computer-pairing-v1\n${pairingId}\n${id}\n${name}\n${publicKey}`.
  * With pairingVersion >= 2 an already approved key reconnects without a prompt.
@@ -45,6 +52,7 @@ export interface ComputerInfo {
    * 3 requires signed pairing acknowledgements and expires/revokes pairing transports. */
   pairingVersion?: number;
   connection?: ComputerConnectionInfo;
+  discovery?: ComputerDiscoveryStatus;
 }
 export interface ComputerForwardRequest { id: string; deviceId: string; port: number }
 export interface ComputerForward extends ComputerForwardRequest { expiresAt: string }
@@ -52,6 +60,13 @@ export interface ComputerForward extends ComputerForwardRequest { expiresAt: str
 export class ComputerApi {
   constructor(private readonly client: Mindwire) {}
   info(): Promise<ComputerInfo> { return this.client.http.request("GET", "/computer"); }
+  discovery(): Promise<ComputerDiscoveryStatus> { return this.client.http.request("GET", "/computer/discovery"); }
+  configureDiscovery(enabled: boolean, url?: string): Promise<ComputerDiscoveryStatus> {
+    return this.client.http.request("PUT", "/computer/discovery", { body: { enabled, url } });
+  }
+  directoryEnrollment(url: string, challenge: string): Promise<ComputerDirectoryEnvelope> {
+    return this.client.http.request("POST", "/computer/discovery/enrollment", { body: { url, challenge } });
+  }
   setRoutes(routes: ComputerRoute[], connection?: ComputerConnectionInfo): Promise<ComputerInfo> {
     return this.client.http.request("PUT", "/computer/routes", { body: { routes, connection } });
   }

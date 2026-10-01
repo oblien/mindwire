@@ -11,11 +11,14 @@ import { initAuth, publicConfig } from "./auth";
 import { registerAuth } from "./guard";
 import { registerRoutes } from "./routes";
 import { registerTurnRoutes } from "./turn";
+import { registerComputerDirectory, startDirectoryMaintenance } from "./computer-directory/routes";
 
 const app = new Hono();
 
-// The global auth gate + Better Auth mount go on FIRST, so no data route is reachable without a session.
+// Mount the global auth boundary first. The directory has its own key-based
+// authentication; workspace APIs continue to require a website session.
 registerAuth(app);
+registerComputerDirectory(app);
 
 app.get("/api/ping", (c) => c.json({ ok: true, service: "console" }));
 // The only pre-auth data route: branding + sign-in options for the login gate. Secret-free by
@@ -79,6 +82,7 @@ if (env.isProd) {
 // creation. If migrations fail the process exits — a console with no user store is not safe to serve.
 initAuth()
   .then(() => {
+    startDirectoryMaintenance();
     serve({ fetch: app.fetch, port: env.port }, (info) => {
       console.log(`[console] listening on http://127.0.0.1:${info.port} (daemon: ${env.daemonUrl})`);
     });

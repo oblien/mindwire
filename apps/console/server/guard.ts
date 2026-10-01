@@ -1,16 +1,17 @@
 // The global auth boundary. One middleware guards *every* data route: everything under `/api` and
-// `/events` requires a signed-in user, with two deliberate exceptions — the Better Auth endpoints
-// themselves (`/api/account/**`, how you sign in) and the liveness ping. Anything that isn't a data
+// `/events` requires a signed-in user, except the public login/config/liveness
+// endpoints and the computer directory, which authenticates key signatures. Anything that isn't a data
 // route (the static SPA, its assets) passes straight through so the app can boot and show its login.
 //
 // On an authenticated request it resolves the user's isolated console session ONCE and stashes it on the
 // context, so `resolveSession(c)` downstream is a plain synchronous read. This is the single choke point
-// the user asked for: no route can be reached without a session, and the SDK is only ever driven on
+// the user asked for: workspace routes require a session, and the SDK is only ever driven on
 // behalf of a resolved user.
 import type { Hono } from "hono";
 
 import { auth, AUTH_BASE_PATH, userIdFromRequest } from "./auth";
 import { getOrCreateSession, hydrateSessionSecrets } from "./session";
+import { DIRECTORY_PATH } from "./computer-directory/protocol";
 
 /**
  * Paths reachable without a session: the auth surface itself (how you sign in), the liveness ping, and
@@ -32,9 +33,12 @@ function isGuarded(path: string): boolean {
 
 export function registerAuth(app: Hono): void {
   // Gate first, so it runs before any route handler. Non-data paths and the auth endpoints are waved
-  // through; every other data route must carry a valid session or gets a clean 401.
+  // through; workspace routes must carry a valid session or get a clean 401.
   app.use("*", async (c, next) => {
     const path = new URL(c.req.url).pathname;
+    // The address directory authenticates computer/phone signatures. It has no
+    // account session and never instantiates a workspace or hydrates a fleet.
+    if (path === DIRECTORY_PATH || path.startsWith(DIRECTORY_PATH + "/")) return next();
     if (!isGuarded(path) || isPublic(path)) return next();
 
     const userId = await userIdFromRequest(c);

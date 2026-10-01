@@ -14,11 +14,22 @@ new workspace or phone key.
 | Per-user startup job | Restart the controller after login or a controller crash; respect a deliberate stop |
 | Provider worker | Carry encrypted SSH to the loopback WebSocket bridge using saved provider credentials |
 | iOS | Pinned SSH authentication, shared connection leases, network-change handling, and bounded retry |
+| Existing Mindwire Console backend | Key-based enrollment, encrypted addresses, signed lookup, durable revisions and revocation |
 
-`mindwire connection` offers Oblien, a Cloudflare named tunnel, a reserved ngrok
-domain, a VPN hostname, an existing WSS tunnel, or temporary Cloudflare. A named
-address survives a tunnel restart. A temporary address may require one QR refresh
-after replacement. QR establishes identity; it is not an address directory.
+`mindwire connection` defaults to **Automatic**: a free Cloudflare tunnel with the
+Mindwire address directory, requiring no Mindwire or Oblien account. It also
+offers Oblien, a Cloudflare named tunnel, a reserved ngrok domain, a VPN hostname,
+an existing WSS tunnel, or temporary Cloudflare without discovery. A named address
+survives a tunnel restart. The directory lets a paired phone discover a changed
+temporary address using its existing key.
+
+`mindwire connection automatic` sets up the default route. `mindwire discovery enable`
+adds recovery while keeping the current provider. Update the
+[existing Console backend](../apps/console/README.md), or choose a self-hosted
+Console with `--directory-url` or `MINDWIRE_DIRECTORY_URL`. The chosen URL is saved
+on the computer and learned by the phone through pinned SSH. Host signatures own
+the address registration; website login has no role. The backend never carries
+workspace traffic. QR establishes the initial trust between computer and phone.
 
 The controller verifies the binary Mindwire SSH banner through the public WSS
 route before publishing readiness. Repeated clicks join a settings change. A new
@@ -88,8 +99,9 @@ working heartbeat/close propagation, and monitored automatic TLS renewal. The
 live test on 2026-09-30 caught an expired `edge.oblien.com` certificate; delivery
 worked after the certificate was renewed. Certificate verification stays enabled.
 
-This proposal does not require a phone address directory or a second hosted
-relay. Cloudflare/ngrok accounts, a VPN, and self-hosted WSS remain independent
+The single-tunnel grant is independent of the new address directory. Directory
+publication uses the computer's key after one signed enrollment and needs no
+renewable account session. Cloudflare/ngrok accounts, a VPN, and self-hosted WSS remain independent
 alternatives. Providers can see connection metadata and encrypted traffic sizes;
 the pinned SSH session encrypts workspace content end to end.
 

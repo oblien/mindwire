@@ -221,6 +221,10 @@ func (s *Server) forward(conn *ssh.ServerConn, incoming ssh.NewChannel) {
 func (s *Server) Close() {
 	s.mu.Lock()
 	s.closed = true
+	if s.discoveryCancel != nil {
+		s.discoveryCancel()
+	}
+	directoryDone := s.discoveryDone
 	for id := range s.forwards {
 		s.closeForwardLocked(id)
 	}
@@ -229,6 +233,9 @@ func (s *Server) Close() {
 		connections = append(connections, conn)
 	}
 	s.mu.Unlock()
+	if directoryDone != nil {
+		<-directoryDone
+	}
 	if s.sshListener != nil {
 		_ = s.sshListener.Close()
 	}

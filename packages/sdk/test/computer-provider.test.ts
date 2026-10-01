@@ -161,8 +161,9 @@ test("the shipped Oblien relay exits promptly on an invalid broker certificate w
   }
 }, 15_000);
 
-test("provider setup exposes account choices and rejects ambiguous/unsafe hostnames", async () => {
-  const answers = ["bad", "0", "99", "3"];
+test("provider setup defaults to account-free recovery and rejects ambiguous/unsafe hostnames", async () => {
+  expect(await chooseProvider({ question: async () => "", secret: async () => "", print() {}, open() {} })).toBe("automatic");
+  const answers = ["bad", "0", "99", "4"];
   expect(await chooseProvider({ question: async () => answers.shift()!, secret: async () => "", print() {}, open() {} })).toBe("ngrok");
   expect(providerHostname("laptop.example.com")).toBe("laptop.example.com");
   for (const value of ["https://name:secret@example.com", "https://example.com/#secret", "http://example.com", "example.com/path", "example.com?token=x"]) {
@@ -170,6 +171,16 @@ test("provider setup exposes account choices and rejects ambiguous/unsafe hostna
   }
   expect(() => validateRelayOptions({ kind: "oblien", url: "wss://valid.example/ssh" })).toThrow("setup is incomplete");
   expect(() => validateRelayOptions({ kind: "cloudflare", url: "wss://valid.example/ssh" })).toThrow("credentials");
+});
+
+test("automatic provider setup needs no login, secret, browser or provider credentials", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mindwire-automatic-provider-"));
+  const unexpected = () => { throw new Error("Automatic setup must not request account credentials."); };
+  try {
+    expect(await setupProvider({ directory, provider: "automatic", prompt: {
+      print() {}, question: async () => unexpected(), secret: async () => unexpected(), open: unexpected,
+    } })).toEqual({ relay: { kind: "cloudflare" } });
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("Oblien tunnels are bound to the installation, not another computer's matching port", async () => {

@@ -3,6 +3,7 @@
 package computer
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -35,11 +36,12 @@ type Route struct {
 	URL  string `json:"url,omitempty"`
 }
 type Device struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	PublicKey string    `json:"publicKey"`
-	CreatedAt time.Time `json:"createdAt"`
-	Revoked   bool      `json:"revoked"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	PublicKey    string    `json:"publicKey"`
+	CreatedAt    time.Time `json:"createdAt"`
+	Revoked      bool      `json:"revoked"`
+	DirectoryURL string    `json:"directoryURL,omitempty"`
 }
 
 // ConnectionMetadata is descriptive only. Provider credentials never cross the
@@ -68,6 +70,7 @@ type state struct {
 	Routes         []Route             `json:"routes"`
 	Connection     *ConnectionMetadata `json:"connection,omitempty"`
 	ManualUpdateID string              `json:"manualUpdateId,omitempty"`
+	Discovery      *discoveryState     `json:"discovery,omitempty"`
 }
 type Invitation struct {
 	Version     int       `json:"version"`
@@ -96,21 +99,25 @@ type Offer struct {
 }
 
 type Server struct {
-	mu          sync.Mutex
-	path        string
-	state       state
-	signer      ssh.Signer
-	offers      map[string]*Offer
-	connections map[*ssh.ServerConn]string
-	limit       chan struct{}
-	apiAddress  string
-	apiToken    string
-	sshListener net.Listener
-	wsListener  net.Listener
-	wsServer    *http.Server
-	closed      bool
-	registryID  string
-	forwards    map[string]*portForward
+	mu              sync.Mutex
+	path            string
+	state           state
+	signer          ssh.Signer
+	offers          map[string]*Offer
+	connections     map[*ssh.ServerConn]string
+	limit           chan struct{}
+	apiAddress      string
+	apiToken        string
+	sshListener     net.Listener
+	wsListener      net.Listener
+	wsServer        *http.Server
+	closed          bool
+	registryID      string
+	forwards        map[string]*portForward
+	discoveryWake   chan struct{}
+	discoveryCancel context.CancelFunc
+	discoveryDone   chan struct{}
+	discoveryError  string
 }
 
 func randomID(n int) string {
@@ -160,6 +167,9 @@ func New(directory, apiAddress, apiToken, registryID string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.state.Discovery != nil {
+		s.startDiscoveryLocked()
+	}
 	return s, nil
 }
 func (s *Server) persist() error {
@@ -184,7 +194,13 @@ func (s *Server) persist() error {
 	if err != nil {
 		return err
 	}
-	return os.Rename(f.Name(), s.path)
+	if err = os.Rename(f.Name(), s.path); err == nil && s.discoveryWake != nil {
+		select {
+		case s.discoveryWake <- struct{}{}:
+		default:
+		}
+	}
+	return err
 }
 func (s *Server) Fingerprint() string { return ssh.FingerprintSHA256(s.signer.PublicKey()) }
 
@@ -358,6 +374,7 @@ func (s *Server) Decide(id, requestID string, approve bool, replaceDeviceIDs ...
 	next := maps.Clone(previous)
 	if saved, exists := previous[device.ID]; exists {
 		device.CreatedAt = saved.CreatedAt
+		device.DirectoryURL = saved.DirectoryURL
 	}
 	for id := range replaced {
 		delete(next, id)
@@ -532,6 +549,7 @@ func ControlPatterns() []string {
 func (s *Server) routes(register func(string, http.HandlerFunc)) {
 	s.updateRoutes(register)
 	s.forwardRoutes(register)
+	s.discoveryRoutes(register)
 	register("POST /computer/pairings/{id}/complete", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			RequestID string `json:"requestId"`
@@ -645,7 +663,8 @@ func (s *Server) routes(register func(string, http.HandlerFunc)) {
 		defer s.mu.Unlock()
 		type deviceStatus struct {
 			Device
-			Connected bool `json:"connected"`
+			Connected       bool `json:"connected"`
+			AddressRecovery bool `json:"addressRecovery"`
 		}
 		connected := map[string]bool{}
 		for _, id := range s.connections {
@@ -655,7 +674,9 @@ func (s *Server) routes(register func(string, http.HandlerFunc)) {
 		}
 		devices := []deviceStatus{}
 		for _, device := range s.state.Devices {
-			devices = append(devices, deviceStatus{Device: device, Connected: !device.Revoked && connected[device.ID]})
+			discovery := s.state.Discovery
+			devices = append(devices, deviceStatus{Device: device, Connected: !device.Revoked && connected[device.ID],
+				AddressRecovery: !device.Revoked && discovery != nil && discovery.Enabled && discovery.PublishedSequence > 0 && device.DirectoryURL == discovery.URL})
 		}
 		send(w, 200, devices)
 	})
@@ -675,6 +696,7 @@ func (s *Server) Info() map[string]any {
 	if s.state.Connection != nil {
 		info["connection"] = *s.state.Connection
 	}
+	info["discovery"] = s.discoveryStatusLocked()
 	if s.sshListener != nil {
 		info["sshPort"] = s.sshListener.Addr().(*net.TCPAddr).Port
 	}

@@ -8,6 +8,50 @@ which agent (adapter) you're driving, configure it, and chat. It's **multi-user 
 session-protected** — every user signs in (email/password, plus GitHub/Google in cloud mode) and gets
 a fully isolated fleet; their API keys live in the daemon, never on this server.
 
+## Computer address recovery
+
+The existing Hono backend also serves `/api/computer-directory/v1`. It shares the
+Console’s server, `BASE_URL`, server-only `AUTH_SECRET`, PostgreSQL/SQLite database,
+migrations and deployment. Updating this Console enables the directory; there is
+no extra backend or proxy to deploy.
+
+`mindwire connection automatic` uses free Cloudflare transport with address
+recovery. `mindwire discovery enable` adds recovery to an existing provider.
+**Neither requires a Mindwire or Oblien account.** The computer signs enrollment
+and updates with its saved SSH key. Approved phones look up their own encrypted
+address record using their saved keys. Directory requests never create a fleet,
+run a workspace daemon or carry workspace traffic. Website login continues to
+protect the Console’s workspace APIs and has no authority over directory records.
+
+To use this deployment, set its stable HTTPS origin as `BASE_URL`, then run:
+
+```sh
+mindwire discovery enable --directory-url https://your-console.example/api/computer-directory/v1
+```
+
+`MINDWIRE_DIRECTORY_URL` also sets the URL. The computer persists it and the phone
+learns it securely over SSH. The hosted default is optional; self-hosting uses the
+same database migrations and server image.
+
+Optional environment settings:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `COMPUTER_DIRECTORY_MAX_REGISTRATIONS` | `100000` | Total registration cap, including revoked identity tombstones. |
+| `COMPUTER_DIRECTORY_ENROLLMENTS_PER_DAY` | `100` | New computers per source IPv4 address or IPv6 /64 per UTC day. |
+| `COMPUTER_DIRECTORY_TRUSTED_PROXIES` | Empty | Trusted ingress IP CIDRs allowed to supply forwarded client IPs. |
+
+Admission counts and revisions are durable and atomic. Network identities are
+stored as keyed hashes. Existing publication and lookup continue when admission
+is full. The host key authorizes revocation; account cookies cannot list or change
+records. See the [protocol and tests](../../docs/computer-directory.md) for details.
+
+Run `bun run test` here after building the SDK. Tests start the real server with
+SQLite, without user accounts except when verifying website login still works.
+`MINDWIRE_DIRECTORY_TEST_DATABASE_URL` selects a test PostgreSQL administrator;
+each fixture creates and removes its own database. Legacy migration tests preserve
+saved records, ciphertext, keys, revisions and revocation while removing account links.
+
 ## Fleet model
 
 A session owns a **fleet** of daemons. Each daemon is one `Mindwire` client bound to one target, and

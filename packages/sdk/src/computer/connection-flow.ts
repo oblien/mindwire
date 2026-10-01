@@ -25,8 +25,9 @@ export async function chooseConnectionAction(options: {
   persistent?: boolean;
 }): Promise<ConnectionAction> {
   if (options.requested === "pair") return "pair";
-  if (options.requested === "reconnect" && !options.persistent) return "pair";
-  return options.devices.some(device => !device.revoked && (device.connected || options.persistent)) ? "resume" : "pair";
+  const recoverable = options.persistent || options.devices.some(device => !device.revoked && device.addressRecovery);
+  if (options.requested === "reconnect" && !recoverable) return "pair";
+  return options.devices.some(device => !device.revoked && (device.connected || recoverable)) ? "resume" : "pair";
 }
 
 /** A fresh key is never merged by name. Replacement requires the owner's explicit

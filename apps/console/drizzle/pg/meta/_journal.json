@@ -8,6 +8,20 @@
       "when": 1776000000000,
       "tag": "0000_console_secret",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790837136080,
+      "tag": "0001_computer_directory",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790840544832,
+      "tag": "0002_directory_key_ownership",
+      "breakpoints": true
     }
   ]
 }

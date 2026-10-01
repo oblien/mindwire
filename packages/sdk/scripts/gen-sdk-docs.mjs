@@ -31,6 +31,9 @@ execFileSync(
     "--hideBreadcrumbs",
     "--disableSources",
     "--fileExtension", ".mdx",
+    // JSDoc prose is Markdown, so route placeholders such as /pair/{id} must
+    // remain literal text in MDX. TypeDoc preserves inline/fenced code here.
+    "--sanitizeComments",
     // HTML tables keep `<`/`{` in type cells out of the MDX parser's way.
     "--interfacePropertiesFormat", "htmlTable",
     "--classPropertiesFormat", "htmlTable",

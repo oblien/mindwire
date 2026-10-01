@@ -4964,6 +4964,16 @@
           "connected": {
             "type": "boolean",
             "description": "Current authenticated SSH connection status; available from GET /computer/devices and never persisted as device identity."
+          },
+          "addressRecovery": {
+            "type": "boolean",
+            "description": "Phone has acknowledged securely saving its directory key and discovery is enabled."
+          },
+          "directoryURL": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048,
+            "description": "Last acknowledged directory; contains no secret."
           }
         },
         "required": [
@@ -5068,6 +5078,9 @@
           "pairingVersion": {
             "type": "integer",
             "description": "2 supports signed reconnection and atomic replacement of explicitly selected lost device keys."
+          },
+          "discovery": {
+            "$ref": "#/components/schemas/ComputerDiscoveryStatus"
           }
         },
         "required": [
@@ -5436,6 +5449,112 @@
           "progress",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "ComputerDiscoveryStatus": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "directoryId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "publishedSequence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "publishedAt": {
+            "type": "integer",
+            "description": "Unix seconds of the last durable receipt"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "enabled",
+          "directoryId"
+        ]
+      },
+      "ComputerDirectoryEnvelope": {
+        "type": "object",
+        "properties": {
+          "publicKey": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "description": "Raw Ed25519 public key"
+          },
+          "payload": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "description": "Exact signed UTF-8 JSON bytes"
+          },
+          "signature": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "description": "Domain-separated Ed25519 signature"
+          }
+        },
+        "required": [
+          "publicKey",
+          "payload",
+          "signature"
+        ]
+      },
+      "ComputerDirectoryKey": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "directoryId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "deviceId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "secret": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "description": "32-byte address decryption key. Deliver only inside pinned authenticated SSH; never log or include in QR codes."
+          }
+        },
+        "required": [
+          "version",
+          "url",
+          "directoryId",
+          "deviceId",
+          "sequence",
+          "secret"
         ]
       }
     }
@@ -14863,6 +14982,306 @@
                 },
                 "required": [
                   "data"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/computer/discovery": {
+      "get": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Get encrypted address recovery status",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerDiscoveryStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "404": {
+            "description": "Address recovery or approved device unavailable"
+          },
+          "409": {
+            "description": "Settings changed or service update in progress"
+          },
+          "500": {
+            "description": "Failed to persist the requested state"
+          }
+        },
+        "operationId": "getComputerDiscovery"
+      },
+      "put": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Enable or withdraw encrypted address recovery",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerDiscoveryStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "404": {
+            "description": "Address recovery or approved device unavailable"
+          },
+          "409": {
+            "description": "Settings changed or service update in progress"
+          },
+          "500": {
+            "description": "Failed to persist the requested state"
+          }
+        },
+        "operationId": "putComputerDiscovery",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "enabled"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/computer/discovery/enrollment": {
+      "post": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Sign a directory enrollment challenge",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerDirectoryEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "404": {
+            "description": "Address recovery or approved device unavailable"
+          },
+          "409": {
+            "description": "Settings changed or service update in progress"
+          },
+          "500": {
+            "description": "Failed to persist the requested state"
+          }
+        },
+        "operationId": "postComputerDirectoryEnrollment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 2048
+                  },
+                  "challenge": {
+                    "type": "string",
+                    "minLength": 16,
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "url",
+                  "challenge"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/computer/discovery/devices/{id}": {
+      "get": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Get an approved phone address encryption key over SSH",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComputerDirectoryKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "404": {
+            "description": "Address recovery or approved device unavailable"
+          },
+          "409": {
+            "description": "Settings changed or service update in progress"
+          },
+          "500": {
+            "description": "Failed to persist the requested state"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "getComputerDirectoryKey"
+      }
+    },
+    "/computer/discovery/devices/{id}/ready": {
+      "post": {
+        "tags": [
+          "Computer"
+        ],
+        "summary": "Acknowledge securely saving address recovery on a phone",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Daemon authentication required"
+          },
+          "404": {
+            "description": "Address recovery or approved device unavailable"
+          },
+          "409": {
+            "description": "Settings changed or service update in progress"
+          },
+          "500": {
+            "description": "Failed to persist the requested state"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "postComputerDirectoryReceipt",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "url"
                 ]
               }
             }
