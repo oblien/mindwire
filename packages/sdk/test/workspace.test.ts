@@ -6,6 +6,29 @@ const snapshot: WorkspaceSnapshot = {
   agents: [], projects: [], chats: [], deleted: [],
 };
 
+test("global conversations browse without a cwd and adopt the original reference through the shared workspace API", async () => {
+  const calls: { url: URL; method: string; body: unknown }[] = [];
+  const row = { id: "native:reference", agentType: "codex", agentName: "Codex", cwd: "/work/original folder",
+    title: "Native history", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T01:00:00Z" };
+  const mw = new Mindwire({ target: remote("http://registry"), fetch: async (input, init) => {
+    const url = new URL(input);
+    calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    return Response.json(url.pathname.endsWith("/open") ? { chatId: "chat", snapshot } :
+      { workspaceId: snapshot.workspaceId, items: [row], total: 50, nextCursor: "next-page" });
+  } });
+  const page = await mw.workspace.conversations.list({ agentId: "my agent", search: "original folder", limit: 10, refresh: true });
+  expect(page.items[0]?.cwd).toBe(row.cwd);
+  expect(calls[0]?.url.pathname).toBe("/workspace/conversations");
+  expect(calls[0]?.url.searchParams.get("agentId")).toBe("my agent");
+  expect(calls[0]?.url.searchParams.get("cwd")).toBeNull();
+  await mw.workspace.conversations.list({ cursor: page.nextCursor });
+  expect(calls[1]?.url.searchParams.get("cursor")).toBe("next-page");
+  const result = await mw.workspace.conversations.open({ id: row.id, agentId: "my agent" });
+  expect(result.chatId).toBe("chat");
+  expect(result.snapshot).toEqual(snapshot);
+  expect(calls[2]?.body).toEqual({ id: row.id, agentId: "my agent" });
+});
+
 test("native conversation discovery keeps directory context, IDs, activity and manual refresh", async () => {
   const calls: URL[] = [];
   const native = { id: "native-chat", workspaceId: "workspace-identity", revision: 5,

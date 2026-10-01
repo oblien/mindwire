@@ -1,6 +1,7 @@
 import type { Mindwire } from "./client.js";
 import { readSSE } from "./sse.js";
 import { ProjectSyncApi } from "./project-sync.js";
+import { ConversationsApi } from "./conversations.js";
 
 /** Write-only credentials. Never persisted in operation snapshots or conversation state. */
 export type ProjectAuth = (
@@ -281,6 +282,7 @@ export class WorkspaceCollection<T extends WorkspaceRecord> {
 
 /** Workspace metadata is shared by all harnesses; withAgent() never scopes these requests. */
 export class WorkspaceApi {
+  readonly conversations: ConversationsApi;
   readonly sync: ProjectSyncApi;
   readonly git: GitAccessApi;
   readonly operations: ProjectOperationsApi;
@@ -289,6 +291,7 @@ export class WorkspaceApi {
   readonly chats: WorkspaceCollection<WorkspaceChat>;
 
   constructor(private readonly mw: Mindwire) {
+    this.conversations = new ConversationsApi(mw);
     this.sync = new ProjectSyncApi(mw);
     this.git = new GitAccessApi(mw);
     this.operations = new ProjectOperationsApi(mw);

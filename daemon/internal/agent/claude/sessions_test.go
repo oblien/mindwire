@@ -71,6 +71,35 @@ func TestNativeSessionMetadataReadsBoundedPrefixAndTail(t *testing.T) {
 	}
 }
 
+func TestGlobalNativeSessionsDiscoverUnregisteredFoldersReadOnly(t *testing.T) {
+	home, first, second := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	one := nativeUser("one", first, "First folder")
+	two := nativeUser("two", second, "Second folder")
+	mkTranscript(t, home, projectSlug(first), "one", one)
+	mkTranscript(t, home, projectSlug(second), "two", two)
+	mkTranscript(t, home, projectSlug(second), "unknown", nativeUser("unknown", "", "No directory"))
+	mkTranscript(t, home, projectSlug(second), "sidechain", metadataLine(map[string]any{"type": "user", "cwd": second, "isSidechain": true, "message": map[string]any{"content": "Hidden"}}))
+	rows, err := (adapter{}).ListSessions(context.Background(), "")
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("global inventory: %+v %v", rows, err)
+	}
+	for _, row := range rows {
+		expected := first
+		if row.ID == "two" {
+			expected = second
+		}
+		canonical, _ := workspacepath.Canonical(expected)
+		if row.CWD != canonical {
+			t.Fatalf("lost context: %+v", row)
+		}
+		got, err := os.ReadFile(filepath.Join(home, "projects", projectSlug(expected), row.ID+".jsonl"))
+		if err != nil || string(got) != map[string]string{"one": one, "two": two}[row.ID] {
+			t.Fatal("browsing modified a native transcript")
+		}
+	}
+}
+
 func TestNativeSessionListResolvesCallerSymlinkAndRejectsCancelledScan(t *testing.T) {
 	home, real := t.TempDir(), t.TempDir()
 	link := filepath.Join(t.TempDir(), "linked")
@@ -92,7 +121,7 @@ func TestNativeSessionListResolvesCallerSymlinkAndRejectsCancelledScan(t *testin
 
 func TestNativeSessionListSmoke(t *testing.T) {
 	cwd := os.Getenv("MINDWIRE_TEST_NATIVE_SESSION_CWD")
-	if cwd == "" {
+	if cwd == "" && os.Getenv("MINDWIRE_TEST_GLOBAL_SESSIONS") != "1" {
 		t.Skip("explicit read-only native metadata check")
 	}
 	rows, err := (adapter{}).ListSessions(context.Background(), cwd)

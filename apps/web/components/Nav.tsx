@@ -67,7 +67,7 @@ export default function Nav() {
               type="button"
               onClick={() => setOpenSearch(true)}
               aria-label="Search docs"
-              className="mr-3 hidden w-72 items-center justify-between border border-neutral-200 bg-neutral-50 py-2 pl-3 pr-2 text-sm text-neutral-500 transition-colors hover:border-neutral-300 hover:text-neutral-950 md:flex dark:border-white/10 dark:bg-white/[0.03] dark:text-neutral-400 dark:hover:border-white/20 dark:hover:text-white"
+              className="mr-3 hidden w-72 items-center justify-between border border-neutral-200 bg-neutral-50 py-2 pl-3 pr-2 text-sm text-neutral-500 transition-colors hover:border-neutral-300 hover:text-neutral-950 lg:flex dark:border-white/10 dark:bg-white/[0.03] dark:text-neutral-400 dark:hover:border-white/20 dark:hover:text-white"
             >
               <span className="flex items-center gap-2">
                 <Search size={16} aria-hidden />

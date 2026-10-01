@@ -2,7 +2,9 @@
 # Build context: repository root.
 FROM golang:1.26-bookworm AS builder
 ARG NEXT_PUBLIC_CONSOLE_URL=https://console.mindwire.sh
+ARG NEXT_PUBLIC_IOS_APP_URL=
 ENV NEXT_PUBLIC_CONSOLE_URL=${NEXT_PUBLIC_CONSOLE_URL}
+ENV NEXT_PUBLIC_IOS_APP_URL=${NEXT_PUBLIC_IOS_APP_URL}
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates unzip \
  && rm -rf /var/lib/apt/lists/* \
@@ -25,9 +27,10 @@ WORKDIR /app
 ENV NODE_ENV=production \
     PORT=4327 \
     HOSTNAME=0.0.0.0
-COPY --from=builder /app/apps/web/.next/standalone ./
-COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=builder /app/apps/web/public ./apps/web/public
+# The Node user owns Next's cache and prerendered pages so pricing can revalidate.
+COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=node:node /app/apps/web/public ./apps/web/public
 USER node
 EXPOSE 4327
 CMD ["node", "apps/web/server.js"]

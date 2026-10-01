@@ -109,10 +109,10 @@ func (f nativeResumeFixture) Capabilities() agent.Capabilities {
 	return agent.Capabilities{History: agent.SupportNative, Sessions: agent.SupportNative}
 }
 func (f nativeResumeFixture) ListSessions(_ context.Context, cwd string) ([]agent.NativeSession, error) {
-	if cwd != f.cwd {
+	if cwd != "" && cwd != f.cwd {
 		return nil, nil
 	}
-	return []agent.NativeSession{{ID: "native-external-session", CWD: cwd, Title: "Existing CLI conversation", CreatedAt: "2026-09-24T00:00:00Z", UpdatedAt: "2026-09-25T00:00:00Z"}}, nil
+	return []agent.NativeSession{{ID: "native-external-session", CWD: f.cwd, Title: "Existing CLI conversation", CreatedAt: "2026-09-24T00:00:00Z", UpdatedAt: "2026-09-25T00:00:00Z"}}, nil
 }
 func (f nativeResumeFixture) History(q agent.HistoryQuery) ([]agent.Message, error) {
 	if q.SessionID != "native-external-session" || q.CWD != f.cwd {

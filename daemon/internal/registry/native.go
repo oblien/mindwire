@@ -25,6 +25,7 @@ type SessionDiscoveryIssue struct {
 
 type NativeInventory struct {
 	ProjectID, CWD, AgentType, AgentName string
+	AgentID                              string // preferred profile for an explicit open, never a reassignment
 	Sessions                             []agent.NativeSession
 }
 
@@ -113,6 +114,23 @@ func nativeAliases(row agent.NativeSession) []string {
 // Callers hold their mutation gate so starting/deleting a chat cannot race this
 // association commit. The slow native scan happens before acquiring that gate.
 func (st *Store) SyncNativeSessions(in NativeInventory, native *session.Store, busy func(string) bool) error {
+	return st.syncNativeSessions(in, native, busy, nil)
+}
+
+// OpenNativeSession adopts only the selected native reference, without pruning
+// other chats. Its folder, profile and chat link are committed together. Existing
+// associations win, and no transcript or repository file is created or changed.
+// As with SyncNativeSessions, callers hold the shared mutation gate.
+func (st *Store) OpenNativeSession(in NativeInventory, native *session.Store) (string, error) {
+	if len(in.Sessions) != 1 || !agent.ValidNativeSessionID(in.Sessions[0].ID) {
+		return "", invalid("one native conversation is required")
+	}
+	var id string
+	err := st.syncNativeSessions(in, native, nil, &id)
+	return id, err
+}
+
+func (st *Store) syncNativeSessions(in NativeInventory, native *session.Store, busy func(string) bool, opened *string) error {
 	refs := native.ChatSessions()
 	sort.Slice(refs, func(i, j int) bool { return refs[i].ChatID < refs[j].ChatID })
 	current := map[string]session.ChatSession{}
@@ -127,6 +145,14 @@ func (st *Store) SyncNativeSessions(in NativeInventory, native *session.Store, b
 	}
 	var restore []session.ChatSession
 	err := st.write(func(tx *sql.Tx, revision int64) (bool, error) {
+		changed := false
+		if opened != nil {
+			project, created, err := st.projectForNativeSession(tx, in.CWD, revision)
+			if err != nil {
+				return false, err
+			}
+			in.ProjectID, changed = project.ID, created
+		}
 		data, _, err := record(tx, "projects", in.ProjectID)
 		if err != nil || data == nil {
 			return false, err
@@ -172,6 +198,13 @@ func (st *Store) SyncNativeSessions(in NativeInventory, native *session.Store, b
 		rows.Close()
 		if err != nil {
 			return false, err
+		}
+		if in.AgentID != "" {
+			profile, exists := profiles[in.AgentID]
+			if !exists || profile.AgentType != in.AgentType {
+				return false, invalid("agent profile does not match this conversation")
+			}
+			defaultProfile = profile
 		}
 
 		chats := map[string]Chat{}
@@ -229,7 +262,6 @@ func (st *Store) SyncNativeSessions(in NativeInventory, native *session.Store, b
 			return false, err
 		}
 
-		changed := false
 		seenChats := map[string]bool{}
 		for _, row := range in.Sessions {
 			actual, err := workspacepath.Canonical(row.CWD)
@@ -247,6 +279,9 @@ func (st *Store) SyncNativeSessions(in NativeInventory, native *session.Store, b
 				}
 			}
 			if hidden {
+				if opened != nil {
+					return false, ErrDeleted
+				}
 				continue
 			}
 			if id == "" {
@@ -315,6 +350,9 @@ func (st *Store) SyncNativeSessions(in NativeInventory, native *session.Store, b
 				}
 			}
 			chat, exists := chats[id]
+			if opened != nil && exists && in.AgentID != "" && chat.AgentID != in.AgentID {
+				return false, ErrConflict
+			}
 			if !exists {
 				if defaultProfile.ID == "" {
 					defaultProfile = Agent{Record: Record{ID: nativeID(st.identity, in.AgentType, strconv.FormatInt(revision, 10)),
@@ -364,6 +402,13 @@ func (st *Store) SyncNativeSessions(in NativeInventory, native *session.Store, b
 				links[sid] = nativeLink{ChatID: id}
 			}
 			restore = append(restore, session.ChatSession{ChatID: id, Agent: in.AgentType, SID: chat.SessionID, CWD: project.Path})
+		}
+		if opened != nil {
+			if len(restore) != 1 {
+				return false, ErrNotFound
+			}
+			*opened = restore[0].ChatID
+			return changed, nil
 		}
 		// A complete native listing is authoritative for previously discovered
 		// conversations. Never prune drafts, pending forks or an in-flight turn.

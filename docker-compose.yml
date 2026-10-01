@@ -28,6 +28,7 @@ services:
       dockerfile: packages/docker/web.Dockerfile
       args:
         NEXT_PUBLIC_CONSOLE_URL: ${NEXT_PUBLIC_CONSOLE_URL:-https://console.mindwire.sh}
+        NEXT_PUBLIC_IOS_APP_URL: ${NEXT_PUBLIC_IOS_APP_URL:-}
     restart: unless-stopped
     environment:
       NODE_ENV: production

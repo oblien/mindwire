@@ -24,9 +24,13 @@ func (adapter) ListSessions(ctx context.Context, cwd string) ([]agent.NativeSess
 	if _, err := os.Stat(filepath.Join(root, "sessions")); os.IsNotExist(err) {
 		return nil, nil // fresh/missing CLI: browsing must never install it
 	}
-	canonical, err := workspacepath.Canonical(cwd)
-	if err != nil {
-		return nil, err
+	canonical := ""
+	if cwd != "" {
+		var err error
+		canonical, err = workspacepath.Canonical(cwd)
+		if err != nil {
+			return nil, err
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -56,8 +60,11 @@ func listNativeSessions(ctx context.Context, client sessionRPC, cwd, canonical s
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			params := map[string]any{"cwd": path, "limit": 50, "sortKey": "updated_at", "archived": false,
+			params := map[string]any{"limit": 50, "sortKey": "updated_at", "archived": false,
 				"sourceKinds": []string{"cli", "vscode", "exec", "appServer"}, "modelProviders": []string{}}
+			if path != "" {
+				params["cwd"] = path
+			}
 			if cursor != "" {
 				params["cursor"] = cursor
 			}
@@ -80,7 +87,7 @@ func listNativeSessions(ctx context.Context, client sessionRPC, cwd, canonical s
 			for _, row := range page.Data {
 				id := agent.FirstNonEmpty(row.SessionID, row.ID)
 				actual, err := workspacepath.Canonical(row.CWD)
-				if err != nil || actual != canonical || row.Ephemeral || !agent.ValidNativeSessionID(id) || seen[id] {
+				if err != nil || canonical != "" && actual != canonical || row.Ephemeral || !agent.ValidNativeSessionID(id) || seen[id] {
 					continue
 				}
 				seen[id] = true
@@ -91,7 +98,7 @@ func listNativeSessions(ctx context.Context, client sessionRPC, cwd, canonical s
 				if updated < created {
 					updated = created
 				}
-				out = append(out, agent.NativeSession{ID: id, CWD: canonical,
+				out = append(out, agent.NativeSession{ID: id, CWD: actual,
 					Title:     agent.SessionTitle(agent.FirstNonEmpty(row.Name, row.Preview, "Codex conversation")),
 					CreatedAt: time.Unix(created, 0).UTC().Format(time.RFC3339Nano),
 					UpdatedAt: time.Unix(updated, 0).UTC().Format(time.RFC3339Nano), Aliases: []string{row.ID}})

@@ -1,0 +1,74 @@
+---
+title: Workspace switching
+description: Continue a project and its supported agent conversations on another workspace, then bring compatible changes back.
+---
+
+Workspace switching lets you continue a project on another machine. Start on your
+computer, switch to a cloud workspace, and bring your changes back later. Both
+project copies remain available.
+
+## Switch from the app
+
+1. Update the Mindwire service on both workspaces. Version 1 supports macOS and Linux.
+2. Save your files and finish active agent turns and terminals, including native CLI sessions.
+3. Open the project in Mindwire and choose **Switch workspace**.
+4. Choose a destination and, on the first switch, a folder for the project copy.
+5. Wait for the transfer and conflict checks to complete. Mindwire selects the destination only after it accepts the project.
+6. Authenticate the agent on the destination if needed, then continue the conversation.
+
+On your next switch back, Mindwire recognizes the existing copy and its shared
+checkpoint. Compatible changes and additional conversations can be brought back
+without replacing unrelated work.
+
+## What travels
+
+| Data | Behavior |
+| --- | --- |
+| Project files | Includes local changes, untracked and ignored files, executable modes, and supported symlinks. |
+| Supported Git state | Reachable commits, refs, and staging are preserved independently of working-tree changes. |
+| Codex conversations | Selected native histories, descendants, recorded attachments, and supported project memory records. |
+| Claude Code conversations | Selected transcripts, subagent histories, project memory, file history, tasks, and referenced plans. |
+
+Agent logins and global settings stay local to each workspace. Running processes,
+live turns, and pending approvals need to finish before switching. Other agents
+with unsupported native export formats stop explicitly so their context is not
+silently omitted.
+
+## Preserve both sides
+
+Source export reads the original files and transcripts. Before applying an import,
+Mindwire saves a destination checkpoint and compares both copies to their shared base.
+
+Independent changes are retained. Compatible text changes are merged. Conflicting
+edits, Git state, or divergent continuations of the same conversation stop before
+applying changes. The app shows the affected paths; resolve them and use **Retry**.
+
+Keep other editors and native coding sessions idle during the switch. They cannot
+participate in Mindwire's workspace lock.
+
+## Interrupted transfers
+
+Transfers use verified content chunks and durable operation IDs. Reconnecting can
+resume missing content. Once the destination has accepted the checkpoint, it can
+finish without the source online.
+
+You can leave the sheet. iOS may pause the relay after its background time expires;
+reopening the app resumes it. A destination transaction already accepted by the
+service continues there. Checkpoints and recovery journals protect partial imports.
+
+## Current format limits
+
+The first version supports plain project folders and standalone Git repositories.
+Linked worktrees, submodules, shallow repositories, Git LFS stores, saved stashes,
+and in-progress Git operations require additional portable adapters and stop
+explicitly. Apply or commit a stash before switching.
+
+For the complete preservation contract, native memory scope, and format limits,
+see the [project sync specification](https://github.com/oblien/mindwire/blob/main/daemon/PROJECT_SYNC.md).
+
+## Build with it
+
+The TypeScript SDK exposes `client.workspace.sync`; the Go SDK exposes
+`client.Workspace.Sync`. The services own checkpoints, comparisons, and recovery.
+Clients relay content through their existing authenticated workspace connections.
+No extra project-storage service is required.

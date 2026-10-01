@@ -35,11 +35,12 @@ type Index struct {
 	busy     func(string) bool
 	mu       sync.Mutex
 	entries  map[string]*entry
+	global   map[string]*globalEntry
 	now      func() time.Time
 }
 
 func New(reg *registry.Store, store *session.Store, adapters []agent.Adapter, gate *sync.Mutex, busy func(string) bool) *Index {
-	return &Index{registry: reg, store: store, adapters: adapters, gate: gate, busy: busy, entries: map[string]*entry{}, now: time.Now}
+	return &Index{registry: reg, store: store, adapters: adapters, gate: gate, busy: busy, entries: map[string]*entry{}, global: map[string]*globalEntry{}, now: time.Now}
 }
 
 // Refresh coalesces concurrent callers per project/harness. Healthy inventories

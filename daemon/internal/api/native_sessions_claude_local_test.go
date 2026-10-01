@@ -16,6 +16,12 @@ import (
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/conversations"
+	"github.com/oblien/mindwire/daemon/internal/notify"
+	"github.com/oblien/mindwire/daemon/internal/orchestrator"
+	"github.com/oblien/mindwire/daemon/internal/registry"
+	"github.com/oblien/mindwire/daemon/internal/session"
+	"github.com/oblien/mindwire/daemon/internal/stream"
 )
 
 func TestNativeClaudeCLIAdapterRoundTrip(t *testing.T) {
@@ -110,6 +116,27 @@ func TestNativeClaudeCLIAdapterRoundTrip(t *testing.T) {
 		t.Fatalf("native Claude discovery: count=%d err=%v", len(rows), err)
 	}
 	sid := rows[0].ID
+	store, err := session.Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := registry.Open(filepath.Join(t.TempDir(), "workspace.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reg.Close()
+	hub := stream.New()
+	sup := orchestrator.New(store, hub, notify.Fanout(nil), cwd, "claude-code")
+	defer sup.Wait()
+	a := New(store, hub, sup, reg)
+	defer a.Close()
+	a.conversations = conversations.New(reg, store, []agent.Adapter{adapter}, &a.registryMu, sup.Busy)
+	mux := http.NewServeMux()
+	a.Register(mux)
+	opened := openGlobalNativeChat(t, mux, a, "claude-code")
+	if len(opened.Chats) != 1 || opened.Chats[0].SessionID != sid || opened.Projects[0].Path != cwd {
+		t.Fatalf("global open lost the native context: %+v", opened)
+	}
 	mu.Lock()
 	calls := len(requests)
 	mu.Unlock()
@@ -133,9 +160,10 @@ func TestNativeClaudeCLIAdapterRoundTrip(t *testing.T) {
 	if err != nil || len(rows) != 1 || rows[0].ID != sid {
 		t.Fatal("Claude continuation created a duplicate session")
 	}
-	history, err := adapter.History(agent.HistoryQuery{ChatID: "app-reference", SessionID: sid, CWD: cwd})
-	if err != nil {
-		t.Fatal(err)
+	response := serve(t, mux, "GET", "/chats/"+opened.Chats[0].ID+"/messages", "")
+	var history []agent.Message
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &history) != nil {
+		t.Fatalf("native history from global list: %d %s", response.Code, response.Body.String())
 	}
 	for n := 1; n <= 3; n++ {
 		count := 0

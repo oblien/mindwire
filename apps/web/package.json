@@ -8,7 +8,8 @@
     "dev": "fumadocs-mdx && next dev",
     "build": "bun run gen:reference && fumadocs-mdx && next build",
     "serve": "next start -p 4327",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "gen:social": "bun scripts/gen-social-image.tsx"
   },
   "dependencies": {
     "fumadocs-core": "^16.14.2",

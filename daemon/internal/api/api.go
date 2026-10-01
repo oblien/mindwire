@@ -170,6 +170,8 @@ func (a *API) Routes() []Route {
 
 		{"GET", "/workspace", a.workspaceSnapshot},
 		{"GET", "/workspace/changes", a.workspaceSnapshot},
+		{"GET", "/workspace/conversations", a.conversationsBrowse},
+		{"POST", "/workspace/conversations/open", a.conversationsOpen},
 		{"POST", "/workspace/import", a.workspaceImport},
 		{"POST", "/workspace/sync/exports", a.projectSyncExport},
 		{"POST", "/workspace/sync/imports", a.projectSyncImport},

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import OblienLogo from "./OblienLogo";
+import { downloadUrl } from "@/lib/product";
 
 type FooterLink = { href: string; label: string; soon?: boolean };
 
@@ -7,8 +8,9 @@ const cols: { title: string; links: FooterLink[] }[] = [
   {
     title: "Product",
     links: [
-      { href: "/#how", label: "How it works" },
-      { href: "/#console", label: "Console" },
+      { href: "/#features", label: "Features" },
+      { href: downloadUrl, label: "Download app" },
+      { href: "/#open-source", label: "Console" },
       { href: "/sandboxing", label: "Sandboxing" },
       { href: "/pricing", label: "Pricing" },
       { href: "/changelog", label: "Changelog" },
@@ -47,8 +49,8 @@ export default function Footer() {
             <OblienLogo size={28} /> MindWire
           </div>
           <p className="mt-4 max-w-[30ch] text-sm leading-relaxed text-neutral-500">
-            Drive the best coding agents from your product. Open source, self-hostable,
-            Apache&nbsp;2.0.
+            Your coding agents, anywhere. An iPhone app built on an open-source,
+            self-hostable runtime. Apache&nbsp;2.0.
           </p>
           <a
             href="https://oblien.com"

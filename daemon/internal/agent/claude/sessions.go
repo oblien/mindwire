@@ -22,9 +22,13 @@ var _ agent.SessionLister = adapter{}
 // command for listing all completed foreground sessions as JSON. Read the same
 // metadata without starting Claude or copying transcripts into Mindwire.
 func (adapter) ListSessions(ctx context.Context, cwd string) ([]agent.NativeSession, error) {
-	canonical, err := workspacepath.Canonical(cwd)
-	if err != nil {
-		return nil, err
+	canonical := ""
+	if cwd != "" {
+		var err error
+		canonical, err = workspacepath.Canonical(cwd)
+		if err != nil {
+			return nil, err
+		}
 	}
 	base := configBase()
 	if base == "" {
@@ -34,6 +38,9 @@ func (adapter) ListSessions(ctx context.Context, cwd string) ([]agent.NativeSess
 	// historical separator-only spelling and the caller's symlink spelling too.
 	directories := map[string]bool{}
 	for _, path := range []string{cwd, canonical} {
+		if path == "" {
+			continue
+		}
 		modern := strings.Map(func(r rune) rune {
 			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
 				return r
@@ -57,6 +64,10 @@ func (adapter) ListSessions(ctx context.Context, cwd string) ([]agent.NativeSess
 		}
 		path := filepath.Join(base, "projects", dir.Name())
 		if !dir.IsDir() || directories[path] {
+			continue
+		}
+		if canonical == "" {
+			directories[path] = true
 			continue
 		}
 		files, err := os.ReadDir(path)
@@ -221,7 +232,7 @@ func readSessionMetadata(path, cwd string) (agent.NativeSession, error) {
 	for scanner.Scan() {
 		consume(scanner.Bytes(), true)
 		read += len(scanner.Bytes()) + 1
-		if sidechain || actual != "" && actual != cwd {
+		if sidechain || cwd != "" && actual != "" && actual != cwd {
 			return result, nil
 		}
 		if read >= 1<<20 {
@@ -231,7 +242,7 @@ func readSessionMetadata(path, cwd string) (agent.NativeSession, error) {
 	if err := scanner.Err(); err != nil {
 		return result, err
 	}
-	if actual != cwd || firstPrompt == "" {
+	if actual == "" || cwd != "" && actual != cwd || firstPrompt == "" {
 		return result, nil
 	}
 	if info.Size() > int64(read) {
@@ -255,6 +266,6 @@ func readSessionMetadata(path, cwd string) (agent.NativeSession, error) {
 	if created == "" {
 		created = info.ModTime().UTC().Format(time.RFC3339Nano)
 	}
-	return agent.NativeSession{ID: id, CWD: cwd, Title: agent.SessionTitle(agent.FirstNonEmpty(customTitle, title, firstPrompt)),
+	return agent.NativeSession{ID: id, CWD: actual, Title: agent.SessionTitle(agent.FirstNonEmpty(customTitle, title, firstPrompt)),
 		CreatedAt: created, UpdatedAt: info.ModTime().UTC().Format(time.RFC3339Nano)}, nil
 }

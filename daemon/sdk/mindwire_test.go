@@ -685,6 +685,8 @@ func TestSDKRouteParity(t *testing.T) {
 		"GET /artifacts/{id}":                           "Surfaces.Artifact",
 		"GET /workspace":                                "Workspace.Snapshot",
 		"GET /workspace/changes":                        "Workspace.Changes",
+		"GET /workspace/conversations":                  "Workspace.Conversations",
+		"POST /workspace/conversations/open":            "Workspace.OpenConversation",
 		"POST /workspace/import":                        "Workspace.Import",
 		"POST /workspace/projects":                      "Workspace.CreateProject",
 		"POST /workspace/projects/{id}/remove":          "Workspace.RemoveProjectFiles",

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/conversations"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/registry"
@@ -106,9 +107,10 @@ stream_max_retries = 0
 	}
 	mux := http.NewServeMux()
 	api := New(store, hub, sup, reg)
+	api.conversations = conversations.New(reg, store, []agent.Adapter{codex.Adapter}, &api.registryMu, sup.Busy)
 	defer api.Close()
 	api.Register(mux)
-	first := putNativeProject(t, mux, "project", cwd)
+	first := openGlobalNativeChat(t, mux, api, "codex")
 	if len(first.Chats) != 1 || len(first.Agents) != 1 || len(first.SessionDiscoveryIssues) != 0 {
 		t.Fatalf("CLI conversation was not discovered: %+v", first)
 	}

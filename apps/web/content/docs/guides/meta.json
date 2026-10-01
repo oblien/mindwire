@@ -17,6 +17,7 @@
     "setup",
     "authentication",
     "destinations",
-    "personal-computers"
+    "personal-computers",
+    "project-sync"
   ]
 }

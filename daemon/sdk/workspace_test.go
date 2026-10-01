@@ -30,9 +30,18 @@ func TestWorkspaceDiscoversAndReadsNativeCLIConversations(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	full, err := c.WithAgent("codex").Workspace.Projects.Put("project", WorkspaceProject{Name: "Existing folder", Path: cwd}, nil)
+	page, err := c.WithAgent("codex").Workspace.Conversations(context.Background(), ConversationQuery{})
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("global native metadata: %+v %v", page, err)
+	}
+	before, _ := c.core.registry.Snapshot(nil)
+	if len(before.Projects)+len(before.Chats) != 0 {
+		t.Fatal("global browsing changed workspace membership")
+	}
+	opened, err := c.Workspace.OpenConversation(context.Background(), ConversationOpenRequest{ID: page.Items[0].ID})
+	full := opened.Snapshot
 	if err != nil || len(full.Chats) != 1 || len(full.Agents) != 1 || full.Agents[0].AgentType != "claude-code" {
-		t.Fatalf("native metadata: %+v %v", full, err)
+		t.Fatalf("global native open: %+v %v", full, err)
 	}
 	chat := full.Chats[0]
 	if chat.SessionID != "external-claude" || chat.UpdatedAt == "" {
@@ -42,7 +51,7 @@ func TestWorkspaceDiscoversAndReadsNativeCLIConversations(t *testing.T) {
 	if err != nil || len(messages) != 1 || messages[0].Text != "Started outside Mindwire" {
 		t.Fatalf("native history: %+v %v", messages, err)
 	}
-	chats, err := c.ListChats(context.Background(), ChatListOptions{ProjectID: "project", Refresh: true})
+	chats, err := c.ListChats(context.Background(), ChatListOptions{ProjectID: chat.ProjectID, Refresh: true})
 	if err != nil || len(chats) != 1 || chats[0].ChatID != chat.ID {
 		t.Fatalf("native list: %+v %v", chats, err)
 	}

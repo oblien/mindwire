@@ -8,10 +8,16 @@ import Footer from "@/components/Footer";
 import HideOnDocs from "@/components/HideOnDocs";
 
 export const metadata: Metadata = {
-  title: "MindWire — wire in the best coding agents",
+  title: "Mindwire — Your coding agents, anywhere",
   description:
-    "The world's best coding agents already do the hard part. MindWire is the runtime that drives them inside your product — on your own machine, behind one protocol you can swap agents under.",
+    "Your favorite coding agents, on iPhone. Continue conversations, review code, and switch workspaces from anywhere. Built on the open-source Mindwire runtime.",
   metadataBase: new URL("https://mindwire.sh"),
+  openGraph: {
+    siteName: "Mindwire",
+    type: "website",
+    locale: "en_US",
+  },
+  twitter: { card: "summary_large_image" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -22,8 +28,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             marketing page already uses) and the search dialog. It wraps Nav so its ThemeToggle and the
             ⌘K search reach the provider. Default light, opt-in dark — matching the prior behavior. */}
         <RootProvider theme={{ defaultTheme: "light", enableSystem: false }}>
+          <a href="#main-content" className="skip-link">Skip to content</a>
           <Nav />
-          <main className="relative">{children}</main>
+          <main id="main-content" className="relative">{children}</main>
           {/* The marketing footer is hidden on /docs — the Fumadocs sidebar is a fixed full-height
               column, so a site footer beneath it just adds clutter. */}
           <HideOnDocs>

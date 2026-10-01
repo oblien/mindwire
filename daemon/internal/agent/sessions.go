@@ -21,6 +21,7 @@ type NativeSession struct {
 // SessionLister is optional. Listing is read-only: it must not start a turn,
 // create a session, install a CLI, or change the harness's authentication.
 // CWD selects one exact project directory, including its filesystem aliases.
+// An empty CWD lists all folders. Every result retains its original directory.
 type SessionLister interface {
 	ListSessions(ctx context.Context, cwd string) ([]NativeSession, error)
 }

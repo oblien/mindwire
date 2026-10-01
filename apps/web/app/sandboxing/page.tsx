@@ -1,12 +1,24 @@
 import type { Metadata } from "next";
-import { Shield, Timer, KeyRound, Layers, Cpu, Terminal, Network, Activity, Server, Cloud, Plug } from "lucide-react";
+import {
+  Shield,
+  Timer,
+  KeyRound,
+  Layers,
+  Cpu,
+  Terminal,
+  Network,
+  Activity,
+  Server,
+  Cloud,
+  Plug,
+} from "lucide-react";
 import Corners from "@/components/Corners";
 import SandboxViz from "@/components/SandboxViz";
 
 export const metadata: Metadata = {
-  title: "Sandboxing — MindWire",
+  title: "Workspace isolation — Mindwire",
   description:
-    "Coding agents run untrusted shell, edits, and network calls — so give every run its own isolated machine. Connect infrastructure you already own, use a managed microVM, or bring your own provider.",
+    "Choose where your coding agents run: on your own host, in a Docker workspace, or in an isolated Oblien cloud workspace.",
 };
 
 const heading = "text-neutral-950 dark:text-white font-semibold tracking-tight";
@@ -14,13 +26,13 @@ const heading = "text-neutral-950 dark:text-white font-semibold tracking-tight";
 const reasons = [
   {
     icon: Shield,
-    t: "It's untrusted code",
-    d: "An agent runs shell commands, edits files, and hits the network on its own. That belongs in a hardware-isolated VM — not on your host or in prod.",
+    t: "Choose an access boundary",
+    d: "Agents run commands, edit files, and use the network. Choose direct host access, container isolation, or a separate cloud machine for the project.",
   },
   {
     icon: Timer,
-    t: "Fresh per run",
-    d: "A sandbox that boots in milliseconds gives each turn a clean, reproducible environment. Snapshot state, or throw it away when the run ends.",
+    t: "A workspace that stays with you",
+    d: "Keep the same environment across conversations. Use a separate workspace for another project, and save snapshots when you need a recovery point.",
   },
   {
     icon: KeyRound,
@@ -38,12 +50,12 @@ const origins = [
   {
     icon: Server,
     t: "Your own infrastructure",
-    d: "Connect a box over SSH or a Docker host you already run. MindWire deploys the runtime there and drives agents inside your network, on your own metal.",
+    d: "Connect a server over SSH. Run directly on the host, or create a separate Docker workspace with its own tools and project directory.",
   },
   {
     icon: Cloud,
     t: "Managed sandboxes",
-    d: "Point MindWire at Oblien and every turn gets its own microVM \u2014 booted on demand, torn down after, metered. Nothing to provision or babysit.",
+    d: "Create an Oblien cloud workspace and keep agents running there across conversations. Manage its lifecycle, resources, and usage from the app.",
   },
   {
     icon: Plug,
@@ -94,16 +106,20 @@ export default function Sandboxing() {
         <div className="max-w-2xl">
           <span className="eyebrow">Sandboxing</span>
           <h1 className={`mt-5 text-4xl sm:text-5xl ${heading}`}>
-            The right place to run an agent is a sandbox.
+            Give your project a workspace of its own.
           </h1>
           <p className="mt-5 text-lg leading-relaxed text-neutral-600 dark:text-neutral-400">
-            The moment an agent runs real work, it&rsquo;s executing untrusted code on your behalf.
-            Give every run its own isolated machine &mdash; on infrastructure you already own, or on a
-            managed microVM from{" "}
-            <a href="https://oblien.com" rel="noopener" className="text-neutral-950 underline underline-offset-4 dark:text-white">
+            Choose where your agent can work: directly on a machine you own,
+            inside a Docker workspace, or on a cloud machine from{" "}
+            <a
+              href="https://oblien.com"
+              rel="noopener"
+              className="text-neutral-950 underline underline-offset-4 dark:text-white"
+            >
               Oblien
-            </a>{" "}
-            booted on demand and torn down after. MindWire drives the agent; you choose where it runs.
+            </a>
+            . The workspace holds your files, tools, and conversations across
+            turns. Mindwire drives the agent; you choose its environment.
           </p>
         </div>
       </section>
@@ -124,7 +140,9 @@ export default function Sandboxing() {
       <section className="mx-auto max-w-6xl px-4 pt-20 sm:px-6 sm:pt-28">
         <div className="mb-8 max-w-2xl">
           <span className="eyebrow">Why a sandbox</span>
-          <h2 className={`mt-4 text-3xl sm:text-4xl ${heading}`}>Isolate the run, not your nerves.</h2>
+          <h2 className={`mt-4 text-3xl sm:text-4xl ${heading}`}>
+            The right boundary for your work.
+          </h2>
         </div>
         <div className="relative">
           <Corners />
@@ -137,7 +155,9 @@ export default function Sandboxing() {
                     <Icon size={17} strokeWidth={1.5} />
                   </div>
                   <h3 className={`mt-5 text-lg ${heading}`}>{r.t}</h3>
-                  <p className="mt-2 text-neutral-600 dark:text-neutral-400">{r.d}</p>
+                  <p className="mt-2 text-neutral-600 dark:text-neutral-400">
+                    {r.d}
+                  </p>
                 </div>
               );
             })}
@@ -149,10 +169,13 @@ export default function Sandboxing() {
       <section className="mx-auto max-w-6xl px-4 pt-20 sm:px-6 sm:pt-28">
         <div className="mb-8 max-w-2xl">
           <span className="eyebrow">Where it comes from</span>
-          <h2 className={`mt-4 text-3xl sm:text-4xl ${heading}`}>Your infrastructure, or ours.</h2>
+          <h2 className={`mt-4 text-3xl sm:text-4xl ${heading}`}>
+            Your infrastructure, or ours.
+          </h2>
           <p className="mt-4 text-lg leading-relaxed text-neutral-600 dark:text-neutral-400">
-            A sandbox is a destination, not a dependency. Connect machines you already run, hand the
-            machine to someone else, or bring the provider you already pay for.
+            A sandbox is a destination, not a dependency. Connect machines you
+            already run, hand the machine to someone else, or bring the provider
+            you already pay for.
           </p>
         </div>
         <div className="relative">
@@ -173,7 +196,9 @@ export default function Sandboxing() {
                       </span>
                     )}
                   </div>
-                  <p className="mt-2 text-neutral-600 dark:text-neutral-400">{r.d}</p>
+                  <p className="mt-2 text-neutral-600 dark:text-neutral-400">
+                    {r.d}
+                  </p>
                 </div>
               );
             })}
@@ -186,7 +211,9 @@ export default function Sandboxing() {
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-2xl">
             <span className="eyebrow">The managed option</span>
-            <h2 className={`mt-4 text-3xl sm:text-4xl ${heading}`}>The machine, handled for you.</h2>
+            <h2 className={`mt-4 text-3xl sm:text-4xl ${heading}`}>
+              The machine, handled for you.
+            </h2>
           </div>
           <span className="font-mono text-xs text-neutral-400 dark:text-neutral-600">
             REST · CLI · MCP · dashboard
@@ -203,7 +230,9 @@ export default function Sandboxing() {
                     <Icon size={16} strokeWidth={1.5} />
                   </div>
                   <h3 className={`mt-4 text-base ${heading}`}>{p.t}</h3>
-                  <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">{p.d}</p>
+                  <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+                    {p.d}
+                  </p>
                 </div>
               );
             })}
@@ -218,20 +247,21 @@ export default function Sandboxing() {
           <div className="bento">
             <div className="cell flex flex-col items-center gap-5 px-6 py-16 text-center sm:py-20">
               <h2 className={`max-w-2xl text-3xl sm:text-4xl ${heading}`}>
-                Run your agents in sandboxes. Oblien scales them.
+                Give your agents a home in the cloud.
               </h2>
               <p className="max-w-lg text-neutral-500 dark:text-neutral-400">
-                Point MindWire at Oblien and every turn gets its own microVM — parallel, isolated,
-                metered. No infrastructure to babysit.
+                Create a cloud workspace, connect your agent, and manage its
+                resources from Mindwire. Your laptop can take a break.
               </p>
               <div className="flex flex-wrap justify-center gap-3">
-                <a
-                  href="mailto:hello@oblien.com?subject=Oblien%20sandboxes%20for%20agents"
-                  className="btn btn-primary"
-                >
-                  Request a demo
+                <a href="/pricing" className="btn btn-primary">
+                  Workspace pricing
                 </a>
-                <a href="https://oblien.com" rel="noopener" className="btn btn-ghost">
+                <a
+                  href="https://oblien.com/docs"
+                  rel="noopener"
+                  className="btn btn-ghost"
+                >
                   Oblien docs ↗
                 </a>
               </div>

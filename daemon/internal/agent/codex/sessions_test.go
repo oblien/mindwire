@@ -86,6 +86,25 @@ func TestNativeSessionListRejectsPartialOrLoopingInventories(t *testing.T) {
 	}
 }
 
+func TestGlobalNativeSessionsOmitFolderFilterAndKeepOriginalContext(t *testing.T) {
+	first, _ := workspacepath.Canonical(t.TempDir())
+	second, _ := workspacepath.Canonical(t.TempDir())
+	page, _ := json.Marshal(map[string]any{"data": []map[string]any{
+		{"id": "one", "cwd": first, "preview": "First folder"},
+		{"id": "two", "cwd": second, "preview": "Second folder"},
+		{"id": "missing-directory", "preview": "Must not use the daemon cwd"},
+		{"id": "temporary", "cwd": first, "ephemeral": true},
+	}})
+	f := &sessionRPCFixture{pages: []string{string(page)}}
+	rows, err := listNativeSessions(context.Background(), f, "", "")
+	if err != nil || len(rows) != 2 || rows[0].CWD != first || rows[1].CWD != second {
+		t.Fatalf("global contexts: %+v %v", rows, err)
+	}
+	if _, filtered := f.calls[0]["cwd"]; filtered {
+		t.Fatal("global inventory sent a cwd filter")
+	}
+}
+
 func TestNativeSessionListDoesNotInstallOrCreateFreshHomes(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "not-created")
 	t.Setenv("CODEX_HOME", home)
@@ -99,7 +118,7 @@ func TestNativeSessionListDoesNotInstallOrCreateFreshHomes(t *testing.T) {
 
 func TestNativeSessionListSmoke(t *testing.T) {
 	cwd := os.Getenv("MINDWIRE_TEST_NATIVE_SESSION_CWD")
-	if cwd == "" {
+	if cwd == "" && os.Getenv("MINDWIRE_TEST_GLOBAL_SESSIONS") != "1" {
 		t.Skip("explicit read-only native CLI check")
 	}
 	rows, err := (adapter{}).ListSessions(context.Background(), cwd)

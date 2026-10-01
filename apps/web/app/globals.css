@@ -78,6 +78,19 @@
 }
 
 @layer base {
+  .skip-link {
+    position: fixed;
+    top: -5rem;
+    left: 1rem;
+    z-index: 100;
+    padding: 0.75rem 1rem;
+    background: #fff;
+    color: #111;
+    border: 2px solid currentColor;
+  }
+  .skip-link:focus {
+    top: 0.5rem;
+  }
   /* Tailwind v4's Preflight dropped v3's rule that forced `cursor: pointer` on buttons, so clickable
      controls fell back to the arrow cursor. Restore the hand for enabled interactive controls (the
      theme toggle, copy buttons, Fumadocs chrome). Text inputs keep their I-beam; disabled stays arrow. */

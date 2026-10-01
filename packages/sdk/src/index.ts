@@ -56,6 +56,8 @@ export * from "./types.js";
 export { ServiceApi } from "./service.js";
 export type { ServiceUpdateState, ServiceUpdateLease } from "./service.js";
 export { WorkspaceApi, WorkspaceCollection, ProjectOperationsApi, GitAccessApi } from "./workspace.js";
+export { ConversationsApi } from "./conversations.js";
+export type { Conversation, ConversationQuery, ConversationPage, ConversationOpenRequest, ConversationOpenResult } from "./conversations.js";
 export { ProjectSyncApi, ProjectSyncError } from "./project-sync.js";
 export type { ProjectSyncEntry, ProjectSyncCheckpoint, ProjectSyncRequest, ProjectSyncOperation,
   ProjectSyncConflict, ProjectSyncProgress } from "./project-sync.js";
