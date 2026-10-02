@@ -77,8 +77,8 @@ func TestAppServerApprovalFlow(t *testing.T) {
 	if result.IsError {
 		t.Errorf("result unexpectedly flagged as error")
 	}
-	if result.SessionID != "sess-1" {
-		t.Errorf("session id = %q, want sess-1", result.SessionID)
+	if result.SessionID != "th-1" {
+		t.Errorf("resume identity = %q, want thread ID th-1", result.SessionID)
 	}
 
 	// The server must have received an experimental-family accept decision.
@@ -95,7 +95,7 @@ func TestAppServerApprovalFlow(t *testing.T) {
 	}
 
 	evs := col.snapshot()
-	if s := firstOfType(evs, agent.EventSession); s == nil || s.SessionID != "sess-1" {
+	if s := firstOfType(evs, agent.EventSession); s == nil || s.SessionID != "th-1" {
 		t.Errorf("missing/incorrect EventSession: %+v", s)
 	}
 	if inter := firstOfType(evs, agent.EventInteraction); inter == nil || inter.Interaction.Kind != "approval" {
@@ -592,8 +592,8 @@ func TestAppServerCompactFlow(t *testing.T) {
 	if result.IsError {
 		t.Errorf("compaction unexpectedly flagged as error")
 	}
-	if result.SessionID != "sess-1" {
-		t.Errorf("session id = %q, want sess-1", result.SessionID)
+	if result.SessionID != "th-1" {
+		t.Errorf("resume identity = %q, want thread ID th-1", result.SessionID)
 	}
 
 	// The server must have received a compact/start for the resumed thread.

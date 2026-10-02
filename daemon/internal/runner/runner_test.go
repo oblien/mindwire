@@ -37,7 +37,7 @@ type stubAdapter struct{ got agent.TurnInput }
 
 func (*stubAdapter) ID() string                       { return "stub" }
 func (*stubAdapter) Meta() agent.CatalogEntry         { return agent.CatalogEntry{ID: "stub", Name: "Stub"} }
-func (*stubAdapter) Capabilities() agent.Capabilities { return agent.Capabilities{} }
+func (*stubAdapter) Capabilities() agent.Capabilities { return agent.Capabilities{Fork: true} }
 func (*stubAdapter) Settings() agent.SettingsSchema {
 	return agent.SettingsSchema{Sections: []agent.Section{{Title: "S", Fields: []agent.Field{
 		{Key: "model", Type: agent.FieldText},

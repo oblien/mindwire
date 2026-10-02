@@ -9,6 +9,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"time"
@@ -102,23 +103,32 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 	// Options.Settings so the adapter reads overrides only from Config — never the unresolved canons.
 	opts := t.Options
 	opts.Settings = nil
-	// Fork-safe first turn: a chat freshly forked from another shares the source's native session id
-	// (seeded by ForkChat). Force ForkOnResume on the first turn — consumed and cleared atomically — so
-	// the turn BRANCHES a new native session instead of continuing (and polluting) the source's, no
-	// matter what session flags the client passed. Only the resuming case actually forks (the adapter
-	// adds --fork-session only when a base session exists), so a fork with no seeded session is a no-op.
-	if r.store.TakeForkPending(r.adapter.ID(), chatID) {
+	// A pending fork stays armed until a DISTINCT native ID has been saved. Client
+	// resume overrides must never redirect this first turn back into the source.
+	fork := r.store.PendingFork(r.adapter.ID(), chatID)
+	sourceSession := r.store.Session(r.adapter.ID(), chatID)
+	if (fork != nil || opts.ForkOnResume) && !r.adapter.Capabilities().Fork {
+		return agent.TurnResult{IsError: true, Text: "This harness does not support conversation forks. The original chat was kept."}, nil
+	}
+	if fork != nil {
+		opts.SessionID, opts.ContinueLatest = "", false
 		opts.ForkOnResume = true
 	}
 	in := agent.TurnInput{
 		Message:   message,
-		SessionID: r.store.Session(r.adapter.ID(), chatID),
+		SessionID: sourceSession,
 		CWD:       dir,
 		Config:    r.settings(t.Options),
 		Env:       r.auth.EnvForRun(),
 		Options:   opts,
 		Inbound:   t.Inbound,
+		Fork:      fork,
 	}
+	if fork != nil && fork.Fresh {
+		in.SessionID, in.Options.ForkOnResume = "", false
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	if in.Env == nil {
 		in.Env = map[string]string{}
@@ -130,6 +140,23 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 	// Persistence and reattachment use the same reducer. A resolve child keeps its own
 	// transcript while the hub accumulates every iteration on the parent's topic.
 	var sessionID string
+	var savedSession string
+	var persistenceError error
+	persistSession := func(sid string) {
+		if sid == "" || sid == savedSession || persistenceError != nil {
+			return
+		}
+		if fork != nil && sid == sourceSession {
+			persistenceError = fmt.Errorf("native fork returned the original session; retry the branch")
+		} else {
+			persistenceError = r.store.SetSession(r.adapter.ID(), chatID, sid)
+		}
+		if persistenceError != nil {
+			cancel()
+		} else {
+			savedSession = sid
+		}
+	}
 	var transcript stream.Transcript
 	var emitMu sync.Mutex
 	accepting := true
@@ -144,6 +171,9 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 		}
 		if ev.SessionID != "" {
 			sessionID = ev.SessionID
+			// Native session initialization precedes turn/start. Save the fork now,
+			// so disconnects and a failed model call still resume the new branch.
+			persistSession(ev.SessionID)
 		}
 		if ev.Interaction != nil {
 			// Supervisor enrichment must not mutate an adapter's reusable value or
@@ -175,6 +205,14 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 	accepting = false
 	parts := transcript.Snapshot(true).Parts
 	sid := agent.FirstNonEmpty(res.SessionID, sessionID)
+	persistSession(sid)
+	if persistenceError != nil {
+		res.IsError, res.Text = true, "Could not save the conversation: "+persistenceError.Error()
+		res.Cancelled = false // our internal abort is a save failure, not the user's Stop action
+	}
+	if sid == "" && fork != nil && !res.IsError {
+		res.IsError, res.Text = true, "The harness did not confirm a new conversation. Retry the branch."
+	}
 	emitMu.Unlock()
 	if !res.IsError && res.Text != "" {
 		hasText := false
@@ -186,9 +224,6 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 		}
 	}
 
-	if sid != "" {
-		_ = r.store.SetSession(r.adapter.ID(), chatID, sid)
-	}
 	return res, parts
 }
 

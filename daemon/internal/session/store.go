@@ -19,15 +19,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/agent"
 )
 
-type Message struct {
-	ID          string             `json:"id"`
-	ChatID      string             `json:"chatId"`
-	Role        string             `json:"role"` // "user" | "assistant"
-	Text        string             `json:"text"`
-	CreatedAt   string             `json:"createdAt"`
-	Parts       []agent.Part       `json:"parts,omitempty"` // ordered rich transcript (text/thinking/tool)
-	Attachments []agent.Attachment `json:"attachments,omitempty"`
-}
+type Message = agent.Message
 
 // Run is one durable agent turn. The daemon owns it: it keeps running (and is
 // recorded here) regardless of whether the app is still connected.
@@ -69,8 +61,9 @@ type state struct {
 	Config   map[string]string     `json:"config"` // "<agent>:<key>" -> value (namespaced settings/creds)
 	// ForkPending marks a freshly-forked (agent, chat) whose FIRST turn must branch the native session
 	// (ForkOnResume) so it can't pollute the source transcript. Keyed "<agent>\x1f<chatId>"; the runner
-	// consumes and clears the marker on the first turn (see TakeForkPending).
-	ForkPending map[string]bool `json:"forkPending,omitempty"`
+	// clears the marker only when a distinct native session has been durably saved.
+	ForkPending map[string]bool     `json:"forkPending,omitempty"`
+	Forks       map[string]ChatFork `json:"forks,omitempty"`
 }
 
 // SessionRef identifies one agent's native session for a chat. DeleteChat returns these so the API
@@ -118,6 +111,9 @@ func Open(path string) (*Store, error) {
 		if st.s.ForkPending == nil {
 			st.s.ForkPending = map[string]bool{}
 		}
+		if st.s.Forks == nil {
+			st.s.Forks = map[string]ChatFork{}
+		}
 		if st.s.Config == nil {
 			st.s.Config = map[string]string{}
 		}
@@ -135,6 +131,7 @@ func newState() state {
 		Cwds:        map[string]string{},
 		Titles:      map[string]string{},
 		ForkPending: map[string]bool{},
+		Forks:       map[string]ChatFork{},
 		Config:      map[string]string{},
 	}
 }
@@ -166,8 +163,26 @@ func (st *Store) Session(agentType, chatID string) string {
 func (st *Store) SetSession(agentType, chatID, sessionID string) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	st.s.Sessions[sessionKey(agentType, chatID)] = sessionID
-	return st.save()
+	key := sessionKey(agentType, chatID)
+	old, exists := st.s.Sessions[key]
+	pending := st.s.ForkPending[key]
+	if pending && (sessionID == "" || sessionID == old) {
+		return errors.New("native fork did not create a new session; the original chat was kept")
+	}
+	st.s.Sessions[key] = sessionID
+	delete(st.s.ForkPending, key)
+	if err := st.save(); err != nil {
+		if exists {
+			st.s.Sessions[key] = old
+		} else {
+			delete(st.s.Sessions, key)
+		}
+		if pending {
+			st.s.ForkPending[key] = true
+		}
+		return err
+	}
+	return nil
 }
 
 // ChatCWD returns the directory turns for this chat ran in (used to locate an agent's
@@ -276,6 +291,7 @@ func (st *Store) DeleteChat(chatID string) ([]SessionRef, error) {
 	}
 	delete(st.s.Cwds, chatID)
 	delete(st.s.Titles, chatID)
+	delete(st.s.Forks, chatID)
 
 	msgs := make([]Message, 0, len(st.s.Messages))
 	for _, m := range st.s.Messages {
@@ -307,7 +323,7 @@ func (st *Store) DeleteChat(chatID string) ([]SessionRef, error) {
 // agent (consumed by the runner to force ForkOnResume on turn one). Messages are NOT copied — GET
 // messages is native-first, so the fork reads the source transcript until it branches. Errors if the
 // source is unknown or the target id is already in use.
-func (st *Store) ForkChat(srcChatID, newChatID string) error {
+func (st *Store) ForkChat(srcChatID, newChatID string, options ...ForkOptions) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
@@ -323,10 +339,19 @@ func (st *Store) ForkChat(srcChatID, newChatID string) error {
 	if st.chatExistsLocked(newChatID) {
 		return fmt.Errorf("chat %q already exists", newChatID)
 	}
+	backup, err := json.Marshal(st.s)
+	if err != nil {
+		return err
+	}
+	var opts ForkOptions
+	if len(options) > 0 {
+		opts = options[0]
+	}
+	st.s.Forks[newChatID] = ChatFork{SourceChatID: srcChatID, Agent: opts.Agent, Point: opts.Point}
 
 	srcSuffix := "\x1f" + srcChatID
 	for k, sid := range st.s.Sessions {
-		if strings.HasSuffix(k, srcSuffix) {
+		if strings.HasSuffix(k, srcSuffix) && (opts.Agent == "" || strings.TrimSuffix(k, srcSuffix) == opts.Agent) {
 			agentType := strings.TrimSuffix(k, srcSuffix)
 			newKey := sessionKey(agentType, newChatID)
 			st.s.Sessions[newKey] = sid
@@ -339,22 +364,25 @@ func (st *Store) ForkChat(srcChatID, newChatID string) error {
 	if t, ok := st.s.Titles[srcChatID]; ok {
 		st.s.Titles[newChatID] = t
 	}
-	return st.save()
+	if err := st.save(); err != nil {
+		st.s = newState()
+		_ = json.Unmarshal(backup, &st.s)
+		return err
+	}
+	return nil
 }
 
-// TakeForkPending reports whether a fork-on-first-turn marker is set for (agent, chat) and atomically
-// clears it. The runner calls this once at the start of a turn so a forked chat's first turn branches
-// the native session (ForkOnResume) regardless of client flags, then never again.
-func (st *Store) TakeForkPending(agentType, chatID string) bool {
+// PendingFork remains armed across failures and daemon restarts. SetSession
+// commits the new native ID and clears this marker in the same atomic write.
+func (st *Store) PendingFork(agentType, chatID string) *agent.ForkPoint {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	key := sessionKey(agentType, chatID)
 	if st.s.ForkPending[key] {
-		delete(st.s.ForkPending, key)
-		_ = st.save()
-		return true
+		point := st.s.Forks[chatID].Point
+		return &point
 	}
-	return false
+	return nil
 }
 
 func (st *Store) Messages(chatID string) []Message {

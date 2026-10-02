@@ -35,6 +35,10 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 	if err != nil {
 		return nil, err
 	}
+	messages, err = agent.ForkHistory(messages, q.Fork)
+	if err != nil {
+		return nil, err
+	}
 	return agent.MergeRecordedHistory(agent.NormalizeSurfaceHistory(messages), agent.SurfaceRecords(q.Recorded)), nil
 }
 
@@ -51,11 +55,13 @@ func parseTranscript(f *os.File, chatID string) ([]agent.Message, error) {
 			Type             string          `json:"type"`
 			Subtype          string          `json:"subtype"`
 			UUID             string          `json:"uuid"`
+			ParentUUID       string          `json:"parentUuid"`
 			Timestamp        string          `json:"timestamp"`
 			Message          json.RawMessage `json:"message"`
 			Content          string          `json:"content"`          // compact_boundary line
 			CompactMetadata  json.RawMessage `json:"compactMetadata"`  // compact_boundary metadata
 			IsCompactSummary bool            `json:"isCompactSummary"` // the continuation-summary user record
+			IsMeta           bool            `json:"isMeta"`
 		}
 		if json.Unmarshal([]byte(line), &rec) != nil {
 			continue
@@ -112,9 +118,14 @@ func parseTranscript(f *os.File, chatID string) ([]agent.Message, error) {
 		if text == "" && len(parts) == 0 && len(attachments) == 0 {
 			continue
 		}
-		out = append(out, agent.Message{
+		message := agent.Message{
 			ID: rec.UUID, ChatID: chatID, Role: rec.Type, Text: text, Parts: parts, CreatedAt: rec.Timestamp, Attachments: attachments,
-		})
+		}
+		if rec.Type == "user" && !rec.IsMeta && (text != "" || len(attachments) > 0) && rec.UUID != "" && (rec.ParentUUID != "" || len(out) == 0) {
+			message.ForkPoint = &agent.ForkPoint{BeforeMessageID: rec.UUID, ResumeAt: rec.ParentUUID, Fresh: rec.ParentUUID == ""}
+			message.CanFork = true
+		}
+		out = append(out, message)
 	}
 	if err := sc.Err(); err != nil {
 		// A read error (e.g. a line over the 16 MiB cap) truncated the transcript. Surface it

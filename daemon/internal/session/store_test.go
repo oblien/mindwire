@@ -229,14 +229,14 @@ func TestForkChat(t *testing.T) {
 	if len(st.Messages("dst")) != 0 {
 		t.Fatalf("messages were copied into the fork: %+v", st.Messages("dst"))
 	}
-	// A pending-fork marker exists for each agent, consumed exactly once.
-	if !st.TakeForkPending("claude", "dst") {
+	// Reading the marker must not consume it before a distinct native ID is saved.
+	if st.PendingFork("claude", "dst") == nil {
 		t.Fatalf("claude fork-pending marker missing")
 	}
-	if st.TakeForkPending("claude", "dst") {
-		t.Fatalf("claude fork-pending marker not cleared after first take")
+	if st.PendingFork("claude", "dst") == nil {
+		t.Fatalf("reading the marker cleared it")
 	}
-	if !st.TakeForkPending("codex", "dst") {
+	if st.PendingFork("codex", "dst") == nil {
 		t.Fatalf("codex fork-pending marker missing")
 	}
 }

@@ -323,6 +323,8 @@ export interface Capabilities {
   history: Support;
   sessions: Support;
   resume: boolean;
+  /** Native conversation branching before a selected user message. */
+  fork?: boolean;
   toolEvents: boolean;
   cancel: boolean;
   persistent: boolean;
@@ -776,6 +778,20 @@ export interface Message {
   parts?: Part[];
   /** Native user images, including inline bytes when retained by the harness or recorded turn. */
   attachments?: Attachment[];
+  /** This native prompt has a safe edit-and-resend boundary. */
+  canFork?: boolean;
+}
+
+export interface ForkChatOptions {
+  /** Reuse this ID when retrying a selected-message fork. */
+  newChatId?: string;
+  /** Excludes this user message and all later history from the branch. */
+  beforeMessageId?: string;
+}
+
+export interface ChatForkResult extends ChatSummary {
+  /** Authoritative metadata for the new branch, when a workspace registry is available. */
+  snapshot?: import("./workspace.js").WorkspaceSnapshot;
 }
 
 /** Complete messages, oldest first. A soft byte budget keeps large histories incremental. */
@@ -1141,6 +1157,7 @@ export interface Health {
   workspaceExecutionVersion?: number;
   terminalProtocolVersion?: number;
   turnRequestVersion?: number;
+  chatForkVersion?: number;
   /** Image-only input and image attachments retained in message history. */
   imageAttachmentsVersion?: number;
   computerConnectionVersion?: number;

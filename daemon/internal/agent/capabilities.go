@@ -52,6 +52,7 @@ type Capabilities struct {
 	History    Support    `json:"history"`              // CORE switch (messages endpoint)
 	Sessions   Support    `json:"sessions"`             // client hint
 	Resume     bool       `json:"resume"`               // client hint
+	Fork       bool       `json:"fork,omitempty"`       // native edit-and-resend branching
 	ToolEvents bool       `json:"toolEvents"`           // client hint
 	Cancel     bool       `json:"cancel"`               // CORE switch (cancel endpoint)
 	Persistent bool       `json:"persistent"`           // client hint: holds a live stdin process (else one-shot per turn)

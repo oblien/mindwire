@@ -15,6 +15,8 @@ import type {
   AuthStatus,
   Catalog,
   ChatSummary,
+  ChatForkResult,
+  ForkChatOptions,
   CustomProvider,
   DeleteResult,
   DoctorReport,
@@ -334,14 +336,14 @@ export class Mindwire {
 
   /**
    * `POST /chats/{id}/fork` — clone a chat into a new id (generated when `newChatId` is omitted).
-   * The fork shares the source's native session until its first turn, which branches it (natively
-   * on Claude via `--fork-session`; a fresh session on agents without native fork). Rejects with a
-   * 409 if the source has a live turn, 404 if the source is unknown, 400 if the target id is in
-   * use. Returns the new chat's summary.
+   * Codex and Claude preserve native context. `beforeMessageId` excludes that prompt and every
+   * later message; send the edited prompt to the returned chat with `turn`. Reuse `newChatId`
+   * and the turn's `requestId` on retries. The source chat and filesystem are unchanged.
+   * A source with a live turn returns 409; an unknown source returns 404.
    */
-  forkChat(chatId: string, opts: { newChatId?: string } = {}): Promise<ChatSummary> {
-    return this.http.request<ChatSummary>("POST", `/chats/${encodeURIComponent(chatId)}/fork`, {
-      body: opts.newChatId ? { newChatId: opts.newChatId } : {},
+  forkChat(chatId: string, opts: ForkChatOptions = {}): Promise<ChatForkResult> {
+    return this.http.request<ChatForkResult>("POST", `/chats/${encodeURIComponent(chatId)}/fork`, {
+      body: opts,
     });
   }
 

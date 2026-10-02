@@ -55,6 +55,7 @@ func TestTurnOptionGate(t *testing.T) {
 		opencodeMsg string // opencode's expected 400 message ("" ⇒ opencode accepts)
 	}{
 		{"empty", agent.TurnOptions{}, "", ""},
+		{"fork", agent.TurnOptions{ForkOnResume: true}, "", "agent does not support conversation forks"},
 		{"systemPrompt typed", agent.TurnOptions{SystemPrompt: "You are a bot."}, "", ""},
 		{"systemPrompt canon", agent.TurnOptions{Settings: map[string]string{agent.CanonSystemPrompt: "You are a bot."}}, "", ""},
 		{"appendSystemPrompt canon", agent.TurnOptions{Settings: map[string]string{agent.CanonAppendSystemPrompt: "Be terse."}}, "agent does not support appendSystemPrompt", "agent does not support appendSystemPrompt"},

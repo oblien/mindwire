@@ -51,6 +51,9 @@ func (adapter) DeleteHistory(q agent.HistoryQuery) (bool, error) {
 	if path == "" {
 		return false, nil // no rollout on disk — nothing to delete
 	}
+	if shared, err := rolloutHasDependents(q.SessionID); err != nil || shared {
+		return false, err
+	}
 	if err := os.Remove(path); err != nil {
 		if os.IsNotExist(err) {
 			return false, nil // raced away between find and remove — treat as absent
@@ -73,9 +76,17 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 	if path == "" {
 		return nil, nil // no rollout on disk (e.g. --ephemeral); caller falls back
 	}
-	messages, err := agent.NativeTranscripts.Read(path, q.ChatID, func(f *os.File) ([]agent.Message, error) {
-		return parseRollout(f, q.ChatID)
+	segments, stamp, err := rolloutSegments(path)
+	if err != nil {
+		return nil, err
+	}
+	messages, err := agent.NativeTranscripts.Read(path, q.ChatID+"\x1f"+stamp, func(f *os.File) ([]agent.Message, error) {
+		return parseRolloutSegments(segments, f, q.ChatID)
 	})
+	if err != nil {
+		return nil, err
+	}
+	messages, err = agent.ForkHistory(messages, q.Fork)
 	if err != nil {
 		return nil, err
 	}
@@ -123,6 +134,7 @@ type rolloutEnvelope struct {
 }
 
 type eventMsgPayload struct {
+	TurnID           string          `json:"turn_id"`
 	Type             string          `json:"type"` // user_message | agent_message | …
 	Message          string          `json:"message"`
 	Images           []string        `json:"images"`
@@ -172,6 +184,13 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 	eventTexts, responseTexts := map[string]int{}, map[string]int{}
 	nextID := func() string { return "codex-" + strconv.Itoa(len(out)) }
 	userSources := map[string]bool{}
+	var currentTurn, previousTurn string
+	turnUsers, totalUsers := 0, 0
+	beginTurn := func(id string) {
+		if id != "" && id != currentTurn {
+			previousTurn, currentTurn, turnUsers = currentTurn, id, 0
+		}
+	}
 	appendUser := func(source, text, timestamp string, images []agent.Attachment) {
 		if text == "" && len(images) == 0 {
 			return
@@ -188,7 +207,16 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 		modern = false
 		eventTexts, responseTexts = map[string]int{}, map[string]int{}
 		userSources = map[string]bool{source: true}
-		out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "user", Text: text, CreatedAt: timestamp, Attachments: images})
+		message := agent.Message{ID: nextID(), ChatID: chatID, Role: "user", Text: text, CreatedAt: timestamp, Attachments: images}
+		// Native forks cut at turn boundaries. A steered message within the same
+		// turn cannot be cut without losing earlier work from that turn.
+		if totalUsers == 0 || turnUsers == 0 && previousTurn != "" {
+			message.ForkPoint = &agent.ForkPoint{BeforeMessageID: message.ID, ResumeAt: previousTurn, Fresh: totalUsers == 0}
+			message.CanFork = true
+		}
+		turnUsers++
+		totalUsers++
+		out = append(out, message)
 	}
 
 	// ensureAsst returns the open assistant message's index, opening one if needed.
@@ -235,6 +263,12 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 			continue
 		}
 		switch env.Type {
+		case "turn_context":
+			var p struct {
+				TurnID string `json:"turn_id"`
+			}
+			_ = json.Unmarshal(env.Payload, &p)
+			beginTurn(p.TurnID)
 		case "compacted":
 			// The conversation was compacted. Surface a standalone marker (a boundary, like a user turn)
 			// so a reloaded transcript shows it the same way Claude's does and the live stream will. The
@@ -252,7 +286,10 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 				continue
 			}
 			switch p.Type {
+			case "task_started":
+				beginTurn(p.TurnID)
 			case "item_completed":
+				beginTurn(p.TurnID)
 				n, err := rolloutItem(p.Item)
 				if err != nil {
 					return nil, err

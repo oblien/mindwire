@@ -180,4 +180,16 @@ stream_max_retries = 0
 			t.Fatalf("native answer %d appeared %d times in unified history", n, count)
 		}
 	}
+	forkSID := checkNativeHistoricalFork(t, mux, sup, store, chat, "codex", home, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), requests...)
+	})
+	cli("exec", "resume", "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", forkSID, "Native branch continuation")
+	mu.Lock()
+	last := requests[len(requests)-1]
+	mu.Unlock()
+	if !strings.Contains(last, "Edited historical prompt") || strings.Contains(last, "Back in native CLI") {
+		t.Fatal("native CLI could not continue the isolated fork")
+	}
 }

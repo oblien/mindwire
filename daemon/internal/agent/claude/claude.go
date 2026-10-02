@@ -35,6 +35,7 @@ func (adapter) Capabilities() agent.Capabilities {
 		History:    agent.SupportNative,        // transcript in ~/.claude/projects/.../<sid>.jsonl
 		Sessions:   agent.SupportNative,        // --session-id / --resume
 		Resume:     true,
+		Fork:       true,
 		ToolEvents: true,
 		Cancel:     true,
 		// Every interactive turn keeps stdin open, including bypass mode: question
@@ -342,6 +343,9 @@ func buildCommand(in agent.TurnInput, files materialized, tr transport) string {
 	}
 	if in.Options.ForkOnResume && resuming {
 		cli += " --fork-session"
+		if in.Fork != nil && in.Fork.ResumeAt != "" {
+			cli += " --resume-session-at " + agent.ShellQuote(in.Fork.ResumeAt)
+		}
 	}
 	return cli
 }

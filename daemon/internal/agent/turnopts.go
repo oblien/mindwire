@@ -9,6 +9,9 @@ package agent
 // This is the single source of truth for the gate, shared by the HTTP surface (api.turn) and the
 // in-process Go SDK (mindwire.Client.Turn) so neither can drift from the other.
 func UnsupportedTurnOption(caps Capabilities, opts TurnOptions) (string, bool) {
+	if opts.ForkOnResume && !caps.Fork {
+		return "agent does not support conversation forks", false
+	}
 	systemPrompt := opts.SystemPrompt != "" || opts.Settings[CanonSystemPrompt] != ""
 	if systemPrompt && !caps.SystemPrompt {
 		return "agent does not support systemPrompt", false

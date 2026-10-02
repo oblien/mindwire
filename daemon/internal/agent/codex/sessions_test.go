@@ -51,7 +51,7 @@ func TestNativeSessionListUsesCodexPaginationAndAllProviders(t *testing.T) {
 	if err != nil || len(rows) != 2 {
 		t.Fatalf("list: %+v %v", rows, err)
 	}
-	if rows[0].ID != "native-one" || rows[0].Aliases[0] != "thread-one" || rows[0].Title != "Native title" || rows[1].Title != "Second question" {
+	if rows[0].ID != "thread-one" || rows[0].Aliases[0] != "thread-one" || rows[0].Title != "Native title" || rows[1].Title != "Second question" {
 		t.Fatalf("native identities/titles: %+v", rows)
 	}
 	if rows[0].UpdatedAt != "1970-01-01T00:03:20Z" {

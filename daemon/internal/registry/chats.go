@@ -102,11 +102,7 @@ func (st *Store) OverlaySummary(summary *session.ChatSummary) bool {
 
 // ForkChat forks registered membership and native mappings together. false means an unregistered
 // legacy chat, which the caller handles in the native store. The caller serializes chat mutations.
-func (st *Store) ForkChat(src, newID string, native *session.Store) (bool, error) {
-	chat, _, _, err := st.ChatContext(src)
-	if err != nil || chat == nil {
-		return false, err
-	}
+func (st *Store) ForkChat(src, newID string, native *session.Store, options ...session.ForkOptions) (bool, error) {
 	if !validID(newID) || src == newID {
 		return true, invalid("fork target must be a valid, different chat ID")
 	}
@@ -114,20 +110,29 @@ func (st *Store) ForkChat(src, newID string, native *session.Store) (bool, error
 	if err != nil {
 		return true, err
 	}
-	if target != nil || native.ChatExists(newID) {
+	matched := len(options) > 0 && options[0].Point.BeforeMessageID != "" && native.ForkMatches(src, newID, options[0].Point.BeforeMessageID)
+	if matched && target != nil {
+		return true, nil
+	}
+	chat, _, _, err := st.ChatContext(src)
+	if err != nil || chat == nil {
+		return false, err
+	}
+	if target != nil || native.ChatExists(newID) && !matched {
 		return true, invalid("target chat already exists")
 	}
-	hasHistory := native.ChatExists(src)
-	if hasHistory {
-		if err := native.ForkChat(src, newID); err != nil {
+	createdHistory := native.ChatExists(src) && !matched
+	if createdHistory {
+		if err := native.ForkChat(src, newID, options...); err != nil {
 			_, _ = native.DeleteChat(newID)
 			return true, err
 		}
 	}
 	chat.ID, chat.CreatedAt, chat.Revision, chat.SessionID = newID, "", 0, ""
+	chat.UpdatedAt, chat.SyncID = "", ""
 	data, _ := json.Marshal(chat)
 	if err := st.Put("chats", newID, data, nil); err != nil {
-		if hasHistory {
+		if createdHistory {
 			_, _ = native.DeleteChat(newID) // only this new mapping, never its native transcript
 		}
 		return true, err

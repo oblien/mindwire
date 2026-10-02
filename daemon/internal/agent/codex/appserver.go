@@ -70,6 +70,8 @@ type appServer struct {
 	approval       string // approval policy (enum)
 	cwd            string // working directory for the thread
 	resumeID       string // thread id to resume; "" ⇒ start a fresh thread
+	fork           bool
+	forkAt         string // last native turn to retain, inclusive
 	compact        bool   // on-demand compaction: after resume, send thread/compact/start instead of turn/start
 	provider       string
 	config         map[string]any
@@ -445,7 +447,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 						} `json:"thread"`
 					}
 					if json.Unmarshal(msg.Params, &p) == nil {
-						sid := agent.FirstNonEmpty(p.Thread.SessionID, p.Thread.ID)
+						sid := agent.FirstNonEmpty(p.Thread.ID, p.Thread.SessionID)
 						smu.Lock()
 						if threadID == "" {
 							threadID = p.Thread.ID
@@ -684,7 +686,15 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		}
 		a.resumeID = list.Data[0].ID
 	}
-	if a.resumeID != "" {
+	if a.resumeID != "" && a.fork {
+		params := a.resumeParams()
+		// Hydrate once to verify that older CLIs honored the selected boundary.
+		params["excludeTurns"] = false
+		if a.forkAt != "" {
+			params["lastTurnId"] = a.forkAt
+		}
+		ch, err = call("thread/fork", params)
+	} else if a.resumeID != "" {
 		ch, err = call("thread/resume", a.resumeParams())
 	} else {
 		ch, err = call("thread/start", a.startParams())
@@ -701,6 +711,9 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		Thread struct {
 			ID        string `json:"id"`
 			SessionID string `json:"sessionId"`
+			Turns     []struct {
+				ID string `json:"id"`
+			} `json:"turns"`
 		} `json:"thread"`
 	}
 	_ = json.Unmarshal(res, &ts)
@@ -708,8 +721,22 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		a.model = ts.Model
 	}
 	tid := agent.FirstNonEmpty(ts.Thread.ID, a.resumeID)
-	sid := agent.FirstNonEmpty(ts.Thread.SessionID, tid)
+	// sessionId is the live tree's root; a fork can share it with its source.
+	// Resumption and history must always use the distinct thread ID.
+	sid := tid
+	if a.fork && a.resumeID != "" {
+		if tid == "" || tid == a.resumeID {
+			return agent.TurnResult{Text: "Codex did not create a new thread; the original chat was kept.", IsError: true}, false
+		}
+		if a.forkAt != "" && (len(ts.Thread.Turns) == 0 || ts.Thread.Turns[len(ts.Thread.Turns)-1].ID != a.forkAt) {
+			return agent.TurnResult{Text: "Update Codex CLI to fork at this message. No message was sent.", IsError: true}, false
+		}
+	}
 	smu.Lock()
+	if a.fork && ((threadID != "" && threadID != tid) || (sessionID != "" && sessionID != sid)) {
+		smu.Unlock()
+		return agent.TurnResult{Text: "Codex returned conflicting fork identities. No message was sent.", IsError: true}, false
+	}
 	if threadID == "" {
 		threadID = tid
 	} else {
@@ -723,6 +750,9 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	smu.Unlock()
 	if sid != "" {
 		emit(agent.Event{Type: agent.EventSession, SessionID: sid})
+	}
+	if err := ctx.Err(); err != nil {
+		return agent.TurnResult{Text: err.Error(), SessionID: sid, IsError: true}, false
 	}
 
 	// 4. Kick off the work. In compact mode: thread/compact/start, whose immediate {} response is a mere

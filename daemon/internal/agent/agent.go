@@ -25,6 +25,7 @@ type TurnInput struct {
 	Config    map[string]string // settings (non-secret), e.g. model — per-turn overrides already folded in
 	Env       map[string]string // runtime env from the AuthModule (e.g. ANTHROPIC_API_KEY)
 	Options   TurnOptions       // per-turn structured options (Settings already resolved into Config)
+	Fork      *ForkPoint        // durable, server-prepared native branch boundary
 	// Inbound carries the user's mid-turn ingress — permission answers, follow-up input, interrupts —
 	// for a turn that pauses (user-in-loop). It is receive-only for the adapter and nil for the one-shot
 	// hot path; an adapter that pauses picks a persistent transport and pumps these to the live process.
@@ -146,6 +147,8 @@ type Message struct {
 	CreatedAt   string       `json:"createdAt"`
 	Parts       []Part       `json:"parts,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
+	CanFork     bool         `json:"canFork,omitempty"`
+	ForkPoint   *ForkPoint   `json:"-"` // native cursor; clients send only the message ID
 }
 
 // Part is one ordered piece of an assistant turn. A `tool` part pairs the tool_use and its
@@ -184,6 +187,7 @@ type HistoryQuery struct {
 	// Recorded is the daemon's transcript for this chat. Native readers may supplement
 	// their transcript with streamed components the CLI does not persist, such as warnings.
 	Recorded []Message
+	Fork     *ForkPoint // pending fork: only return native history before this message
 }
 
 // CredStore persists an agent's credentials/settings (backed by the daemon's state file).

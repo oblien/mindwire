@@ -85,7 +85,7 @@ func listNativeSessions(ctx context.Context, client sessionRPC, cwd, canonical s
 				return nil, err // partial pages are not an authoritative empty list
 			}
 			for _, row := range page.Data {
-				id := agent.FirstNonEmpty(row.SessionID, row.ID)
+				id := agent.FirstNonEmpty(row.ID, row.SessionID)
 				actual, err := workspacepath.Canonical(row.CWD)
 				if err != nil || canonical != "" && actual != canonical || row.Ephemeral || !agent.ValidNativeSessionID(id) || seen[id] {
 					continue

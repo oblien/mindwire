@@ -194,6 +194,8 @@ test("forkChat(): POSTs /chats/{id}/fork (empty body when no id, {newChatId} whe
 
   await mw.forkChat("c1", { newChatId: "c2" });
   expect(JSON.parse(calls[1]?.init?.body as string)).toEqual({ newChatId: "c2" });
+  await mw.forkChat("c1", { newChatId: "branch", beforeMessageId: "native-message" });
+  expect(JSON.parse(calls[2]?.init?.body as string)).toEqual({ newChatId: "branch", beforeMessageId: "native-message" });
 });
 
 test("mcp.list(): GETs /mcp with ?agent=/?dir= and parses the scope→name→server map", async () => {

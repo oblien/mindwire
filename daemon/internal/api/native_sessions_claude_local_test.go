@@ -60,7 +60,7 @@ func TestNativeClaudeCLIAdapterRoundTrip(t *testing.T) {
 		if len(req.Messages) > 0 {
 			last = string(req.Messages[len(req.Messages)-1])
 		}
-		main := strings.Contains(last, "Started in native CLI") || strings.Contains(last, "Continued from Mindwire") || strings.Contains(last, "Back in native CLI")
+		main := strings.Contains(last, "Started in native CLI") || strings.Contains(last, "Continued from Mindwire") || strings.Contains(last, "Back in native CLI") || strings.Contains(last, "Edited historical prompt") || strings.Contains(last, "Native branch continuation") || strings.Contains(last, "Replacement first prompt") || strings.Contains(last, "Edited the branch again")
 		mu.Lock()
 		if main {
 			requests = append(requests, string(body))
@@ -175,5 +175,20 @@ func TestNativeClaudeCLIAdapterRoundTrip(t *testing.T) {
 		if count != 1 {
 			t.Fatalf("native Claude answer %d appeared %d times", n, count)
 		}
+	}
+	profile, _ := sup.Resolve("claude-code")
+	_ = profile.Creds.Set("model", "claude-sonnet-4-6")
+	_ = profile.Creds.Set("permission-mode", "bypassPermissions")
+	forkSID := checkNativeHistoricalFork(t, mux, sup, store, opened.Chats[0], "claude-code", os.Getenv("CLAUDE_CONFIG_DIR"), func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), requests...)
+	})
+	cli(forkSID, "Native branch continuation")
+	mu.Lock()
+	last := requests[len(requests)-1]
+	mu.Unlock()
+	if !strings.Contains(last, "Edited historical prompt") || strings.Contains(last, "Back in native CLI") {
+		t.Fatal("native Claude could not continue the isolated fork")
 	}
 }

@@ -227,20 +227,36 @@ curl -XPUT "http://127.0.0.1:8790/chats/demo" -d '{"title":"Router refactor"}'
 
 ## Fork a chat
 
-Clone a chat into a new `chatId` to branch an exploration without touching the original. Omit
-`newChatId` to have the daemon generate one. The fork **shares the source's native session** until its
-first turn — so it transparently shows the same history — and that first turn branches it: natively on
-Claude (`--fork-session`), or a fresh session on an agent without native fork (Codex). The source
-chat's transcript is never modified. A fork `409`s if the source has a turn in flight.
+In the mobile app, long-press one of your messages and choose **Edit and resend**. Edit the prompt,
+then send it to continue in a new chat. Earlier context and attachments are preserved; the selected
+message and later replies are excluded. The original conversation and current project files remain
+in place. This changes conversation history; it does not rewind file edits.
+
+Codex and Claude both branch their native sessions, so the new chat can also be resumed in the CLI.
+The daemon prepares the fork first and creates its native session on the first turn. Pass
+`beforeMessageId` to cut before a user message, or omit it to branch from the end. Messages with
+`canFork: true` have a supported native boundary. Codex supports the first user message of each turn;
+mid-turn steering messages cannot be cut safely with its native API.
+
+Use stable `newChatId` and turn `requestId` values when retrying. A selected-message fork returns the
+same branch even after its first turn has started. A running source returns `409`; stop or finish
+that turn before branching. Clients should require `chatForkVersion >= 1` from `/healthz` before
+sending `beforeMessageId`, so an older service cannot silently ignore it.
 
 <ApiTabs>
 
 <Tab value="TypeScript">
 
 ```ts
-const forked = await mw.forkChat("demo");                 // daemon generates the id
-const named = await mw.forkChat("demo", { newChatId: "demo-alt" });
-await mw.turn({ chatId: named.chatId, message: "try the other approach" }); // branches here
+const named = await mw.forkChat("demo", {
+  newChatId: "demo-alt",
+  beforeMessageId: selectedMessage.id,
+});
+await mw.turn({
+  chatId: named.chatId,
+  message: "Try the other approach",
+  requestId: "demo-alt-edit-1",
+});
 ```
 
 </Tab>
@@ -248,7 +264,10 @@ await mw.turn({ chatId: named.chatId, message: "try the other approach" }); // b
 <Tab value="Go">
 
 ```go
-forked, err := client.ForkChat("demo", "") // "" → daemon generates the id
+forked, err := client.ForkChatAt("demo", mindwire.ForkChatOptions{
+	NewChatID: "demo-alt",
+	BeforeMessageID: selectedMessage.ID,
+})
 if err != nil {
 	log.Fatal(err)
 }
@@ -260,13 +279,21 @@ _ = forked
 <Tab value="REST">
 
 ```bash
-# Empty body → the daemon generates the new id; {"newChatId":"…"} pins it.
-curl -XPOST "http://127.0.0.1:8790/chats/demo/fork" -d '{"newChatId":"demo-alt"}'
+curl -XPOST "http://127.0.0.1:8790/chats/demo/fork" \
+  -d '{"newChatId":"demo-alt","beforeMessageId":"selected-user-message-id"}'
+curl -XPOST "http://127.0.0.1:8790/turns" \
+  -d '{"chatId":"demo-alt","message":"Try the other approach","requestId":"demo-alt-edit-1"}'
 ```
 
 </Tab>
 
 </ApiTabs>
+
+Codex can store branches as links to exact byte ranges in their original transcripts. Mindwire
+reads these links and keeps an ancestor's native file while another branch needs it. Workspace
+switching currently stops with a clear error for these linked conversations, including their
+ancestors, because remapping project paths would invalidate the byte offsets. No incomplete chat
+archive is transferred.
 
 ## Delete a chat
 

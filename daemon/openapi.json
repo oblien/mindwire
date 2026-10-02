@@ -279,6 +279,10 @@
           "conversationBrowserVersion": {
             "type": "integer",
             "description": "1 supports global native conversation browsing and reference adoption."
+          },
+          "chatForkVersion": {
+            "type": "integer",
+            "description": "Native selected-message forks with idempotent branch creation."
           }
         },
         "required": [
@@ -1051,6 +1055,10 @@
               "$ref": "#/components/schemas/Attachment"
             },
             "description": "User input attachments. Inline bytes are base64 encoded; temporary native paths can be supplemented from the recorded turn."
+          },
+          "canFork": {
+            "type": "boolean",
+            "description": "This native user message has a safe boundary for edit and resend."
           }
         },
         "required": [
@@ -1105,10 +1113,14 @@
       },
       "ForkRequest": {
         "type": "object",
-        "description": "Fork a chat. newChatId is optional \u2014 a random id is generated when omitted.",
+        "description": "Creates a new conversation branch. Reuse newChatId for retries with beforeMessageId; the original chat and files are preserved.",
         "properties": {
           "newChatId": {
             "type": "string"
+          },
+          "beforeMessageId": {
+            "type": "string",
+            "description": "Exclude this native user message and all later history. Send the edited prompt to the new chat using an idempotent turn request."
           }
         }
       },
@@ -1295,6 +1307,10 @@
           "authLogout": {
             "type": "boolean",
             "description": "POST /auth/logout is supported."
+          },
+          "fork": {
+            "type": "boolean",
+            "description": "Native edit-and-resend branching is supported."
           }
         }
       },
@@ -5692,6 +5708,22 @@
             "$ref": "#/components/schemas/WorkspaceSnapshot"
           }
         }
+      },
+      "ChatForkResult": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ChatSummary"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "snapshot": {
+                "$ref": "#/components/schemas/WorkspaceSnapshot"
+              }
+            }
+          }
+        ],
+        "description": "The forked chat and, when workspace metadata is enabled, an authoritative workspace snapshot for the client cache."
       }
     }
   },
@@ -7839,7 +7871,7 @@
           "Chats"
         ],
         "summary": "Fork a chat",
-        "description": "Clones a chat into a new id (generated if omitted). The fork shares the source's native session until its first turn, which branches it (natively on Claude via --fork-session; a fresh session on agents without native fork). 409 if the source has a live turn; 404 if the source is unknown; 400 if the target id is already in use.",
+        "description": "Creates a native Codex or Claude branch. beforeMessageId keeps only the context before that user message. Repeating the same newChatId and boundary returns the existing branch, including after its first turn. The source chat and files are preserved. A running source returns 409, an unknown source 404, and an invalid boundary or conflicting target 400.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -7857,17 +7889,17 @@
         },
         "responses": {
           "200": {
-            "description": "New chat summary",
+            "description": "Forked chat summary and workspace snapshot",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChatSummary"
+                  "$ref": "#/components/schemas/ChatForkResult"
                 }
               }
             }
           },
           "400": {
-            "description": "Target chat id already in use",
+            "description": "Invalid boundary, unsupported harness, or conflicting target chat ID",
             "content": {
               "application/json": {
                 "schema": {

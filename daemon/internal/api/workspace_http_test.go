@@ -170,7 +170,7 @@ func TestWorkspaceForkIncludesEmptyChatsAndDeletedChatsCannotCompact(t *testing.
 	if got := serve(t, authenticated, "POST", "/chats/empty/fork", `{"newChatId":"native-fork"}`); got.Code != 200 {
 		t.Fatalf("native fork: %d %s", got.Code, got.Body.String())
 	}
-	if st.Session("codex", "native-fork") != "native-source" || !st.TakeForkPending("codex", "native-fork") {
+	if st.Session("codex", "native-fork") != "native-source" || st.PendingFork("codex", "native-fork") == nil {
 		t.Fatal("registered fork lost native branch semantics")
 	}
 	if got := serve(t, authenticated, "DELETE", "/workspace/chats/empty?revision=2", ""); got.Code != 200 {

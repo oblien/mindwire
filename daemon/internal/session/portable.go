@@ -4,22 +4,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+
+	"github.com/oblien/mindwire/daemon/internal/agent"
 )
 
 // PortableChat is deliberately selected data, not a state-file backup. Config,
 // credentials, notifications, pending interactions and turn idempotency receipts
 // belong to the original daemon and must never be installed on another machine.
 type PortableChat struct {
-	Title       string    `json:"title,omitempty"`
-	Messages    []Message `json:"messages"`
-	Runs        []Run     `json:"runs"`
-	ForkPending bool      `json:"forkPending,omitempty"`
+	Title       string           `json:"title,omitempty"`
+	Messages    []Message        `json:"messages"`
+	Runs        []Run            `json:"runs"`
+	ForkPending bool             `json:"forkPending,omitempty"`
+	ForkPoint   *agent.ForkPoint `json:"forkPoint,omitempty"`
 }
 
 func (st *Store) ExportChat(agentType, chatID string) (PortableChat, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	out := PortableChat{Title: st.s.Titles[chatID], ForkPending: st.s.ForkPending[sessionKey(agentType, chatID)], Messages: []Message{}, Runs: []Run{}}
+	if out.ForkPending {
+		point := st.s.Forks[chatID].Point
+		out.ForkPoint = &point
+	}
 	for _, m := range st.s.Messages {
 		if m.ChatID == chatID {
 			m.Parts = st.overlayInteractions(chatID, m.Parts)
@@ -141,6 +148,9 @@ func (st *Store) importChats(chats []ChatImport, write bool) error {
 				st.s.Titles[c.ChatID] = c.Data.Title
 			}
 			st.s.ForkPending[sessionKey(c.Agent, c.ChatID)] = c.Data.ForkPending
+			if c.Data.ForkPending && c.Data.ForkPoint != nil {
+				st.s.Forks[c.ChatID] = ChatFork{Agent: c.Agent, Point: *c.Data.ForkPoint}
+			}
 		}
 		if write {
 			return st.save()

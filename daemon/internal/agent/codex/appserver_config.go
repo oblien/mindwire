@@ -19,8 +19,12 @@ func newAppServer(in agent.TurnInput, files materialized) appServer {
 		reviewer: strings.TrimSpace(in.Config[keyReviewer]), collaboration: strings.TrimSpace(in.Config[keyCollaboration]),
 		cwd:          strings.TrimSpace(agent.FirstNonEmpty(in.Config[keyWorkdir], in.CWD)),
 		resumeID:     agent.FirstNonEmpty(in.Options.SessionID, in.SessionID),
+		fork:         in.Options.ForkOnResume,
 		instructions: files.systemPrompt, images: files.imagePaths, outputSchema: in.Options.OutputSchema,
 		config: map[string]any{},
+	}
+	if in.Fork != nil {
+		a.forkAt = in.Fork.ResumeAt
 	}
 	for key, value := range in.Env {
 		if key != azureProviderMarker && key != azureModelMarker {

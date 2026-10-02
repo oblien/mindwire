@@ -38,6 +38,7 @@ func (adapter) Capabilities() agent.Capabilities {
 		History:    agent.SupportNative, // rollout JSONL under $CODEX_HOME/sessions/**
 		Sessions:   agent.SupportNative, // `codex exec resume <id>` / `--last`
 		Resume:     true,
+		Fork:       true,
 		ToolEvents: true,
 		Cancel:     true,
 		Persistent: true,
@@ -333,8 +334,7 @@ type materialized struct {
 // `-c` config overrides on resume; buildExecCommand encodes that fresh-vs-resume branch.
 func buildExecCommand(in agent.TurnInput, files materialized) string {
 	// Resume when we have any session anchor: an explicit per-turn id, the chat's stored id, or a
-	// "continue latest" request. Fork-on-resume has no Codex equivalent (ids are auto-generated), so
-	// it's a documented no-op here.
+	// "continue latest" request. Forks run over app-server's thread/fork surface.
 	resuming := in.Options.SessionID != "" || in.SessionID != "" || in.Options.ContinueLatest
 
 	cli := "codex exec"
@@ -543,7 +543,7 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 	}
 	in.Message += msgAppend // path-reference non-image attachments so the CLI can open them
 
-	if in.Inbound != nil {
+	if in.Inbound != nil || in.Options.ForkOnResume {
 		return newAppServer(in, files).Run(ctx, in, emit)
 	}
 

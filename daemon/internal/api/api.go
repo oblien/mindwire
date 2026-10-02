@@ -994,12 +994,9 @@ func (a *API) forkChat(w http.ResponseWriter, r *http.Request) {
 	a.registryMu.Lock()
 	defer a.registryMu.Unlock()
 	src := r.PathValue("id")
-	if a.sup.Busy(src) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "a turn is running for this chat"})
-		return
-	}
 	var req struct {
-		NewChatID string `json:"newChatId"`
+		NewChatID       string `json:"newChatId"`
+		BeforeMessageID string `json:"beforeMessageId"`
 	}
 	// An empty body is allowed (the id is generated); only a malformed body is a 400.
 	if r.ContentLength != 0 {
@@ -1016,8 +1013,65 @@ func (a *API) forkChat(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "fork target must differ from the source chat")
 		return
 	}
+	before := strings.TrimSpace(req.BeforeMessageID)
+	// A selected-message fork uses the caller's target ID as its durable receipt.
+	// Retrying after the first turn must still return this same branch.
+	if before != "" && a.store.ForkMatches(src, newID, before) {
+		if a.registry != nil {
+			// Recover a crash between the native mapping write and registry commit.
+			_, err := a.registry.ForkChat(src, newID, a.store, session.ForkOptions{Point: agent.ForkPoint{BeforeMessageID: before}})
+			if err != nil {
+				workspaceError(w, err)
+				return
+			}
+		}
+		summary := a.store.ChatSummaryFor(newID)
+		a.enrichNativeTitle(&summary)
+		a.writeForkResult(w, summary)
+		return
+	}
+	if a.sup.Busy(src) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "stop or finish this chat's current turn before forking"})
+		return
+	}
+	var options []session.ForkOptions
+	if before != "" {
+		ag := a.agentFor(w, r)
+		if ag == nil {
+			return
+		}
+		if a.registry != nil {
+			chat, profile, _, err := a.registry.NativeChatContext(src, a.store)
+			if err != nil {
+				workspaceError(w, err)
+				return
+			}
+			if chat != nil {
+				if selected := r.URL.Query().Get("agent"); selected != "" && selected != profile.AgentType {
+					badRequest(w, "agent differs from this chat's saved profile")
+					return
+				}
+				var ok bool
+				ag, ok = a.sup.Resolve(profile.AgentType)
+				if !ok {
+					badRequest(w, "saved harness is unavailable")
+					return
+				}
+			}
+		}
+		if !a.store.ChatExists(src) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "source chat not found"})
+			return
+		}
+		option, err := a.store.PrepareFork(ag.Adapter, src, before, a.sup.CWD())
+		if err != nil {
+			badRequest(w, err.Error())
+			return
+		}
+		options = append(options, option)
+	}
 	if a.registry != nil {
-		handled, err := a.registry.ForkChat(src, newID, a.store)
+		handled, err := a.registry.ForkChat(src, newID, a.store, options...)
 		if err != nil {
 			workspaceError(w, err)
 			return
@@ -1025,11 +1079,11 @@ func (a *API) forkChat(w http.ResponseWriter, r *http.Request) {
 		if handled {
 			summary := a.store.ChatSummaryFor(newID)
 			a.enrichNativeTitle(&summary)
-			writeJSON(w, http.StatusOK, summary)
+			a.writeForkResult(w, summary)
 			return
 		}
 	}
-	if err := a.store.ForkChat(src, newID); err != nil {
+	if err := a.store.ForkChat(src, newID, options...); err != nil {
 		// A missing source is a 404; a name clash or other validation is a 400.
 		if strings.Contains(err.Error(), "not found") {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
@@ -1040,7 +1094,23 @@ func (a *API) forkChat(w http.ResponseWriter, r *http.Request) {
 	}
 	summary := a.store.ChatSummaryFor(newID)
 	a.enrichNativeTitle(&summary)
-	writeJSON(w, http.StatusOK, summary)
+	a.writeForkResult(w, summary)
+}
+
+func (a *API) writeForkResult(w http.ResponseWriter, summary session.ChatSummary) {
+	result := struct {
+		session.ChatSummary
+		Snapshot *registry.Snapshot `json:"snapshot,omitempty"`
+	}{ChatSummary: summary}
+	if a.registry != nil {
+		snapshot, err := a.registry.Snapshot(nil)
+		if err != nil {
+			workspaceError(w, err)
+			return
+		}
+		result.Snapshot = &snapshot
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // compactChat runs an on-demand conversation compaction as a first-class run (POST /chats/{id}/compact,
@@ -1150,7 +1220,7 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 		if cwd == "" {
 			cwd = a.sup.CWD()
 		}
-		query := agent.HistoryQuery{ChatID: chatID, SessionID: a.store.Session(ag.ID(), chatID), CWD: cwd}
+		query := agent.HistoryQuery{ChatID: chatID, SessionID: a.store.Session(ag.ID(), chatID), CWD: cwd, Fork: a.store.PendingFork(ag.ID(), chatID)}
 		for _, message := range recorded {
 			query.Recorded = append(query.Recorded, agent.Message(message))
 		}

@@ -273,11 +273,12 @@ type Health struct {
 	TerminalProtocolVersion        int    `json:"terminalProtocolVersion"`
 	TurnRequestVersion             int    `json:"turnRequestVersion"`
 	ImageAttachmentsVersion        int    `json:"imageAttachmentsVersion"`
+	ChatForkVersion                int    `json:"chatForkVersion"`
 }
 
 // Health returns the liveness snapshot. It cannot fail in-process.
 func (c *Client) Health() Health {
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package
@@ -639,20 +640,52 @@ func (c *Client) DeleteChat(chatID string) (DeleteResult, error) {
 
 // ForkChat clones a chat into a new id (mirrors POST /chats/{id}/fork). newChatID may be empty to
 // generate one. The fork shares the source's native session until its first turn, which branches it
-// (natively on Claude via --fork-session; a fresh session on agents without native fork). Returns
+// natively in Codex and Claude. Returns
 // APIError{409} if the source has a live turn, APIError{404} if the source is unknown, APIError{400} if
 // the target id is already in use. Returns the new chat's summary.
 func (c *Client) ForkChat(srcChatID, newChatID string) (ChatSummary, error) {
+	return c.ForkChatAt(srcChatID, ForkChatOptions{NewChatID: newChatID})
+}
+
+type ForkChatOptions struct {
+	NewChatID string `json:"newChatId,omitempty"`
+	// Excludes this user message and everything after it. Reuse NewChatID on retries.
+	BeforeMessageID string `json:"beforeMessageId,omitempty"`
+}
+
+func (c *Client) ForkChatAt(srcChatID string, opts ForkChatOptions) (ChatSummary, error) {
 	c.core.registryMu.Lock()
 	defer c.core.registryMu.Unlock()
+	newID := strings.TrimSpace(opts.NewChatID)
+	before := strings.TrimSpace(opts.BeforeMessageID)
+	if before != "" && c.core.store.ForkMatches(srcChatID, newID, before) {
+		_, err := c.core.registry.ForkChat(srcChatID, newID, c.core.store, session.ForkOptions{Point: agent.ForkPoint{BeforeMessageID: before}})
+		if err != nil {
+			return ChatSummary{}, workspaceError("ForkChat", err)
+		}
+		summary := c.core.store.ChatSummaryFor(newID)
+		c.enrichNativeTitle(&summary)
+		return summary, nil
+	}
 	if c.core.sup.Busy(srcChatID) {
 		return ChatSummary{}, &APIError{Message: "a turn is running for this chat", Status: http.StatusConflict, Op: "ForkChat"}
 	}
-	newID := strings.TrimSpace(newChatID)
 	if newID == "" {
 		newID = newChatIDHex()
 	}
-	handled, err := c.core.registry.ForkChat(srcChatID, newID, c.core.store)
+	var options []session.ForkOptions
+	if before != "" {
+		ag, _, err := c.resolveChat("ForkChat", srcChatID, c.defaultAgent, "")
+		if err != nil {
+			return ChatSummary{}, err
+		}
+		option, err := c.core.store.PrepareFork(ag.Adapter, srcChatID, before, c.core.sup.CWD())
+		if err != nil {
+			return ChatSummary{}, &APIError{Message: err.Error(), Status: http.StatusBadRequest, Op: "ForkChat", Cause: err}
+		}
+		options = append(options, option)
+	}
+	handled, err := c.core.registry.ForkChat(srcChatID, newID, c.core.store, options...)
 	if err != nil {
 		return ChatSummary{}, workspaceError("ForkChat", err)
 	}
@@ -661,7 +694,7 @@ func (c *Client) ForkChat(srcChatID, newChatID string) (ChatSummary, error) {
 		c.enrichNativeTitle(&summary)
 		return summary, nil
 	}
-	if err := c.core.store.ForkChat(srcChatID, newID); err != nil {
+	if err := c.core.store.ForkChat(srcChatID, newID, options...); err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "not found") {
 			status = http.StatusNotFound
@@ -703,7 +736,7 @@ func (c *Client) Messages(chatID string, opts MessagesOptions) ([]Message, error
 			recorded = append(recorded, agent.Message(message))
 		}
 		msgs, err := ag.Adapter.History(agent.HistoryQuery{
-			ChatID: chatID, SessionID: c.core.store.Session(ag.ID(), chatID), CWD: cwd, Recorded: recorded,
+			ChatID: chatID, SessionID: c.core.store.Session(ag.ID(), chatID), CWD: cwd, Recorded: recorded, Fork: c.core.store.PendingFork(ag.ID(), chatID),
 		})
 		if err == nil && len(msgs) > 0 {
 			for i := range msgs {

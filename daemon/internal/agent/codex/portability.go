@@ -26,7 +26,10 @@ func (adapter) ExportSession(ctx context.Context, cwd, sid string) (agent.Native
 	if primary == "" {
 		return out, fmt.Errorf("Codex native session %s is missing; synchronization stopped", sid)
 	}
-	type rollout struct{ path, id, parent, cwd string }
+	type rollout struct {
+		path, id, parent, cwd string
+		base                  *rolloutHistoryBase
+	}
 	var inventory []rollout
 	for _, root := range []string{"sessions", "archived_sessions"} {
 		err := filepath.WalkDir(filepath.Join(base, root), func(p string, d fs.DirEntry, err error) error {
@@ -55,9 +58,10 @@ func (adapter) ExportSession(ctx context.Context, cwd, sid string) (agent.Native
 			var row struct {
 				Type    string `json:"type"`
 				Payload struct {
-					ID     string          `json:"id"`
-					CWD    string          `json:"cwd"`
-					Source json.RawMessage `json:"source"`
+					ID     string              `json:"id"`
+					CWD    string              `json:"cwd"`
+					Source json.RawMessage     `json:"source"`
+					Base   *rolloutHistoryBase `json:"history_base"`
 				} `json:"payload"`
 			}
 			if json.Unmarshal(sc.Bytes(), &row) != nil || row.Type != "session_meta" {
@@ -84,7 +88,7 @@ func (adapter) ExportSession(ctx context.Context, cwd, sid string) (agent.Native
 				}
 			}
 			walk(source)
-			inventory = append(inventory, rollout{p, row.Payload.ID, parent, row.Payload.CWD})
+			inventory = append(inventory, rollout{p, row.Payload.ID, parent, row.Payload.CWD, row.Payload.Base})
 			return nil
 		})
 		if err != nil {
@@ -99,6 +103,16 @@ func (adapter) ExportSession(ctx context.Context, cwd, sid string) (agent.Native
 				selected[r.id] = true
 				changed = true
 			}
+		}
+	}
+	// Linked forks refer to exact byte offsets in their ancestors. The sync
+	// engine remaps cwd fields, which changes those offsets. Until the archive
+	// format carries and remaps this dependency graph, stop before publishing an
+	// incomplete checkpoint. Protect parents too: rewriting one on a return
+	// trip must not invalidate branches that remain on the original computer.
+	for _, r := range inventory {
+		if r.base != nil && (selected[r.id] || selected[r.base.ThreadID]) {
+			return out, fmt.Errorf("workspace switching is not yet supported for Codex conversations with linked fork history; the original files were kept")
 		}
 	}
 	found := false
