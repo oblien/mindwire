@@ -192,7 +192,6 @@ func (s *Service) applyJournal(ctx context.Context, o *Operation) error {
 	var committed bool
 	if s.reg.SyncGet("committed", o.ID, &committed) == nil && committed {
 		o.Status, o.Phase, o.Progress, o.ResultCheckpointID, o.ResultProjectID = "succeeded", "complete", 1, j.Result, j.Batch.Projects[0].ID
-		_ = s.reg.ReleaseSync(o.ID)
 		return s.save(*o)
 	}
 	m, err := s.manifest(j.Result)
@@ -258,8 +257,5 @@ func (s *Service) applyJournal(ctx context.Context, o *Operation) error {
 		return err
 	}
 	o.Status, o.Phase, o.Progress, o.ResultCheckpointID, o.ResultProjectID = "succeeded", "complete", 1, j.Result, j.Batch.Projects[0].ID
-	if err = s.save(*o); err != nil {
-		return err
-	}
-	return s.reg.ReleaseSync(o.ID)
+	return s.save(*o)
 }

@@ -62,7 +62,9 @@ func New(reg *registry.Store, store *session.Store, runs RunGuard, gate *sync.Mu
 		}
 		if !o.Active() {
 			if o.Status != "recovery_required" {
-				_ = s.reg.ReleaseSync(o.ID)
+				if err = s.reg.ReleaseSync(o.ID); err != nil {
+					return nil, err
+				}
 			}
 			continue
 		}
@@ -75,7 +77,6 @@ func New(reg *registry.Store, store *session.Store, runs RunGuard, gate *sync.Mu
 			if err = s.save(o); err != nil {
 				return nil, err
 			}
-			_ = s.reg.ReleaseSync(o.ID)
 		} else {
 			return nil, err
 		}
@@ -101,6 +102,10 @@ func (s *Service) Close() {
 func (s *Service) ActiveCount() int { s.mu.Lock(); defer s.mu.Unlock(); return len(s.active) }
 func (s *Service) save(o Operation) error {
 	o.UpdatedAt = now()
+	switch o.Status {
+	case "succeeded", "conflicts", "failed":
+		return s.reg.FinishSyncOperation(o.ID, o)
+	}
 	return s.reg.SyncPut("operation", o.ID, o)
 }
 func (s *Service) Get(id string) (Operation, error) {
@@ -233,13 +238,18 @@ func (s *Service) launch(o Operation, recovering bool) {
 		}
 		if err != nil {
 			var j journal
-			if s.reg.SyncGet("journal", o.ID, &j) == nil {
-				o.Status, o.Phase = "recovery_required", "recovery"
-				o.Error = "Synchronization paused safely. Recovery data is retained. " + err.Error()
-			} else {
+			journalErr := s.reg.SyncGet("journal", o.ID, &j)
+			if errors.Is(journalErr, registry.ErrNotFound) {
 				o.Status, o.Phase = "failed", "failed"
 				o.Error = err.Error()
-				_ = s.reg.ReleaseSync(o.ID)
+			} else {
+				// A read failure is not proof that no writes were journaled.
+				// Keep the project protected until recovery can inspect them.
+				if journalErr != nil {
+					err = errors.Join(err, fmt.Errorf("read recovery journal: %w", journalErr))
+				}
+				o.Status, o.Phase = "recovery_required", "recovery"
+				o.Error = "Synchronization paused safely. Recovery data is retained. " + err.Error()
 			}
 			_ = s.save(o)
 		}
@@ -293,7 +303,6 @@ func (s *Service) export(ctx context.Context, o *Operation) error {
 	if err = s.reserve(o, *p); err != nil {
 		return err
 	}
-	defer s.reg.ReleaseSync(o.ID)
 	o.Status, o.Phase = "exporting", "checkpoint"
 	if err = s.save(*o); err != nil {
 		return err
