@@ -15,6 +15,8 @@ export interface EnsureDaemonBinaryOptions {
   /** Override for tests or a private GitHub Releases mirror. */
   releaseBaseUrl?: string;
   fetch?: typeof fetch;
+  /** Managed updates must not substitute a different release when an asset is missing. */
+  exactVersion?: boolean;
 }
 
 function supported(platform: string, arch: string): asserts platform is DaemonPlatform & string {
@@ -64,7 +66,7 @@ export async function ensureDaemonBinary(opts: EnsureDaemonBinaryOptions = {}): 
   if (!checksums.ok || !binary.ok) {
     // A just-published SDK can briefly precede its matching Release asset. For the public release
     // endpoint only, recover to GitHub's latest stable release; mirrors must be explicit and exact.
-    if (!opts.releaseBaseUrl && !proc.process?.env?.MINDWIRE_RELEASE_BASE_URL) {
+    if (!opts.exactVersion && !opts.releaseBaseUrl && !proc.process?.env?.MINDWIRE_RELEASE_BASE_URL) {
       const latest = await request("https://api.github.com/repos/oblien/mindwire/releases/latest");
       if (latest.ok) {
         const tag = (await latest.json() as { tag_name?: unknown }).tag_name;

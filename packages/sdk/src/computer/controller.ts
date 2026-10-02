@@ -15,6 +15,9 @@ import { RelayOutput } from "./relay-output.js";
 import { connectionInfo } from "./provider-info.js";
 import type { ComputerConnectionChange } from "./connection-change.js";
 import { ProviderConnectionError, providerNeedsAction } from "./provider-errors.js";
+import { managedServiceVersion, serviceUpgradeVersion } from "./runtime-version.js";
+import { reconcileAddressDiscovery } from "./discovery.js";
+import { activeUpdate, queueServiceUpdate } from "./service-update.js";
 
 interface SavedRelay { owner: ProcessIdentity; port: number; options: string; route?: ComputerRoute; outputFile?: string; configFile?: string }
 async function saveRelay(file: string, handle: RelayHandle | undefined, port: number, options: ComputerConfig["relay"]): Promise<void> {
@@ -39,6 +42,7 @@ export async function superviseComputer(directory: string): Promise<void> {
   let child: OwnedProcess | undefined, relay: RelayHandle | undefined, stopping = false;
   let relayTask: Promise<void> | undefined, updateTask: Promise<void> | undefined;
   let connectionTask: Promise<void> | undefined;
+  let maintenanceTask: Promise<void> | undefined;
   let relayResult: { handle?: RelayHandle; error?: unknown } | undefined;
   let checkTask: Promise<void> | undefined;
   let checkResult: { relay: RelayHandle; error?: unknown; canRestart?: boolean } | undefined;
@@ -110,11 +114,16 @@ export async function superviseComputer(directory: string): Promise<void> {
   let relayReachable = false, relayWasReachable = false, relayHealthFailures = 0;
   let relayFailedAt = 0;
   let nextCheckAt = 0, checkedAt = 0;
+  let nextMaintenanceAt = 0, maintenanceCheckedAt = 0, maintenanceFailures = 0;
+  let discoveryError: string | undefined;
   try {
     await phase("Checking the Mindwire service…");
-    let binary = config.daemonBin ?? await ensureDaemonBinary({ version: config.version ?? SDK_VERSION, cacheDir: process.env.MINDWIRE_RELEASE_CACHE_DIR });
     // A killed controller must not restart a healthy daemon or lose its PTYs.
     try { client = await computerClient(directory); } catch { /* Cold start. */ }
+    const wantedVersion = managedServiceVersion(config);
+    const installedVersion = client ? (await client.health()).version : wantedVersion;
+    let binary = config.daemonBin ?? await ensureDaemonBinary({ version: installedVersion,
+      cacheDir: process.env.MINDWIRE_RELEASE_CACHE_DIR, exactVersion: !!client || config.versionPinned });
     if (client) {
       const info = await client.computer.info();
       const identity = await processIdentity(info.pid);
@@ -124,6 +133,11 @@ export async function superviseComputer(directory: string): Promise<void> {
     } else {
       await phase("Starting the Mindwire service…");
       client = await launch(binary);
+      const startedVersion = (await client.health()).version.replace(/^v/, "");
+      if (!config.daemonBin && config.version !== startedVersion) {
+        config = { ...config, version: startedVersion };
+        await writeJSON(path.join(directory, "computer-config.json"), config);
+      }
     }
 
     const saved = await readJSON<SavedRelay>(relayPath);
@@ -161,7 +175,7 @@ export async function superviseComputer(directory: string): Promise<void> {
     let lastController = "";
     while (!stopping) {
       const changePath = path.join(directory, "computer-connection-change.json");
-      const change = !connectionTask && !relayTask && !updateTask && !changingDaemon && client && child?.alive()
+      const change = !connectionTask && !relayTask && !updateTask && !maintenanceTask && !changingDaemon && client && child?.alive()
         ? await readJSON<ComputerConnectionChange>(changePath) : undefined;
       if (change && ["queued", "connecting"].includes(change.status)) {
         connectionTask = (async () => {
@@ -267,6 +281,7 @@ export async function superviseComputer(directory: string): Promise<void> {
         await phase(daemonError);
         try {
           client = await launch(binary); published = ""; daemonError = undefined; daemonReadyAt = Date.now();
+          nextMaintenanceAt = 0;
         } catch (error) {
           if (child) await child.close();
           child = undefined; client = undefined;
@@ -276,6 +291,33 @@ export async function superviseComputer(directory: string): Promise<void> {
       }
 
       const requestedCheck = await readJSON<{ requestedAt: number }>(path.join(directory, "computer-check.json"));
+      if (!maintenanceTask && !changingDaemon && !updateTask && !connectionTask && client && child?.alive()
+          && (Date.now() >= nextMaintenanceAt || (requestedCheck?.requestedAt ?? 0) > maintenanceCheckedAt)) {
+        const maintaining = client;
+        maintenanceCheckedAt = Date.now();
+        maintenanceTask = (async () => {
+          try {
+            const upgrade = serviceUpgradeVersion(config!, (await maintaining.health()).version);
+            if (upgrade) {
+              await queueServiceUpdate(maintaining, upgrade);
+              discoveryError = `Service update to ${upgrade} is pending. Automatic updates wait for active work to finish.`;
+              // Completion can race this read before updateTask observes it.
+              // Recheck locally so an older completed request cannot strand the
+              // desired release forever; waiting updates already gate this task.
+              nextMaintenanceAt = Date.now() + 2000;
+              return;
+            }
+            await reconcileAddressDiscovery({ directory, config: config!, computer: maintaining, signal: abort.signal });
+            discoveryError = undefined; maintenanceFailures = 0;
+            nextMaintenanceAt = Date.now() + 60_000;
+          } catch (error) {
+            if (!stopping) {
+              discoveryError = error instanceof Error ? error.message : "Automatic reconnection setup will retry.";
+              nextMaintenanceAt = Date.now() + recoveryDelay(++maintenanceFailures);
+            }
+          }
+        })().finally(() => { maintenanceTask = undefined; });
+      }
       if (!connectionTask && relay?.owner && !relay.owner.alive()) {
         await relay.close();
         relay = undefined;
@@ -371,20 +413,21 @@ export async function superviseComputer(directory: string): Promise<void> {
       const state: ControllerState = { ...owner, protocol: CONTROLLER_PROTOCOL, cliVersion: SDK_VERSION, ready, routes, checkedAt,
         phase: ready ? undefined : daemonError ?? relayError ?? relayMessage, error: daemonError ?? relayError,
         errorCode: daemonError ? undefined : relayErrorCode, recovering: !ready,
+        discoveryError,
         relayFailureSince: relayFailedAt || undefined, relayFailures: relayHealthFailures || undefined };
       const serialized = JSON.stringify(state);
       if (serialized !== lastController) { await writeJSON(controllerPath, state); lastController = serialized; }
 
       const updatePath = path.join(directory, "computer-update.json");
-      const update = !updateTask && !connectionTask && client && child?.alive() ? await readJSON<ComputerUpdate>(updatePath) : undefined;
-      if (update && ["queued", "downloading", "waiting", "restarting"].includes(update.status)) {
+      const update = !updateTask && !connectionTask && !maintenanceTask && client && child?.alive() ? await readJSON<ComputerUpdate>(updatePath) : undefined;
+      if (activeUpdate(update)) {
         // Waiting for idle does not block relay recovery or address publication.
         updateTask = (async () => {
           const status = async (state: ComputerUpdate["status"], error?: string) => writeJSON(updatePath,
             { ...update, status: state, error, updatedAt: new Date().toISOString() });
           try {
             await status("downloading");
-            const replacement = await ensureDaemonBinary({ version: update.version, cacheDir: process.env.MINDWIRE_RELEASE_CACHE_DIR });
+            const replacement = await ensureDaemonBinary({ version: update.version, cacheDir: process.env.MINDWIRE_RELEASE_CACHE_DIR, exactVersion: true });
             await status("waiting");
             let lease: Awaited<ReturnType<Mindwire["service"]["acquireUpdate"]>> | undefined;
             while (!stopping && !lease) {
@@ -410,8 +453,12 @@ export async function superviseComputer(directory: string): Promise<void> {
             await writeJSON(path.join(directory, "computer-config.json"), config);
             await client.computer.setRoutes(routes, connectionInfo(config.relay, config.host)); published = "";
             await status("complete");
-          } catch (error) { await status("failed", error instanceof Error ? error.message : "Service update failed."); }
-          finally { changingDaemon = false; published = ""; }
+            maintenanceFailures = 0;
+          } catch (error) {
+            maintenanceFailures++;
+            await status("failed", error instanceof Error ? error.message : "Service update failed.");
+          }
+          finally { changingDaemon = false; published = ""; nextMaintenanceAt = Date.now() + recoveryDelay(maintenanceFailures); }
         })().finally(() => { updateTask = undefined; });
       }
       await delay(500);
@@ -421,7 +468,7 @@ export async function superviseComputer(directory: string): Promise<void> {
     throw error;
   } finally {
     abort.abort();
-    await relayTask; await checkTask; await updateTask; await connectionTask;
+    await relayTask; await checkTask; await updateTask; await connectionTask; await maintenanceTask;
     if (relayResult?.handle && relayResult.handle !== relay) await relayResult.handle.close();
     await relay?.close();
     if (child) await child.close();

@@ -59,3 +59,15 @@ test("ensureDaemonBinary falls back to GitHub's latest stable release when the m
     rmSync(cacheDir, { recursive: true, force: true });
   }
 });
+
+test("an exact managed update never substitutes another release when its assets are missing", async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), "mw-daemon-exact-"));
+  const requests: string[] = [];
+  const fetch = async (url: string) => { requests.push(url); return new Response("missing", { status: 404 }); };
+  try {
+    await expect(ensureDaemonBinary({ version: "1.2.3", exactVersion: true, platform: "linux", arch: "x64", cacheDir, fetch }))
+      .rejects.toThrow("failed to download daemon v1.2.3");
+    expect(requests).toHaveLength(2);
+    expect(requests.every(url => url.includes("/v1.2.3/"))).toBe(true);
+  } finally { rmSync(cacheDir, { recursive: true, force: true }); }
+});

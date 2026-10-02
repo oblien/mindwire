@@ -62,10 +62,19 @@ mindwire discovery enable --directory-url https://your-console.example/api/compu
 ```
 
 The CLI resolves the URL in this order: `--directory-url`, `MINDWIRE_DIRECTORY_URL`,
-the daemon’s saved directory URL, then the hosted default above. It saves the
-chosen URL after successful enrollment. The phone learns that exact URL and its
+the daemon’s saved directory URL, a pending setup preference, then the hosted
+default above. The desired URL is saved before enrollment so setup can retry
+after a network failure. The daemon saves its signed configuration after successful
+enrollment. The phone learns that exact URL and its
 decryption key over pinned SSH; there is no second login or URL setting on the
 phone. A default endpoint is convenient, not mandatory.
+
+Existing quick Cloudflare connections enroll during controller reconciliation
+unless the owner disabled recovery or selected the explicit temporary option.
+Healthy setup does not poll the hosted directory from the CLI. Each saved phone
+must connect once to save and acknowledge its key; only then can the directory
+recover that phone after every old address has changed. The status/menu reports
+this incomplete migration instead of claiming the phone is ready.
 
 The directory’s origin and the computer’s key identity remain stable. The carrier
 address may change after every restart. The directory is an address mailbox, not

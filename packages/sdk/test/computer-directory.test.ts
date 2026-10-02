@@ -7,7 +7,8 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import type { Mindwire } from "../src/client.js";
 import type { ComputerDiscoveryStatus } from "../src/computer.js";
-import { DIRECTORY_URL, directoryURL, enableAddressDiscovery } from "../src/computer/discovery.js";
+import { DIRECTORY_URL, directoryURL, enableAddressDiscovery, disableAddressDiscovery, discoveryPreference, saveDiscoveryPreference, reconcileAddressDiscovery } from "../src/computer/discovery.js";
+import { defaultComputerConfig } from "../src/computer/lifecycle.js";
 import { chooseConnectionAction } from "../src/computer/connection-flow.js";
 import { ComputerDirectoryFixture } from "./fixtures/computer-directory.js";
 import { enroll, envelope, header, keys } from "./fixtures/directory-protocol.js";
@@ -21,6 +22,7 @@ function computerStub(fixture: ComputerDirectoryFixture) {
   const computer = {
     computer: {
       discovery: async () => state.status,
+      info: async () => ({ discovery: state.status }),
       directoryEnrollment: async (url: string, challenge: string) =>
         envelope(host, "mindwire-directory-enroll-v1", {
           ...header(fixture, host),
@@ -28,9 +30,9 @@ function computerStub(fixture: ComputerDirectoryFixture) {
           expiresAt: fixture.now() + 300,
           challenge,
         }),
-      configureDiscovery: async (_: boolean, url: string) => {
+      configureDiscovery: async (enabled: boolean, url?: string) => {
         state.configured++;
-        state.status = { ...state.status, enabled: true, url, sequence: 1, publishedSequence: 1 };
+        state.status = { ...state.status, enabled, url: url ?? state.status.url, sequence: 1, publishedSequence: 1 };
         return state.status;
       },
     },
@@ -53,7 +55,8 @@ test("CLI enrolls without login, coalesces setup and persists a self-hosted dire
         (request) => !request.authorized && !request.cookie && !request.path.startsWith("/api/account"),
       ),
     ).toBe(true);
-    expect((await readdir(directory, { withFileTypes: true })).filter((entry) => entry.isFile())).toEqual([]);
+    expect((await readdir(directory, { withFileTypes: true })).filter((entry) => entry.isFile()).map(entry => entry.name)).toEqual(["computer-discovery-preference.json"]);
+    expect(await discoveryPreference(directory)).toEqual({ enabled: true, url: fixture.url });
     expect(await fixture.control("accountCount")).toBe(0);
     const previousRequests = fixture.requests.length;
     await enableAddressDiscovery({ directory, computer, prompt: fixture.prompt() });
@@ -79,7 +82,7 @@ test("directory capacity and outages leave the working configuration alone", asy
       enableAddressDiscovery({ directory, computer, url: fixture.url, prompt: fixture.prompt() }),
     ).rejects.toThrow("at capacity");
     expect(state.configured).toBe(0);
-    expect((await readdir(directory, { withFileTypes: true })).filter((entry) => entry.isFile())).toEqual([]);
+    expect(await discoveryPreference(directory)).toEqual({ enabled: true, url: fixture.url });
     fixture.offline = true;
     await expect(
       enableAddressDiscovery({ directory, computer, url: fixture.url, prompt: fixture.prompt() }),
@@ -196,4 +199,39 @@ test("saved phones with an acknowledged directory can resume a temporary address
   expect(
     await chooseConnectionAction({ devices: [{ ...phone, addressRecovery: false }], persistent: false }),
   ).toBe("pair");
+});
+
+test("offline enrollment retries after restart; successful reconciliation does not poll the directory", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "directory-reconcile-"));
+  const fixture = await new ComputerDirectoryFixture().start();
+  const { computer, state } = computerStub(fixture);
+  try {
+    fixture.offline = true;
+    await expect(enableAddressDiscovery({ directory, computer, url: fixture.url, prompt: fixture.prompt() })).rejects.toThrow();
+    expect(state.status.enabled).toBe(false);
+    fixture.offline = false;
+    await reconcileAddressDiscovery({ directory, computer, config: defaultComputerConfig() });
+    expect(state.status.enabled).toBe(true);
+    expect(state.status.url).toBe(fixture.url);
+    const requests = fixture.requests.length;
+    await reconcileAddressDiscovery({ directory, computer, config: defaultComputerConfig() });
+    expect(fixture.requests.length).toBe(requests);
+    await disableAddressDiscovery(directory, computer);
+    await reconcileAddressDiscovery({ directory, computer, config: defaultComputerConfig() });
+    expect(state.status.enabled).toBe(false);
+    expect(fixture.requests.length).toBe(requests);
+  } finally { await fixture.close(); await rm(directory, { recursive: true, force: true }); }
+}, 20_000);
+
+test("temporary opt-out and direct connections never enroll implicitly", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "directory-optout-"));
+  const fixture = await new ComputerDirectoryFixture().start();
+  const { computer, state } = computerStub(fixture);
+  try {
+    await reconcileAddressDiscovery({ directory, computer, config: { ...defaultComputerConfig(), relay: { kind: "none" } } });
+    await saveDiscoveryPreference(directory, { enabled: false });
+    await reconcileAddressDiscovery({ directory, computer, config: defaultComputerConfig() });
+    expect(state.status.enabled).toBe(false);
+    expect(fixture.requests).toHaveLength(0);
+  } finally { await fixture.close(); await rm(directory, { recursive: true, force: true }); }
 });

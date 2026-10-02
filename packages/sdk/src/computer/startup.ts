@@ -5,7 +5,8 @@ import { homedir } from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
-import { ensureComputer, readJSON, writeJSON, type ControllerState } from "./lifecycle.js";
+import { CONTROLLER_PROTOCOL, ensureComputer, readJSON, writeJSON, type ControllerState } from "./lifecycle.js";
+import { SDK_VERSION, versionAtLeast } from "../version.js";
 import { currentProcessIdentity, processStateAlive, type ProcessState } from "./process.js";
 import { acquireProcessLock } from "./lock.js";
 
@@ -16,11 +17,27 @@ export interface StartupPlan {
   name: string; file: string; content: string;
   query: Command; enable: Command[]; disable: Command[];
 }
-export interface StartupState { enabled: boolean; running?: boolean; kind?: StartupPlan["kind"]; name?: string; file?: string }
+export interface StartupState { enabled: boolean; running?: boolean; registered?: boolean; kind?: StartupPlan["kind"]; name?: string; file?: string }
 const xml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 const systemd = (value: string, expandEnvironment = false) => '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/%/g, "%%")
   .replace(/\$/g, () => expandEnvironment ? "$$" : "$") + '"';
 const windowsArg = (value: string) => '"' + value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, "$1$1") + '"';
+
+/** Homebrew resolves execPath to a versioned Cellar file. Prefer a stable alias
+ * only after verifying it points at this exact interpreter. Never run a different
+ * executable just because it appeared first on PATH. */
+export async function startupExecutable(executable = process.execPath, environmentPath = process.env.PATH ?? ""): Promise<string> {
+  const homebrew = executable.match(/^(.*)\/Cellar\/([^/]+)\/[^/]+\/(.+)$/);
+  const candidates = [
+    ...(homebrew ? [`${homebrew[1]}/opt/${homebrew[2]}/${homebrew[3]}`] : []),
+    ...environmentPath.split(path.delimiter).filter(part => path.isAbsolute(part)).map(part => path.join(part, path.basename(executable))),
+  ];
+  const target = await fs.realpath(executable);
+  for (const candidate of candidates) {
+    if (candidate !== executable && await fs.realpath(candidate).catch(() => undefined) === target) return candidate;
+  }
+  return executable;
+}
 
 /** Per-user startup, with no root service, password, or copied pairing secret. */
 export function startupPlan(options: {
@@ -99,11 +116,20 @@ const run = async ([command, ...args]: Command) => { await execute(command, args
 export async function startupStatus(directory: string): Promise<StartupState> {
   const state = await readJSON<StartupState>(path.join(directory, "computer-startup.json")) ?? { enabled: false };
   const guardian = await readJSON<ProcessState>(path.join(directory, "computer-guardian.json"));
-  return { ...state, running: state.enabled && await processStateAlive(guardian) };
+  let registered = false;
+  if (state.enabled && state.name && state.kind) {
+    const query: Command = state.kind === "launchd" ? ["launchctl", "print", `gui/${process.getuid?.()}/${state.name}`]
+      : state.kind === "systemd" ? ["systemctl", "--user", "is-enabled", state.name + ".service"]
+      : ["schtasks.exe", "/Query", "/TN", state.name];
+    try { await run(query); registered = true; } catch { /* Missing/disabled registration needs repair. */ }
+  }
+  return { ...state, registered, running: state.enabled && registered && await processStateAlive(guardian) };
 }
 
 export async function configureStartup(directory: string, cliPath: string, enabled: boolean, runtime: {
   plan?: StartupPlan; run?: (command: Command) => Promise<void>; verify?: () => Promise<void>;
+  isRunning?: () => Promise<boolean>;
+  repair?: boolean;
 } = {}): Promise<StartupState> {
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   const lockPath = path.join(directory, "startup.lock");
@@ -112,7 +138,7 @@ export async function configureStartup(directory: string, cliPath: string, enabl
   try {
     const user = process.platform === "win32" && !runtime.plan
       ? (await execute("whoami.exe", [], { timeout: 3000, windowsHide: true })).stdout.trim() : undefined;
-    const plan = runtime.plan ?? startupPlan({ directory, cliPath, user });
+    const plan = runtime.plan ?? startupPlan({ directory, cliPath, user, executable: await startupExecutable() });
     const command = runtime.run ?? run;
     let loaded = false;
     try { await command(plan.query); loaded = true; } catch { /* Not installed/loaded. */ }
@@ -127,10 +153,31 @@ export async function configureStartup(directory: string, cliPath: string, enabl
           await fs.rename(temporary, plan.file);
         } finally { await fs.rm(temporary, { force: true }); }
       }
-      // Never restart the controller to update its login registration. The
-      // currently running service and its terminal processes remain untouched.
-      if (!loaded || changed && plan.kind !== "launchd") {
-        for (const action of plan.enable) await command(action);
+      const guardianRunning = loaded && (runtime.isRunning ? await runtime.isRunning()
+        : await processStateAlive(await readJSON<ProcessState>(path.join(directory, "computer-guardian.json"))));
+      // Reload only the guardian, not the detached controller or its terminals.
+      // launchd keeps old ProgramArguments until its job is booted out/reloaded.
+      const reload = loaded && (runtime.repair || changed || !guardianRunning);
+      if (reload && plan.kind === "launchd") await command(plan.disable[0]!);
+      if (reload && plan.kind === "task-scheduler") {
+        try { await command(plan.disable[0]!); } catch { /* A stopped task has nothing to end. */ }
+      }
+      if (!loaded || reload) {
+        for (const action of plan.enable) {
+          // bootout can return before launchd finishes unloading the label.
+          // A following bootstrap briefly returns EIO even for a valid plist.
+          // Retry that native race without escalating privileges or touching
+          // the detached daemon. Persistent registration failures still surface.
+          for (let attempt = 0; ; attempt++) {
+            try { await command(action); break; }
+            catch (error) {
+              if (plan.kind !== "launchd" || !action.includes("bootstrap")
+                  || (error as { code?: number }).code !== 5 || attempt >= 7) throw error;
+              await delay(100 * (attempt + 1));
+            }
+          }
+        }
+        if (reload && plan.kind === "systemd") await command(["systemctl", "--user", "restart", plan.name + ".service"]);
       }
       await command(plan.query); // Report success only after native registration.
       if (runtime.verify) await runtime.verify();
@@ -154,7 +201,7 @@ export async function configureStartup(directory: string, cliPath: string, enabl
     }
     const state: StartupState = { enabled, kind: plan.kind, name: plan.name, file: plan.file };
     await writeJSON(path.join(directory, "computer-startup.json"), state);
-    return { ...state, running: enabled };
+    return { ...state, registered: enabled, running: enabled };
   } finally { await lock.close(); }
 }
 
@@ -167,12 +214,15 @@ export async function watchComputer(directory: string, cliPath: string): Promise
   process.on("SIGTERM", stop); process.on("SIGINT", stop);
   let reportedError = "";
   const guardianPath = path.join(directory, "computer-guardian.json");
+  const lock = await acquireProcessLock(path.join(directory, "guardian.lock"), { signal: abort.signal });
+  if (!lock) { process.off("SIGTERM", stop); process.off("SIGINT", stop); return; }
   try {
     await writeJSON(guardianPath, await currentProcessIdentity());
     while (!stopping) {
       const paused = await readJSON<{ stopped: boolean }>(path.join(directory, "computer-stopped.json"));
       const controller = await readJSON<ControllerState>(path.join(directory, "computer-controller.json"));
-      if (!paused?.stopped && !await processStateAlive(controller)) {
+      if (!paused?.stopped && (!await processStateAlive(controller)
+          || (controller?.protocol ?? 0) < CONTROLLER_PROTOCOL || !versionAtLeast(controller?.cliVersion, SDK_VERSION))) {
         try { await ensureComputer(directory, cliPath, {}, undefined, { resume: false, signal: abort.signal }); reportedError = ""; }
         catch (error) {
           if (stopping) break;
@@ -186,5 +236,6 @@ export async function watchComputer(directory: string, cliPath: string): Promise
   } finally {
     if ((await readJSON<{ pid: number }>(guardianPath))?.pid === process.pid) await writeJSON(guardianPath, { pid: 0 });
     process.off("SIGTERM", stop); process.off("SIGINT", stop);
+    await lock.close();
   }
 }

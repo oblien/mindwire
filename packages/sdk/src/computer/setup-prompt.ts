@@ -1,12 +1,14 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { Writable } from "node:stream";
+import { chooseTerminal, type TerminalChoice } from "./terminal-ui.js";
 
 export interface SetupPrompt {
   question(text: string): Promise<string>;
   secret(text: string): Promise<string>;
   print(text: string): void;
   open(url: string): void;
+  select?<T extends string>(title: string, choices: TerminalChoice<T>[]): Promise<T | undefined>;
 }
 
 /** No shell interpolation, even for a URL returned by a provider. */
@@ -44,4 +46,5 @@ function question(text: string, hidden: boolean): Promise<string> {
 export const terminalSetupPrompt: SetupPrompt = {
   question: text => question(text, false), secret: text => question(text, true),
   print: text => { process.stderr.write(text + "\n"); }, open: openSetupURL,
+  select: chooseTerminal,
 };
