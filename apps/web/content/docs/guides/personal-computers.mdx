@@ -72,8 +72,8 @@ mindwire connect pair     # Show a QR to pair or repair a phone
 mindwire connection       # Change provider without restarting the daemon
 ```
 
-Open **Computers & Servers → your computer → Reconnect computer** in the app, or
-scan through **Add computer**. Both reuse the same workspace. A saved phone proves
+Open **Computers & Servers → your computer → Reconnect** in the app. Use **Repair**
+to scan a fresh code, or scan through **Add computer**. These reuse the same workspace. A saved phone proves
 it still owns its approved key; a new key needs your approval on the computer.
 The terminal confirms success after the phone saves its connection.
 
@@ -90,6 +90,7 @@ update Mindwire on the computer and run `mindwire connect pair` for a fresh conn
 ```sh
 mindwire startup status
 mindwire startup enable
+mindwire startup repair
 mindwire startup disable
 ```
 
@@ -103,6 +104,33 @@ Scripts can use `--startup` to opt in; noninteractive runs do not enable startup
 `mindwire stop` keeps the service stopped, including after login, until you run
 `mindwire start` or `mindwire connect`. Disabling automatic startup leaves an
 already-running workspace alone.
+
+### Manage this computer
+
+Run `mindwire` without arguments to open the interactive menu. It shows the actual
+service version, connected phones, automatic recovery and startup health. Use the
+arrow keys to reconnect, repair a phone, change providers, manage startup, update
+the service, inspect details or stop Mindwire. **Exit** closes only the menu.
+
+```sh
+mindwire status            # Compact status, even when the service is stopped
+mindwire inspect           # Addresses, identity, pending updates and diagnostics
+mindwire --version         # Installed CLI version
+mindwire update            # Update the background service; preserve active work
+mindwire update --force    # Restart now, closing active sessions and terminals
+```
+
+After the next start or reconnect, an updated CLI schedules its matching managed service release.
+An automatic update waits for active work to finish; an explicit **Restart now**
+or `--force` can proceed immediately. Concurrent requests join the current update.
+If an older update is already pending, it completes first.
+
+Legacy quick Cloudflare connections automatically enroll in address recovery
+unless it was explicitly disabled. Enrollment retries after an outage, including
+after a restart. A saved phone must connect once to learn its recovery key; until
+then, status says **Finish setup on your phone**. If all old addresses are already
+gone, use **Repair** once. Named tunnels, VPNs and explicit temporary connections
+keep their chosen setup.
 
 ## Choose a connection
 

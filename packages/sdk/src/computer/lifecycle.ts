@@ -17,6 +17,7 @@ import { providerNeedsAction } from "./provider-errors.js";
 export interface ComputerConfig {
   daemonBin?: string;
   version?: string;
+  versionPinned?: boolean;
   directory: string;
   host?: string;
   bind: string;
@@ -24,10 +25,11 @@ export interface ComputerConfig {
   websocketPort: number;
   relay: RelayOptions;
 }
-export const CONTROLLER_PROTOCOL = 3;
+export const CONTROLLER_PROTOCOL = 4;
 export interface ControllerState extends ProcessState {
   protocol?: number; cliVersion?: string; ready: boolean; phase?: string; error?: string; errorCode?: string; recovering?: boolean; routes?: ComputerRoute[]; checkedAt?: number;
   relayFailureSince?: number; relayFailures?: number;
+  discoveryError?: string;
 }
 
 export const defaultStateDirectory = () => path.join(homedir(), ".mindwire", "computer");

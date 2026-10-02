@@ -16,12 +16,34 @@ new workspace or phone key.
 | iOS | Pinned SSH authentication, shared connection leases, network-change handling, and bounded retry |
 | Existing Mindwire Console backend | Key-based enrollment, encrypted addresses, signed lookup, durable revisions and revocation |
 
+The saved service version is an installed-version cache, not an implicit pin.
+The controller selects at least the installed CLI release, preserves a newer
+service or an explicit setup pin, and never replaces a supplied development
+binary. A live service is upgraded through the existing update lease; an older
+pending request completes before the CLI's release is requested. Failed updates
+retain rollback and use bounded retry. `mindwire update --force` promotes the
+existing request; it does not start a second installer.
+
+`mindwire` opens a terminal menu. `status` and `inspect` are read-only and work
+offline. Startup status verifies both native registration and the guardian.
+Repair reloads only the guardian, preserving a healthy detached controller and
+its PTYs. Homebrew startup registrations use a verified stable interpreter alias
+instead of a versioned Cellar path.
+
 `mindwire connection` defaults to **Automatic**: a free Cloudflare tunnel with the
 Mindwire address directory, requiring no Mindwire or Oblien account. It also
 offers Oblien, a Cloudflare named tunnel, a reserved ngrok domain, a VPN hostname,
 an existing WSS tunnel, or temporary Cloudflare without discovery. A named address
 survives a tunnel restart. The directory lets a paired phone discover a changed
 temporary address using its existing key.
+
+The controller reconciles directory setup after startup and at bounded intervals.
+Healthy reconciliation reads only local daemon state; Go owns publication and
+renewal. `computer-discovery-preference.json` stores desired enrollment and a
+custom URL so a network failure cannot lose setup intent. Explicit disable and
+temporary selections persist an opt-out; direct/VPN/custom connections do not
+implicitly enroll. Phone pairing completes only after saving the connection and
+acknowledging its recovery key, when recovery is enabled.
 
 `mindwire connection automatic` sets up the default route. `mindwire discovery enable`
 adds recovery while keeping the current provider. Update the
@@ -49,6 +71,12 @@ foreground/network change or a failed transport triggers recovery; repeated
 failures back off from one second to one minute. Offline/background work stops.
 Host-key and phone-key rejection require explicit repair. A late event from a
 replaced pairing cannot invalidate the current connection.
+
+If a cached rotating address presents another host's key while the directory is
+unavailable or still has the old address, recovery retries the directory. It never
+accepts the mismatched key. The mobile computer page observes this shared state;
+navigation does not start another probe. Reconnect is a direct action, Repair
+opens a scanner sheet, and technical connection details stay behind the info button.
 
 ## Oblien integration today
 

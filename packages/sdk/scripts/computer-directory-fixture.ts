@@ -66,7 +66,8 @@ let carrier: Carrier | undefined;
 try {
   await run(["start", ...common, "--relay", "none", "--daemon-bin", resolve(binary), "--directory", directory,
     "--bind", "127.0.0.1", "--port", "0", "--websocket-port", "0"]);
-  const client = await computerClient(directory), initial = await client.computer.info();
+  let client = await computerClient(directory);
+  const initial = await client.computer.info();
   carrier = await new Carrier().start(initial.websocketPort);
   await client.computer.setRoutes([{ kind: "websocket", url: carrier.url }], { provider: "cloudflare", address: "temporary" });
   hosted.dropPublishReceipts = 1;
@@ -105,10 +106,30 @@ try {
   if (lookups !== 1) throw new Error(`Expected one shared address lookup, got ${lookups}.`);
   hosted.offline = true;
   await mark("directory-down");
-  await waitFor(() => exists("done"));
+  await waitFor(() => exists("restart-service"));
   if ((await client.computer.info()).pid !== initial.pid || (await client.computer.devices()).length !== 1) throw new Error("Reconnect duplicated or restarted the computer.");
   if (hosted.lookups !== lookups) throw new Error("Healthy cached routes unnecessarily consulted the directory.");
-  process.stdout.write("PASS: production backend restart, changed address, one shared lookup, same phone/daemon/PTY/files, directory outage fallback.\n");
+  hosted.offline = false;
+  const phone = (await client.computer.devices())[0]!;
+  await carrier.close();
+  await run(["stop", ...common]);
+  await run(["start", ...common]);
+  client = await computerClient(directory);
+  const restarted = await client.computer.info();
+  if (restarted.pid === initial.pid || restarted.computerId !== initial.computerId || restarted.fingerprint !== initial.fingerprint)
+    throw new Error("Service restart did not preserve the computer identity.");
+  carrier = await new Carrier().start(restarted.websocketPort);
+  const revision = (await client.computer.discovery()).sequence ?? 0;
+  await client.computer.setRoutes([{ kind: "websocket", url: carrier.url }], { provider: "cloudflare", address: "temporary" });
+  await waitFor(async () => {
+    const status = await client.computer.discovery();
+    return (status.sequence ?? 0) > revision && status.sequence === status.publishedSequence;
+  });
+  if (!(await client.computer.devices()).some(device => device.id === phone.id && device.addressRecovery))
+    throw new Error("The saved phone lost its recovery acknowledgement after restart.");
+  await mark("service-restarted");
+  await waitFor(() => exists("done"));
+  process.stdout.write("PASS: backend restart, changed address, shared lookup, preserved PTY/files, directory outage fallback, full service restart with the same phone/key and no QR.\n");
 } finally {
   await carrier?.close(); await hosted.close();
   await run(["stop", ...common, "--force"]).catch(() => {});

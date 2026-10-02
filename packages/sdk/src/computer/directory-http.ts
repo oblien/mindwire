@@ -13,13 +13,13 @@ export class DirectoryRequestError extends Error {
 }
 
 /** Bounded, same-origin requests. No redirects, cookie jar or retained credentials. */
-export async function directoryRequest<T>(url: string, path: string, body: unknown): Promise<T> {
+export async function directoryRequest<T>(url: string, path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   let response: Response;
   try {
     response = await fetch(url + path, {
       method: "POST",
       redirect: "error",
-      signal: AbortSignal.timeout(10_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
@@ -27,6 +27,7 @@ export async function directoryRequest<T>(url: string, path: string, body: unkno
       body: JSON.stringify(body),
     });
   } catch {
+    signal?.throwIfAborted();
     throw new DirectoryRequestError(0, "unreachable");
   }
   const reader = response.body?.getReader();

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { computerClient } from "../src/computer/lifecycle.js";
+import { computerClient, defaultComputerConfig, readJSON, writeJSON } from "../src/computer/lifecycle.js";
 
 const binary = process.env.MINDWIRE_COMPUTER_TEST_BINARY;
 const cli = path.resolve(import.meta.dir, "../dist/cli.js");
@@ -71,6 +71,48 @@ function run(args: string[], env: NodeJS.ProcessEnv = process.env): Promise<{ co
     await rm(directory, { recursive: true, force: true });
   }
 }, 90_000);
+
+(binary ? test : test.skip)("cold startup after an npm upgrade ignores the old installed-version cache and preserves identity", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "mindwire-computer-upgrade-"));
+  const bytes = await readFile(binary!);
+  const sum = createHash("sha256").update(bytes).digest("hex");
+  const version = (await run(["--version"])).output.trim();
+  const platform = process.platform === "win32" ? "windows" : process.platform;
+  const arch = process.arch === "arm64" ? "arm64" : "amd64";
+  const asset = `mindwired-v${version}-${platform}-${arch}${process.platform === "win32" ? ".exe" : ""}`;
+  const requested: string[] = [];
+  const mirror = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    const url = new URL(request.url); requested.push(url.pathname);
+    if (url.pathname.endsWith("checksums.txt")) return new Response(`${sum}  ${asset}\n`);
+    if (url.pathname.endsWith(asset)) return new Response(bytes);
+    return new Response("missing", { status: 404 });
+  } });
+  const env = { ...process.env, MINDWIRE_RELEASE_BASE_URL: `http://127.0.0.1:${mirror.port}`,
+    MINDWIRE_RELEASE_CACHE_DIR: path.join(directory, "release-cache") };
+  const common = ["--state-dir", directory, "--json"];
+  const config = { ...defaultComputerConfig(), directory, bind: "127.0.0.1", sshPort: 0, websocketPort: 0,
+    version: "0.0.1", relay: { kind: "none" as const } };
+  try {
+    await writeJSON(path.join(directory, "computer-config.json"), config);
+    const started = await run(["start", ...common], env);
+    expect(started.code, started.output).toBe(0);
+    const client = await computerClient(directory), before = await client.computer.info();
+    expect((await client.health()).version).toBe(version);
+    expect((await readJSON<{ version: string }>(path.join(directory, "computer-config.json")))?.version).toBe(version);
+    expect(requested.some(url => url.includes("0.0.1"))).toBe(false);
+    expect((await run(["stop", ...common], env)).code).toBe(0);
+    await writeJSON(path.join(directory, "computer-config.json"), config);
+    expect((await run(["start", ...common], env)).code).toBe(0);
+    const after = await (await computerClient(directory)).computer.info();
+    expect(after.computerId).toBe(before.computerId);
+    expect(after.fingerprint).toBe(before.fingerprint);
+    expect(after.pid).not.toBe(before.pid);
+  } finally {
+    await run(["stop", ...common, "--force"], env).catch(() => {});
+    mirror.stop(true);
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 40_000);
 
 (binary ? test : test.skip)("automatic update waits; manual promotion restarts with an open terminal and retains rollback", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "mindwire-computer-update-"));

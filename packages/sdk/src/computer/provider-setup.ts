@@ -17,6 +17,19 @@ interface ProviderState { installationId: string; oblien?: { id: number; url: st
 const execute = promisify(execFile);
 
 export async function chooseProvider(prompt: SetupPrompt): Promise<ConnectionProvider> {
+  if (prompt.select) {
+    const selected = await prompt.select<ConnectionProvider>("Connection provider", [
+      { value: "automatic", label: "Automatic · Cloudflare + Mindwire recovery, no account" },
+      { value: "oblien", label: "Oblien · persistent address" },
+      { value: "cloudflare", label: "Cloudflare · your account and domain" },
+      { value: "ngrok", label: "ngrok · your account and reserved domain" },
+      { value: "vpn", label: "Your VPN · direct SSH" },
+      { value: "custom", label: "Existing secure tunnel" },
+      { value: "temporary", label: "Temporary Cloudflare · no address recovery" },
+    ]);
+    if (!selected) throw new Error("Connection setup cancelled.");
+    return selected;
+  }
   prompt.print("\nConnect this computer\n\n  1  Automatic — free Cloudflare tunnel + Mindwire address recovery, no account\n  2  Oblien — persistent address, browser sign-in\n  3  Cloudflare — your account and domain\n  4  ngrok — your account and reserved domain\n  5  Your VPN — direct SSH\n  6  Existing secure tunnel\n  7  Temporary Cloudflare connection — no address recovery\n");
   for (;;) {
     const answer = (await prompt.question("Connection [1]: ")).trim();

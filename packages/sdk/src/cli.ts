@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { computerPairingURI, type ComputerUpdate } from "./computer.js";
+import { computerPairingURI } from "./computer.js";
 import { SDK_VERSION } from "./version.js";
 import { computerClient, defaultComputerConfig, defaultStateDirectory, ensureComputer, readJSON, stopComputer, superviseComputer, type ComputerConfig } from "./computer/lifecycle.js";
 import type { RelayOptions } from "./computer/relay.js";
@@ -14,16 +14,20 @@ import { showPairingInvitation, type PairingQRMode } from "./computer/pairing-di
 import { configureStartup, startupStatus, watchComputer } from "./computer/startup.js";
 import { approvalCommand, chooseConnectionAction, choosePairingDecision, chooseStartupAction, connectionAction, deviceSummary } from "./computer/connection-flow.js";
 import { ConnectionProgress } from "./computer/connection-progress.js";
-import { enableAddressDiscovery, discoveryDescription } from "./computer/discovery.js";
+import { enableAddressDiscovery, disableAddressDiscovery, saveDiscoveryPreference, discoveryPreference, reconcileAddressDiscovery, discoveryDescription } from "./computer/discovery.js";
 import { connectionAddress, connectionDescription, connectionInfo } from "./computer/provider-info.js";
 import { chooseProvider, connectionProvider, setupProvider } from "./computer/provider-setup.js";
 import { terminalSetupPrompt } from "./computer/setup-prompt.js";
 import { runManagedRelay } from "./computer/managed-relay.js";
-import type { ComputerConnectionChange } from "./computer/connection-change.js";
+import { inspectComputer, inspectionText } from "./computer/inspection.js";
+import { computerDashboard } from "./computer/dashboard.js";
+import { chooseTerminal } from "./computer/terminal-ui.js";
+import { updateComputer, updateProgress } from "./computer/service-update.js";
 
 const help = `Mindwire — connect this computer to your phone
 
   npm install -g mindwire
+  mindwire                               Interactive status and connection controls
   mindwire connect                       Connect your phone; saved keys reconnect automatically
   mindwire reconnect                     Retry the saved connection
   mindwire connect pair                  Pair a phone, or repair a lost phone key/address
@@ -42,12 +46,14 @@ const help = `Mindwire — connect this computer to your phone
   mindwire connect --relay custom --relay-url wss://computer.example/ssh
 
   mindwire start                         Start the saved connection in the background
-  mindwire startup enable|disable        Manage automatic startup after computer login
+  mindwire startup enable|disable|repair Manage automatic startup after computer login
   mindwire startup status                Check automatic startup
   mindwire status                        Show connection and running service
+  mindwire inspect                       Connection details, recovery and diagnostics
   mindwire devices                       List paired phones
   mindwire revoke DEVICE_ID              Disconnect and revoke one phone
   mindwire update [--version VERSION]     Download a verified release; wait until idle
+  mindwire update --force                 Restart now, closing active terminals and sessions
   mindwire stop                          Stop when no work or terminals are running
 
 Options:
@@ -78,6 +84,11 @@ Nothing changes your system SSH login.
 function safeName(text: string): string { return text.replace(/[\x00-\x1f\x7f-\x9f]/g, ""); }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
+  if (args.some(value => ["--version", "-v", "version"].includes(value))
+      && args.every(value => ["--version", "-v", "version", "--json"].includes(value))) {
+    process.stdout.write(args.includes("--json") ? JSON.stringify({ version: SDK_VERSION }) + "\n" : SDK_VERSION + "\n");
+    return;
+  }
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
     help: { type: "boolean", short: "h" }, json: { type: "boolean" }, "no-qr": { type: "boolean" }, qr: { type: "string" },
     "state-dir": { type: "string" }, directory: { type: "string" }, host: { type: "string" },
@@ -89,8 +100,11 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     version: { type: "string" }, force: { type: "boolean" }, startup: { type: "boolean" }, "no-startup": { type: "boolean" },
     "replace-device": { type: "string", multiple: true },
   } });
-  const command = positionals[0] ?? "help";
+  const interactive = !values.json && !!process.stdin.isTTY && !!process.stderr.isTTY && process.env.TERM !== "dumb";
+  const command = positionals[0] ?? (interactive ? "dashboard" : "help");
   if (values.help || command === "help") { process.stdout.write(help); return; }
+  if (!["dashboard", "connect", "start", "reconnect", "connection", "startup", "discovery", "status", "inspect", "devices", "revoke", "approve", "reject", "update", "stop", "_serve", "_watch", "_relay"].includes(command))
+    throw new Error(`Unknown command ${safeName(command)}. Run mindwire --help.`);
   if (values.qr && !["auto", "terminal", "browser"].includes(values.qr)) throw new Error("Choose --qr auto, terminal or browser.");
   if (values.startup && values["no-startup"]) throw new Error("Choose either --startup or --no-startup.");
   const directory = path.resolve(values["state-dir"] ?? defaultStateDirectory());
@@ -99,6 +113,16 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     if (values.json) process.stdout.write(JSON.stringify({ event, ...data }) + "\n");
     else if (text) process.stdout.write(text + "\n");
   };
+  if (command === "dashboard") {
+    await computerDashboard(directory, next => main(["--state-dir", directory,
+      ...(values["directory-url"] && !next.includes("--directory-url") ? ["--directory-url", values["directory-url"]] : []), ...next]));
+    return;
+  }
+  if (command === "status" || command === "inspect") {
+    const state = await inspectComputer(directory);
+    emit(command, { ...state.info, ...state, idle: state.activeOperations === 0 }, inspectionText(state, command === "inspect"));
+    return;
+  }
   if (command === "_serve") { await superviseComputer(directory); return; }
   if (command === "_relay") {
     if (!values["relay-config"]) throw new Error("Missing relay configuration.");
@@ -107,10 +131,11 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   if (command === "_watch") { await watchComputer(directory, fileURLToPath(import.meta.url)); return; }
   if (command === "startup") {
     const action = positionals[1] ?? "status";
-    if (!["enable", "disable", "status"].includes(action)) throw new Error("Use mindwire startup enable, disable or status.");
+    if (!["enable", "disable", "repair", "status"].includes(action)) throw new Error("Use mindwire startup enable, disable, repair or status.");
     const state = action === "status" ? await startupStatus(directory)
-      : await configureStartup(directory, fileURLToPath(import.meta.url), action === "enable");
-    emit("startup", state, state.enabled ? "Mindwire starts after you sign in to this computer and recovers automatically."
+      : await configureStartup(directory, fileURLToPath(import.meta.url), action !== "disable", { repair: action === "repair" });
+    emit("startup", state, state.enabled ? state.running ? "Mindwire starts after you sign in to this computer."
+      : "Automatic startup needs repair. Run mindwire startup repair."
       : "Automatic startup is off. Use mindwire start to run the service.");
     return;
   }
@@ -121,14 +146,14 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       : await ensureComputer(directory, fileURLToPath(import.meta.url), {}, undefined, { waitForRoutes: false });
     const status = action === "enable"
       ? await enableAddressDiscovery({ directory, computer: client, prompt: terminalSetupPrompt, ...discoveryOptions })
-      : action === "disable" ? await client.computer.configureDiscovery(false) : await client.computer.discovery();
+      : action === "disable" ? await disableAddressDiscovery(directory, client) : await client.computer.discovery();
     emit("discovery", status, discoveryDescription(status));
     if (action === "enable") emit("discovery_hint", {}, "Open each saved phone once while its current address works. Pair new phones with mindwire connect pair.");
     return;
   }
   if (["connect", "start", "reconnect", "connection"].includes(command)) {
     let requestedAction = command === "reconnect" ? "reconnect" as const : command === "connect" ? connectionAction(positionals[1]) : undefined;
-    let automaticDiscovery = false, addressChanged = false;
+    let automaticDiscovery = false, temporaryConnection = false, addressChanged = false;
     const patch: Partial<ComputerConfig> = {};
     const previous = await readJSON<ComputerConfig>(path.join(directory, "computer-config.json"));
     if (values.directory) patch.directory = path.resolve(values.directory);
@@ -142,7 +167,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       }
     }
     if (values["daemon-bin"] || process.env.MINDWIRE_DAEMON) patch.daemonBin = path.resolve(values["daemon-bin"] ?? process.env.MINDWIRE_DAEMON!);
-    if (values.version) patch.version = values.version.replace(/^v/, "");
+    if (values.version) {
+      patch.version = values.version.replace(/^v/, "");
+      if (!previous) patch.versionPinned = true;
+    }
     if (values.relay || values["relay-url"] || values["cloudflare-token-file"] || values["ngrok-token-file"] || values["oblien-credentials-file"]) {
       const kind = values.relay ?? "custom";
       if (!["none", "oblien", "cloudflare", "ngrok", "custom"].includes(kind)) throw new Error("Choose relay none, oblien, cloudflare, ngrok or custom.");
@@ -154,7 +182,6 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         oblienCredentialsFile: values["oblien-credentials-file"] ? path.resolve(values["oblien-credentials-file"]) : undefined,
         oblienTunnelId: tunnelId };
     }
-    const interactive = !values.json && !!process.stdin.isTTY;
     const needsSetup = command === "connection" || command === "connect" && !previous && !patch.relay && interactive
       || patch.relay?.kind === "oblien" && !patch.relay.oblienCredentialsFile;
     if (needsSetup) {
@@ -163,11 +190,16 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         throw new Error("Run mindwire connection in an interactive terminal, or supply the provider's saved URL and credential-file options.");
       const provider = selected ?? (patch.relay?.kind === "oblien" ? "oblien" : await chooseProvider(terminalSetupPrompt));
       automaticDiscovery = provider === "automatic";
+      temporaryConnection = provider === "temporary";
       Object.assign(patch, await setupProvider({ directory, provider, prompt: terminalSetupPrompt,
         config: { ...defaultComputerConfig(), ...previous, ...patch } }));
       if (!previous || connectionAddress(patch.relay ?? previous.relay, patch.host ?? previous.host)
           !== connectionAddress(previous.relay, previous.host)) addressChanged = true;
     }
+    if (temporaryConnection) await saveDiscoveryPreference(directory, { enabled: false });
+    if (automaticDiscovery) await saveDiscoveryPreference(directory, {
+      enabled: true, url: values["directory-url"] ?? (await discoveryPreference(directory))?.url,
+    });
     // Enroll before replacing a working provider. An unavailable directory must
     // not turn an existing connected computer into an unreachable one.
     if (automaticDiscovery && previous) {
@@ -180,12 +212,18 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       if (progress) progress.update(phase);
       else emit("progress", { message: phase }, phase);
     }).finally(() => progress?.close());
-    if (automaticDiscovery && !previous) await enableAddressDiscovery({ directory, computer: client, prompt: terminalSetupPrompt, ...discoveryOptions });
-    const info = await client.computer.info();
     const savedConfig = await readJSON<ComputerConfig>(path.join(directory, "computer-config.json"));
+    try {
+      if (temporaryConnection) await disableAddressDiscovery(directory, client);
+      else if (savedConfig) await reconcileAddressDiscovery({ directory, config: savedConfig, computer: client });
+    } catch (error) {
+      emit("recovery_pending", {}, `Automatic reconnection: ${safeName(error instanceof Error ? error.message : "Setup will retry in the background.")}`);
+    }
+    const info = await client.computer.info();
     const connection = connectionInfo(savedConfig?.relay ?? { kind: "cloudflare" }, savedConfig?.host);
     emit("ready", { computerId: info.computerId, routes: info.routes, connection }, "Mindwire is running in the background.");
-    emit("connection", connection, connectionDescription(connection));
+    emit("connection", connection, info.discovery?.enabled && connection.address === "temporary"
+      ? "Cloudflare · encrypted Mindwire address recovery" : connectionDescription(connection));
     if (command === "start") return;
     if (info.routes.some(route => route.kind === "websocket")) {
       emit("secure_connection", {}, "Your phone connects over end-to-end encrypted SSH. The tunnel carries encrypted traffic; only phones you approve can connect.");
@@ -215,7 +253,8 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       }
     } else {
       emit("startup", startupPreference, startupPreference.enabled
-        ? "Automatic startup is on. Change it with mindwire startup disable."
+        ? startupPreference.running ? "Automatic startup is on. Change it with mindwire startup disable."
+          : "Automatic startup needs repair. Run mindwire startup repair."
         : "Automatic startup is off. Enable it with mindwire startup enable.");
     }
     if (action === "resume") {
@@ -285,20 +324,27 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     } finally { display?.close(); }
   }
   if (command === "stop") { await stopComputer(directory, values.force === true); emit("stopped", {}, "Mindwire stopped."); return; }
+  if (command === "update") {
+    const client = await ensureComputer(directory, fileURLToPath(import.meta.url), {}, undefined, { waitForRoutes: false });
+    let force = values.force === true;
+    if (interactive && !force && !(await client.service.updateStatus()).idle) {
+      const choice = await chooseTerminal("An update can restart Mindwire while work is open.", [
+        { value: "wait", label: "Update when idle" },
+        { value: "restart", label: "Restart now — close terminals and active sessions" },
+        { value: "cancel", label: "Cancel" },
+      ]);
+      if (!choice || choice === "cancel") return;
+      force = choice === "restart";
+    }
+    const result = await updateComputer({ directory, version: values.version ?? SDK_VERSION, force,
+      allowDowngrade: !!values.version, onProgress: update => emit("update", update, updateProgress(update)) });
+    emit(result.complete ? "updated" : "update_pending", result, result.complete
+      ? `Mindwire service ${result.version} is installed.`
+      : `${result.update?.version} is ${result.update?.status === "waiting" ? "waiting for active work to finish" : "updating in the background"}.${result.update?.version !== result.version ? ` Run mindwire update again after it completes to check ${result.version}.` : " You can close this terminal."} Run mindwire inspect for status.`);
+    return;
+  }
   const client = await computerClient(directory);
   switch (command) {
-    case "status": {
-      const [info, health, work, controller, startup, config, change] = await Promise.all([client.computer.info(), client.health(), client.service.updateStatus(),
-        readJSON<{ error?: string; errorCode?: string; phase?: string; recovering?: boolean }>(path.join(directory, "computer-controller.json")), startupStatus(directory),
-        readJSON<ComputerConfig>(path.join(directory, "computer-config.json")), readJSON<ComputerConnectionChange>(path.join(directory, "computer-connection-change.json"))]);
-      const connection = info.connection ?? (config && connectionInfo(config.relay, config.host));
-      const connectionChange = change && { status: change.status, message: change.message };
-      emit("status", { ...info, connection, daemonVersion: health.version, ...work, startup, connectionChange,
-        recovering: controller?.recovering, relayError: controller?.error, relayErrorCode: controller?.errorCode },
-        `Mindwire ${health.version} · ${work.idle ? "idle" : "working"}\nStartup: ${startup.enabled ? "on" : "off"}\n${connection ? connectionDescription(connection) + "\n" : ""}${info.routes.map(route => route.kind === "ssh" ? `SSH ${route.host}:${route.port}` : route.url).join("\n")}${controller?.error ? `\n${controller.error}` : ""}${change && change.status !== "complete" ? `\nConnection change: ${change.status}${change.message ? " · " + change.message : ""}` : ""}`);
-      if (info.discovery?.enabled && !values.json) emit("discovery", info.discovery, discoveryDescription(info.discovery));
-      break;
-    }
     case "devices": {
       const devices = await client.computer.devices();
       emit("devices", { devices }, devices.length ? devices.map(d => `${safeName(d.name)}  ${d.id}${d.revoked ? "  (revoked)" : ""}`).join("\n") : "No paired phones yet. Run mindwire connect.");
@@ -313,22 +359,6 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       await client.computer.decide(positionals[1], positionals[2], command === "approve",
         values["replace-device"] ? { replaceDeviceIds: values["replace-device"] } : {});
       emit(command, {}, command === "approve" ? "Phone approved. Waiting for it to save the connection." : "Phone declined."); break;
-    }
-    case "update": {
-      const version = (values.version ?? SDK_VERSION).replace(/^v/, "");
-      const health = await client.health();
-      if (health.version.replace(/^v/, "") === version) { emit("updated", { version }, `Mindwire ${version} is already installed.`); return; }
-      const requested = await client.computer.requestUpdate(version);
-      emit("update_queued", requested, "Update queued. It will wait until all work and terminals are finished.");
-      let last = "";
-      for (;;) {
-        const update = await readJSON<ComputerUpdate>(path.join(directory, "computer-update.json"));
-        if (update?.id !== requested.id) throw new Error("The update request changed. Run mindwire status.");
-        if (update.status !== last) { last = update.status; emit("update", update, `Update: ${update.status}`); }
-        if (update.status === "complete") return;
-        if (update.status === "failed") throw new Error(update.error ?? "Update failed.");
-        await delay(750);
-      }
     }
     default: throw new Error(`Unknown command ${command}. Run mindwire --help.`);
   }
