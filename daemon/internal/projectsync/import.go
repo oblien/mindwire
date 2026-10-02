@@ -105,12 +105,6 @@ func (s *Service) importCheckpoint(ctx context.Context, o *Operation) error {
 	if err = s.reserve(o, p); err != nil {
 		return err
 	}
-	keepLock := false
-	defer func() {
-		if !keepLock {
-			_ = s.reg.ReleaseSync(o.ID)
-		}
-	}()
 	o.Status, o.Phase = "preparing", "compare"
 	if err = s.save(*o); err != nil {
 		return err
@@ -230,13 +224,8 @@ func (s *Service) importCheckpoint(ctx context.Context, o *Operation) error {
 	if err = s.reg.SyncPut("journal", o.ID, j); err != nil {
 		return err
 	}
-	keepLock = true
 	o.ResultCheckpointID, o.ResultProjectID = c.ID, p.ID
-	if err = s.applyJournal(ctx, o); err != nil {
-		return err
-	}
-	keepLock = false
-	return nil
+	return s.applyJournal(ctx, o)
 }
 
 func (s *Service) metadata(p registry.Project, m Manifest) (registry.Import, error) {

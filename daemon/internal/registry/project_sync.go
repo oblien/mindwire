@@ -142,6 +142,29 @@ func (st *Store) ReleaseSync(id string) error {
 	return err
 }
 
+// FinishSyncOperation publishes a terminal result and releases its reservation in
+// one transaction. A client that observes the result can immediately use the path;
+// a failed write leaves both the prior status and its protection intact.
+// Operations that require journal recovery must keep their reservation instead.
+func (st *Store) FinishSyncOperation(id string, operation any) error {
+	data, err := json.Marshal(operation)
+	if err != nil {
+		return err
+	}
+	tx, err := st.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec("INSERT INTO project_sync_records(kind,id,data) VALUES('operation',?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data", id, data); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("DELETE FROM project_sync_locks WHERE id=?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (st *Store) SyncPut(kind, id string, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -246,6 +269,7 @@ func (st *Store) EnsureSyncIdentity(projectID string) error {
 // CompleteSync atomically publishes replica membership and its acknowledged
 // checkpoint after the recoverable filesystem transaction finishes. No unrelated
 // profile, project, chat, credential, deletion or native link is replaced.
+// The reservation remains until FinishSyncOperation publishes the operation result.
 func (st *Store) CompleteSync(batch Import, syncID, checkpoint, operationID string, artifacts map[string]json.RawMessage, forkPending map[string]bool) error {
 	return st.write(func(tx *sql.Tx, rev int64) (bool, error) {
 		for _, kind := range []string{"agents", "projects", "chats"} {
@@ -319,9 +343,6 @@ func (st *Store) CompleteSync(batch Import, syncID, checkpoint, operationID stri
 		}
 		b, _ = json.Marshal(true)
 		if _, err := tx.Exec("INSERT OR REPLACE INTO project_sync_records(kind,id,data) VALUES('committed',?,?)", operationID, b); err != nil {
-			return false, err
-		}
-		if _, err := tx.Exec("DELETE FROM project_sync_locks WHERE id=?", operationID); err != nil {
 			return false, err
 		}
 		return true, nil
