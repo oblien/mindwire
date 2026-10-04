@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/oblien/mindwire/daemon/internal/conversations"
 	"github.com/oblien/mindwire/daemon/internal/projectsync"
@@ -15,6 +16,9 @@ type ProjectSyncOperation = projectsync.Operation
 type ProjectSyncCheckpoint = projectsync.Checkpoint
 type ProjectSyncConflict = projectsync.Conflict
 type ProjectSyncObjectPage = projectsync.ObjectPage
+type ProjectSyncPreview = projectsync.Preview
+type ProjectSyncPreviewRequest = projectsync.PreviewRequest
+type ProjectSyncIgnoredPath = projectsync.IgnoredPath
 type ProjectSync struct{ c *Client }
 
 func (co *core) Busy(id string) bool { return co.sup.Busy(id) }
@@ -35,6 +39,10 @@ func (co *core) discoverForSync(ctx context.Context, id string) error {
 func (s *ProjectSync) Export(req ProjectSyncRequest) (ProjectSyncOperation, error) {
 	v, e := s.c.core.projectSync.Start("export", req)
 	return v, workspaceError("Workspace.Sync.Export", e)
+}
+func (s *ProjectSync) Preview(ctx context.Context, req ProjectSyncPreviewRequest) (ProjectSyncPreview, error) {
+	v, e := s.c.core.projectSync.Preview(ctx, req)
+	return v, workspaceError("Workspace.Sync.Preview", e)
 }
 func (s *ProjectSync) Import(req ProjectSyncRequest) (ProjectSyncOperation, error) {
 	v, e := s.c.core.projectSync.Start("import", req)
@@ -139,18 +147,23 @@ func (s *ProjectSync) RelayCheckpoint(ctx context.Context, target *ProjectSync, 
 // make a lost acknowledgement safe. A conflict is returned as an operation so
 // callers can show its paths and retained recovery checkpoint instead of hiding it.
 func (s *ProjectSync) SwitchTo(ctx context.Context, target *ProjectSync, req ProjectSyncRequest, progress func(int64)) (ProjectSyncOperation, error) {
+	includes, err := projectsync.NormalizeIncludes(req.IncludeIgnored)
+	if err != nil {
+		return ProjectSyncOperation{}, workspaceError("Workspace.Sync.SwitchTo", err)
+	}
+	req.IncludeIgnored = includes
 	if s.c.core == target.c.core {
 		return ProjectSyncOperation{}, workspaceError("Workspace.Sync.SwitchTo", registry.ErrInvalid)
 	}
 	if accepted, err := target.Get(req.ID + "-import"); err == nil {
-		if accepted.Path != req.Path {
+		if accepted.Path != req.Path || !slices.Equal(accepted.IncludeIgnored, req.IncludeIgnored) || accepted.SelectionToken != req.SelectionToken {
 			return accepted, workspaceError("Workspace.Sync.SwitchTo", registry.ErrConflict)
 		}
 		return target.Wait(ctx, accepted.ID)
 	} else if !errors.Is(err, registry.ErrNotFound) {
 		return accepted, err
 	}
-	o, err := s.Export(ProjectSyncRequest{ID: req.ID + "-export", ProjectID: req.ProjectID})
+	o, err := s.Export(ProjectSyncRequest{ID: req.ID + "-export", ProjectID: req.ProjectID, IncludeIgnored: req.IncludeIgnored, SelectionToken: req.SelectionToken})
 	if err != nil {
 		return o, err
 	}
@@ -161,7 +174,7 @@ func (s *ProjectSync) SwitchTo(ctx context.Context, target *ProjectSync, req Pro
 	if err = s.RelayCheckpoint(ctx, target, o.ResultCheckpointID, progress); err != nil {
 		return o, err
 	}
-	o, err = target.Import(ProjectSyncRequest{ID: req.ID + "-import", CheckpointID: o.ResultCheckpointID, Path: req.Path})
+	o, err = target.Import(ProjectSyncRequest{ID: req.ID + "-import", CheckpointID: o.ResultCheckpointID, Path: req.Path, IncludeIgnored: req.IncludeIgnored, SelectionToken: req.SelectionToken})
 	if err != nil {
 		return o, err
 	}

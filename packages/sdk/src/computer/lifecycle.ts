@@ -45,13 +45,13 @@ export async function writeJSON(file: string, value: unknown): Promise<void> {
   finally { await fs.rm(temp, { force: true }); }
 }
 
-export async function computerClient(directory: string): Promise<Mindwire> {
+export async function computerClient(directory: string, requestTimeoutMs = 3000): Promise<Mindwire> {
   const runtime = await readJSON<ComputerInfo>(path.join(directory, "computer-runtime.json"));
   if (!runtime) throw new Error("Mindwire is not running. Run mindwire connect on the computer.");
   const url = new URL(`http://${runtime.apiAddress}`);
   if (!["127.0.0.1", "[::1]"].includes(url.hostname) || url.username || url.password) throw new Error("Invalid local Mindwire address.");
   const token = (await fs.readFile(path.join(directory, "daemon.token"), "utf8")).trim();
-  const client = new Mindwire({ target: remote(url.origin, { token }), requestTimeoutMs: 3000 });
+  const client = new Mindwire({ target: remote(url.origin, { token }), requestTimeoutMs });
   const info = await client.computer.info();
   if (info.computerId !== runtime.computerId || info.pid !== runtime.pid) throw new Error("The local Mindwire process changed. Retry the command.");
   return client;

@@ -115,17 +115,32 @@ type rfbClient struct {
 }
 
 func newRFB(ctx context.Context, conn net.Conn) (*rfbClient, error) {
+	return newRFBWithAuth(ctx, conn, []vnc.ClientAuth{&desktopNoneAuth{conn: conn}})
+}
+
+func setDesktopPixelFormat(conn io.Writer) error {
+	// RFB always encodes channel maxima in network byte order, even when pixel
+	// data is little-endian. The dependency's SetPixelFormat swaps these fields.
+	message := struct {
+		Kind   byte
+		_      [3]byte
+		Format vnc.PixelFormat
+	}{Format: vnc.PixelFormat32bit}
+	return binary.Write(conn, binary.BigEndian, message)
+}
+
+func newRFBWithAuth(ctx context.Context, conn net.Conn, auth []vnc.ClientAuth) (*rfbClient, error) {
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	cfg := vnc.NewClientConfig("")
-	cfg.Auth = []vnc.ClientAuth{&desktopNoneAuth{conn: conn}}
+	cfg.Auth = auth
 	cfg.Exclusive = false
 	cfg.ServerMessageCh = make(chan vnc.ServerMessage, 4)
 	reader := &frameReader{conn: conn}
 	cfg.ServerMessages = []vnc.ServerMessage{&boundedUpdate{reader: reader}, &vnc.SetColorMapEntries{}, &vnc.Bell{}, &boundedClipboard{conn: conn}}
-	client, err := vnc.Connect(ctx, conn, cfg)
+	client, err := connectDesktopRFB(ctx, conn, cfg)
 	if err != nil {
 		conn.Close()
 		return nil, problem("rfb_handshake", "The desktop VNC connection could not be opened.")
@@ -135,7 +150,7 @@ func newRFB(ctx context.Context, conn net.Conn) (*rfbClient, error) {
 		conn.Close()
 		return nil, problem("display_limit", "The desktop display exceeds the supported size.")
 	}
-	if err := client.SetPixelFormat(vnc.PixelFormat32bit); err != nil {
+	if err := setDesktopPixelFormat(conn); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -168,8 +183,12 @@ func (r *rfbClient) receive(messages <-chan vnc.ServerMessage) {
 						invalid = true
 						break
 					}
-					r.size = Geometry{w, h, r.size.Revision + 1}
-					r.frame = image.NewRGBA(image.Rect(0, 0, w, h))
+					// Servers may repeat their current size. Only an actual resize
+					// invalidates pointer coordinates and the accumulated frame.
+					if w != r.size.Width || h != r.size.Height {
+						r.size = Geometry{w, h, r.size.Revision + 1}
+						r.frame = image.NewRGBA(image.Rect(0, 0, w, h))
+					}
 					continue
 				}
 				raw, ok := rect.Enc.(*vnc.RawEncoding)

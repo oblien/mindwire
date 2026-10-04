@@ -6,6 +6,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -32,6 +35,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/registry"
 	"github.com/oblien/mindwire/daemon/internal/session"
 	"github.com/oblien/mindwire/daemon/internal/stream"
+	"github.com/oblien/mindwire/daemon/internal/surface"
 	"github.com/oblien/mindwire/daemon/internal/workspaceexec"
 
 	// Agent adapters self-register on import. Add a blank import per agent.
@@ -148,6 +152,28 @@ func main() {
 		log.Fatalf("recover project operations: %v", err)
 	}
 	defer workspaceAPI.Close()
+	localDesktopVersion := 0
+	if computerMode && runtime.GOOS == "darwin" && os.Geteuid() != 0 {
+		secret := make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			log.Fatal("create local desktop control credential")
+		}
+		localToken := hex.EncodeToString(secret)
+		localTokenPath := filepath.Join(filepath.Dir(statePath), "desktop-control.token")
+		if err := os.WriteFile(localTokenPath+".tmp", []byte(localToken), 0600); err != nil {
+			log.Fatal("write local desktop control credential")
+		}
+		if err := os.Chmod(localTokenPath+".tmp", 0600); err != nil {
+			log.Fatal("protect local desktop control credential")
+		}
+		if err := os.Rename(localTokenPath+".tmp", localTokenPath); err != nil {
+			log.Fatal("save local desktop control credential")
+		}
+		if err := workspaceAPI.EnableLocalDesktop(localToken); err != nil {
+			log.Fatalf("initialize Mac desktop capability: %v", err)
+		}
+		localDesktopVersion = surface.LocalDesktopVersion
+	}
 
 	root := http.NewServeMux()
 	health := http.NewServeMux()
@@ -157,7 +183,7 @@ func main() {
 	}
 	health.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "historyPageVersion": api.HistoryPageVersion, "workspaceMetadataVersion": registry.Version, "projectOperationsVersion": registry.ProjectOperationsVersion, "projectIconsVersion": projecticon.Version, "projectSyncVersion": projectsync.ProtocolVersion(), "conversationBrowserVersion": conversations.BrowserVersion, "surfaceProtocolVersion": 1, "notificationPreferencesVersion": registry.NotificationPreferencesVersion, "gitAccessVersion": gitaccess.Version, "gitOperationsVersion": gitops.Version, "gitIdentityVersion": gitauthor.Version, "harnessPolicyVersion": toolchain.PolicyVersion, "serviceUpdateVersion": orchestrator.ServiceUpdateVersion, "workspaceIsolationVersion": agent.WorkspaceIsolationVersion, "workspaceIsolation": agent.WorkspaceIsolation(), "workspaceExecutionVersion": workspaceexec.Version, "terminalProtocolVersion": workspaceexec.TerminalVersion, "turnRequestVersion": orchestrator.TurnRequestVersion, "chatForkVersion": agent.ChatForkVersion, "imageAttachmentsVersion": agent.ImageAttachmentsVersion, "computerConnectionVersion": computerVersion})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "historyPageVersion": api.HistoryPageVersion, "workspaceMetadataVersion": registry.Version, "projectOperationsVersion": registry.ProjectOperationsVersion, "projectIconsVersion": projecticon.Version, "projectSyncVersion": projectsync.ProtocolVersion(), "conversationBrowserVersion": conversations.BrowserVersion, "surfaceProtocolVersion": surface.Version, "localDesktopVersion": localDesktopVersion, "notificationPreferencesVersion": registry.NotificationPreferencesVersion, "gitAccessVersion": gitaccess.Version, "gitOperationsVersion": gitops.Version, "gitIdentityVersion": gitauthor.Version, "harnessPolicyVersion": toolchain.PolicyVersion, "serviceUpdateVersion": orchestrator.ServiceUpdateVersion, "workspaceIsolationVersion": agent.WorkspaceIsolationVersion, "workspaceIsolation": agent.WorkspaceIsolation(), "workspaceExecutionVersion": workspaceexec.Version, "terminalProtocolVersion": workspaceexec.TerminalVersion, "turnRequestVersion": orchestrator.TurnRequestVersion, "chatForkVersion": agent.ChatForkVersion, "imageAttachmentsVersion": agent.ImageAttachmentsVersion, "computerConnectionVersion": computerVersion})
 	})
 	root.Handle("/healthz", api.Auth(token, health))
 
@@ -170,6 +196,9 @@ func main() {
 		}
 		workspaceAPI.SetConnectionActivity(connection.PendingActivity)
 		workspaceAPI.SetConnectionUpdateForce(connection.ForceUpdatePending)
+		if localDesktopVersion > 0 {
+			connection.SetDesktopViewer(surface.DesktopPort, workspaceAPI.AuthorizeDesktopViewer, workspaceAPI.ServeDesktopViewer)
+		}
 		connection.Register(apiMux, workspaceAPI.ConnectionOperation)
 		if err = connection.Start(env("COMPUTER_SSH_ADDR", "0.0.0.0:8791"), env("COMPUTER_WS_ADDR", "127.0.0.1:8792"), filepath.Dir(statePath)); err != nil {
 			log.Fatalf("computer listener: %v", err)

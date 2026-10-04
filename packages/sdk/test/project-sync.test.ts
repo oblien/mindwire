@@ -17,7 +17,7 @@ class SyncWorkspace {
   dropImport = false;
   offline = false;
   status: ProjectSyncOperation["status"] = "succeeded";
-  protocol = 1;
+  protocol = 2;
   readonly client: Mindwire;
   constructor(name: string) {
     this.client = new Mindwire({ target: remote(`http://${name}.invalid`, { token: "sync-fixture" }), fetch: async (url, init) => {
@@ -29,6 +29,9 @@ class SyncWorkspace {
       const id = path.split("/").at(-1)!;
       const response = (v: unknown) => v === undefined ? Response.json({ error: "missing" }, { status: 404 }) : Response.json(v);
       if (path === "/healthz") return response({ ok: true, projectSyncVersion: this.protocol });
+      if (path.endsWith("/preview")) return response({ version: 2, fileCount: 3, bytes: 120, ignoredCount: 2,
+        ignored: [{ path: "node_modules", kind: "directory", included: false }, { path: ".env", kind: "file", included: body.includeIgnored?.includes(".env") ?? false }],
+        includeIgnored: body.includeIgnored ?? [], selectionToken: "a".repeat(64) });
       if (path.endsWith("/exports")) {
         const o: ProjectSyncOperation = { ...body, kind: "export", status: "succeeded", phase: "complete", progress: 1,
           resultCheckpointId: checkpointId, createdAt: stamp, updatedAt: stamp };
@@ -115,8 +118,31 @@ test("conflicts retain their full operation and old daemons fail before export",
   const x = new SyncWorkspace("x"), y = new SyncWorkspace("y"); x.seed(); y.status = "conflicts";
   try { await x.client.workspace.sync.switchTo(y.client.workspace.sync, { id: "conflict", projectId: "source" }); throw new Error("accepted conflict"); }
   catch (e) { expect(e).toBeInstanceOf(ProjectSyncError); expect((e as ProjectSyncError).operation.conflicts?.[0]?.path).toBe("files/app.ts"); }
-  const old = new SyncWorkspace("old"); old.protocol = 0;
+  const old = new SyncWorkspace("old"); old.protocol = 1;
   const count = x.calls.filter(p => p.endsWith("/exports")).length;
   await expect(x.client.workspace.sync.switchTo(old.client.workspace.sync, { id: "old", projectId: "source" })).rejects.toThrow("Update Mindwire");
   expect(x.calls.filter(p => p.endsWith("/exports")).length).toBe(count);
+});
+
+test("reviewing and including ignored files persists the selection through reconnect", async () => {
+  const x = new SyncWorkspace("selected-x"), y = new SyncWorkspace("selected-y"); x.seed(); y.dropImport = true;
+  const preview = await x.client.workspace.sync.preview({ projectId: "source", includeIgnored: [".env"] });
+  expect(preview.ignored.find(p => p.path === ".env")?.included).toBe(true);
+  expect(preview.ignored.find(p => p.path === "node_modules")?.included).toBe(false);
+  expect(x.operations.size).toBe(0);
+  const request = { id: "selected", projectId: "source", path: "/project", includeIgnored: [".env"], selectionToken: preview.selectionToken };
+  await expect(x.client.workspace.sync.switchTo(y.client.workspace.sync, request)).rejects.toThrow();
+  expect(x.operations.get("selected-export")?.includeIgnored).toEqual([".env"]);
+  expect(x.operations.get("selected-export")?.selectionToken).toBe(preview.selectionToken);
+  x.offline = true;
+  await expect(x.client.workspace.sync.switchTo(y.client.workspace.sync, { ...request, includeIgnored: [] })).rejects.toThrow("file selection");
+  expect((await x.client.workspace.sync.switchTo(y.client.workspace.sync, request)).status).toBe("succeeded");
+  expect(y.importCommits).toBe(1);
+});
+
+test("low-level preview and export refuse a service that would copy ignored dependencies", async () => {
+  const old = new SyncWorkspace("legacy-source"); old.protocol = 1;
+  await expect(old.client.workspace.sync.preview({ projectId: "source" })).rejects.toThrow("Update Mindwire");
+  await expect(old.client.workspace.sync.export({ id: "legacy", projectId: "source", includeIgnored: [] })).rejects.toThrow("Update Mindwire");
+  expect(old.operations.size).toBe(0);
 });

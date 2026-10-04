@@ -45,6 +45,9 @@ func (s *Service) Bind(binding Binding, credentials Credentials) error {
 	}
 	s.operation.Lock()
 	defer s.operation.Unlock()
+	if s.macFactory != nil {
+		return problem("invalid_binding", "This computer uses local Mac desktop setup. Run mindwire desktop on the Mac.")
+	}
 	s.mu.Lock()
 	previous := s.provider
 	old, ok := previous.(*Oblien)

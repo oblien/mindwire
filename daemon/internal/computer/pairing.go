@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"maps"
 	"net"
 	"net/http"
@@ -99,25 +100,38 @@ type Offer struct {
 }
 
 type Server struct {
-	mu              sync.Mutex
-	path            string
-	state           state
-	signer          ssh.Signer
-	offers          map[string]*Offer
-	connections     map[*ssh.ServerConn]string
-	limit           chan struct{}
-	apiAddress      string
-	apiToken        string
-	sshListener     net.Listener
-	wsListener      net.Listener
-	wsServer        *http.Server
-	closed          bool
-	registryID      string
-	forwards        map[string]*portForward
-	discoveryWake   chan struct{}
-	discoveryCancel context.CancelFunc
-	discoveryDone   chan struct{}
-	discoveryError  string
+	mu               sync.Mutex
+	path             string
+	state            state
+	signer           ssh.Signer
+	offers           map[string]*Offer
+	connections      map[*ssh.ServerConn]string
+	limit            chan struct{}
+	apiAddress       string
+	apiToken         string
+	sshListener      net.Listener
+	wsListener       net.Listener
+	wsServer         *http.Server
+	closed           bool
+	registryID       string
+	forwards         map[string]*portForward
+	discoveryWake    chan struct{}
+	discoveryCancel  context.CancelFunc
+	discoveryDone    chan struct{}
+	discoveryError   string
+	desktopPort      int
+	desktopAuthorize func(string) error
+	desktopViewer    func(context.Context, string, io.ReadWriteCloser) error
+}
+
+// Desktop uses a virtual direct-tcpip destination on the existing SSH server.
+// The surface service owns authentication, session lifetime and input control.
+func (s *Server) SetDesktopViewer(port int, authorize func(string) error, viewer func(context.Context, string, io.ReadWriteCloser) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.desktopPort = port
+	s.desktopAuthorize = authorize
+	s.desktopViewer = viewer
 }
 
 func randomID(n int) string {

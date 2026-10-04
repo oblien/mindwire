@@ -11,6 +11,7 @@ clients do not infer support from the app version.
 | --- | --- |
 | Workspace existence, power, execution targets | Oblien |
 | Desktop support, enablement, availability and expiring SSH grants | Oblien image/runtime desktop API |
+| Personal Mac desktop opt-in and local account login | Owner through `mindwire desktop` on the Mac |
 | Sessions, current controller, approval and input receipts | Mindwire's workspace surface service |
 | Agent execution and permission responses | Existing run/interaction services |
 | Screenshots referenced by chat tools | Workspace artifact store |
@@ -58,10 +59,77 @@ The Go RFB adapter handles standard RFB 3.8 None security results, explicit BGR
 true-color pixels, bounded block decoding, resize notifications and release of held
 keys/buttons. Before pointer input it requests a one-pixel update to reconcile
 display geometry. Captures request the full image and return actual PNG image
-content to the harness.
+content to the harness. Repeated announcements of an unchanged size preserve the
+frame and pointer revision; an actual resize invalidates the old coordinates.
+
+The initial SetPixelFormat must also use network byte order for channel maxima.
+The pinned go-vnc dependency encodes those fields incorrectly during Connect;
+`connectDesktopRFB` corrects that handshake message before sending it. Sending a
+second, correct format afterwards alone is insufficient: TigerVNC immediately
+closes the control connection, while the separate native viewer can keep streaming.
+The same adapter covers cloud input and personal Mac viewer authentication.
 
 Provider contract: [desktop](https://oblien.com/docs/workspace/desktop),
 [macOS](https://oblien.com/docs/workspace/macos).
+
+## Personal Mac desktop
+
+Paired Macs reuse the same surface service, agent tools and native iOS viewer.
+`/healthz.localDesktopVersion >= 1` advertises this provider. It is available when
+`mindwired --computer` runs as the signed-in, non-root Mac account; generic SSH
+servers, containers, Linux and Windows do not advertise personal desktop support.
+
+Desktop access is off by default. On the Mac, run:
+
+```sh
+mindwire desktop          # Status and setup menu
+mindwire desktop enable   # Explicit local approval and guided Mac setup
+mindwire desktop disable  # Close viewers/control and forget the saved Mac login
+mindwire desktop status
+```
+
+The CLI opens System Settings → General → Sharing when needed. Enable Screen
+Sharing for your Mac account and leave password-only VNC access off. The CLI then
+asks privately for that account's password and verifies Apple's native RFB/ARD
+authentication. It stores the login only in the existing private credential store
+on the Mac, bound to that workspace's registry identity. The password is never
+returned by HTTP/SDK status, pairing, chat history or the phone. Failed setup leaves
+the previous configuration intact; identical setup preserves active sessions.
+The owner's explicit opt-in survives service restarts. Disabling Mindwire access
+does not change Apple's Screen Sharing setting.
+
+The app shows `mindwire desktop enable` when setup is missing. Status checks,
+workspace navigation, pairing and reconnect never opt the Mac into screen access.
+Changing local setup requires both normal API authentication and the separate
+`X-Mindwire-Local-Control` credential from `desktop-control.token` (mode 0600).
+This keeps activation out of normal phone flows; an approved phone already has
+account-level command access, so this is not a sandbox boundary against that phone.
+
+The existing paired SSH connection carries a device-bound forward to virtual
+port **8794**, authorized with a live human `desktopSessionId`. There is no new
+Mindwire TCP listener or relay. The Mac authenticates locally to Screen Sharing
+on `127.0.0.1:5900`, then forwards compressed RFB frames without re-encoding them.
+The phone receives None authentication only inside its pinned SSH channel; Mac
+credentials do not cross that channel. Apple's own Screen Sharing listener remains
+governed by macOS sharing/network settings; no public port-forwarding rule is added.
+
+The display stream accepts only bounded viewer requests. Keyboard, pointer,
+clipboard writes and resize/control commands cannot bypass the shared input API.
+Session expiry, device revocation, local disable or replacement closes the display
+channel while preserving other API/terminal clients on the SSH connection. Input
+and agent captures use one separate, locally authenticated RFB connection shared
+by the existing controller service. Clipboard operations use `pbcopy`/`pbpaste`
+only while the daemon's account owns the console, with text passed through stdin.
+
+The native Mac input session has a short startup guard. Taking control waits for
+it before granting the lease; video can stream meanwhile. Cancellation keeps the
+previous controller intact. Mac text uses character keysyms (including capitals
+and symbols), while the QEMU provider retains its physical US-key mapping.
+
+macOS Screen Sharing handles the account/display session. The personal Mac path
+never runs Oblien's automatic login helper or types a password into the desktop.
+Local keyboard/mouse activity and other Screen Sharing applications remain outside
+Mindwire's controller lease.
 
 ## Sessions, permission and input
 
@@ -91,6 +159,11 @@ after dispatch produce `outcome_unknown`: observe the desktop before issuing any
 replacement action. `dispatched` acknowledges VNC/provider delivery, not the remote
 application's final state. Capture to verify the application.
 
+Successful input retains its receipt without broadcasting an unchanged surface
+snapshot for every pointer tick. Geometry, control and failure changes still
+notify viewers. The iOS cursor moves locally at the display refresh rate; its
+network queue coalesces pending motion while preserving clicks and keys in order.
+
 Agent pointer input requires a capture from its own session less than 30 seconds
 old and matching the current geometry. Human pointer input carries the displayed
 geometry revision. Resizing or lost control rejects stale input. New service
@@ -103,7 +176,7 @@ steps to 50 per axis. Human queues are bounded and never replay uncertain input.
 
 Optional protocol-1 capabilities `keyboardText` and `extendedKeys` support native
 mobile keyboards. `textMode: "keyboard"` on a text action sends up to 4096 bytes
-of printable ASCII as physical US keys, without changing the clipboard. Send
+of printable ASCII as keyboard events, without changing the clipboard. Send
 Return/Tab as key actions and Unicode with normal text input. Unsupported modes,
 control characters and oversized batches are rejected before dispatch. Keyboard
 input reuses the live RFB connection without a geometry round-trip; spatial input
@@ -183,7 +256,9 @@ scoped, regardless of `?agent=` or `withAgent()`.
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/surfaces` | Available surface snapshots |
-| GET | `/surfaces/desktop` | Cached current state; `refresh=true` rechecks Oblien |
+| GET | `/surfaces/desktop` | Cached current state; `refresh=true` rechecks the configured provider |
+| GET | `/surfaces/desktop/local` | Safe local Mac setup status |
+| PUT | `/surfaces/desktop/local` | Write-only setup; requires the local CLI control credential |
 | PUT | `/surfaces/desktop/binding` | Write-only scoped provider authorization |
 | GET | `/surfaces/desktop/events` | Current snapshot, then live revisions/heartbeats |
 | POST | `/surfaces/desktop/sessions` | Open view or control session |
@@ -224,6 +299,18 @@ receipt recovery, durable images, MCP image content, saved-history merging, shar
 SDK transport, stream cancellation and native SSH/RFB frame decoding. Simulator
 checks exercise the production NIOSSH bridge and RoyalVNCKit decoder together.
 
+`TestLinuxDesktopInput` uses the disposable TigerVNC/Tk desktop in
+`internal/surface/testdata/linux`. Bind its VNC and state HTTP ports to loopback,
+then set `MINDWIRE_LINUX_VNC_ADDRESS` and `MINDWIRE_LINUX_DESKTOP_STATE`. The test
+requires the fixture's identity before sending any input and verifies actual X11
+clicks, text, pointer motion, keys and scrolling, plus receipt deduplication.
+The synthetic RFB fixture also rejects the first malformed SetPixelFormat so a
+later correction cannot conceal the Linux handshake regression.
+For native iOS integration, additionally set `MINDWIRE_LINUX_NATIVE_FIXTURE_FILE`
+and pass that path as `MINDWIRE_LINUX_NATIVE_FIXTURE` to `LinuxDesktopNativeTests`.
+It exercises the native decoder, local cursor, Direct touch, keyboard input and
+foreground resume against that same Linux window through loopback test endpoints.
+
 Live verification on macOS workspace `163119cc95a4dddc` exercised the signed-in
 physical iPhone's scoped grant and native 1280×800 display, daemon capture/input,
 OS sign-in and a Unicode/multiline clipboard round trip with the prior clipboard
@@ -242,3 +329,20 @@ Opt-in tests: `WorkspaceDesktopLiveTests` on the signed-in iPhone,
 `TestHarnessDesktopMCP` with `MINDWIRE_DESKTOP_HARNESS=claude-code` or `codex`, and
 `CODEX_LOCAL=1 go test ./internal/agent/codex -run '^TestAppServerDesktopMCP$'`.
 Fixtures stay outside source control and must be removed after verification.
+
+Personal Mac coverage includes ARD authentication, local opt-in/disable, restart
+restoration, credential isolation, input receipts, display revocation and actual
+paired SSH forwarding over TCP and WebSocket. `MacDesktopTests` verifies cached and
+coalesced status checks, retry policy and stable contexts across verified address
+changes. `TestNativeMacDesktopFixture` and `MacDesktopNativeTests` combine the paired
+transport, shared controller, RFB proxy and native iOS decoder against a synthetic
+desktop. Set `MINDWIRE_MAC_NATIVE_FIXTURE_FILE` on the Go fixture and pass the same
+file as `MINDWIRE_MAC_DESKTOP_FIXTURE` to the iOS test runner. A live fixture must
+use a separately approved test daemon and a disposable input window.
+
+The integrated personal Mac check passed on 2026-10-02 using the native iOS 26.5
+simulator and a real Mac. It verified pairing, streamed display pixels, a click
+from Apple's Screen Sharing process, exact keyboard text, foreground resume
+without regaining control, and continued API access after the viewer closed.
+The live fixture refuses input outside its focused disposable window. Physical
+iPhone validation of this new provider remains separate from this simulator run.

@@ -54,7 +54,11 @@ export interface ComputerInfo {
   connection?: ComputerConnectionInfo;
   discovery?: ComputerDiscoveryStatus;
 }
-export interface ComputerForwardRequest { id: string; deviceId: string; port: number }
+export interface ComputerForwardRequest {
+  id: string; deviceId: string; port: number;
+  /** A live human surface session is required for the virtual Mac display destination (8794). */
+  desktopSessionId?: string;
+}
 export interface ComputerForward extends ComputerForwardRequest { expiresAt: string }
 /** Available only in computer mode. All calls use the existing authenticated transport. */
 export class ComputerApi {

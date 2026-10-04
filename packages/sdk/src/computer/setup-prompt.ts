@@ -38,7 +38,7 @@ function question(text: string, hidden: boolean): Promise<string> {
       answered = true;
       input.close();
       if (hidden) process.stderr.write("\n");
-      resolve(value.trim());
+      resolve(hidden ? value : value.trim());
     });
   });
 }

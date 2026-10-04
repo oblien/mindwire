@@ -2,11 +2,23 @@
 
 Project synchronization copies a project to another workspace and later brings changes back. It does not move the source. Mindwire owns the checkpoints, merge decisions and recovery journal; clients relay content over their existing authenticated daemon connection.
 
-Version 1 supports macOS and Linux workspaces, plain project folders and standalone Git repositories. Native conversation adapters support Codex and Claude Code. Other harnesses fail explicitly when their project contains conversations that cannot be exported.
+Version 2 supports macOS and Linux workspaces, plain project folders and standalone Git repositories. Native conversation adapters support Codex and Claude Code. Other harnesses fail explicitly when their project contains conversations that cannot be exported.
+
+## File selection
+
+Git ignored files are excluded by default. Git itself resolves `.gitignore`, nested rules, negations, `.git/info/exclude`, global excludes and tracked exceptions. Tracked files and non-ignored untracked work are always included. Plain folders use the same rules through a disposable Git directory; Mindwire never initializes the source folder. Git must be installed.
+
+`POST /workspace/sync/preview` accepts `{projectId, includeIgnored?, cursor?}`. It returns the selected working-file count/bytes, a `selectionToken`, and up to 200 ignored files/folders per page (`next` is the next cursor). Excluded directories are pruned before traversing or hashing their contents, so a 12 GB ignored `node_modules` does not get read for a size estimate. Git history and chat data are additional to the working-file estimate.
+
+`includeIgnored` is an array of literal project-relative file/folder paths, such as `.env` or `cache/fixtures`. Selecting a folder includes its descendants; selecting a child leaves siblings excluded. Pass the reviewed `selectionToken` to the export request to stop before reading files if the ignore scope or tracked paths changed. Persist both selection and token with the operation ID. A changed review requires a new review/new operation; a transfer interrupted after accepting its checkpoint reuses the original operation.
+
+Exclusions are explicit checkpoint metadata, never deletions. Source and destination caches/configuration stay on their own machines when excluded, including on return and when ignore rules change. Explicitly re-including independently edited files produces a conflict. Historical checkpoints are filtered as well, so older full snapshots cannot reintroduce excluded payloads during relay. Their original merge identities and full local recovery copies are retained. Previously committed content remains part of Git history.
+
+No dependency installation or project scripts run automatically. Install dependencies on the destination using the project's lockfile when needed. There is no new transfer service or rsync requirement: the authenticated chunk relay already skips content present at the destination.
 
 ## Safety contract
 
-- Export reads source project files and native transcripts without modifying them. Only Mindwire's own logical IDs and checkpoint metadata are added.
+- Export reads selected source project files and native transcripts without modifying them. Only Mindwire's own logical IDs and checkpoint metadata are added.
 - Import captures the destination before merging. A common checkpoint is the base for X → Y → X and repeated switches.
 - Independent files and new conversations are retained. Compatible text edits are merged. Independent edits to the same lines, binary changes, staged changes, Git references or divergent continuations of the same native conversation produce a conflict before any destination write.
 - Conversation deletion stays local; synchronization does not erase the other workspace's chat history. Intentional file deletion is applied only when the destination still matches the shared base. Recovery checkpoints retain the prior content.
@@ -18,7 +30,7 @@ External applications do not participate in Mindwire's lock. Save work and close
 
 ## Transferred data
 
-The project tree includes uncommitted/untracked/ignored files, executable modes, directories and symlinks. Git bundles carry reachable refs and unpushed commits; a separate manifest preserves staging independently of working-tree content. No checkout, hard reset, clean, user Git hooks or filters run during import. Existing destination Git configuration stays local; credentials are not copied.
+The selected project tree includes uncommitted/untracked files, explicitly included ignored files, executable modes, directories and symlinks. Git bundles carry reachable refs and unpushed commits; a separate manifest preserves staging independently of working-tree content. No checkout, hard reset, clean, user Git hooks or filters run during import. Existing destination Git configuration stays local; credentials are not copied.
 
 Each selected chat keeps its logical identity, native session ID, title, rich recorded messages, completed runs, images and attachments. Workspace-local project/chat IDs remain distinct so mobile caches cannot collide.
 
@@ -30,11 +42,12 @@ Neither adapter overwrites a whole native home or a database containing unrelate
 
 ## Protocol
 
-`GET /healthz` advertises `projectSyncVersion: 1` on supported hosts. Check it on both ends. All routes use ordinary daemon authentication:
+`GET /healthz` advertises `projectSyncVersion: 2` on supported hosts. Check it on both ends before starting a new switch; older services must not silently ignore file-selection options. Version 1 checkpoints remain readable for recovery and filtered history. All routes use ordinary daemon authentication:
 
 | Route | Purpose |
 | --- | --- |
-| `POST /workspace/sync/exports` | `{id, projectId}` starts an immutable source checkpoint |
+| `POST /workspace/sync/preview` | `{projectId, includeIgnored?, cursor?}` reviews working files and ignored paths |
+| `POST /workspace/sync/exports` | `{id, projectId, includeIgnored?, selectionToken?}` starts an immutable selected source checkpoint |
 | `POST /workspace/sync/imports` | `{id, checkpointId, path?}` imports or merges the preserved replica |
 | `GET /workspace/sync/operations[/{id}]` | List operations or reconcile a durable job |
 | `POST /workspace/sync/operations/{id}/retry` | Resume a failed comparison or protected journal |
@@ -56,7 +69,7 @@ Go exposes `client.Workspace.Sync`; TypeScript exposes `client.workspace.sync`. 
 - File/folder type replacements require resolution before import. File/symlink replacement is atomic. Case/Unicode aliasing paths and special files are rejected. Symlink targets outside the project remain external.
 - The cap is 250,000 entries and a 64 MiB manifest/recorded-chat payload. Native JSONL files and normal project files stream in chunks; independent text merging is limited to 8 MiB per file. Larger conflicting files stay as conflicts.
 - Reflog-only and unreachable Git objects, global native preferences/credentials and global consolidated memory caches remain on the original machine; this is not a whole-home backup. Saved stashes require applying/committing them first, so their code cannot be silently omitted.
-- Checkpoints and recovery objects are retained; there is no automatic history pruning in version 1. Free disk space and retry if a transfer cannot complete.
+- Checkpoints and recovery objects are retained; there is no automatic history pruning. Free disk space and retry if a transfer cannot complete.
 
 ## Verification
 
@@ -68,6 +81,6 @@ Real native CLI integration, using disposable homes and local model fixtures (no
 CODEX_LOCAL=1 CLAUDE_LOCAL=1 go test ./internal/api -run '^TestProjectSyncNative' -count=1
 ```
 
-The tests exercise native CLI X → authenticated HTTP sync → daemon-resumed tools/file creation in Y → HTTP sync back → native CLI resume in X. They assert source preservation, retained independent code, native context, tool-card history and lost-ack idempotency. Core tests cover Git staging/unpushed commits, memory, attachments, divergent histories, schema incompatibility and restart recovery.
+The tests exercise native CLI X → authenticated HTTP sync → daemon-resumed tools/file creation in Y → HTTP sync back → native CLI resume in X. They assert source preservation, ignored-file exclusion, retained independent code, native context, tool-card history and lost-ack idempotency. Core tests cover 12 GB sparse ignored dependencies, preview scope changes, selected ignored files, nested/negated/tracked rules, filtered legacy history, Git staging/unpushed commits, memory, attachments, divergent histories, schema incompatibility and restart recovery.
 
 TS relay tests live in `packages/sdk/test/project-sync.test.ts`. The iOS coordinator/transport tests in `ProjectSyncTests` cover app relaunch, partial transfer, source-offline completion, registry replacement, conflict handling and selected-copy caching.

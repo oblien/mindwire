@@ -1129,6 +1129,8 @@ export interface NotifyChannelTestResult {
 export interface Health {
   historyPageVersion?: number;
   surfaceProtocolVersion?: number;
+  /** Opt-in Mac Screen Sharing through the existing paired SSH connection. */
+  localDesktopVersion?: number;
   /** Workspace registry protocol version; absent on daemons predating workspace metadata. */
   workspaceMetadataVersion?: number;
   /** Durable project creation/clone operations; absent on older daemons. */

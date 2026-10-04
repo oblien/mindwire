@@ -314,6 +314,15 @@ func nativeSyncRoundTrip(t *testing.T, harness, flag string) {
 			t.Fatalf("native %s: %v\n%s", harness, err, out)
 		}
 	}
+	for name, data := range map[string]string{".gitignore": "node_modules/\n.env\n", ".env": "source-only configuration", "node_modules/cache.bin": "local dependency cache"} {
+		path := filepath.Join(x.cwd, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	cli(x, "", 1)
 	var original registry.Snapshot
 	syncHTTP(t, x, "PUT", "/workspace/projects/x", map[string]any{"record": registry.Project{Record: registry.Record{ID: "x"}, Name: "Native project", Path: x.cwd}}, &original)
@@ -321,6 +330,11 @@ func nativeSyncRoundTrip(t *testing.T, harness, flag string) {
 		t.Fatalf("native chat missing: %+v", original)
 	}
 	chat := original.Chats[0]
+	var preview projectsync.Preview
+	syncHTTP(t, x, "POST", "/workspace/sync/preview", projectsync.PreviewRequest{ProjectID: "x"}, &preview)
+	if preview.Version != 2 || preview.IgnoredCount != 2 {
+		t.Fatalf("native project selection: %+v", preview)
+	}
 	nativeHome := func(w *syncNativeWorkspace) string {
 		if harness == "codex" {
 			return w.codex
@@ -329,13 +343,18 @@ func nativeSyncRoundTrip(t *testing.T, harness, flag string) {
 	}
 	beforeFiles, beforeNative := syncTreeDigest(t, x.cwd, false), syncTreeDigest(t, nativeHome(x), true)
 	var exported projectsync.Operation
-	syncHTTP(t, x, "POST", "/workspace/sync/exports", projectsync.Request{ID: "x-export", ProjectID: "x"}, &exported)
+	syncHTTP(t, x, "POST", "/workspace/sync/exports", projectsync.Request{ID: "x-export", ProjectID: "x", SelectionToken: preview.SelectionToken}, &exported)
 	exported = syncWaitHTTP(t, x, exported)
 	activate(y)
 	syncRelayHTTP(t, x, y, exported.ResultCheckpointID)
 	var imported projectsync.Operation
 	syncHTTP(t, y, "POST", "/workspace/sync/imports", projectsync.Request{ID: "y-import", CheckpointID: exported.ResultCheckpointID, Path: y.cwd}, &imported)
 	imported = syncWaitHTTP(t, y, imported)
+	for _, name := range []string{".env", "node_modules/cache.bin"} {
+		if _, err := os.Stat(filepath.Join(y.cwd, name)); !os.IsNotExist(err) {
+			t.Fatal("copied ignored native project content", name, err)
+		}
+	}
 	if beforeFiles != syncTreeDigest(t, x.cwd, false) || beforeNative != syncTreeDigest(t, nativeHome(x), true) {
 		t.Fatal("source files or transcripts changed while switching")
 	}

@@ -32,12 +32,18 @@ func choose[T any](base, local, incoming T) (T, bool) {
 	return local, false
 }
 
-func (s *Service) commonAncestor(local, incoming string) (string, error) {
+func (s *Service) commonAncestor(local, incoming string) (Manifest, error) {
 	if local == "" {
-		return "", nil
+		return Manifest{Version: Version, Entries: map[string]Entry{}, Chats: map[string]Chat{}}, nil
 	}
-	walk := func(start string) (map[string]int, error) {
-		seen := map[string]int{}
+	type ancestor struct {
+		id       string
+		depth    int
+		manifest Manifest
+	}
+	walk := func(start string) (map[string]ancestor, error) {
+		seen := map[string]int{start: 0}
+		lineage := map[string]ancestor{}
 		queue := []string{start}
 		for len(queue) > 0 {
 			next := queue[0]
@@ -46,6 +52,14 @@ func (s *Service) commonAncestor(local, incoming string) (string, error) {
 			m, err := s.manifest(next)
 			if err != nil {
 				return nil, err
+			}
+			for _, key := range []string{next, m.Origin} {
+				if key == "" {
+					continue
+				}
+				if old, ok := lineage[key]; !ok || depth < old.depth {
+					lineage[key] = ancestor{next, depth, m}
+				}
 			}
 			for _, p := range m.Parents {
 				if _, ok := seen[p]; !ok {
@@ -57,25 +71,30 @@ func (s *Service) commonAncestor(local, incoming string) (string, error) {
 				return nil, invalid("checkpoint history is too large")
 			}
 		}
-		seen[start] = 0
-		return seen, nil
+		return lineage, nil
 	}
 	a, err := walk(local)
 	if err != nil {
-		return "", err
+		return Manifest{}, err
 	}
 	b, err := walk(incoming)
 	if err != nil {
-		return "", err
+		return Manifest{}, err
 	}
 	best := ""
 	distance := int(^uint(0) >> 1)
 	for id, ad := range a {
-		if bd, ok := b[id]; ok && (ad+bd < distance || ad+bd == distance && id < best) {
-			best, distance = id, ad+bd
+		if bd, ok := b[id]; ok && (ad.depth+bd.depth < distance || ad.depth+bd.depth == distance && id < best) {
+			best, distance = id, ad.depth+bd.depth
 		}
 	}
-	return best, nil
+	if best == "" {
+		return Manifest{Version: Version, Entries: map[string]Entry{}, Chats: map[string]Chat{}}, nil
+	}
+	if a[best].id == b[best].id {
+		return b[best].manifest, nil
+	}
+	return sharedBase(a[best].manifest, b[best].manifest)
 }
 
 func (s *Service) mergeEntry(ctx context.Context, key string, base, local, incoming *Entry) (*Entry, bool, error) {
@@ -240,6 +259,9 @@ func (s *Service) merge(ctx context.Context, base, local, incoming Manifest) (Ma
 	out.CreatedAt = now()
 	out.Entries = map[string]Entry{}
 	out.Chats = map[string]Chat{}
+	out.Excluded = mask(append(append([]string{}, local.Excluded...), incoming.Excluded...)).roots()
+	omitted := mask(out.Excluded)
+	unknownBase := mask(base.Excluded)
 	conflicts := []Conflict{}
 	conflict := func(path, kind, message string) { conflicts = append(conflicts, Conflict{path, kind, message}) }
 	if len(incoming.Artifacts) > 0 && out.Artifacts == nil {
@@ -260,6 +282,15 @@ func (s *Service) merge(ctx context.Context, base, local, incoming Manifest) (Ma
 	}
 	for key := range keys {
 		b, l, r := entry(base.Entries, key), entry(local.Entries, key), entry(incoming.Entries, key)
+		if strings.HasPrefix(key, "files/") {
+			path := strings.TrimPrefix(key, "files/")
+			if omitted.covers(path) {
+				continue
+			}
+			if unknownBase.covers(path) {
+				b = nil
+			}
+		}
 		// Chat deletion is local. Sync never erases the other copy's history.
 		if !strings.HasPrefix(key, "files/") && r == nil {
 			r = b

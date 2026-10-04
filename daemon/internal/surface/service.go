@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -33,21 +34,23 @@ type sessionState struct {
 	lastSeen   time.Time
 }
 type Service struct {
-	mu        sync.Mutex
-	operation sync.Mutex
-	db        *registry.Store
-	artifacts *artifact.Store
-	provider  Provider
-	snapshot  Snapshot
-	sessions  map[string]*sessionState
-	openIDs   map[string]string
-	changed   chan struct{}
-	stop      chan struct{}
-	closeOnce sync.Once
-	approval  Approval
-	now       func() time.Time
-	ipc       *runIPC
-	lastPrune time.Time
+	mu         sync.Mutex
+	operation  sync.Mutex
+	db         *registry.Store
+	artifacts  *artifact.Store
+	provider   Provider
+	snapshot   Snapshot
+	sessions   map[string]*sessionState
+	openIDs    map[string]string
+	changed    chan struct{}
+	stop       chan struct{}
+	closeOnce  sync.Once
+	approval   Approval
+	now        func() time.Time
+	ipc        *runIPC
+	lastPrune  time.Time
+	macFactory func(LocalDesktopSettings) (*MacDesktop, error)
+	viewers    map[string]io.ReadWriteCloser
 }
 
 func New(db *registry.Store) (*Service, error) {
@@ -56,7 +59,7 @@ func New(db *registry.Store) (*Service, error) {
 		return nil, err
 	}
 	s := &Service{db: db, artifacts: artifacts, sessions: map[string]*sessionState{},
-		openIDs: map[string]string{}, changed: make(chan struct{}), stop: make(chan struct{}), now: time.Now}
+		openIDs: map[string]string{}, viewers: map[string]io.ReadWriteCloser{}, changed: make(chan struct{}), stop: make(chan struct{}), now: time.Now}
 	s.snapshot = Snapshot{ID: DesktopID, WorkspaceID: db.Identity(), Kind: "desktop", Provider: "oblien",
 		Version: Version, InstanceID: newID(), State: "not_configured"}
 	if err := s.pruneRecords(); err != nil {
@@ -117,6 +120,13 @@ func (s *Service) Snapshot() Snapshot {
 func (s *Service) Configure(p Provider) error {
 	s.operation.Lock()
 	defer s.operation.Unlock()
+	s.configureProvider(p)
+	return nil
+}
+
+// Caller holds operation. Binding refreshes continue using their existing path
+// so renewing an Oblien grant does not revoke the current controller.
+func (s *Service) configureProvider(p Provider) {
 	s.mu.Lock()
 	old := s.provider
 	s.provider = p
@@ -131,7 +141,15 @@ func (s *Service) Configure(p Provider) error {
 	s.snapshot.State = "disconnected"
 	s.snapshot.Error = nil
 	expires := p.ExpiresAt()
-	s.snapshot.AuthorizationExpiresAt = &expires
+	s.snapshot.AuthorizationExpiresAt = nil
+	if !expires.IsZero() {
+		s.snapshot.AuthorizationExpiresAt = &expires
+	}
+	if _, ok := p.(*MacDesktop); ok {
+		s.snapshot.Provider = "macos"
+	} else {
+		s.snapshot.Provider = "oblien"
+	}
 	s.signalLocked()
 	s.mu.Unlock()
 	if old != nil {
@@ -140,7 +158,6 @@ func (s *Service) Configure(p Provider) error {
 		cancel()
 		_ = old.Close()
 	}
-	return nil
 }
 
 func (s *Service) Refresh(ctx context.Context) (Snapshot, error) {
@@ -162,6 +179,8 @@ func (s *Service) Refresh(ctx context.Context) (Snapshot, error) {
 		switch {
 		case !status.Supported:
 			s.snapshot.State = "unsupported"
+		case status.Setup != nil:
+			s.snapshot.State = "needs_setup"
 		case !status.Enabled:
 			s.snapshot.State = "disabled"
 		case !status.Available:
@@ -386,6 +405,19 @@ func (s *Service) Control(ctx context.Context, id string, actor Actor, req Contr
 		if current != nil && current.SessionID != id && req.Action != "takeover" {
 			s.mu.Unlock()
 			return Session{}, problem("control_busy", "Another session controls the desktop. Wait for it to release control.")
+		}
+		// A native display may stream before its input session is ready. Finish
+		// preparation before granting control, keeping the viewer/heartbeats live
+		// and leaving the previous controller intact if preparation is cancelled.
+		if preparer, ok := s.provider.(interface{ PrepareControl(context.Context) error }); ok {
+			s.mu.Unlock()
+			err := preparer.PrepareControl(ctx)
+			s.mu.Lock()
+			if err != nil {
+				s.mu.Unlock()
+				return Session{}, err
+			}
+			now = s.now()
 		}
 		if current != nil && current.SessionID != id {
 			if previous := s.sessions[current.SessionID]; previous != nil {
@@ -627,8 +659,10 @@ func (s *Service) Apply(ctx context.Context, actor Actor, req ActionRequest) (Re
 	s.mu.Lock()
 	if err != nil {
 		s.failLocked(err)
+		s.signalLocked()
 	}
-	s.signalLocked()
+	// A successful input already has its durable receipt. Its unchanged status
+	// need not wake every viewer and re-render their controls for each mouse move.
 	s.mu.Unlock()
 	out := rec.Receipt
 	out.Text = text
@@ -801,7 +835,7 @@ func ErrorResponse(err error) (*Error, int) {
 	detail := asError(err)
 	status := 503
 	switch detail.Code {
-	case "invalid_request", "invalid_binding", "display_limit":
+	case "invalid_request", "invalid_binding", "display_limit", "desktop_credentials":
 		status = 400
 	case "forbidden", "denied":
 		status = 403
@@ -809,7 +843,7 @@ func ErrorResponse(err error) (*Error, int) {
 		status = 404
 	case "control_lost", "control_busy", "control_taken", "request_conflict", "workspace_mismatch", "stale_frame", "approval_pending":
 		status = 409
-	case "needs_authorization", "disabled", "preparing", "approval_required":
+	case "needs_authorization", "disabled", "preparing", "approval_required", "desktop_setup_required", "screen_sharing_off", "desktop_authentication", "desktop_auth_protocol":
 		status = 428
 	case "session_limit", "receipt_limit":
 		status = 429

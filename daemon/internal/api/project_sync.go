@@ -30,6 +30,22 @@ func (a *API) requireProjectSync(w http.ResponseWriter) bool {
 func (a *API) projectSyncExport(w http.ResponseWriter, r *http.Request) {
 	a.projectSyncStart(w, r, "export")
 }
+func (a *API) projectSyncPreview(w http.ResponseWriter, r *http.Request) {
+	if !a.requireProjectSync(w) {
+		return
+	}
+	var req projectsync.PreviewRequest
+	if err := decode(w, r, &req); err != nil {
+		badRequest(w, "invalid project file selection")
+		return
+	}
+	preview, err := a.projectSync.Preview(r.Context(), req)
+	if err != nil {
+		workspaceError(w, err)
+		return
+	}
+	writeJSON(w, 200, preview)
+}
 func (a *API) projectSyncImport(w http.ResponseWriter, r *http.Request) {
 	a.projectSyncStart(w, r, "import")
 }

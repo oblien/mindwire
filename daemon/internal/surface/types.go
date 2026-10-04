@@ -11,6 +11,11 @@ import (
 const Version = 1
 const DesktopID = "desktop"
 const MaxTextBytes = 1 << 20
+const LocalDesktopVersion = 1
+
+// DesktopPort is virtual: the paired SSH server handles it without opening a
+// TCP listener. A device-bound grant and a live human view session are required.
+const DesktopPort = 8794
 
 type Error struct {
 	Code    string `json:"code"`
@@ -33,12 +38,18 @@ type Capabilities struct {
 }
 
 type ProviderStatus struct {
-	Supported    bool         `json:"supported"`
-	Enabled      bool         `json:"enabled"`
-	Available    bool         `json:"available"`
-	Credentials  bool         `json:"credentials"`
-	OS           string       `json:"os,omitempty"`
-	Capabilities Capabilities `json:"capabilities"`
+	Supported    bool          `json:"supported"`
+	Enabled      bool          `json:"enabled"`
+	Available    bool          `json:"available"`
+	Credentials  bool          `json:"credentials"`
+	OS           string        `json:"os,omitempty"`
+	Capabilities Capabilities  `json:"capabilities"`
+	Setup        *DesktopSetup `json:"setup,omitempty"`
+}
+
+type DesktopSetup struct {
+	Reason  string `json:"reason"`
+	Command string `json:"command"`
 }
 
 type Geometry struct {

@@ -1,7 +1,10 @@
 package api
 
 import (
+	"context"
+	"crypto/subtle"
 	"encoding/json"
+	"io"
 	"net/http"
 	"time"
 
@@ -9,6 +12,68 @@ import (
 )
 
 var desktopUser = surface.Actor{Kind: "user", Name: "You"}
+
+func (a *API) EnableLocalDesktop(controlToken string) error {
+	if a.surfaces == nil || controlToken == "" {
+		return &surface.Error{Code: "unsupported", Message: "Local desktop control is unavailable."}
+	}
+	if err := a.surfaces.EnableLocalDesktop(a.store); err != nil {
+		return err
+	}
+	a.localDesktopControlToken = controlToken
+	_, err := a.surfaces.Refresh(context.Background())
+	return err
+}
+
+func (a *API) AuthorizeDesktopViewer(sessionID string) error {
+	if a.surfaces == nil {
+		return &surface.Error{Code: "unsupported", Message: "Desktop control is unavailable."}
+	}
+	return a.surfaces.AuthorizeViewer(sessionID)
+}
+func (a *API) ServeDesktopViewer(ctx context.Context, sessionID string, stream io.ReadWriteCloser) error {
+	if a.surfaces == nil {
+		return &surface.Error{Code: "unsupported", Message: "Desktop control is unavailable."}
+	}
+	return a.surfaces.ServeViewer(ctx, sessionID, stream)
+}
+
+func (a *API) surfaceLocalInfo(w http.ResponseWriter, r *http.Request) {
+	s := a.desktop(w)
+	if s == nil {
+		return
+	}
+	info, err := s.LocalDesktopInfo(r.Context())
+	if err != nil {
+		surfaceError(w, err)
+		return
+	}
+	writeJSON(w, 200, info)
+}
+
+func (a *API) surfaceLocalConfigure(w http.ResponseWriter, r *http.Request) {
+	// Pairing credentials alone cannot opt a computer into desktop access. The
+	// local CLI reads this separate 0600 token; it is never sent to a phone.
+	if a.localDesktopControlToken == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Mindwire-Local-Control")), []byte(a.localDesktopControlToken)) != 1 {
+		surfaceError(w, &surface.Error{Code: "forbidden", Message: "Run mindwire desktop on this Mac to manage desktop access."})
+		return
+	}
+	s := a.desktop(w)
+	if s == nil {
+		return
+	}
+	var settings surface.LocalDesktopSettings
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&settings); err != nil {
+		surfaceError(w, &surface.Error{Code: "invalid_request", Message: "Invalid desktop setup request."})
+		return
+	}
+	value, err := s.ConfigureLocalDesktop(r.Context(), settings, a.store)
+	if err != nil {
+		surfaceError(w, err)
+		return
+	}
+	writeJSON(w, 200, value)
+}
 
 func surfaceError(w http.ResponseWriter, err error) {
 	detail, status := surface.ErrorResponse(err)

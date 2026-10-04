@@ -26,6 +26,32 @@ export interface ProjectSyncRequest {
   checkpointId?: string;
   /** Only needed on first import; subsequent imports find the preserved replica. */
   path?: string;
+  /** Literal project-relative ignored files/folders to include. Default: respect Git ignores. */
+  includeIgnored?: string[];
+  /** Preview scope token. Re-review if ignore rules or tracked paths change. */
+  selectionToken?: string;
+}
+
+export interface ProjectSyncPreviewRequest {
+  projectId: string;
+  includeIgnored?: string[];
+  cursor?: number;
+}
+export interface ProjectSyncIgnoredPath {
+  path: string;
+  kind: "file" | "directory";
+  included: boolean;
+}
+export interface ProjectSyncPreview {
+  version: number;
+  fileCount: number;
+  /** Selected working-file bytes; Git history and conversations are additional. */
+  bytes: number;
+  ignoredCount: number;
+  ignored: ProjectSyncIgnoredPath[];
+  includeIgnored: string[];
+  next?: number;
+  selectionToken: string;
 }
 
 export interface ProjectSyncConflict {
@@ -67,6 +93,19 @@ const active = (o: ProjectSyncOperation): boolean => ["queued", "exporting", "pr
 const prefix = "/workspace/sync";
 type Options = { signal?: AbortSignal };
 
+const selectionPaths = (paths: string[] = []): string[] => {
+  const sorted = [...new Set(paths.map(path => path.replace(/\/$/, "")))].sort();
+  const selected = new Set(sorted);
+  return sorted.filter(path => {
+    let parent = path;
+    while (parent.includes("/")) {
+      parent = parent.slice(0, parent.lastIndexOf("/"));
+      if (selected.has(parent)) return false;
+    }
+    return true;
+  });
+};
+
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
@@ -85,7 +124,16 @@ export class ProjectSyncApi {
   private readonly flights = new Map<string, { intent: string; target: ProjectSyncApi; result: Promise<ProjectSyncOperation> }>();
   constructor(private readonly mw: Mindwire) {}
 
-  export(request: ProjectSyncRequest, options: Options = {}): Promise<ProjectSyncOperation> {
+  private async requireSelectionSupport(): Promise<void> {
+    if (((await this.mw.health()).projectSyncVersion ?? 0) < 2)
+      throw new MindwireError("Update Mindwire on both workspaces to review and switch selected project files.");
+  }
+  async preview(request: ProjectSyncPreviewRequest, options: Options = {}): Promise<ProjectSyncPreview> {
+    await this.requireSelectionSupport();
+    return this.mw.http.request("POST", `${prefix}/preview`, { body: request, ...options });
+  }
+  async export(request: ProjectSyncRequest, options: Options = {}): Promise<ProjectSyncOperation> {
+    await this.requireSelectionSupport();
     return this.mw.http.request("POST", `${prefix}/exports`, { body: request, ...options });
   }
   import(request: ProjectSyncRequest, options: Options = {}): Promise<ProjectSyncOperation> {
@@ -168,8 +216,9 @@ export class ProjectSyncApi {
   /** Safe X → Y and Y → X. Persist request.id until acknowledged. A conflict
    * throws ProjectSyncError carrying the complete conflict/recovery operation.
    */
-  switchTo(target: ProjectSyncApi, request: { id: string; projectId: string; path?: string },
+  switchTo(target: ProjectSyncApi, request: { id: string; projectId: string; path?: string; includeIgnored?: string[]; selectionToken?: string },
     options: Options & { onProgress?: (progress: ProjectSyncProgress) => void } = {}): Promise<ProjectSyncOperation> {
+    request = { ...request, includeIgnored: selectionPaths(request.includeIgnored) };
     const intent = JSON.stringify(request);
     const old = this.flights.get(request.id);
     if (old) {
@@ -184,23 +233,26 @@ export class ProjectSyncApi {
       try { accepted = await target.get(`${request.id}-import`, options); }
       catch (error) { if (!(error instanceof ApiError) || error.status !== 404) throw error; }
       if (accepted) {
-        if ((accepted.path ?? "") !== (request.path ?? "")) throw new MindwireError("This sync ID belongs to a different destination folder.");
+        if ((accepted.path ?? "") !== (request.path ?? "")
+          || (accepted.selectionToken ?? "") !== (request.selectionToken ?? "")
+          || JSON.stringify(selectionPaths(accepted.includeIgnored)) !== JSON.stringify(request.includeIgnored))
+          throw new MindwireError("This sync ID belongs to a different destination folder or file selection.");
         const operation = await target.wait(accepted.id, { signal: options.signal,
           onUpdate: operation => options.onProgress?.({ phase: "apply", transferredBytes: 0, operation }) });
         if (operation.status !== "succeeded") throw new ProjectSyncError(operation);
         return operation;
       }
       const health = await Promise.all([this.mw.health(), target.mw.health()]);
-      if (health.some(h => (h.projectSyncVersion ?? 0) < 1)) throw new MindwireError("Update Mindwire on both workspaces to switch this project.");
+      if (health.some(h => (h.projectSyncVersion ?? 0) < 2)) throw new MindwireError("Update Mindwire on both workspaces to review and switch selected project files.");
       let bytes = 0;
       const emit = (phase: ProjectSyncProgress["phase"], operation?: ProjectSyncOperation) => options.onProgress?.({ phase, transferredBytes: bytes, operation });
       emit("checkpoint");
-      let o = await this.export({ id: `${request.id}-export`, projectId: request.projectId }, options);
+      let o = await this.export({ id: `${request.id}-export`, projectId: request.projectId, includeIgnored: request.includeIgnored, selectionToken: request.selectionToken }, options);
       o = await this.wait(o.id, { signal: options.signal, onUpdate: value => emit("checkpoint", value) });
       if (o.status !== "succeeded" || !o.resultCheckpointId) throw new ProjectSyncError(o);
       emit("transfer");
       await this.relayCheckpoint(target, o.resultCheckpointId, { signal: options.signal, onBytes: n => { bytes += n; emit("transfer"); } });
-      o = await target.import({ id: `${request.id}-import`, checkpointId: o.resultCheckpointId, path: request.path }, options);
+      o = await target.import({ id: `${request.id}-import`, checkpointId: o.resultCheckpointId, path: request.path, includeIgnored: request.includeIgnored, selectionToken: request.selectionToken }, options);
       o = await target.wait(o.id, { signal: options.signal, onUpdate: value => emit("apply", value) });
       if (o.status !== "succeeded") throw new ProjectSyncError(o);
       return o;

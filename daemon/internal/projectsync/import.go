@@ -109,24 +109,25 @@ func (s *Service) importCheckpoint(ctx context.Context, o *Operation) error {
 	if err = s.save(*o); err != nil {
 		return err
 	}
-	local, err := s.captureProject(ctx, p)
-	if err != nil {
-		return err
-	}
 	var head string
 	if err = s.reg.SyncGet("head", p.SyncID, &head); err != nil && !errors.Is(err, registry.ErrNotFound) {
 		return err
 	}
-	baseID, err := s.commonAncestor(head, o.CheckpointID)
-	if err != nil {
-		return err
-	}
-	base := Manifest{Version: Version, ProjectID: p.SyncID, Entries: map[string]Entry{}, Chats: map[string]Chat{}}
-	if baseID != "" {
-		base, err = s.manifest(baseID)
+	var previous Manifest
+	if head != "" {
+		previous, err = s.manifest(head)
 		if err != nil {
 			return err
 		}
+	}
+	selection := captureSelection{known: previous, incoming: &incoming}
+	local, err := s.captureProject(ctx, p, selection)
+	if err != nil {
+		return err
+	}
+	base, err := s.commonAncestor(head, o.CheckpointID)
+	if err != nil {
+		return err
 	}
 	local.Parents = []string{}
 	if head != "" {
@@ -170,7 +171,7 @@ func (s *Service) importCheckpoint(ctx context.Context, o *Operation) error {
 		return s.save(*o)
 	}
 	// Last full stability check before the write-ahead journal is published.
-	check, err := s.captureProject(ctx, p)
+	check, err := s.captureProject(ctx, p, selection)
 	if err != nil {
 		return err
 	}
@@ -318,11 +319,19 @@ func (s *Service) planWrites(ctx context.Context, cwd string, local, merged Mani
 	}
 	writes := []Write{}
 	conflicts := []Conflict{}
+	omitted := mask(merged.Excluded)
+	protectedParents := omitted.ancestors()
 	for key := range keys {
 		if strings.HasPrefix(key, "records/") {
 			continue
 		}
 		before, after := entry(local.Entries, key), entry(merged.Entries, key)
+		if strings.HasPrefix(key, "files/") {
+			path := strings.TrimPrefix(key, "files/")
+			if omitted.covers(path) || (after == nil && before != nil && before.Kind == "directory" && protectedParents[path]) {
+				continue
+			}
+		}
 		if equal(before, after) {
 			continue
 		}

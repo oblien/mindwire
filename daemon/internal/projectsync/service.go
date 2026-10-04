@@ -136,6 +136,9 @@ func (s *Service) Start(kind string, req Request) (Operation, error) {
 	if kind != "export" && kind != "import" || !agent.ValidNativeSessionID(req.ID) || len(req.ID) > 128 {
 		return Operation{}, invalid("invalid sync request")
 	}
+	if err := validateSelectionRequest(&req); err != nil {
+		return Operation{}, err
+	}
 	if kind == "export" && (req.ProjectID == "" || req.CheckpointID != "") || kind == "import" && (!hashOK(req.CheckpointID) || req.ProjectID != "") {
 		return Operation{}, invalid("select a source project or incoming checkpoint")
 	}
@@ -307,13 +310,34 @@ func (s *Service) export(ctx context.Context, o *Operation) error {
 	if err = s.save(*o); err != nil {
 		return err
 	}
-	m, err := s.captureProject(ctx, *p)
-	if err != nil {
-		return err
-	}
 	var head string
 	if err = s.reg.SyncGet("head", p.SyncID, &head); err != nil && !errors.Is(err, registry.ErrNotFound) {
 		return err
+	}
+	var previous Manifest
+	if head != "" {
+		previous, err = s.manifest(head)
+		if err != nil {
+			return err
+		}
+	}
+	selection := captureSelection{includeIgnored: o.IncludeIgnored, known: previous, token: o.SelectionToken}
+	m, err := s.captureProject(ctx, *p, selection)
+	if err != nil {
+		return err
+	}
+	// Filter historical file payloads too, while retaining their merge identity.
+	// An old full snapshot must not smuggle ignored dependencies into this relay.
+	if head != "" {
+		rules, e := s.selection(ctx, p.Path, o.IncludeIgnored, nil)
+		if e != nil {
+			return e
+		}
+		head, err = s.filteredHistory(ctx, head, rules)
+		rules.cleanup()
+		if err != nil {
+			return err
+		}
 	}
 	m.Parents = []string{}
 	if head != "" {
@@ -321,7 +345,7 @@ func (s *Service) export(ctx context.Context, o *Operation) error {
 	}
 	// Scan again before sealing; an external editor/CLI is not governed by the
 	// daemon's lock. A moving source is retried instead of producing a torn copy.
-	check, err := s.captureProject(ctx, *p)
+	check, err := s.captureProject(ctx, *p, selection)
 	if err != nil {
 		return err
 	}
@@ -360,16 +384,46 @@ func (s *Service) export(ctx context.Context, o *Operation) error {
 }
 
 func sameSnapshot(a, b Manifest) bool {
-	return a.ProjectID == b.ProjectID && a.Name == b.Name && a.RepoURL == b.RepoURL && equal(a.IconPath, b.IconPath) && equal(a.Entries, b.Entries) && equal(a.Chats, b.Chats) && equal(a.Artifacts, b.Artifacts) && gitEqual(a.Git, b.Git)
+	return a.ProjectID == b.ProjectID && a.Name == b.Name && a.RepoURL == b.RepoURL && equal(a.IconPath, b.IconPath) && equal(a.Entries, b.Entries) && equal(a.Excluded, b.Excluded) && equal(a.Chats, b.Chats) && equal(a.Artifacts, b.Artifacts) && gitEqual(a.Git, b.Git)
 }
 
-func (s *Service) captureProject(ctx context.Context, p registry.Project) (Manifest, error) {
+type captureSelection struct {
+	includeIgnored []string
+	known          Manifest
+	incoming       *Manifest
+	token          string
+}
+
+func (s *Service) captureProject(ctx context.Context, p registry.Project, options ...captureSelection) (Manifest, error) {
 	m := Manifest{Version: Version, ProjectID: p.SyncID, Name: p.Name, RepoURL: p.RepoURL, IconPath: p.IconPath, CreatedAt: now(), Parents: []string{}, Chats: map[string]Chat{}}
-	var err error
-	m.Entries, err = s.scanFiles(ctx, p.Path)
+	var option captureSelection
+	if len(options) > 0 {
+		option = options[0]
+	}
+	var exact []string
+	if option.incoming != nil {
+		exact = knownFiles(*option.incoming)
+	}
+	rules, err := s.selection(ctx, p.Path, option.includeIgnored, exact)
 	if err != nil {
 		return m, err
 	}
+	defer rules.cleanup()
+	if option.token != "" && rules.token() != option.token {
+		return m, invalid("Project file selection changed. Review files again before switching workspaces.")
+	}
+	if option.incoming != nil {
+		rules.omitted = mask(option.incoming.Excluded)
+	}
+	m.Entries, m.Excluded, err = s.scanFiles(ctx, p.Path, rules)
+	if err != nil {
+		return m, err
+	}
+	omitted, err := rules.excludedKnown(ctx, option.known)
+	if err != nil {
+		return m, err
+	}
+	m.Excluded = mask(append(append(m.Excluded, omitted...), rules.omitted.roots()...)).roots()
 	m.Git, err = s.captureGit(ctx, p.Path, true)
 	if err != nil {
 		return m, err

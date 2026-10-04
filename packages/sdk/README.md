@@ -23,6 +23,22 @@ npm i mindwire
 
 ## Quick start
 
+To connect this computer to the Mindwire mobile app, install globally and run
+`mindwire connect`. Run `mindwire` for the interactive status and management menu.
+On a Mac, desktop access is a separate opt-in:
+
+```sh
+mindwire desktop enable   # Guided local Screen Sharing approval
+mindwire desktop          # Check setup or update the saved Mac login
+mindwire desktop disable  # Close desktop access and forget its login
+```
+
+The phone uses its existing paired SSH tunnel and never receives the Mac password.
+Opening a workspace or checking status does not enable screen access. See the
+[desktop contract](../../daemon/DESKTOP.md#personal-mac-desktop) for platform support,
+permissions and the shared input protocol. Existing installations need a release
+advertising `health().localDesktopVersion >= 1`.
+
 ```ts
 import { Mindwire } from "mindwire";
 

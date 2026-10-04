@@ -15,7 +15,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/session"
 )
 
-const Version = 1
+const Version = 2
 const ChunkSize = 256 << 10
 const maxManifest = 64 << 20
 const maxEntries = 250000
@@ -71,6 +71,10 @@ type Manifest struct {
 	Chats     map[string]Chat            `json:"chats"`
 	Artifacts map[string]artifact.Record `json:"artifacts,omitempty"`
 	Git       *Git                       `json:"git,omitempty"`
+	// Excluded paths are outside this checkpoint's file scope, never deletions.
+	Excluded []string `json:"excluded,omitempty"`
+	// A filtered historical checkpoint retains its original merge identity.
+	Origin string `json:"origin,omitempty"`
 }
 
 type Checkpoint struct {
@@ -83,10 +87,12 @@ type Checkpoint struct {
 }
 
 type Request struct {
-	ID           string `json:"id"`                     // idempotency key, retained across retries/disconnects
-	ProjectID    string `json:"projectId,omitempty"`    // local project, for export
-	CheckpointID string `json:"checkpointId,omitempty"` // incoming checkpoint, for import
-	Path         string `json:"path,omitempty"`         // needed only when this workspace has no replica
+	ID             string   `json:"id"`                       // idempotency key, retained across retries/disconnects
+	ProjectID      string   `json:"projectId,omitempty"`      // local project, for export
+	CheckpointID   string   `json:"checkpointId,omitempty"`   // incoming checkpoint, for import
+	Path           string   `json:"path,omitempty"`           // needed only when this workspace has no replica
+	IncludeIgnored []string `json:"includeIgnored,omitempty"` // explicit project-relative Git-ignore overrides
+	SelectionToken string   `json:"selectionToken,omitempty"` // binds an optional preview to its reviewed scope
 }
 
 type Conflict struct {

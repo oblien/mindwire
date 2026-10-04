@@ -23,6 +23,7 @@ import { inspectComputer, inspectionText } from "./computer/inspection.js";
 import { computerDashboard } from "./computer/dashboard.js";
 import { chooseTerminal } from "./computer/terminal-ui.js";
 import { updateComputer, updateProgress } from "./computer/service-update.js";
+import { manageDesktop, desktopSummary } from "./computer/desktop.js";
 
 const help = `Mindwire — connect this computer to your phone
 
@@ -51,6 +52,9 @@ const help = `Mindwire — connect this computer to your phone
   mindwire status                        Show connection and running service
   mindwire inspect                       Connection details, recovery and diagnostics
   mindwire devices                       List paired phones
+  mindwire desktop                       Desktop status and Mac permission setup
+  mindwire desktop enable|disable        Allow or stop desktop access from this Mac
+  mindwire desktop status                Check desktop setup
   mindwire revoke DEVICE_ID              Disconnect and revoke one phone
   mindwire update [--version VERSION]     Download a verified release; wait until idle
   mindwire update --force                 Restart now, closing active terminals and sessions
@@ -103,7 +107,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   const interactive = !values.json && !!process.stdin.isTTY && !!process.stderr.isTTY && process.env.TERM !== "dumb";
   const command = positionals[0] ?? (interactive ? "dashboard" : "help");
   if (values.help || command === "help") { process.stdout.write(help); return; }
-  if (!["dashboard", "connect", "start", "reconnect", "connection", "startup", "discovery", "status", "inspect", "devices", "revoke", "approve", "reject", "update", "stop", "_serve", "_watch", "_relay"].includes(command))
+  if (!["dashboard", "connect", "start", "reconnect", "connection", "startup", "discovery", "desktop", "status", "inspect", "devices", "revoke", "approve", "reject", "update", "stop", "_serve", "_watch", "_relay"].includes(command))
     throw new Error(`Unknown command ${safeName(command)}. Run mindwire --help.`);
   if (values.qr && !["auto", "terminal", "browser"].includes(values.qr)) throw new Error("Choose --qr auto, terminal or browser.");
   if (values.startup && values["no-startup"]) throw new Error("Choose either --startup or --no-startup.");
@@ -113,6 +117,15 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     if (values.json) process.stdout.write(JSON.stringify({ event, ...data }) + "\n");
     else if (text) process.stdout.write(text + "\n");
   };
+  if (command === "desktop") {
+    if (process.platform !== "darwin") throw new Error("Desktop setup is currently available on macOS. Your other Mindwire features are unchanged.");
+    const client = await computerClient(directory, 30_000);
+    const health = await client.health();
+    if ((health.localDesktopVersion ?? 0) < 1) throw new Error("Update the Mindwire service on this Mac before setting up desktop access: mindwire update");
+    const info = await manageDesktop({ client, directory, action: positionals[1], interactive, json: values.json });
+    emit("desktop", info, desktopSummary(info));
+    return;
+  }
   if (command === "dashboard") {
     await computerDashboard(directory, next => main(["--state-dir", directory,
       ...(values["directory-url"] && !next.includes("--directory-url") ? ["--directory-url", values["directory-url"]] : []), ...next]));

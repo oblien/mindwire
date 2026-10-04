@@ -14,9 +14,10 @@ const forwardLifetime = 2 * time.Minute
 // Port forwards are explicit, short-lived grants to an approved device. They
 // never bind a public listener or grant access to other machines on the network.
 type ForwardRequest struct {
-	ID       string `json:"id"`
-	DeviceID string `json:"deviceId"`
-	Port     int    `json:"port"`
+	ID               string `json:"id"`
+	DeviceID         string `json:"deviceId"`
+	Port             int    `json:"port"`
+	DesktopSessionID string `json:"desktopSessionId,omitempty"`
 }
 type Forward struct {
 	ForwardRequest
@@ -28,9 +29,26 @@ type portForward struct {
 	timer *time.Timer
 }
 
+type desktopGrantError struct{ cause error }
+
+func (e *desktopGrantError) Error() string { return e.cause.Error() }
+
 func (s *Server) openForward(req ForwardRequest) (Forward, error) {
 	if !validRequestID(req.ID) || req.Port < 1 || req.Port > 65535 {
 		return Forward{}, errors.New("invalid forward ID or port")
+	}
+	s.mu.Lock()
+	desktopPort, authorize := s.desktopPort, s.desktopAuthorize
+	s.mu.Unlock()
+	if desktopPort != 0 && req.Port == desktopPort {
+		if authorize == nil || req.DesktopSessionID == "" {
+			return Forward{}, errors.New("a live desktop view session is required")
+		}
+		if err := authorize(req.DesktopSessionID); err != nil {
+			return Forward{}, &desktopGrantError{cause: err}
+		}
+	} else if req.DesktopSessionID != "" {
+		return Forward{}, errors.New("desktop sessions can only forward the desktop viewer")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -54,7 +72,14 @@ func (s *Server) openForward(req ForwardRequest) (Forward, error) {
 			if item.DeviceID == req.DeviceID {
 				count++
 				if item.Port == req.Port {
-					return Forward{}, errors.New("this port is already forwarded for this device")
+					if req.Port == desktopPort && req.DesktopSessionID != "" {
+						// One display per device. A reconnect replaces only this device's
+						// old display channel; its API, terminals and other phones stay up.
+						s.closeForwardLocked(item.ID)
+						count--
+					} else {
+						return Forward{}, errors.New("this port is already forwarded for this device")
+					}
 				}
 			}
 		}
@@ -87,18 +112,23 @@ func (s *Server) closeForwardLocked(id string) {
 }
 
 func (s *Server) forwardedPort(deviceID string, port uint32) (<-chan struct{}, bool) {
+	_, done, ok := s.forwardedGrant(deviceID, port)
+	return done, ok
+}
+
+func (s *Server) forwardedGrant(deviceID string, port uint32) (Forward, <-chan struct{}, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	device, ok := s.state.Devices[deviceID]
 	if s.closed || !ok || device.Revoked {
-		return nil, false
+		return Forward{}, nil, false
 	}
 	for _, forward := range s.forwards {
 		if forward.DeviceID == deviceID && uint32(forward.Port) == port && time.Now().Before(forward.ExpiresAt) {
-			return forward.done, true
+			return forward.Forward, forward.done, true
 		}
 	}
-	return nil, false
+	return Forward{}, nil, false
 }
 
 func (s *Server) forwardRoutes(register func(string, http.HandlerFunc)) {
@@ -121,6 +151,11 @@ func (s *Server) forwardRoutes(register func(string, http.HandlerFunc)) {
 		}
 		forward, err := s.openForward(req)
 		if err != nil {
+			var desktopError *desktopGrantError
+			if errors.As(err, &desktopError) {
+				send(w, http.StatusConflict, map[string]string{"error": desktopError.Error(), "code": "desktop_session_expired"})
+				return
+			}
 			reject(w, err)
 			return
 		}

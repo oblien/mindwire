@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
-	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
@@ -130,44 +129,9 @@ func (s *Service) capture(ctx context.Context, path, cwd string, jsonLines bool)
 	return &e, nil
 }
 
-func (s *Service) scanFiles(ctx context.Context, root string) (map[string]Entry, error) {
+func (s *Service) scanFiles(ctx context.Context, root string, selection *fileSelection) (map[string]Entry, []string, error) {
 	out := map[string]Entry{}
-	if workspacepath.Contains(root, s.root) {
-		return nil, invalid("the project includes Mindwire's private data directory; select the project folder itself")
-	}
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if os.IsNotExist(err) && path == root {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if err = ctx.Err(); err != nil {
-			return err
-		}
-		if path == root {
-			if !d.IsDir() {
-				return invalid("project path is not a directory")
-			}
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		name := filepath.ToSlash(rel)
-		if d.Name() == ".git" {
-			if name != ".git" {
-				return invalid("nested Git repositories require their own project sync")
-			}
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if len(out) >= maxEntries {
-			return invalid("project has too many files for this sync version")
-		}
+	excluded, err := s.walkSelected(ctx, root, selection, func(path, name string, _ fs.DirEntry) error {
 		e, err := s.capture(ctx, path, root, false)
 		if err != nil {
 			return err
@@ -178,12 +142,25 @@ func (s *Service) scanFiles(ctx context.Context, root string) (map[string]Entry,
 		out["files/"+name] = *e
 		return nil
 	})
-	return out, err
+	return out, excluded, err
 }
 
 func (s *Service) validateManifest(m Manifest) error {
-	if m.Version != Version || !hashOK(m.ProjectID) || m.Name == "" || len(m.Name) > 512 || len(m.Entries) > maxEntries || len(m.Parents) > 2 {
+	if (m.Version != 1 && m.Version != Version) || !hashOK(m.ProjectID) || m.Name == "" || len(m.Name) > 512 || len(m.Entries) > maxEntries || len(m.Parents) > 2 || len(m.Excluded) > maxEntries || (m.Origin != "" && !hashOK(m.Origin)) {
 		return invalid("unsupported project checkpoint")
+	}
+	if m.Version == 1 && (len(m.Excluded) > 0 || m.Origin != "") {
+		return invalid("filtered checkpoints require project sync version 2")
+	}
+	for _, path := range m.Excluded {
+		if _, err := NormalizeIncludes([]string{path}); err != nil {
+			return err
+		}
+	}
+	excluded := mask(m.Excluded)
+	foldedExcluded := pathMask{}
+	for _, path := range m.Excluded {
+		foldedExcluded[cases.Fold().String(norm.NFD.String(path))] = true
 	}
 	validateEntry := func(e Entry) error {
 		if e.Mode&^uint32(0777) != 0 || e.Size < 0 || e.Size > 1<<40 {
@@ -276,6 +253,10 @@ func (s *Service) validateManifest(m Manifest) error {
 			}
 		}
 		if strings.HasPrefix(name, "files/") {
+			path := strings.TrimPrefix(name, "files/")
+			if excluded.covers(path) || foldedExcluded.covers(cases.Fold().String(norm.NFD.String(path))) {
+				return invalid("an excluded file cannot be installed by this checkpoint: " + name)
+			}
 			for _, p := range strings.Split(name, "/")[1:] {
 				if strings.EqualFold(p, ".git") {
 					return invalid("Git internals cannot be installed as project files")

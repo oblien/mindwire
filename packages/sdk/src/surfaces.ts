@@ -13,13 +13,17 @@ export interface SurfaceController {
   generation: number; expiresAt: string;
 }
 export interface SurfaceSnapshot {
-  id: string; workspaceId: string; kind: "desktop"; provider: "oblien";
+  id: string; workspaceId: string; kind: "desktop"; provider: "oblien" | "macos";
   version: number; revision: number; instanceId: string;
   state: string; observedAt?: string; supported: boolean; enabled: boolean; available: boolean;
   credentials: boolean; os?: string; capabilities: SurfaceCapabilities;
   geometry?: SurfaceGeometry; controller?: SurfaceController;
   authorizationExpiresAt?: string; error?: SurfaceProblem;
+  setup?: { reason: string; command: string };
 }
+export interface LocalDesktopInfo { supported: boolean; enabled: boolean; screenSharing: boolean; username: string }
+/** Write-only Mac configuration. The CLI prompts locally; never include this in a QR or workspace metadata. */
+export interface LocalDesktopSettings { enabled: boolean; username?: string; password?: string }
 /** Write-only, desktop-only, expiring provider grant. Never pass a user's session JWT. */
 export interface SurfaceBinding {
   registryId: string; workspaceId: string; gatewayToken?: string;
@@ -77,6 +81,14 @@ export class SurfacesApi {
   }
   bind(binding: SurfaceBinding): Promise<SurfaceSnapshot> {
     return this.mw.http.request("PUT", "/surfaces/desktop/binding", { body: binding });
+  }
+  localStatus(): Promise<LocalDesktopInfo> { return this.mw.http.request("GET", "/surfaces/desktop/local"); }
+  /** Local CLI only. The separate 0600 control credential is not part of phone pairing. */
+  configureLocal(settings: LocalDesktopSettings, localControlToken: string): Promise<SurfaceSnapshot> {
+    if (!localControlToken) throw new Error("Run mindwire desktop on your Mac to manage desktop access.");
+    return this.mw.http.request("PUT", "/surfaces/desktop/local", {
+      body: settings, headers: { "X-Mindwire-Local-Control": localControlToken },
+    });
   }
   open(request: SurfaceOpenRequest): Promise<SurfaceSession> {
     return this.mw.http.request("POST", "/surfaces/desktop/sessions", { body: request });

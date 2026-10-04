@@ -12,6 +12,8 @@ type SurfaceController = surface.Controller
 type SurfaceGeometry = surface.Geometry
 type SurfaceCapabilities = surface.Capabilities
 type SurfaceBinding = surface.Binding
+type LocalDesktopInfo = surface.LocalDesktopInfo
+type LocalDesktopSettings = surface.LocalDesktopSettings
 type DesktopSSHConnection = surface.SSHConnection
 type DesktopSSHSettings = surface.SSHSettings
 type DesktopVNCSettings = surface.VNCSettings
@@ -43,6 +45,27 @@ func (s *Surfaces) Bind(ctx context.Context, binding SurfaceBinding) (SurfaceSna
 	}
 	snapshot, _ := s.c.core.surfaces.Refresh(ctx)
 	return snapshot, nil
+}
+func (s *Surfaces) LocalStatus(ctx context.Context) (LocalDesktopInfo, error) {
+	value, err := s.c.core.surfaces.LocalDesktopInfo(ctx)
+	if err != nil {
+		if err = s.c.core.surfaces.EnableLocalDesktop(s.c.core.store); err == nil {
+			value, err = s.c.core.surfaces.LocalDesktopInfo(ctx)
+		}
+	}
+	return value, surfaceAPIError("Surfaces.LocalStatus", err)
+}
+
+// ConfigureLocal is an in-process owner operation. HTTP clients must instead
+// supply the separate local control credential through the Mac CLI.
+func (s *Surfaces) ConfigureLocal(ctx context.Context, settings LocalDesktopSettings) (SurfaceSnapshot, error) {
+	if _, err := s.c.core.surfaces.LocalDesktopInfo(ctx); err != nil {
+		if err = s.c.core.surfaces.EnableLocalDesktop(s.c.core.store); err != nil {
+			return SurfaceSnapshot{}, surfaceAPIError("Surfaces.ConfigureLocal", err)
+		}
+	}
+	value, err := s.c.core.surfaces.ConfigureLocalDesktop(ctx, settings, s.c.core.store)
+	return value, surfaceAPIError("Surfaces.ConfigureLocal", err)
 }
 func (s *Surfaces) Open(ctx context.Context, req SurfaceOpenRequest) (SurfaceSession, error) {
 	value, err := s.c.core.surfaces.Open(ctx, surfaceUser, req)

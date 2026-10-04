@@ -338,6 +338,43 @@ func TestDesktopUnknownOutcomeIsNeverReplayed(t *testing.T) {
 	}
 }
 
+func TestDesktopInputReceiptsOnlyBroadcastChangedStatus(t *testing.T) {
+	s, p, _ := testService(t)
+	user := Actor{Kind: "user"}
+	view := mustOpen(t, s, user, "control")
+	before, changed := s.Snapshot(), s.Changes()
+	x, y := 1, 2
+	request := ActionRequest{RequestID: newID(), SessionID: view.ID, ControlGeneration: view.Controller.Generation,
+		GeometryRevision: before.Geometry.Revision, Action: Action{Kind: "pointer", X: &x, Y: &y}}
+	if _, err := s.Apply(t.Context(), user, request); err != nil {
+		t.Fatal(err)
+	}
+	if receipt, err := s.Receipt(request.RequestID); err != nil || receipt.Status != "dispatched" {
+		t.Fatalf("input lost its durable receipt: %v %v", receipt, err)
+	}
+	select {
+	case <-changed:
+		t.Fatal("pointer motion broadcast an unchanged snapshot to every viewer")
+	default:
+	}
+	if s.Snapshot().Revision != before.Revision {
+		t.Fatal("successful input changed the desktop status revision")
+	}
+	p.failure = errors.New("display disconnected")
+	request.RequestID = newID()
+	if _, err := s.Apply(t.Context(), user, request); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("input failure did not notify viewers")
+	}
+	if s.Snapshot().Error == nil {
+		t.Fatal("input failure was hidden")
+	}
+}
+
 func TestDesktopHeartbeatWhileInputIsBlocked(t *testing.T) {
 	s, p, _ := testService(t)
 	user := Actor{Kind: "user"}

@@ -250,7 +250,7 @@ func (s *Service) AcceptCheckpoint(ctx context.Context, c Checkpoint) error {
 	if err = json.Unmarshal(b, &m); err != nil {
 		return invalid("invalid checkpoint manifest")
 	}
-	if m.Version != Version || m.ProjectID != c.ProjectID || !equal(m.Parents, c.Parents) {
+	if (m.Version != 1 && m.Version != Version) || m.ProjectID != c.ProjectID || !equal(m.Parents, c.Parents) {
 		return invalid("unsupported or inconsistent checkpoint")
 	}
 	if err = s.validateManifest(m); err != nil {

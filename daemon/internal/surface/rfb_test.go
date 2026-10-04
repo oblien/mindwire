@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"image"
 	"io"
 	"net"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	vnc "github.com/kward/go-vnc"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -23,11 +25,13 @@ type wireInput struct {
 	data []byte
 }
 type rfbFixture struct {
-	mu            sync.Mutex
-	inputs        []wireInput
-	resize        bool
-	debug         bool
-	frameRequests int
+	mu             sync.Mutex
+	inputs         []wireInput
+	resize         bool
+	largeFrame     bool
+	debug          bool
+	frameRequests  int
+	authentication func(io.ReadWriteCloser) bool
 }
 
 func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
@@ -42,11 +46,17 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 	if _, err := read(12); err != nil {
 		return
 	}
-	_, _ = conn.Write([]byte{1, 1})
-	if _, err := read(1); err != nil {
-		return
+	if f.authentication != nil {
+		if !f.authentication(conn) {
+			return
+		}
+	} else {
+		_, _ = conn.Write([]byte{1, 1})
+		if _, err := read(1); err != nil {
+			return
+		}
+		_, _ = conn.Write([]byte{0, 0, 0, 0})
 	}
-	_, _ = conn.Write([]byte{0, 0, 0, 0})
 	if _, err := read(1); err != nil {
 		return
 	}
@@ -63,6 +73,7 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 		fmt.Println("RFB_FIXTURE initialized")
 	}
 	resized := false
+	sentPixels := false
 	debugMessages := 0
 	for {
 		typeByte, err := read(1)
@@ -75,8 +86,12 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 		}
 		switch kind := typeByte[0]; kind {
 		case 0:
-			if _, err := read(19); err != nil {
+			format, err := read(19)
+			if err != nil {
 				return
+			}
+			if !bytes.Equal(format[3:], []byte{32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0}) {
+				return // TigerVNC rejects an invalid format immediately, before any frame request.
 			}
 		case 2:
 			header, err := read(3)
@@ -90,13 +105,25 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 			f.mu.Lock()
 			f.frameRequests++
 			f.mu.Unlock()
-			if _, err := read(9); err != nil {
+			request, err := read(9)
+			if err != nil {
 				return
+			}
+			if f.largeFrame && sentPixels && request[0] != 0 {
+				// Keep the synthetic desktop still after its first complete frame.
+				time.Sleep(50 * time.Millisecond)
+				if _, err := conn.Write([]byte{0, 0, 0, 0}); err != nil {
+					return
+				}
+				continue
 			}
 			w, h := uint16(2), uint16(2)
 			encoding := int32(0)
 			if f.resize {
 				w = 3
+				if f.largeFrame {
+					w, h = 1536, 1024
+				}
 				if !resized {
 					encoding = -223
 					resized = true
@@ -109,9 +136,8 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 			}
 			_ = binary.Write(&frame, binary.BigEndian, encoding)
 			if encoding == 0 {
-				for i := 0; i < int(w*h); i++ {
-					frame.Write([]byte{40, 30, 200, 0})
-				}
+				frame.Write(bytes.Repeat([]byte{40, 30, 200, 0}, int(w)*int(h)))
+				sentPixels = true
 			}
 			if _, err := conn.Write(frame.Bytes()); err != nil {
 				return
@@ -139,6 +165,77 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 		default:
 			return
 		}
+	}
+}
+
+func TestDesktopPixelFormatUsesNetworkByteOrder(t *testing.T) {
+	var wire bytes.Buffer
+	if err := setDesktopPixelFormat(&wire); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{0, 0, 0, 0, 32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0}
+	if !bytes.Equal(wire.Bytes(), want) {
+		t.Fatalf("nonstandard RFB pixel format: %x", wire.Bytes())
+	}
+}
+
+func TestRFBHandshakeCorrectionPreservesAuthenticationAndViewerTraffic(t *testing.T) {
+	local, remote := net.Pipe()
+	defer local.Close()
+	defer remote.Close()
+	_ = local.SetDeadline(time.Now().Add(3 * time.Second))
+	_ = remote.SetDeadline(time.Now().Add(3 * time.Second))
+	var standard bytes.Buffer
+	if err := setDesktopPixelFormat(&standard); err != nil {
+		t.Fatal(err)
+	}
+	malformed := bytes.Clone(standard.Bytes())
+	for offset := 8; offset < 14; offset += 2 {
+		malformed[offset], malformed[offset+1] = malformed[offset+1], malformed[offset]
+	}
+	raw := []byte{2, 0, 0, 1, 0, 0, 0, 0}
+	// Bytes resembling a format before initialization must not be rewritten.
+	// Afterwards the native viewer sends already-correct wire bytes itself.
+	requests := [][]byte{[]byte("RFB 003.008\n"), malformed, raw, malformed, standard.Bytes()}
+	want := bytes.Join([][]byte{requests[0], malformed, raw, standard.Bytes(), standard.Bytes()}, nil)
+	received := make(chan []byte, 1)
+	go func() {
+		data := make([]byte, len(want))
+		_, _ = io.ReadFull(remote, data)
+		received <- data
+	}()
+	conn := &rfbHandshakeConn{Conn: local}
+	for _, request := range requests {
+		before := bytes.Clone(request)
+		if _, err := conn.Write(request); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(request, before) {
+			t.Fatal("handshake modified the caller's bytes")
+		}
+	}
+	if got := <-received; !bytes.Equal(got, want) {
+		t.Fatal("correction altered authentication or subsequent native viewer traffic")
+	}
+}
+
+func TestRFBSizeAnnouncementOnlyInvalidatesChangedGeometry(t *testing.T) {
+	frame := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	frame.Pix[0] = 123
+	client := &rfbClient{frame: frame, size: Geometry{2, 2, 10}, changed: make(chan struct{}), done: make(chan struct{})}
+	announce := func(width uint16) {
+		messages := make(chan vnc.ServerMessage, 1)
+		messages <- &vnc.FramebufferUpdate{Rects: []vnc.Rectangle{{Width: width, Height: 2, Enc: &vnc.DesktopSizePseudoEncoding{}}}}
+		close(messages)
+		client.receive(messages)
+	}
+	announce(2)
+	if client.geometry() != (Geometry{2, 2, 10}) || client.frame != frame || client.frame.Pix[0] != 123 {
+		t.Fatal("an unchanged size invalidated pointer coordinates or erased the existing frame")
+	}
+	announce(3)
+	if client.geometry() != (Geometry{3, 2, 11}) || client.frame.Bounds() != image.Rect(0, 0, 3, 2) {
+		t.Fatal("a real resize did not invalidate the old geometry")
 	}
 }
 

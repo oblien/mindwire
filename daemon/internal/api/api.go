@@ -50,22 +50,23 @@ const (
 )
 
 type API struct {
-	execution             *workspaceexec.Service
-	connectionActivity    func() int
-	connectionUpdateForce func() bool
-	gitAccess             *gitaccess.Service
-	gitAuthors            *gitauthor.Service
-	gitJobs               *gitops.Service
-	projects              *projects.Service
-	projectSync           *projectsync.Service
-	surfaces              *surface.Service
-	initError             error
-	registry              *registry.Store
-	conversations         *conversations.Index
-	registryMu            sync.Mutex // order registry mutations against starting/deleting a chat
-	store                 *session.Store
-	hub                   *stream.Hub
-	sup                   *orchestrator.Supervisor
+	execution                *workspaceexec.Service
+	connectionActivity       func() int
+	connectionUpdateForce    func() bool
+	gitAccess                *gitaccess.Service
+	gitAuthors               *gitauthor.Service
+	gitJobs                  *gitops.Service
+	projects                 *projects.Service
+	projectSync              *projectsync.Service
+	surfaces                 *surface.Service
+	localDesktopControlToken string
+	initError                error
+	registry                 *registry.Store
+	conversations            *conversations.Index
+	registryMu               sync.Mutex // order registry mutations against starting/deleting a chat
+	store                    *session.Store
+	hub                      *stream.Hub
+	sup                      *orchestrator.Supervisor
 
 	// started stamps daemon boot so GET /stats can report uptime without any external timer.
 	started time.Time
@@ -159,6 +160,8 @@ func (a *API) Routes() []Route {
 		{"GET", "/surfaces", a.surfacesList},
 		{"GET", "/surfaces/desktop", a.surfaceStatus},
 		{"PUT", "/surfaces/desktop/binding", a.surfaceBind},
+		{"GET", "/surfaces/desktop/local", a.surfaceLocalInfo},
+		{"PUT", "/surfaces/desktop/local", a.surfaceLocalConfigure},
 		{"GET", "/surfaces/desktop/events", a.surfaceEvents},
 		{"POST", "/surfaces/desktop/sessions", a.surfaceOpen},
 		{"POST", "/surfaces/desktop/sessions/{id}/control", a.surfaceControl},
@@ -173,6 +176,7 @@ func (a *API) Routes() []Route {
 		{"GET", "/workspace/conversations", a.conversationsBrowse},
 		{"POST", "/workspace/conversations/open", a.conversationsOpen},
 		{"POST", "/workspace/import", a.workspaceImport},
+		{"POST", "/workspace/sync/preview", a.projectSyncPreview},
 		{"POST", "/workspace/sync/exports", a.projectSyncExport},
 		{"POST", "/workspace/sync/imports", a.projectSyncImport},
 		{"GET", "/workspace/sync/operations", a.projectSyncOperations},

@@ -1,6 +1,7 @@
 package computer
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -152,10 +153,11 @@ func (s *Server) forward(conn *ssh.ServerConn, incoming ssh.NewChannel) {
 	}
 	pairing := conn.Permissions.Extensions["mode"] == "pair"
 	var revoked <-chan struct{}
+	var grant Forward
 	address := s.apiAddress
 	if !pairing && target.Port != APIPort {
 		var allowed bool
-		revoked, allowed = s.forwardedPort(conn.Permissions.Extensions["device"], target.Port)
+		grant, revoked, allowed = s.forwardedGrant(conn.Permissions.Extensions["device"], target.Port)
 		if !allowed {
 			_ = incoming.Reject(ssh.Prohibited, "authorize this port through the workspace API first")
 			return
@@ -177,7 +179,7 @@ func (s *Server) forward(conn *ssh.ServerConn, incoming ssh.NewChannel) {
 	}
 	var local net.Conn
 	var err error
-	if !pairing {
+	if !pairing && grant.DesktopSessionID == "" {
 		local, err = net.DialTimeout("tcp", address, 5*time.Second)
 		if err != nil {
 			_ = incoming.Reject(ssh.ConnectionFailed, "workspace unavailable")
@@ -193,6 +195,26 @@ func (s *Server) forward(conn *ssh.ServerConn, incoming ssh.NewChannel) {
 	}
 	defer channel.Close()
 	go ssh.DiscardRequests(requests)
+	if grant.DesktopSessionID != "" {
+		s.mu.Lock()
+		viewer := s.desktopViewer
+		s.mu.Unlock()
+		if viewer == nil {
+			return
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			select {
+			case <-revoked:
+				cancel()
+				_ = channel.Close()
+			case <-ctx.Done():
+			}
+		}()
+		_ = viewer(ctx, grant.DesktopSessionID, channel)
+		return
+	}
 	if pairing {
 		client, server := net.Pipe()
 		local = client

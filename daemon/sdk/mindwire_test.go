@@ -609,6 +609,7 @@ func TestSDKRouteParity(t *testing.T) {
 	// Each HTTP route → the SDK method covering it. A new route with no entry (or an entry naming a
 	// route that no longer exists) fails the test.
 	coverage := map[string]string{
+		"POST /workspace/sync/preview":                 "Workspace.Sync.Preview",
 		"POST /workspace/sync/exports":                 "Workspace.Sync.Export",
 		"POST /workspace/sync/imports":                 "Workspace.Sync.Import",
 		"GET /workspace/sync/operations":               "Workspace.Sync.List",
@@ -675,6 +676,8 @@ func TestSDKRouteParity(t *testing.T) {
 		"GET /surfaces":                                 "Surfaces.List",
 		"GET /surfaces/desktop":                         "Surfaces.Status",
 		"PUT /surfaces/desktop/binding":                 "Surfaces.Bind",
+		"GET /surfaces/desktop/local":                   "Surfaces.LocalStatus",
+		"PUT /surfaces/desktop/local":                   "Surfaces.ConfigureLocal",
 		"GET /surfaces/desktop/events":                  "Surfaces.Changes",
 		"POST /surfaces/desktop/sessions":               "Surfaces.Open",
 		"POST /surfaces/desktop/sessions/{id}/control":  "Surfaces.Control",

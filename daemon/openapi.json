@@ -283,6 +283,10 @@
           "chatForkVersion": {
             "type": "integer",
             "description": "Native selected-message forks with idempotent branch creation."
+          },
+          "localDesktopVersion": {
+            "type": "integer",
+            "description": "Opt-in Mac desktop through paired SSH; 1 on supported personal computers."
           }
         },
         "required": [
@@ -3660,7 +3664,11 @@
             "type": "string"
           },
           "provider": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "oblien",
+              "macos"
+            ]
           },
           "version": {
             "type": "integer"
@@ -3821,6 +3829,21 @@
               "message"
             ],
             "additionalProperties": false
+          },
+          "setup": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "command"
+            ]
           }
         },
         "required": [
@@ -5167,6 +5190,10 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 65535
+          },
+          "desktopSessionId": {
+            "type": "string",
+            "description": "Required for virtual desktop port 8794; must name a live human surface session. Other ports reject this field."
           }
         },
         "required": [
@@ -5195,6 +5222,10 @@
           "expiresAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "desktopSessionId": {
+            "type": "string",
+            "description": "Required for virtual desktop port 8794; must name a live human surface session. Other ports reject this field."
           }
         },
         "required": [
@@ -5354,6 +5385,20 @@
           },
           "path": {
             "type": "string"
+          },
+          "includeIgnored": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "Explicit project-relative ignored files or folders to include. Git ignored content stays local by default. Tracked files are always included."
+          },
+          "selectionToken": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Token returned by the file preview. Export stops before reading files if the reviewed ignore scope or tracked paths changed."
           }
         },
         "required": [
@@ -5459,6 +5504,20 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "includeIgnored": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "Explicit project-relative ignored files or folders to include. Git ignored content stays local by default. Tracked files are always included."
+          },
+          "selectionToken": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Token returned by the file preview. Export stops before reading files if the reviewed ignore scope or tracked paths changed."
           }
         },
         "required": [
@@ -5724,6 +5783,155 @@
           }
         ],
         "description": "The forked chat and, when workspace metadata is enabled, an authoritative workspace snapshot for the client cache."
+      },
+      "ProjectSyncPreviewRequest": {
+        "type": "object",
+        "required": [
+          "projectId"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "includeIgnored": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "Explicit project-relative ignored files or folders to include. Git ignored content stays local by default. Tracked files are always included."
+          },
+          "cursor": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ProjectSyncIgnoredPath": {
+        "type": "object",
+        "required": [
+          "path",
+          "kind",
+          "included"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "directory"
+            ]
+          },
+          "included": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProjectSyncPreview": {
+        "type": "object",
+        "required": [
+          "version",
+          "fileCount",
+          "bytes",
+          "ignoredCount",
+          "ignored",
+          "includeIgnored",
+          "selectionToken"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "enum": [
+              2
+            ]
+          },
+          "fileCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Selected working-file bytes. Git history and chat data are additional. Excluded directories are not scanned for size."
+          },
+          "ignoredCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ignored": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSyncIgnoredPath"
+            }
+          },
+          "includeIgnored": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "Explicit project-relative ignored files or folders to include. Git ignored content stays local by default. Tracked files are always included."
+          },
+          "next": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "selectionToken": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Token returned by the file preview. Export stops before reading files if the reviewed ignore scope or tracked paths changed."
+          }
+        }
+      },
+      "LocalDesktopInfo": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "screenSharing": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "supported",
+          "enabled",
+          "screenSharing",
+          "username"
+        ]
+      },
+      "LocalDesktopSettings": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string",
+            "maxLength": 63,
+            "writeOnly": true
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true,
+            "description": "Entered locally on the Mac; at most 63 UTF-8 bytes. Never returned to phones."
+          }
+        },
+        "required": [
+          "enabled"
+        ]
       }
     }
   },
@@ -14042,7 +14250,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "202": {
             "description": "Current durable result.",
@@ -14128,7 +14336,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "202": {
             "description": "Current durable result.",
@@ -14214,7 +14422,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "200": {
             "description": "Current durable result.",
@@ -14301,7 +14509,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "200": {
             "description": "Current durable result.",
@@ -14387,7 +14595,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "202": {
             "description": "Current durable result.",
@@ -14473,7 +14681,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "200": {
             "description": "Current durable result.",
@@ -14559,7 +14767,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "200": {
             "description": "Current durable result.",
@@ -14643,7 +14851,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "200": {
             "description": "Current durable result.",
@@ -14739,7 +14947,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "200": {
             "description": "Current durable result.",
@@ -14849,7 +15057,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "200": {
             "description": "Current durable result.",
@@ -14960,7 +15168,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "200": {
             "description": "Current durable result.",
@@ -15054,7 +15262,7 @@
             "bearer": []
           }
         ],
-        "description": "Requires projectSyncVersion >= 1. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
+        "description": "Requires projectSyncVersion >= 2. Transfers preserve the source. Clients retain operation IDs across retries; conflicts preserve both copies and a recovery checkpoint. All chunks use this authenticated workspace connection.",
         "responses": {
           "200": {
             "description": "Current durable result.",
@@ -15738,6 +15946,270 @@
             }
           }
         }
+      }
+    },
+    "/workspace/sync/preview": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Review project files and Git-ignore exclusions",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires projectSyncVersion >= 2. Reads selected file metadata without hashing, uploading, reserving the project or scanning excluded dependency trees. Tracked files and non-ignored untracked files are included. Include ignored paths explicitly; page ignored items with cursor.",
+        "responses": {
+          "400": {
+            "description": "Invalid manifest, checksum, path or unsupported native format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Checkpoint, object or operation not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting intent or protected directory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Workspace synchronization is not available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Selected file totals and up to 200 ignored paths",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSyncPreview"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectSyncPreviewRequest"
+              }
+            }
+          }
+        },
+        "operationId": "previewProjectSync"
+      }
+    },
+    "/surfaces/desktop/local": {
+      "get": {
+        "operationId": "localDesktopStatus",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "Inspect Mac desktop setup without enabling it",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalDesktopInfo"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Desktop session or receipt capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Workspace image storage is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "configureLocalDesktop",
+        "tags": [
+          "Surfaces"
+        ],
+        "summary": "Local Mac CLI: enable, repair, or disable desktop access",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SurfaceSnapshot"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Structured desktop error: invalid request, missing authorization, stale frame, lost controller or provider unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Desktop session or receipt capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Workspace image storage is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalDesktopSettings"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Mindwire-Local-Control",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Separate local owner credential from the private desktop-control.token file. Never part of phone pairing."
+          }
+        ]
       }
     }
   }

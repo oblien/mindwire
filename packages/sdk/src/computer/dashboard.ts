@@ -15,6 +15,7 @@ export async function computerDashboard(directory: string, run: (args: string[])
       { value: "devices", label: `Phones${saved.length ? ` · ${saved.length} paired` : ""}` },
       { value: "startup", label: `Start at login · ${state.startup.enabled ? state.startup.running ? "On" : "Needs repair" : "Off"}` },
       { value: "connection", label: "Connection provider" },
+      ...(process.platform === "darwin" ? [{ value: "desktop", label: "Desktop access" }] : []),
       { value: "recovery", label: `Automatic reconnection · ${recoverySummary(state)}` },
       { value: "update", label: activeUpdate(state.update) ? `Service update · ${state.update!.status}` : "Update service" },
       { value: "inspect", label: "Connection details" },
@@ -27,6 +28,7 @@ export async function computerDashboard(directory: string, run: (args: string[])
         case "reconnect": await run(["reconnect"]); break;
         case "pair": await run(["connect", "pair"]); break;
         case "connection": await run(["connection"]); break;
+        case "desktop": await run(["desktop"]); break;
         case "inspect": await run(["inspect"]); break;
         case "devices": {
           if (!saved.length) { process.stdout.write("No paired phones. Choose Pair or repair a phone to connect one.\n"); break; }
