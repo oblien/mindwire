@@ -44,6 +44,31 @@ test("uncertain input and controller conflicts are returned without replay", asy
   expect(calls).toBe(1);
 });
 
+test("saved desktop selection scopes events and receipts without changing catalog requests", async () => {
+  const id = "ds_0123456789abcdef";
+  const calls: URL[] = [];
+  const mw = new Mindwire({ target: remote("http://desktop"), fetch: async (url) => {
+    const value = new URL(url); calls.push(value);
+    if (value.pathname.endsWith("/events")) {
+      return new Response(`data: ${JSON.stringify({ ...snapshot, id, desktopId: id })}\n\n`, { headers: { "Content-Type": "text/event-stream" } });
+    }
+    return Response.json({ ...snapshot, id, desktopId: id });
+  } });
+  const desktop = mw.surfaces.desktop(id);
+  await desktop.status(true);
+  await desktop.receipt("input-1");
+  await desktop.open({ requestId: "open-1", mode: "view" });
+  for await (const value of desktop.watch()) { expect(value.desktopId).toBe(id); break; }
+  await desktop.listDesktops("project-a");
+  await desktop.ensureProjectDesktop("project-a");
+  expect(calls.slice(0, 4).every(url => url.searchParams.get("desktopId") === id)).toBe(true);
+  expect(calls[0]?.searchParams.get("refresh")).toBe("true");
+  expect(calls[4]?.searchParams.get("projectId")).toBe("project-a");
+  expect(calls[4]?.searchParams.has("desktopId")).toBe(false);
+  expect(calls[5]?.pathname).toBe("/surfaces/desktop/projects/project-a/ensure");
+  expect(() => mw.surfaces.desktop("../../other")).toThrow();
+});
+
 test("desktop watch ignores stale frames, accepts service restarts and cancels cleanly", async () => {
   let cancelled = false;
   let signal: AbortSignal | null | undefined;
@@ -64,4 +89,24 @@ test("desktop watch ignores stale frames, accepts service restarts and cancels c
   expect(revisions).toEqual(["service-1:5", "service-1:6", "service-2:1"]);
   expect(cancelled).toBe(true);
   expect(signal?.aborted).toBe(true);
+});
+
+test("selected desktop binding cannot authorize a different display", async () => {
+  let calls = 0;
+  const mw = new Mindwire({ target: remote("http://desktop"), fetch: async () => {
+    calls++; return Response.json(snapshot);
+  } });
+  const id = "ds_0123456789abcdef";
+  const desktop = mw.surfaces.desktop(id);
+  const binding = {
+    registryId: "registry", workspaceId: "workspace", desktopId: id,
+    connection: { expires_at: "2099-01-01T00:00:00Z", session_id: id,
+      ssh: { host: "ssh.oblien.com", port: 22, username: "desktop-fixture", password: "fixture", host_key_fingerprint: "SHA256:fixture" },
+      vnc: { host: "127.0.0.1", port: 5900, authentication: "none" as const } },
+  };
+  expect(() => desktop.bind({ ...binding, desktopId: undefined })).toThrow("another saved desktop");
+  expect(() => desktop.bind({ ...binding, desktopId: "ds_1123456789abcdef" })).toThrow("another saved desktop");
+  expect(calls).toBe(0);
+  await desktop.bind(binding);
+  expect(calls).toBe(1);
 });

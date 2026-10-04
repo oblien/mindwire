@@ -9,6 +9,7 @@ import (
 // durable artifact references; base64 image/clipboard content stays out of feeds.
 type SurfaceToolAction struct {
 	SurfaceID string              `json:"surfaceId"`
+	DesktopID string              `json:"desktopId,omitempty"`
 	Operation string              `json:"operation"`
 	SessionID string              `json:"sessionId,omitempty"`
 	ReceiptID string              `json:"receiptId,omitempty"`
@@ -27,6 +28,12 @@ func NormalizeSurfaceTool(tool *ToolEvent) {
 		return
 	}
 	known := strings.Contains(tool.Name, "mindwire_desktop")
+	helper := false
+	if !known && surfaceOutputPayload(tool.Output) != nil {
+		input, _ := json.Marshal(tool.Input)
+		helper = strings.Contains(string(input), "MINDWIRE_DESKTOP_HELPER") || strings.Contains(string(input), "--desktop-tool")
+		known = helper
+	}
 	if tool.Action != nil && tool.Action.MCP != nil {
 		known = known || tool.Action.MCP.Server == "mindwire_desktop"
 	}
@@ -34,11 +41,17 @@ func NormalizeSurfaceTool(tool *ToolEvent) {
 		return
 	}
 	tool.Input = surfaceCardInput(tool.Input)
+	if helper {
+		tool.Input = map[string]any{"desktopHelper": true}
+	}
 	if tool.Action == nil {
 		tool.Action = &ToolAction{Kind: KindMCP, MCP: &MCPCall{Server: "mindwire_desktop"}}
 	} else {
 		copy := *tool.Action
 		tool.Action = &copy
+	}
+	if helper {
+		tool.Action = &ToolAction{Kind: KindMCP, MCP: &MCPCall{Server: "mindwire_desktop"}}
 	}
 	op := "desktop"
 	for _, name := range []string{"status", "open", "capture", "action", "release"} {
@@ -46,12 +59,24 @@ func NormalizeSurfaceTool(tool *ToolEvent) {
 			op = name
 		}
 	}
+	if strings.Contains(tool.Name, "surface_desktops") {
+		op = "list"
+	}
+	if strings.Contains(tool.Name, "surface_project_desktop") {
+		op = "open"
+	}
 	view := &SurfaceToolAction{SurfaceID: "desktop", Operation: op}
 	if tool.Action.Surface != nil {
 		copy := *tool.Action.Surface
 		view = &copy
 	}
 	if payload := surfaceOutputPayload(tool.Output); payload != nil {
+		if desktopID, ok := payload["desktopId"].(string); ok {
+			view.DesktopID = desktopID
+		}
+		if id, ok := payload["surfaceId"].(string); ok {
+			view.SurfaceID = id
+		}
 		if operation, ok := payload["operation"].(string); ok {
 			view.Operation = operation
 		}
@@ -85,7 +110,7 @@ func NormalizeSurfaceTool(tool *ToolEvent) {
 	if tool.Action.Surface == nil {
 		tool.Action.Surface = view
 	}
-	title := map[string]string{"status": "Check desktop", "open": "Open desktop", "capture": "Capture desktop", "action": "Desktop input", "click": "Click desktop", "drag": "Drag on desktop", "scroll": "Scroll desktop", "pointer": "Move pointer", "key": "Press keys", "text": "Type text", "clipboard_read": "Read desktop clipboard", "clipboard_write": "Write desktop clipboard", "release": "Release desktop"}[view.Operation]
+	title := map[string]string{"list": "Project desktops", "status": "Check desktop", "open": "Open desktop", "capture": "Capture desktop", "action": "Desktop input", "click": "Click desktop", "drag": "Drag on desktop", "scroll": "Scroll desktop", "pointer": "Move pointer", "key": "Press keys", "text": "Type text", "clipboard_read": "Read desktop clipboard", "clipboard_write": "Write desktop clipboard", "release": "Release desktop"}[view.Operation]
 	if title == "" {
 		title = "Desktop"
 	}

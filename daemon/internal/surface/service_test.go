@@ -237,8 +237,13 @@ func TestDesktopPermissionOverlayPreservesUserRules(t *testing.T) {
 	if value.Env["CUSTOM"] != "yes" || value.Permissions.DefaultMode != "default" || len(value.Permissions.Deny) != 1 || value.Permissions.Deny[0] != "mcp__mindwire_desktop__surface_action" {
 		t.Fatal("desktop changed unrelated settings or explicit deny rules")
 	}
-	if len(value.Permissions.Allow) != 6 || value.Permissions.Allow[0] != "Bash(git status)" {
+	if len(value.Permissions.Allow) != 8 || value.Permissions.Allow[0] != "Bash(git status)" {
 		t.Fatal("permission overlay lost user rules or allowed extra tools")
+	}
+	for _, allowed := range value.Permissions.Allow[1:] {
+		if !strings.HasPrefix(allowed, "mcp__mindwire_desktop__surface_") {
+			t.Fatal("allowed an unrelated tool")
+		}
 	}
 	if output, err := PermissionSettings("codex", existing); err != nil || !bytes.Equal(output, existing) {
 		t.Fatal("changed another harness's settings")
@@ -323,7 +328,7 @@ func TestDesktopUnknownOutcomeIsNeverReplayed(t *testing.T) {
 	if strings.Contains(string(rows[0]), "private input") || strings.Contains(string(rows[0]), "clipboard-private") {
 		t.Fatal("receipt persisted input or clipboard data")
 	}
-	if err := db.SurfacePut("surface_receipt", "interrupted", savedReceipt{Receipt: Receipt{ID: "interrupted", Status: "dispatching"}}); err != nil {
+	if err := db.SurfacePut("surface_receipt", "interrupted", savedReceipt{Receipt: Receipt{ID: "interrupted", SurfaceID: DesktopID, Status: "dispatching"}}); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()

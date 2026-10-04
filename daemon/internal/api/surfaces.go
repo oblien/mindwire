@@ -39,7 +39,7 @@ func (a *API) ServeDesktopViewer(ctx context.Context, sessionID string, stream i
 }
 
 func (a *API) surfaceLocalInfo(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}
@@ -58,7 +58,7 @@ func (a *API) surfaceLocalConfigure(w http.ResponseWriter, r *http.Request) {
 		surfaceError(w, &surface.Error{Code: "forbidden", Message: "Run mindwire desktop on this Mac to manage desktop access."})
 		return
 	}
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}
@@ -80,9 +80,17 @@ func surfaceError(w http.ResponseWriter, err error) {
 	writeJSON(w, status, map[string]any{"error": detail.Message, "code": detail.Code})
 }
 
-func (a *API) desktop(w http.ResponseWriter) *surface.Service {
+func (a *API) desktop(w http.ResponseWriter, r *http.Request) *surface.Service {
 	if a.surfaces == nil {
 		surfaceError(w, &surface.Error{Code: "unsupported", Message: "Desktop control requires an updated workspace service."})
+	}
+	if a.surfaces != nil && r != nil {
+		value, err := a.surfaces.ForDesktop(r.URL.Query().Get("desktopId"))
+		if err != nil {
+			surfaceError(w, err)
+			return nil
+		}
+		return value
 	}
 	return a.surfaces
 }
@@ -94,14 +102,14 @@ func desktopBody(w http.ResponseWriter, r *http.Request, out any) bool {
 	return true
 }
 func (a *API) surfacesList(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}
 	writeJSON(w, 200, []surface.Snapshot{s.Snapshot()})
 }
 func (a *API) surfaceStatus(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}
@@ -113,7 +121,7 @@ func (a *API) surfaceStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.Snapshot())
 }
 func (a *API) surfaceBind(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, nil)
 	if s == nil {
 		return
 	}
@@ -125,11 +133,16 @@ func (a *API) surfaceBind(w http.ResponseWriter, r *http.Request) {
 		surfaceError(w, err)
 		return
 	}
-	snapshot, _ := s.Refresh(r.Context())
+	selected, err := s.ForDesktop(binding.DesktopID)
+	if err != nil {
+		surfaceError(w, err)
+		return
+	}
+	snapshot, _ := selected.Refresh(r.Context())
 	writeJSON(w, 200, snapshot)
 }
 func (a *API) surfaceOpen(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}
@@ -145,7 +158,7 @@ func (a *API) surfaceOpen(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, value)
 }
 func (a *API) surfaceControl(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}
@@ -161,7 +174,7 @@ func (a *API) surfaceControl(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, value)
 }
 func (a *API) surfaceClose(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}
@@ -172,7 +185,7 @@ func (a *API) surfaceClose(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"closed": true})
 }
 func (a *API) surfaceCapture(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}
@@ -184,7 +197,7 @@ func (a *API) surfaceCapture(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, value)
 }
 func (a *API) surfaceAction(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}
@@ -200,7 +213,7 @@ func (a *API) surfaceAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, value)
 }
 func (a *API) surfaceReceipt(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}
@@ -212,7 +225,7 @@ func (a *API) surfaceReceipt(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, value)
 }
 func (a *API) artifact(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}
@@ -225,7 +238,7 @@ func (a *API) artifact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, value)
 }
 func (a *API) surfaceEvents(w http.ResponseWriter, r *http.Request) {
-	s := a.desktop(w)
+	s := a.desktop(w, r)
 	if s == nil {
 		return
 	}

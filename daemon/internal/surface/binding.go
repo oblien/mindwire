@@ -33,6 +33,12 @@ func NewConfigured(db *registry.Store, credentials Credentials) (*Service, error
 			}
 		}
 	}
+	if raw := credentials.Get(runtimeBindingKey); raw != "" {
+		var binding RuntimeBinding
+		if json.Unmarshal([]byte(raw), &binding) == nil && binding.RegistryID == db.Identity() {
+			_ = s.BindRuntime(binding, credentials)
+		}
+	}
 	return s, nil
 }
 
@@ -42,6 +48,13 @@ func (s *Service) Bind(binding Binding, credentials Credentials) error {
 	}
 	if _, err := NewOblien(binding); err != nil {
 		return err
+	}
+	if binding.DesktopID != "" {
+		expires := runtimeExpiry(binding.GatewayToken)
+		if expires.IsZero() {
+			expires = binding.Connection.ExpiresAt
+		}
+		return s.BindRuntime(RuntimeBinding{RegistryID: binding.RegistryID, WorkspaceID: binding.WorkspaceID, GatewayToken: binding.GatewayToken, ExpiresAt: expires}, credentials)
 	}
 	s.operation.Lock()
 	defer s.operation.Unlock()
@@ -68,7 +81,9 @@ func (s *Service) Bind(binding Binding, credentials Credentials) error {
 		return err
 	}
 	if ok && old.binding.Connection == binding.Connection {
+		old.mu.Lock()
 		old.binding.GatewayToken = binding.GatewayToken
+		old.mu.Unlock()
 		return nil
 	}
 	provider, err := NewOblien(binding)

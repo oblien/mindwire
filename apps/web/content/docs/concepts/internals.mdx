@@ -133,6 +133,12 @@ without JSON.
 
 ## HTTP surface
 
+Project [desktop sessions](/docs/guides/desktops) reuse the daemon's controller,
+approval, artifact, and input-receipt services. Oblien catalog operations persist
+project associations in the workspace registry; per-run MCP tools and the native
+viewer select the same saved desktop. No separate agent desktop process or idle
+catalog worker is required.
+
 Public: `GET /healthz`. Everything else sits behind the bearer-token middleware. Every
 agent-specific route accepts `?agent=<type>` (default when omitted); turns/runs/chats are shared,
 auth/config are per type.
