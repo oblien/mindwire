@@ -23,10 +23,17 @@ func TestNativeMacDesktopFixture(t *testing.T) {
 		t.Skip("opt in with the iOS Mac desktop integration test")
 	}
 	s, store, frames, _ := macTestService(t)
+	live := os.Getenv("MINDWIRE_MAC_PERFORMANCE_STATE_DIR") != ""
+	if live {
+		// The read-only performance test uses existing, explicitly enabled access.
+		// Keep the real login only in memory, never in this fixture's state files.
+		s.configureProvider(performanceMac(t))
+	}
 	frames.resize = true
 	// A six-MiB frame crosses the native forwarder's write high-water mark.
 	// Tiny RFB fixtures miss stalls when NIOSSH reads resume after backpressure.
 	frames.largeFrame = true
+	frames.tiledFrame = true
 	s.SetApproval(func(context.Context, Actor, string) error { return nil })
 	directory := t.TempDir()
 	const token = "synthetic-mac-desktop-fixture"
@@ -107,7 +114,7 @@ func TestNativeMacDesktopFixture(t *testing.T) {
 		}
 		invitations = append(invitations, inv)
 	}
-	data, _ := json.Marshal(map[string]any{"invitations": invitations})
+	data, _ := json.Marshal(map[string]any{"invitations": invitations, "live": live})
 	if err = os.WriteFile(file, data, 0600); err != nil {
 		t.Fatal(err)
 	}

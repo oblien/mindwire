@@ -149,7 +149,12 @@ export class ComputerDirectoryFixture {
       });
       request.on("error", () => upstream.destroy());
       response.on("close", () => upstream.destroy());
-      request.pipe(upstream);
+      // Bun 1.3's ClientRequest can emit invalid chunk framing when an incoming
+      // stream is piped into it. Send each small fixture body in one write so
+      // Node receives the original bytes (and the backend still enforces limits).
+      const body: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => body.push(chunk));
+      request.on("end", () => upstream.end(Buffer.concat(body)));
     });
     this.server.listen(0, "127.0.0.1");
     await once(this.server, "listening");

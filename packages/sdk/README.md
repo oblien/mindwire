@@ -34,6 +34,9 @@ mindwire desktop disable  # Close desktop access and forget its login
 ```
 
 The phone uses its existing paired SSH tunnel and never receives the Mac password.
+If macOS rejects the login, the CLI lets you retry the password or check Screen
+Sharing permissions. Canceling or entering a wrong password keeps the existing
+desktop setup and active connections unchanged.
 Opening a workspace or checking status does not enable screen access. See the
 [desktop contract](../../daemon/DESKTOP.md#personal-mac-desktop) for platform support,
 permissions and the shared input protocol. Existing installations need a release

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import type { Mindwire } from "../client.js";
+import { ApiError } from "../errors.js";
 import type { LocalDesktopInfo } from "../surfaces.js";
 import { terminalSetupPrompt, type SetupPrompt } from "./setup-prompt.js";
 import { terminalText } from "./terminal-ui.js";
@@ -67,9 +68,33 @@ export async function manageDesktop(options: {
     }
     info = await client.surfaces.localStatus();
   }
-  const password = await prompt.secret(`Mac password for ${terminalText(info.username)} (hidden): `);
-  if (!password || Buffer.byteLength(password) > 63 || password.includes("\0")) throw new Error("Enter your Mac password (up to 63 UTF-8 bytes). Desktop settings were not changed.");
-  await client.surfaces.configureLocal({ enabled: true, username: info.username, password }, localToken);
+  while (true) {
+    const password = await prompt.secret(`Mac password for ${terminalText(info.username)} (hidden): `);
+    let retryMessage: string;
+    if (!password || Buffer.byteLength(password) > 63 || password.includes("\0")) {
+      retryMessage = "Enter your Mac login password (up to 63 UTF-8 bytes).";
+    } else {
+      try {
+        await client.surfaces.configureLocal({ enabled: true, username: info.username, password }, localToken);
+        break;
+      } catch (error) {
+        if (!(error instanceof ApiError) || !error.body || typeof error.body !== "object" ||
+            !("code" in error.body) || error.body.code !== "desktop_authentication") throw error;
+        retryMessage = `The Mac didn’t accept that login. Check the password for ${terminalText(info.username)} and try again.\nUse your Mac login password, not your Apple Account password. If it’s correct, check that Screen Sharing allows this account.`;
+      }
+    }
+    prompt.print(`${retryMessage}\nDesktop settings were not changed.`);
+    const retry = prompt.select ? await prompt.select("Mac login", [
+      { value: "retry", label: "Try password again" },
+      { value: "settings", label: "Open Screen Sharing settings" },
+      { value: "cancel", label: "Cancel setup" },
+    ]) : ((await prompt.question("Try password again? [y/N]: ")).toLowerCase() === "y" ? "retry" : "cancel");
+    if (retry !== "retry" && retry !== "settings") return info;
+    if (retry === "settings") {
+      (options.openSettings ?? openScreenSharingSettings)();
+      await prompt.question("Check that your Mac account is allowed, then press Return to retry: ");
+    }
+  }
   prompt.print("Desktop access is on. Open Desktop in Mindwire on your phone.\nTurn it off anytime with mindwire desktop disable.");
   return client.surfaces.localStatus();
 }
