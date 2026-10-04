@@ -15,6 +15,20 @@ type RunSnapshot struct {
 	stream.Snapshot
 }
 
+// SubscribeRun keeps the producer's lifetime authoritative for stream completion.
+// A terminal record can be saved before its final events/notification are sent;
+// subscribers must drain through hub.Close, never close that topic themselves.
+// The start/teardown lock also prevents a new run from being mistaken for an old
+// run whose replay buffer expired or disappeared after a daemon restart.
+func (s *Supervisor) SubscribeRun(id string, after int64) (replay []agent.Event, ch <-chan agent.Event, done bool, cancel func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, active := s.cancels[id]; active {
+		return s.hub.SubscribeAfter(id, after)
+	}
+	return s.hub.SubscribeRetainedAfter(id, after)
+}
+
 func (s *Supervisor) Snapshot(id string) (RunSnapshot, bool) {
 	run, ok := s.store.GetRun(id)
 	if !ok {

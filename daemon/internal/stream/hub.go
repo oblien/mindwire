@@ -128,7 +128,23 @@ func (h *Hub) Subscribe(id string) (replay []agent.Event, ch <-chan agent.Event,
 // SubscribeAfter atomically replays events newer than after and subscribes to live
 // updates. Sequence numbers survive reconnects for the lifetime of the run topic.
 func (h *Hub) SubscribeAfter(id string, after int64) (replay []agent.Event, ch <-chan agent.Event, done bool, cancel func()) {
-	t := h.get(id)
+	return h.get(id).subscribeAfter(after)
+}
+
+// SubscribeRetainedAfter subscribes without creating a topic. Completed runs can
+// outlive their replay buffer (or a daemon restart); they must not acquire an
+// empty live channel that no producer will ever close.
+func (h *Hub) SubscribeRetainedAfter(id string, after int64) (replay []agent.Event, ch <-chan agent.Event, done bool, cancel func()) {
+	h.mu.Lock()
+	t := h.topics[id]
+	h.mu.Unlock()
+	if t == nil {
+		return nil, nil, true, func() {}
+	}
+	return t.subscribeAfter(after)
+}
+
+func (t *topic) subscribeAfter(after int64) (replay []agent.Event, ch <-chan agent.Event, done bool, cancel func()) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	start := min(max(after, 0), int64(len(t.buf)))
