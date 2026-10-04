@@ -29,6 +29,7 @@ type rfbFixture struct {
 	inputs         []wireInput
 	resize         bool
 	largeFrame     bool
+	tiledFrame     bool
 	debug          bool
 	frameRequests  int
 	authentication func(io.ReadWriteCloser) bool
@@ -130,6 +131,28 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 				}
 			}
 			var frame bytes.Buffer
+			if encoding == 0 && f.tiledFrame {
+				// Apple/ZRLE-style batches expose hundreds of dirty regions to the
+				// native viewer. Full-screen copies per region used to stall it.
+				const tile = 64
+				frame.Write([]byte{0, 0})
+				_ = binary.Write(&frame, binary.BigEndian, uint16(((int(w)+tile-1)/tile)*((int(h)+tile-1)/tile)))
+				for y := 0; y < int(h); y += tile {
+					for x := 0; x < int(w); x += tile {
+						tw, th := min(tile, int(w)-x), min(tile, int(h)-y)
+						for _, value := range []uint16{uint16(x), uint16(y), uint16(tw), uint16(th)} {
+							_ = binary.Write(&frame, binary.BigEndian, value)
+						}
+						_ = binary.Write(&frame, binary.BigEndian, int32(0))
+						frame.Write(bytes.Repeat([]byte{40, 30, 200, 0}, tw*th))
+					}
+				}
+				sentPixels = true
+				if _, err := conn.Write(frame.Bytes()); err != nil {
+					return
+				}
+				continue
+			}
 			frame.Write([]byte{0, 0, 0, 1})
 			for _, v := range []uint16{0, 0, w, h} {
 				_ = binary.Write(&frame, binary.BigEndian, v)

@@ -189,11 +189,26 @@ func macConnectionError(ctx context.Context, err error) error {
 		return ctx.Err()
 	}
 	var network net.Error
-	if errors.As(err, &network) && network.Timeout() {
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &network) && network.Timeout()) {
 		return problem("timeout", "The Mac's screen-sharing service did not respond. Try again.")
 	}
-	// Never propagate an authentication library's raw response into logs or chats.
-	return problem("desktop_authentication", "Mac screen sharing could not authenticate. Run mindwire desktop enable on your Mac to check access and update its login.")
+	var specific *Error
+	if errors.As(err, &specific) {
+		return specific
+	}
+	var handshake *rfbHandshakeFailure
+	if errors.As(err, &handshake) {
+		err = handshake.cause
+	}
+	// go-vnc has no typed rejection error. Match its fixed prefix only; never
+	// propagate the server-supplied reason or turn a broken socket into bad login.
+	if strings.HasPrefix(err.Error(), "SecurityResult handshake failed:") {
+		return problem("desktop_authentication", "The Mac did not accept this login. Run mindwire desktop enable on your Mac to retry its password and check Screen Sharing access.")
+	}
+	if strings.HasPrefix(err.Error(), "Security handshake failed; no suitable auth schemes found;") {
+		return problem("desktop_auth_protocol", "Allow your Mac account in Screen Sharing settings, then run mindwire desktop enable again.")
+	}
+	return problem("unavailable", "The Mac's screen-sharing connection ended. Check Screen Sharing and try again.")
 }
 
 func (p *MacDesktop) Capture(ctx context.Context) (image.Image, Geometry, error) {

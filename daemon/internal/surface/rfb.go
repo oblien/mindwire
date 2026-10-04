@@ -143,7 +143,10 @@ func newRFBWithAuth(ctx context.Context, conn net.Conn, auth []vnc.ClientAuth) (
 	client, err := connectDesktopRFB(ctx, conn, cfg)
 	if err != nil {
 		conn.Close()
-		return nil, problem("rfb_handshake", "The desktop VNC connection could not be opened.")
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return nil, &rfbHandshakeFailure{cause: err}
 	}
 	width, height := int(client.FramebufferWidth()), int(client.FramebufferHeight())
 	if width < 1 || height < 1 || width*height > 16<<20 {

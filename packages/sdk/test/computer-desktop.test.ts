@@ -7,13 +7,18 @@ function fixture(choices: (string | undefined)[], initiallyEnabled = false) {
   let info: LocalDesktopInfo = { supported: true, enabled: initiallyEnabled, screenSharing: false, username: "owner" };
   const writes: LocalDesktopSettings[] = [], output: string[] = [];
   let opened = 0, passwords = 0, forbiddenQuestion = false;
+  let rejected: { code: string; status: number }[] = [];
+  let secrets = [" test Ω password "];
   const client = new Mindwire({ target: remote("http://127.0.0.1:1234", { token: "daemon-token" }), fetch: async (url, init) => {
     expect(new URL(url).pathname).toBe("/surfaces/desktop/local");
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer daemon-token");
     if (init?.method === "PUT") {
       expect(new Headers(init.headers).get("X-Mindwire-Local-Control")).toBe("a".repeat(64));
       const settings = JSON.parse(String(init.body)) as LocalDesktopSettings;
-      writes.push(settings); info = { ...info, enabled: settings.enabled };
+      writes.push(settings);
+      const rejection = rejected.shift();
+      if (rejection) return Response.json({ error: "Private authentication details must not be printed", code: rejection.code }, { status: rejection.status });
+      info = { ...info, enabled: settings.enabled };
       return Response.json({ enabled: info.enabled });
     }
     return Response.json(info);
@@ -21,7 +26,7 @@ function fixture(choices: (string | undefined)[], initiallyEnabled = false) {
   const prompt: SetupPrompt = {
     print: value => output.push(value), open: () => { throw new Error("Use the fixed Mac settings destination"); },
     question: async () => { if (forbiddenQuestion) throw new Error("Cancelled picker reopened as a question"); return ""; },
-    secret: async () => { passwords++; return " test Ω password "; },
+    secret: async () => { passwords++; return secrets.shift() ?? " test Ω password "; },
     select: async <T extends string>() => choices.shift() as T | undefined,
   };
   return {
@@ -30,6 +35,8 @@ function fixture(choices: (string | undefined)[], initiallyEnabled = false) {
     readControlToken: async () => "a".repeat(64),
     setSharing: () => { info = { ...info, screenSharing: true }; },
     forbidQuestions: () => { forbiddenQuestion = true; },
+    reject: (code = "desktop_authentication", status = 428) => { rejected.push({ code, status }); },
+    passwords: (...values: string[]) => { secrets = values; },
     counts: () => ({ opened, passwords }),
   };
 }
@@ -41,6 +48,49 @@ test("Mac desktop status never enables screen sharing or asks for a password", a
   expect(f.writes).toEqual([]);
   expect(f.counts()).toEqual({ opened: 0, passwords: 0 });
   expect(desktopSummary(info)).toContain("mindwire desktop enable");
+});
+
+test("rejected Mac password offers a private retry and saves only after acceptance", async () => {
+  const f = fixture(["allow", "retry"]); f.setSharing(); f.reject();
+  f.passwords("incorrect private password", "correct private password");
+  const result = await manageDesktop({ ...f, directory: "/unused", action: "enable", interactive: true });
+  expect(result.enabled).toBe(true);
+  expect(f.counts().passwords).toBe(2);
+  expect(f.writes.map(write => write.password)).toEqual(["incorrect private password", "correct private password"]);
+  const output = f.output.join("\n");
+  expect(output).toContain("Check the password for owner and try again");
+  expect(output).toContain("Desktop settings were not changed");
+  expect(output).not.toMatch(/127\.0\.0\.1|PUT |428|private password|Private authentication details/);
+});
+
+test("cancelling a rejected password leaves an existing desktop setup enabled", async () => {
+  for (const choice of ["cancel", undefined]) {
+    const f = fixture(["allow", choice], true); f.setSharing(); f.reject(); f.forbidQuestions();
+    const result = await manageDesktop({ ...f, directory: "/unused", action: "enable", interactive: true });
+    expect(result.enabled).toBe(true);
+    expect(f.writes).toHaveLength(1);
+    expect(f.counts().passwords).toBe(1);
+    expect(f.output.join("\n")).not.toContain("Desktop access is on.");
+  }
+});
+
+test("password retry can open Mac settings and rejects invalid passwords locally", async () => {
+  const f = fixture(["allow", "retry", "settings"]); f.setSharing(); f.reject();
+  f.passwords("", "incorrect private password", " test Ω password ");
+  const result = await manageDesktop({ ...f, directory: "/unused", action: "enable", interactive: true });
+  expect(result.enabled).toBe(true);
+  expect(f.counts()).toEqual({ opened: 1, passwords: 3 });
+  expect(f.writes).toHaveLength(2);
+});
+
+test("connection and permission failures are not presented as an incorrect password", async () => {
+  for (const [code, status] of [["timeout", 504], ["forbidden", 403], ["screen_sharing_off", 428]] as const) {
+    const f = fixture(["allow", "retry"]); f.setSharing(); f.reject(code, status);
+    await expect(manageDesktop({ ...f, directory: "/unused", action: "enable", interactive: true })).rejects.toThrow();
+    expect(f.counts().passwords).toBe(1);
+    expect(f.writes).toHaveLength(1);
+    expect(f.output.join("\n")).not.toContain("didn’t accept");
+  }
 });
 
 test("CLI opt-in guides Mac settings then saves credentials locally once", async () => {

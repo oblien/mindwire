@@ -9,6 +9,13 @@ import (
 	vnc "github.com/kward/go-vnc"
 )
 
+// Keep the underlying failure available for classification without exposing an
+// RFB server's raw authentication response in logs or API messages.
+type rfbHandshakeFailure struct{ cause error }
+
+func (*rfbHandshakeFailure) Error() string   { return "The desktop VNC connection could not be opened." }
+func (e *rfbHandshakeFailure) Unwrap() error { return e.cause }
+
 // The pinned go-vnc revision writes the RGB maxima in SetPixelFormat using
 // little-endian rather than RFB's network byte order. Connect sends this message
 // itself: correcting the format afterwards is too late for strict servers such

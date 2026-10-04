@@ -282,8 +282,8 @@ func TestMacDesktopOptInAuthenticationAndIdempotentSetup(t *testing.T) {
 	if _, err := s.Open(t.Context(), Actor{Kind: "user"}, OpenRequest{RequestID: "before", Mode: "view"}); err == nil {
 		t.Fatal("desktop opened before opt-in")
 	}
-	if _, err := s.ConfigureLocalDesktop(t.Context(), LocalDesktopSettings{Enabled: true, Username: "owner", Password: "wrong"}, store); err == nil {
-		t.Fatal("bad Mac login was accepted")
+	if _, err := s.ConfigureLocalDesktop(t.Context(), LocalDesktopSettings{Enabled: true, Username: "owner", Password: "wrong"}, store); asError(err).Code != "desktop_authentication" {
+		t.Fatal("bad Mac login did not return a retryable authentication error", err)
 	}
 	if store.Get(localDesktopKey) != "" {
 		t.Fatal("failed authentication persisted settings")
@@ -294,6 +294,13 @@ func TestMacDesktopOptInAuthenticationAndIdempotentSetup(t *testing.T) {
 	enableTestMac(t, s, store)
 	if accepted.Load() != count || s.Snapshot().Controller == nil || s.Snapshot().Controller.SessionID != viewer.ID {
 		t.Fatal("identical setup restarted authentication or lost control")
+	}
+	saved := store.Get(localDesktopKey)
+	if _, err := s.ConfigureLocalDesktop(t.Context(), LocalDesktopSettings{Enabled: true, Username: "owner", Password: "wrong again"}, store); asError(err).Code != "desktop_authentication" {
+		t.Fatal("failed reconfiguration did not preserve the login error", err)
+	}
+	if saved != store.Get(localDesktopKey) || s.Snapshot().Controller == nil || s.Snapshot().Controller.SessionID != viewer.ID {
+		t.Fatal("rejected password changed working credentials or dropped control")
 	}
 	capture, err := s.Capture(t.Context(), viewer.ID, Actor{Kind: "user"})
 	if err != nil || capture.Geometry.Width != 2 {
@@ -332,6 +339,26 @@ func TestMacDesktopOptInAuthenticationAndIdempotentSetup(t *testing.T) {
 	}
 	if err := s.AuthorizeViewer(viewer.ID); err == nil {
 		t.Fatal("old view grant survived disabling")
+	}
+}
+
+func TestMacConnectionErrorsDistinguishRejectedLoginFromBrokenConnection(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		code string
+	}{
+		{errors.New("SecurityResult handshake failed: private upstream response"), "desktop_authentication"},
+		{&rfbHandshakeFailure{cause: errors.New("SecurityResult handshake failed: private upstream response")}, "desktop_authentication"},
+		{&rfbHandshakeFailure{cause: context.DeadlineExceeded}, "timeout"},
+		{&rfbHandshakeFailure{cause: io.EOF}, "unavailable"},
+		{io.ErrUnexpectedEOF, "unavailable"},
+		{problem("desktop_auth_protocol", "Unsupported Screen Sharing authentication."), "desktop_auth_protocol"},
+		{errors.New("Security handshake failed; no suitable auth schemes found; server supports: private upstream response"), "desktop_auth_protocol"},
+	} {
+		got := asError(macConnectionError(t.Context(), test.err))
+		if got.Code != test.code || strings.Contains(got.Message, "private upstream") {
+			t.Fatalf("wrong or unsanitized desktop failure: %+v", got)
+		}
 	}
 }
 
