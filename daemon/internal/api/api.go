@@ -760,7 +760,7 @@ func (a *API) streamRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	run, ok := a.store.GetRun(id)
+	_, ok := a.store.GetRun(id)
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
@@ -772,7 +772,7 @@ func (a *API) streamRun(w http.ResponseWriter, r *http.Request) {
 	}
 	sseHeaders(w)
 
-	replay, ch, done, cancel := a.hub.SubscribeAfter(id, after)
+	replay, ch, done, cancel := a.sup.SubscribeRun(id, after)
 	defer cancel()
 
 	send := func(ev agent.Event) {
@@ -793,12 +793,7 @@ func (a *API) streamRun(w http.ResponseWriter, r *http.Request) {
 		send(ev)
 	}
 	send(agent.Event{Type: agent.EventStatus, Meta: map[string]any{"stream": "ready"}})
-	// Terminal run: nothing more will be published. Close a phantom topic (freshly created
-	// by Subscribe after a restart) so it gets reaped, and end the stream.
-	if done || run.Status != "running" {
-		if !done {
-			a.hub.Close(id)
-		}
+	if done {
 		return
 	}
 

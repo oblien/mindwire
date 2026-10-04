@@ -69,7 +69,7 @@ func (r *Run) Stream(ctx context.Context, opts ...StreamOption) iter.Seq[Event] 
 		o(&cfg)
 	}
 	return func(yield func(Event) bool) {
-		replay, ch, done, cancel := r.core.hub.SubscribeAfter(r.data.ID, cfg.after)
+		replay, ch, done, cancel := r.core.sup.SubscribeRun(r.data.ID, cfg.after)
 		defer cancel()
 
 		if cfg.openSentinel {
@@ -83,11 +83,7 @@ func (r *Run) Stream(ctx context.Context, opts ...StreamOption) iter.Seq[Event] 
 				return
 			}
 		}
-		record, exists := r.core.store.GetRun(r.data.ID)
-		if done || !exists || record.Status != "running" {
-			if !done {
-				r.core.hub.Close(r.data.ID)
-			}
+		if done {
 			return
 		}
 		for {
@@ -111,7 +107,7 @@ func (r *Run) Stream(ctx context.Context, opts ...StreamOption) iter.Seq[Event] 
 // invoke. Prefer Stream; reach for this only to multiplex a run's events with other channels in a
 // select.
 func (r *Run) Subscribe() (replay []Event, ch <-chan Event, done bool, cancel func()) {
-	return r.core.hub.Subscribe(r.data.ID)
+	return r.core.sup.SubscribeRun(r.data.ID, 0)
 }
 
 // ---- control ---------------------------------------------------------------
