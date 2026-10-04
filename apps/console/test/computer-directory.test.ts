@@ -411,8 +411,10 @@ test("untrusted payloads are bounded and cannot substitute signatures, audiences
       headers: { "Content-Type": "text/plain" },
       body: "{}",
     });
-    expect(wrongType.status).toBe(415);
-    await wrongType.body?.cancel();
+    expect({ status: wrongType.status, body: await wrongType.text() }).toEqual({
+      status: 415,
+      body: expect.stringContaining('"code":"json_required"'),
+    });
     expect((await request(f, "PUT", "/records/" + host.id, good)).status).toBe(200);
     const read = await lookup(f, host, phone);
     expect(read.status).toBe(200);
