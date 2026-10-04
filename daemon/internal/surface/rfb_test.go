@@ -32,6 +32,8 @@ type rfbFixture struct {
 	tiledFrame     bool
 	debug          bool
 	frameRequests  int
+	formats16      int
+	formats24      int
 	authentication func(io.ReadWriteCloser) bool
 }
 
@@ -75,6 +77,7 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 	}
 	resized := false
 	sentPixels := false
+	pixel := []byte{40, 30, 200, 0}
 	debugMessages := 0
 	for {
 		typeByte, err := read(1)
@@ -91,7 +94,20 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 			if err != nil {
 				return
 			}
-			if !bytes.Equal(format[3:], []byte{32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0}) {
+			switch {
+			case bytes.Equal(format[3:], []byte{32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0}):
+				pixel = []byte{40, 30, 200, 0}
+				f.mu.Lock()
+				f.formats24++
+				f.mu.Unlock()
+			case bytes.Equal(format[3:], []byte{16, 16, 0, 1, 0, 31, 0, 31, 0, 31, 10, 5, 0, 0, 0, 0}):
+				// RoyalVNCKit's reduced-color format uses RGB555 in 16 bits.
+				value := uint16(200>>3)<<10 | uint16(30>>3)<<5 | uint16(40>>3)
+				pixel = []byte{byte(value), byte(value >> 8)}
+				f.mu.Lock()
+				f.formats16++
+				f.mu.Unlock()
+			default:
 				return // TigerVNC rejects an invalid format immediately, before any frame request.
 			}
 		case 2:
@@ -144,7 +160,7 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 							_ = binary.Write(&frame, binary.BigEndian, value)
 						}
 						_ = binary.Write(&frame, binary.BigEndian, int32(0))
-						frame.Write(bytes.Repeat([]byte{40, 30, 200, 0}, tw*th))
+						frame.Write(bytes.Repeat(pixel, tw*th))
 					}
 				}
 				sentPixels = true
@@ -159,7 +175,7 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 			}
 			_ = binary.Write(&frame, binary.BigEndian, encoding)
 			if encoding == 0 {
-				frame.Write(bytes.Repeat([]byte{40, 30, 200, 0}, int(w)*int(h)))
+				frame.Write(bytes.Repeat(pixel, int(w)*int(h)))
 				sentPixels = true
 			}
 			if _, err := conn.Write(frame.Bytes()); err != nil {

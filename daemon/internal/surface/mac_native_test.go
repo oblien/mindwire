@@ -27,7 +27,12 @@ func TestNativeMacDesktopFixture(t *testing.T) {
 	if live {
 		// The read-only performance test uses existing, explicitly enabled access.
 		// Keep the real login only in memory, never in this fixture's state files.
-		s.configureProvider(performanceMac(t))
+		desktop := performanceMac(t)
+		s.configureProvider(desktop)
+		// Close the read-only input transport before Service.Close's generic
+		// release. With no controller this test must send no pointer event,
+		// including a cleanup mouse-up at the connection's initial position.
+		t.Cleanup(func() { _ = desktop.Close() })
 	}
 	frames.resize = true
 	// A six-MiB frame crosses the native forwarder's write high-water mark.
@@ -86,13 +91,19 @@ func TestNativeMacDesktopFixture(t *testing.T) {
 		s.mu.Unlock()
 		frames.mu.Lock()
 		presses := 0
+		pointers := make([][]int, 0)
 		for _, input := range frames.inputs {
 			if input.kind == 4 && input.data[0] == 1 {
 				presses++
 			}
+			if input.kind == 5 && len(input.data) == 5 {
+				pointers = append(pointers, []int{int(input.data[0]), int(input.data[1])<<8 | int(input.data[2]), int(input.data[3])<<8 | int(input.data[4])})
+			}
 		}
+		formats16, formats24 := frames.formats16, frames.formats24
 		frames.mu.Unlock()
-		respond(w, map[string]int{"sessions": sessions, "viewers": viewers, "keyPresses": presses}, nil)
+		respond(w, map[string]any{"sessions": sessions, "viewers": viewers, "keyPresses": presses,
+			"formats16": formats16, "formats24": formats24, "pointerEvents": pointers}, nil)
 	})
 	runtimeData, err := os.ReadFile(filepath.Join(directory, "computer-runtime.json"))
 	if err != nil {
