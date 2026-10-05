@@ -23,6 +23,11 @@ on:
         description: "Git tag (for example v0.1.2)"
         required: true
         type: string
+      publish-latest:
+        description: "Advance stable image aliases after a checked release"
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       tag:
@@ -59,7 +64,7 @@ jobs:
       - id: tags
         env:
           REQUESTED_TAG: ${{ inputs.tag || github.event.inputs.tag }}
-          CALLED_FROM_RELEASE: ${{ github.event_name == 'workflow_call' }}
+          CALLED_FROM_RELEASE: ${{ inputs.publish-latest == true }}
         run: |
           set -euo pipefail
           tag="${REQUESTED_TAG#v}"
