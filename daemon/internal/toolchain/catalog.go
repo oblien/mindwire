@@ -120,9 +120,10 @@ type Software struct {
 	InstalledVersion      string   `json:"installedVersion"`
 	RecommendedVersion    string   `json:"recommendedVersion,omitempty"`
 	LatestVersion         string   `json:"latestVersion,omitempty"` // latest approved catalog entry, not npm latest
-	Compatibility         string   `json:"compatibility"`           // supported | untested | incompatible | not_installed
+	Compatibility         string   `json:"compatibility"`           // supported | untested | incompatible | unavailable | not_installed
 	Managed               bool     `json:"managed"`
 	UpdateAvailable       bool     `json:"updateAvailable"`
+	RepairAvailable       bool     `json:"repairAvailable,omitempty"`
 	RequiresDaemonUpdate  bool     `json:"requiresDaemonUpdate"`
 	RequiredDaemonVersion string   `json:"requiredDaemonVersion,omitempty"`
 	Message               string   `json:"message,omitempty"`

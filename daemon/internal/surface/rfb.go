@@ -99,19 +99,26 @@ func (m *boundedClipboard) Read(*vnc.ClientConn) (vnc.ServerMessage, error) {
 }
 
 type rfbClient struct {
-	write     sync.Mutex
-	mu        sync.Mutex
-	conn      net.Conn
-	client    *vnc.ClientConn
-	frame     *image.RGBA
-	size      Geometry
-	sequence  int64
-	changed   chan struct{}
-	done      chan struct{}
-	closeOnce sync.Once
-	pressed   map[keys.Key]bool
-	x, y      uint16
-	mask      buttons.Button
+	observeLock   sync.Mutex
+	write         sync.Mutex
+	mu            sync.Mutex
+	conn          net.Conn
+	client        *vnc.ClientConn
+	frame         *image.RGBA
+	size          Geometry
+	sequence      int64
+	observedAt    time.Time
+	changed       chan struct{}
+	observation   *frameObservation
+	updateWake    chan struct{}
+	cursorPending bool
+	cursor        *Cursor
+	onCursor      func(*Cursor)
+	done          chan struct{}
+	closeOnce     sync.Once
+	pressed       map[keys.Key]bool
+	x, y          uint16
+	mask          buttons.Button
 }
 
 func newRFB(ctx context.Context, conn net.Conn) (*rfbClient, error) {
@@ -157,14 +164,15 @@ func newRFBWithAuth(ctx context.Context, conn net.Conn, auth []vnc.ClientAuth) (
 		conn.Close()
 		return nil, err
 	}
-	if err := client.SetEncodings(vnc.Encodings{&boundedRaw{reader: reader}, &vnc.DesktopSizePseudoEncoding{}}); err != nil {
+	if err := client.SetEncodings(vnc.Encodings{&boundedRaw{reader: reader}, &vnc.DesktopSizePseudoEncoding{}, &cursorEncoding{reader: reader}}); err != nil {
 		conn.Close()
 		return nil, err
 	}
 	r := &rfbClient{conn: conn, client: client, frame: image.NewRGBA(image.Rect(0, 0, width, height)), size: Geometry{width, height, time.Now().UnixMilli()},
-		changed: make(chan struct{}), done: make(chan struct{}), pressed: map[keys.Key]bool{}}
+		changed: make(chan struct{}), done: make(chan struct{}), updateWake: make(chan struct{}, 1), pressed: map[keys.Key]bool{}}
 	go func() { _ = client.ListenAndHandle(); r.close(); close(cfg.ServerMessageCh) }()
 	go r.receive(cfg.ServerMessageCh)
+	go r.requestUpdates()
 	return r, nil
 }
 func (r *rfbClient) receive(messages <-chan vnc.ServerMessage) {
@@ -179,7 +187,17 @@ func (r *rfbClient) receive(messages <-chan vnc.ServerMessage) {
 			}
 			r.mu.Lock()
 			invalid := false
+			var cursorChanged *Cursor
+			pixelsChanged := false
+			r.cursorPending = false
 			for _, rect := range update.Rects {
+				if shape, ok := rect.Enc.(*cursorEncoding); ok {
+					if shape.cursor != nil && (r.cursor == nil || r.cursor.ID != shape.cursor.ID) {
+						r.cursor = shape.cursor
+						cursorChanged = shape.cursor
+					}
+					continue
+				}
 				if rect.Enc.Type() == encodings.DesktopSizePseudo {
 					w, h := int(rect.Width), int(rect.Height)
 					if w < 1 || h < 1 || w*h > 16<<20 {
@@ -191,6 +209,9 @@ func (r *rfbClient) receive(messages <-chan vnc.ServerMessage) {
 					if w != r.size.Width || h != r.size.Height {
 						r.size = Geometry{w, h, r.size.Revision + 1}
 						r.frame = image.NewRGBA(image.Rect(0, 0, w, h))
+						if r.observation != nil {
+							r.observation.reset(r.size)
+						}
 					}
 					continue
 				}
@@ -211,13 +232,32 @@ func (r *rfbClient) receive(messages <-chan vnc.ServerMessage) {
 					r.frame.Pix[offset+2] = byte(c.B)
 					r.frame.Pix[offset+3] = 255
 				}
+				pixelsChanged = true
+				if r.observation != nil {
+					r.observation.cover(image.Rect(x, y, x+w, y+h))
+				}
 			}
 			r.sequence++
+			if r.observation != nil && r.observation.remaining > 0 {
+				// RFB may satisfy/merge a pending update with only a cursor or a
+				// partial region. Request the still-missing pixels again; waiting
+				// for an unsolicited second reply would stall a static desktop.
+				r.observation.sent = false
+			}
+			if pixelsChanged {
+				r.observedAt = time.Now()
+			}
 			close(r.changed)
 			r.changed = make(chan struct{})
+			onCursor := r.onCursor
 			r.mu.Unlock()
 			if invalid {
 				r.close()
+			} else {
+				if cursorChanged != nil && onCursor != nil {
+					onCursor(cursorChanged)
+				}
+				r.wakeUpdates()
 			}
 		}
 	}
@@ -240,44 +280,48 @@ func (r *rfbClient) refreshGeometry(ctx context.Context) (Geometry, error) {
 	return geometry, err
 }
 
-// A one-pixel nonincremental request also elicits pending DesktopSize updates.
-// Validate pointer geometry without transferring a second full viewer stream.
-func (r *rfbClient) requestFrame(size Geometry, full bool) error {
-	width, height := uint16(1), uint16(1)
-	if full {
-		width, height = uint16(size.Width), uint16(size.Height)
-	}
+// Repeated human pointer motion uses the geometry already observed on this
+// connection. Button transitions and clicks still reconcile synchronously;
+// motion rechecks at most every 250ms, with no timer/work while idle. Agent
+// actions continue to validate every observation through Connect/Capture.
+func (r *rfbClient) inputGeometry(ctx context.Context, action Action) (Geometry, error) {
 	r.write.Lock()
-	defer r.write.Unlock()
-	return r.client.FramebufferUpdateRequest(false, 0, 0, width, height)
+	continuing := action.Kind == "pointer" && int(r.mask) == action.Buttons
+	r.write.Unlock()
+	r.mu.Lock()
+	size, observedAt := r.size, r.observedAt
+	r.mu.Unlock()
+	if continuing && r.alive() && !observedAt.IsZero() && time.Since(observedAt) < 250*time.Millisecond {
+		return size, nil
+	}
+	return r.refreshGeometry(ctx)
 }
+
 func (r *rfbClient) observe(ctx context.Context, full bool) (image.Image, Geometry, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	stop := context.AfterFunc(ctx, r.close)
-	defer stop()
-	r.mu.Lock()
-	sequence := r.sequence
-	size := r.size
-	r.mu.Unlock()
-	err := r.requestFrame(size, full)
-	if err != nil {
-		r.close()
+	r.observeLock.Lock()
+	defer r.observeLock.Unlock()
+	if err := ctx.Err(); err != nil {
 		return nil, Geometry{}, err
 	}
+	stop := context.AfterFunc(ctx, r.close)
+	defer stop()
+	o := &frameObservation{full: full}
+	r.mu.Lock()
+	o.reset(r.size)
+	r.observation = o
+	r.mu.Unlock()
+	r.wakeUpdates()
+	defer func() {
+		r.mu.Lock()
+		r.observation = nil
+		r.mu.Unlock()
+		r.wakeUpdates()
+	}()
 	for {
 		r.mu.Lock()
-		if r.size.Revision != size.Revision {
-			size = r.size
-			sequence = r.sequence
-			r.mu.Unlock()
-			err := r.requestFrame(size, full)
-			if err != nil {
-				return nil, Geometry{}, err
-			}
-			continue
-		}
-		if r.sequence > sequence {
+		if o.remaining == 0 && r.alive() {
 			if !full {
 				g := r.size
 				r.mu.Unlock()

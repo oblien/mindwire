@@ -13,6 +13,37 @@ import (
 	"time"
 )
 
+func TestWorkspaceProjectLibrarySharesOneRegistryAcrossHarnesses(t *testing.T) {
+	c := newFakeClient(t, nil)
+	if c.Health().ProjectLibraryVersion != 1 {
+		t.Fatal("missing library capability")
+	}
+	created, err := c.Workspace.Projects.Put("project", WorkspaceProject{Name: "App", Path: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder := "work"
+	edit := ProjectLibraryEdit{Folders: []ProjectFolder{{ID: folder, Name: "Work"}},
+		Placements: []ProjectPlacement{{ProjectID: "project", FolderID: &folder}}, Order: []string{"project"}}
+	saved, err := c.Workspace.EditLibrary(edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := c.WithAgent("codex").Workspace.Library()
+	if err != nil || !reflect.DeepEqual(other, saved) {
+		t.Fatalf("harness changed the workspace library: %+v %v", other, err)
+	}
+	delta, err := c.Workspace.Changes(created.Revision, created.WorkspaceID)
+	if err != nil || delta.ProjectLibrary == nil || !reflect.DeepEqual(*delta.ProjectLibrary, saved) {
+		t.Fatalf("SDK delta lost folders: %+v %v", delta, err)
+	}
+	_, err = c.Workspace.EditLibrary(ProjectLibraryEdit{Folders: []ProjectFolder{{ID: folder, Name: "Stale edit"}}})
+	var conflict *APIError
+	if !errors.As(err, &conflict) || conflict.Status != 409 {
+		t.Fatal("SDK did not expose a conditional-edit conflict", err)
+	}
+}
+
 func TestWorkspaceDiscoversAndReadsNativeCLIConversations(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", home)

@@ -287,6 +287,10 @@
           "localDesktopVersion": {
             "type": "integer",
             "description": "Opt-in Mac desktop through paired SSH; 1 on supported personal computers."
+          },
+          "projectLibraryVersion": {
+            "type": "integer",
+            "description": "1 supports durable project folders, membership and custom ordering."
           }
         },
         "required": [
@@ -3019,6 +3023,10 @@
                 }
               }
             }
+          },
+          "projectLibrary": {
+            "$ref": "#/components/schemas/ProjectLibrary",
+            "description": "Present in full snapshots and when organization changed since the requested revision."
           }
         }
       },
@@ -4076,7 +4084,7 @@
           },
           "compatibility": {
             "type": "string",
-            "description": "supported, untested, incompatible, or not_installed. Unknown versions are untested, never implicitly approved for installation."
+            "description": "supported, untested, incompatible, unavailable, or not_installed. Unavailable means a managed CLI version probe failed; retry or explicitly repair it. Unknown versions are untested, never implicitly approved for installation."
           },
           "requiredDaemonVersion": {
             "type": "string"
@@ -4105,6 +4113,10 @@
               "type": "string"
             },
             "description": "Missing shared tools. Run setup to repair them even when the CLI is already installed."
+          },
+          "repairAvailable": {
+            "type": "boolean",
+            "description": "An explicit update can repair a changed or unreadable managed CLI. Also sets updateAvailable for older clients."
           }
         }
       },
@@ -6197,6 +6209,133 @@
         },
         "required": [],
         "additionalProperties": false
+      },
+      "ProjectFolder": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        }
+      },
+      "ProjectLibrary": {
+        "type": "object",
+        "required": [
+          "version",
+          "revision",
+          "folders",
+          "membership",
+          "order"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectFolder"
+            },
+            "description": "Folders in their display order."
+          },
+          "membership": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Project ID to folder ID. Only registered projects are included."
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Custom project order, using registry project IDs."
+          }
+        }
+      },
+      "ProjectPlacement": {
+        "type": "object",
+        "required": [
+          "projectId",
+          "folderId"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "folderId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Null removes the project from its folder without changing its files."
+          }
+        }
+      },
+      "ProjectLibraryEdit": {
+        "type": "object",
+        "required": [
+          "expectedRevision"
+        ],
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The current project library revision, not a project record revision."
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectFolder"
+            },
+            "description": "Create or rename folders. Deleted IDs cannot be reused."
+          },
+          "deleteFolders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "placements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectPlacement"
+            }
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Reorder these projects while retaining other projects in their existing slots."
+          },
+          "folderOrder": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Reorder these folders while retaining the others."
+          },
+          "importIfEmpty": {
+            "type": "boolean",
+            "description": "One-time migration: ignored once this workspace has any library revision."
+          }
+        }
       }
     }
   },
@@ -17009,6 +17148,141 @@
             }
           }
         ]
+      }
+    },
+    "/workspace/project-library": {
+      "get": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Read project folders and order",
+        "description": "Reads only organization metadata. No native history scan or filesystem move.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authoritative project library.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLibrary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Workspace authentication required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Edit project organization atomically",
+        "description": "Partial conditional edit in a single SQLite transaction. Identical retries do not advance the revision. Deleting folders keeps all projects, files and conversations. Requires projectLibraryVersion >= 1.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectLibraryEdit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authoritative project library.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLibrary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid folder, name or project reference. Nothing was changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Workspace authentication required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Organization changed on another client. Fetch it and rebase the intended edit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "A folder was deleted. Do not recreate that ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

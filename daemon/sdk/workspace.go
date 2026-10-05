@@ -14,14 +14,18 @@ import (
 
 // Aliases keep the same records, revisions and deletion protocol across Go, HTTP, TypeScript and iOS.
 type (
-	WorkspaceRecord   = registry.Record
-	WorkspaceAgent    = registry.Agent
-	WorkspaceProject  = registry.Project
-	WorkspaceChat     = registry.Chat
-	WorkspaceDeletion = registry.Deletion
-	WorkspaceImport   = registry.Import
-	WorkspaceSnapshot = registry.Snapshot
-	ProjectIcon       = projecticon.Image
+	WorkspaceRecord    = registry.Record
+	WorkspaceAgent     = registry.Agent
+	WorkspaceProject   = registry.Project
+	WorkspaceChat      = registry.Chat
+	WorkspaceDeletion  = registry.Deletion
+	WorkspaceImport    = registry.Import
+	WorkspaceSnapshot  = registry.Snapshot
+	ProjectIcon        = projecticon.Image
+	ProjectFolder      = registry.ProjectFolder
+	ProjectLibrary     = registry.ProjectLibrary
+	ProjectLibraryEdit = registry.ProjectLibraryEdit
+	ProjectPlacement   = registry.ProjectPlacement
 )
 
 // Workspace is workspace-wide metadata; selecting a different harness never changes its scope.
@@ -68,6 +72,20 @@ func workspaceError(op string, err error) error {
 }
 
 type WorkspaceSyncOptions struct{ Refresh bool }
+
+func (w *Workspace) Library() (ProjectLibrary, error) {
+	library, err := w.c.core.registry.ProjectLibrary()
+	return library, workspaceError("Workspace.Library", err)
+}
+
+func (w *Workspace) EditLibrary(edit ProjectLibraryEdit) (ProjectLibrary, error) {
+	w.c.core.registryMu.Lock()
+	defer w.c.core.registryMu.Unlock()
+	if err := w.c.core.registry.EditProjectLibrary(edit); err != nil {
+		return ProjectLibrary{}, workspaceError("Workspace.EditLibrary", err)
+	}
+	return w.Library()
+}
 
 // ProjectIcon reads a small image confined to the project's directory. An empty
 // path uses the saved icon; an explicit relative path previews a candidate.

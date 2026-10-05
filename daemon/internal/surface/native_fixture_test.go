@@ -29,6 +29,22 @@ func registerDesktopFixtureRoutes(mux *http.ServeMux, s *Service) {
 			respond(w, s.Snapshot(), nil)
 		}
 	})
+	mux.HandleFunc("GET /surfaces/desktop/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for {
+			changed := s.Changes()
+			data, _ := json.Marshal(s.Snapshot())
+			if _, err := w.Write(append(append([]byte("event: surface\ndata: "), data...), []byte("\n\n")...)); err != nil {
+				return
+			}
+			w.(http.Flusher).Flush()
+			select {
+			case <-r.Context().Done():
+				return
+			case <-changed:
+			}
+		}
+	})
 	mux.HandleFunc("POST /surfaces/desktop/sessions", func(w http.ResponseWriter, r *http.Request) {
 		var req OpenRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

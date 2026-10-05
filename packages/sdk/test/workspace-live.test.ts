@@ -53,10 +53,17 @@ test.skipIf(!process.env.MINDWIRE_TEST_DAEMON)("workspace SDK survives daemon re
     expect(exitCode).not.toBe(0);
     expect(readFileSync(join(directory, "daemon.token"), "utf8")).toBe(token);
     expect(statSync(join(directory, "daemon.token")).mode & 0o777).toBe(0o600);
+    expect((await a.health()).projectLibraryVersion).toBe(1);
+    const libraryEdit = { expectedRevision: 0, folders: [{ id: "work", name: "Work" }],
+      placements: [{ projectId: "project", folderId: "work" }], order: ["project"] };
+    const library = await a.workspace.editLibrary(libraryEdit);
+    expect(await b.workspace.library()).toEqual(library);
+    expect(await a.workspace.editLibrary(libraryEdit)).toEqual(library);
     await stop(child);
     child = start();
     await ready();
-    expect(await b.workspace.snapshot()).toEqual(created);
+    expect(await b.workspace.snapshot()).toEqual({ ...created, revision: library.revision, projectLibrary: library });
+    expect(await b.workspace.library()).toEqual(library);
 
     const original = created.projects[0]!;
     const edits = await Promise.allSettled([
@@ -71,6 +78,9 @@ test.skipIf(!process.env.MINDWIRE_TEST_DAEMON)("workspace SDK survives daemon re
     expect(changed.full).toBe(false);
     expect(changed.projects).toHaveLength(1);
     const deleted = await a.workspace.projects.delete("project", changed.projects[0]!.revision);
+    expect(deleted.projectLibrary?.membership).toEqual({});
+    expect(deleted.projectLibrary?.order).toEqual([]);
+    expect(deleted.projectLibrary?.folders).toEqual(library.folders);
     expect(deleted.chats).toHaveLength(0);
     expect(deleted.deleted.map(item => item.kind).sort()).toEqual(["chats", "projects"]);
     const afterStaleImport = await b.workspace.import(created);

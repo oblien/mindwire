@@ -81,6 +81,7 @@ type Snapshot struct {
 	ObservedAt  *time.Time `json:"observedAt,omitempty"`
 	ProviderStatus
 	Geometry               *Geometry   `json:"geometry,omitempty"`
+	Cursor                 *Cursor     `json:"cursor,omitempty"`
 	Controller             *Controller `json:"controller,omitempty"`
 	AuthorizationExpiresAt *time.Time  `json:"authorizationExpiresAt,omitempty"`
 	Error                  *Error      `json:"error,omitempty"`

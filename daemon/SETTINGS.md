@@ -18,6 +18,33 @@ for the selected provider. Neither credentials nor native terminal UI preference
 cross this boundary. A managed Foundry connection uses its own deployment name
 and provider tuning rather than an unrelated native provider's values.
 
+## Native command access
+
+Direct workspaces run commands as the account that started Mindwire, using its
+normal filesystem, PATH, home and network access. This includes root on a server
+started as root; Mindwire neither changes users nor adds privileges. Docker
+workspaces keep their existing container boundary.
+
+Harness launchers restore inherited PATH entries after login-shell startup and
+retain any additional login paths. An explicitly managed CLI version still takes
+precedence. This keeps commands installed through Homebrew, npm or a user tool
+directory available when a system login profile replaces PATH. Commands run by
+the harness still honor that harness's native shell settings.
+
+Codex defaults to `danger-full-access` when no sandbox has been selected. A
+native `sandbox_mode` in the user config or its selected profile, a managed
+`sandbox` setting, or a per-turn override takes precedence. The approval policy
+is independent and remains unchanged. Both app-server and exec apply this to
+new and resumed chats. Explicit `workspace-write` still uses Codex's network
+restrictions unless network access is enabled in its native configuration.
+
+To verify the installed Codex without a model account, run
+`CODEX_LOCAL=1 go test ./internal/agent/codex -run '^TestLocalNativeCommandAccess$' -v`
+from `daemon/`. A local Responses fixture requests real commands on new and
+resumed sessions through both transports. It checks the invoking UID, inherited
+tool PATH/environment, and a real HTTP connection. Codex state and credentials
+are temporary. The check also runs as root in an ordinary Linux container.
+
 ## Models and reasoning
 
 Codex reads native `model/list`, including pagination and hidden-model filtering.

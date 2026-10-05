@@ -38,6 +38,7 @@ type probe struct {
 	raw      string
 	version  string
 	selected string
+	err      error
 	at       time.Time
 }
 
@@ -63,10 +64,17 @@ func (m *Manager) Software(ctx context.Context, spec Spec) Software {
 	s := c.Evaluate(spec.ID, m.version, installed)
 	s.Managed = p.selected != ""
 	s.CatalogSource, s.CatalogStale = source, stale
-	if s.Managed && p.version != p.selected {
+	if p.err != nil && s.Managed {
+		s.Compatibility = "unavailable"
+		s.Message = fmt.Sprintf("Could not start the managed %s CLI to check its version. Try checking again, or repair the CLI in agent settings.", spec.Name)
+		s.RepairAvailable = s.RecommendedVersion != ""
+	} else if s.Managed && p.version != p.selected {
 		s.Compatibility = "incompatible"
-		s.Message = "The managed CLI no longer matches its selected version. Reinstall the supported version."
+		s.Message = fmt.Sprintf("The managed %s installation changed (selected %s, found %s). Repair the CLI in agent settings.", spec.Name, p.selected, installed)
+		s.RepairAvailable = s.RecommendedVersion != ""
 	}
+	// Older clients can still offer the existing explicit update action for repairs.
+	s.UpdateAvailable = s.UpdateAvailable || s.RepairAvailable
 	return s
 }
 
@@ -84,7 +92,7 @@ func (m *Manager) RefreshSoftware(ctx context.Context, spec Spec, force bool) So
 func (m *Manager) CheckAdmission(ctx context.Context, spec Spec) error {
 	m.invalidate(spec)
 	info := m.Software(ctx, spec)
-	if info.Compatibility == "incompatible" {
+	if info.Compatibility == "incompatible" || info.Compatibility == "unavailable" {
 		return fmt.Errorf("%s", info.Message)
 	}
 	return nil
@@ -100,15 +108,15 @@ func (m *Manager) probe(ctx context.Context, spec Spec) probe {
 	selectedVersion := selected(m.root, spec.Binary)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if p, ok := m.probes[spec.Binary]; ok && p.selected == selectedVersion && time.Since(p.at) < 30*time.Second {
+	if p, ok := m.probes[spec.Binary]; ok && p.err == nil && p.selected == selectedVersion && time.Since(p.at) < 30*time.Second {
 		return p
 	}
 	path := spec.Binary
 	if selectedVersion != "" {
 		path = versionBinary(m.root, spec.Binary, selectedVersion)
 	}
-	raw, _ := versionOutput(ctx, spec, path)
-	p := probe{raw: raw, version: ParseVersion(raw), selected: selectedVersion, at: time.Now()}
+	raw, err := versionOutput(ctx, spec, path)
+	p := probe{raw: raw, version: ParseVersion(raw), selected: selectedVersion, err: err, at: time.Now()}
 	m.probes[spec.Binary] = p
 	return p
 }
@@ -138,7 +146,7 @@ func versionOutput(ctx context.Context, spec Spec, path string) (string, error) 
 // A known incompatible version is rejected before it can start another turn.
 func (m *Manager) Check(ctx context.Context, spec Spec) (string, error) {
 	s := m.Software(ctx, spec)
-	if s.Compatibility == "incompatible" {
+	if s.Compatibility == "incompatible" || s.Compatibility == "unavailable" {
 		return "", fmt.Errorf("%s", s.Message)
 	}
 	if s.InstalledVersion == "" {
@@ -157,7 +165,7 @@ func (m *Manager) Install(ctx context.Context, spec Spec, update bool) (string, 
 	m.invalidate(spec)
 	s := m.RefreshSoftware(ctx, spec, update)
 	if !update && s.InstalledVersion != "" {
-		if s.Compatibility == "incompatible" {
+		if s.Compatibility == "incompatible" || s.Compatibility == "unavailable" {
 			return "", fmt.Errorf("%s", s.Message)
 		}
 		return s.InstalledVersion, nil
@@ -169,7 +177,7 @@ func (m *Manager) Install(ctx context.Context, spec Spec, update bool) (string, 
 		}
 		return "", fmt.Errorf("no tested %s version is available for this Mindwire service", spec.Name)
 	}
-	if s.InstalledVersion != "" && (!validVersion(s.InstalledVersion) || compare(s.InstalledVersion, target) > 0) {
+	if s.InstalledVersion != "" && !s.RepairAvailable && (!validVersion(s.InstalledVersion) || compare(s.InstalledVersion, target) > 0) {
 		return "", fmt.Errorf("installed %s is newer than the tested version %s; it was left unchanged", spec.Name, target)
 	}
 	if s.InstalledVersion == target && s.Compatibility == "supported" {

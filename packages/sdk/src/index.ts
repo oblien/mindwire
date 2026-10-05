@@ -65,7 +65,8 @@ export type { ProjectRequest, ProjectAuth, ProjectOperation, ProjectRemoveReques
   GitConnection, GitAccessState, ProjectGitState, GitAction, GitIdentity, GitIdentityScope, GitIdentitySettings,
   GitIdentityUpdate, GitOperationRequest, GitOperation } from "./workspace.js";
 export type { WorkspaceRecord, WorkspaceAgent, WorkspaceProject, WorkspaceChat, WorkspaceKind,
-  WorkspaceInput, WorkspaceImport, WorkspaceSnapshot, ProjectIcon } from "./workspace.js";
+  WorkspaceInput, WorkspaceImport, WorkspaceSnapshot, ProjectIcon,
+  ProjectFolder, ProjectLibrary, ProjectLibraryEdit } from "./workspace.js";
 
 export * from "./surfaces.js";
 export * from "./execution.js";

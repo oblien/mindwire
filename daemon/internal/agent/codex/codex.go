@@ -140,7 +140,7 @@ var codexSpecs = []fieldSpec{
 	{key: keyApproval, label: "Approval policy", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonPermissionMode, src: srcApproval, emptyLabel: "Never (autonomous)", help: "When Codex pauses to ask you before running a command."},
 	{key: keyReviewer, label: "Approval reviewer", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeUnified, canon: agent.CanonApprovalReviewer, src: srcReviewer, help: "Approve for me uses Codex's native reviewer with Ask when needed. Ask before commands uses manual review. Custom connections use the chat model for automatic review."},
 	{key: keyCollaboration, label: "Mode", section: "Model & reasoning", typ: agent.FieldSelect, scope: agent.ScopeCustom, canon: keyCollaboration, src: srcCollaboration, help: "Planning mode asks questions and prepares a plan before implementation. Applies on the next turn."},
-	{key: keySandbox, label: "Sandbox", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeCustom, canon: keySandbox, src: srcSandbox, emptyLabel: "Default (workspace-write)", help: "Filesystem/network isolation for model-run commands — Codex's second permission axis, orthogonal to the approval policy."},
+	{key: keySandbox, label: "Sandbox", section: "Permissions & sandbox", typ: agent.FieldSelect, scope: agent.ScopeCustom, canon: keySandbox, src: srcSandbox, emptyLabel: "Default (host access)", help: "Commands use this computer's files, tools and network as the account running Mindwire. Choose a sandbox to restrict access. Approval policy controls when Codex asks you."},
 
 	{key: keyWorkdir, label: "Working directory", section: "Workspace", typ: agent.FieldText, scope: agent.ScopeCustom, canon: keyWorkdir, src: srcNone, placeholder: "/path/to/repo", help: "Directory the agent uses as its working root. Applies to fresh sessions; a resumed session keeps its original directory."},
 	{key: keyAddDir, label: "Extra directory", section: "Workspace", typ: agent.FieldText, scope: agent.ScopeUnified, canon: agent.CanonExtraDirs, src: srcNone, placeholder: "/path/to/other", help: "Additional directory that should be writable alongside the primary workspace."},
@@ -305,16 +305,16 @@ func approvalPolicy(in agent.TurnInput) string {
 	return "never"
 }
 
-// sandbox preserves an explicit user choice. Otherwise an externally isolated
-// container is the sandbox boundary; direct placements retain workspace-write.
+// sandbox preserves explicit native/profile/turn settings. Otherwise commands
+// run with the daemon account's normal access. Direct workspaces use the host;
+// container workspaces already have an outer filesystem/process boundary.
+// workspace-write would silently block network access (including DNS/gh), and
+// require nested Linux namespaces on some hosts. Approval policy is independent.
 func sandbox(in agent.TurnInput) string {
 	if v := strings.TrimSpace(in.Config[keySandbox]); v != "" {
 		return v
 	}
-	if agent.WorkspaceIsolation() == "container" {
-		return "danger-full-access"
-	}
-	return "workspace-write"
+	return "danger-full-access"
 }
 
 // materialized holds per-turn temp-file paths and resolved attachment references the adapter creates
@@ -391,7 +391,7 @@ func buildExecCommand(in agent.TurnInput, files materialized) string {
 	// flag, so it's a config override on both fresh and resume.
 	cli += " -c " + agent.ShellQuote("approval_policy="+approvalPolicy(in))
 
-	// Sandbox posture — always emitted (default workspace-write). Fresh takes -s; resume rejects it, so
+	// Sandbox posture — always emitted (default native access). Fresh takes -s; resume rejects it, so
 	// it goes through a config override.
 	sb := sandbox(in)
 	if resuming {

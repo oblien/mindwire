@@ -10,6 +10,7 @@ type SurfaceSnapshot = surface.Snapshot
 type SurfaceSession = surface.Session
 type SurfaceController = surface.Controller
 type SurfaceGeometry = surface.Geometry
+type SurfaceCursor = surface.Cursor
 type SurfaceCapabilities = surface.Capabilities
 type SurfaceBinding = surface.Binding
 type LocalDesktopInfo = surface.LocalDesktopInfo

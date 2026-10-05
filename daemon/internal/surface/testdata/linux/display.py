@@ -21,8 +21,12 @@ root.configure(background="#191919")
 text = tk.Text(root, font=("monospace", 20), background="#252525", foreground="white")
 text.place(x=100, y=100, width=1200, height=700)
 text.focus_force()
+for x, label, cursor in [(100, "Clickable", "hand2"), (500, "Busy", "watch"), (900, "Resize", "sb_h_double_arrow")]:
+    target = tk.Label(root, text=label, cursor=cursor, font=("monospace", 20), background="#323232", foreground="white")
+    target.place(x=x, y=840, width=280, height=100)
 lock = threading.Lock()
-state = {"fixture": "mindwire-linux-desktop-v1", "ready": False, "pointer": [0, 0], "presses": [], "keys": [], "text": ""}
+state = {"fixture": "mindwire-linux-desktop-v1", "ready": False, "pointer": [0, 0], "presses": [], "releases": [],
+         "pressPositions": [], "releasePositions": [], "keys": [], "text": ""}
 
 
 def pointer(event):
@@ -30,6 +34,10 @@ def pointer(event):
         state["pointer"] = [event.x_root, event.y_root]
         if event.type == tk.EventType.ButtonPress:
             state["presses"].append(event.num)
+            state["pressPositions"].append([event.num, event.x_root, event.y_root])
+        elif event.type == tk.EventType.ButtonRelease:
+            state["releases"].append(event.num)
+            state["releasePositions"].append([event.num, event.x_root, event.y_root])
 
 
 def key(event):
@@ -46,6 +54,7 @@ def update():
 
 root.bind_all("<Motion>", pointer)
 root.bind_all("<ButtonPress>", pointer)
+root.bind_all("<ButtonRelease>", pointer)
 root.bind_all("<KeyPress>", key)
 root.after(100, update)
 

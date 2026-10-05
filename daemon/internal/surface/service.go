@@ -140,6 +140,10 @@ func (s *Service) Snapshot() Snapshot {
 		v := *out.Geometry
 		out.Geometry = &v
 	}
+	if out.Cursor != nil {
+		v := *out.Cursor
+		out.Cursor = &v
+	}
 	return out
 }
 func (s *Service) Configure(p Provider) error {
@@ -163,6 +167,7 @@ func (s *Service) configureProvider(p Provider) {
 	}
 	s.snapshot.Controller = nil
 	s.snapshot.Geometry = nil
+	s.snapshot.Cursor = nil
 	s.snapshot.State = "disconnected"
 	s.snapshot.Error = nil
 	expires := p.ExpiresAt()
@@ -183,6 +188,7 @@ func (s *Service) configureProvider(p Provider) {
 		cancel()
 		_ = old.Close()
 	}
+	s.observeProviderCursor(p)
 }
 
 func (s *Service) Refresh(ctx context.Context) (Snapshot, error) {
@@ -650,6 +656,9 @@ func (s *Service) Apply(ctx context.Context, actor Actor, req ActionRequest) (Re
 	}
 	s.operation.Lock()
 	defer s.operation.Unlock()
+	if err := ctx.Err(); err != nil {
+		return Receipt{}, err
+	}
 	s.mu.Lock()
 	session, err := s.sessionLocked(req.SessionID, actor)
 	if err != nil {
@@ -688,7 +697,15 @@ func (s *Service) Apply(ctx context.Context, actor Actor, req ActionRequest) (Re
 	session.lastSeen = s.now()
 	s.mu.Unlock()
 	if spatial(req.Action.Kind) {
-		current, err := p.Connect(ctx)
+		var current Geometry
+		var err error
+		if live, ok := p.(interface {
+			InputGeometry(context.Context, Action) (Geometry, error)
+		}); ok && actor.Kind == "user" {
+			current, err = live.InputGeometry(ctx, req.Action)
+		} else {
+			current, err = p.Connect(ctx)
+		}
 		if err != nil {
 			return Receipt{}, err
 		}
@@ -728,10 +745,22 @@ func (s *Service) Apply(ctx context.Context, actor Actor, req ActionRequest) (Re
 	if err := s.db.SurfacePut("surface_receipt", rec.ID, rec); err != nil {
 		return Receipt{}, err
 	}
+	// A cancelled request waiting for geometry/storage must never later click.
+	if err := ctx.Err(); err != nil {
+		rec.Status = "cancelled"
+		rec.Error = asError(err)
+		_ = s.db.SurfacePut("surface_receipt", rec.ID, rec)
+		return rec.Receipt, nil
+	}
 	text, err := p.Apply(ctx, req.Action)
 	if err != nil {
 		rec.Status = "outcome_unknown"
 		rec.Error = asError(err)
+		// A cancelled drag can have reached the desktop even if its response did
+		// not. Release within the same serial operation using a fresh deadline.
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = p.Release(releaseCtx)
+		cancel()
 	} else {
 		rec.Status = "dispatched"
 	}

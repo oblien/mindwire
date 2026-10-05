@@ -78,9 +78,13 @@ model_provider = "azure_custom"
 model_reasoning_effort = "max"
 model_reasoning_summary = "auto"
 approvals_reviewer = "user"
+sandbox_mode = "read-only"
+approval_policy = "untrusted"
 profile = "focused"
 [profiles.focused]
 model_reasoning_summary = "concise"
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
 [model_providers.azure_custom]
 name = "Private provider"
 experimental_bearer_token = "fixture-secret"
@@ -95,7 +99,7 @@ stream_idle_timeout_ms = 300000
 	}
 	store := mapStore{}
 	values := agent.ReadSettings(adapter{}, store)
-	for key, want := range map[string]string{keyModel: "gpt-6-astra", keyEffort: "max", keySummary: "concise", keyReviewer: "user", keyRequestRetries: "4", keyStreamRetries: "10", keyStreamTimeout: "300000"} {
+	for key, want := range map[string]string{keyModel: "gpt-6-astra", keyEffort: "max", keySummary: "concise", keyReviewer: "user", keySandbox: "workspace-write", keyApproval: "on-request", keyRequestRetries: "4", keyStreamRetries: "10", keyStreamTimeout: "300000"} {
 		if values[key] != want {
 			t.Errorf("%s = %q; want %q", key, values[key], want)
 		}
@@ -103,6 +107,18 @@ stream_idle_timeout_ms = 300000
 	encoded, _ := json.Marshal(values)
 	if strings.Contains(string(encoded), "fixture-secret") || strings.Contains(string(encoded), "tui") {
 		t.Fatal("non-settings metadata or credentials leaked")
+	}
+	server := newAppServer(agent.TurnInput{Config: values}, materialized{})
+	if server.sandbox != "workspace-write" || server.approval != "on-request" {
+		t.Fatal("native profile restrictions were replaced by the host-access default")
+	}
+	store[keySandbox] = "read-only"
+	if sandbox(agent.TurnInput{Config: agent.ReadSettings(adapter{}, store)}) != "read-only" {
+		t.Fatal("explicit managed sandbox was lost")
+	}
+	store[keySandbox] = ""
+	if sandbox(agent.TurnInput{Config: agent.ReadSettings(adapter{}, store)}) != "workspace-write" {
+		t.Fatal("reset did not restore the native sandbox")
 	}
 	store[keyEffort] = "high"
 	if agent.ReadSettings(adapter{}, store)[keyEffort] != "high" {

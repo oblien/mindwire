@@ -343,6 +343,44 @@ func TestDesktopUnknownOutcomeIsNeverReplayed(t *testing.T) {
 	}
 }
 
+func TestCancelledDesktopActionDoesNotDispatchAndUnknownDragReleases(t *testing.T) {
+	s, p, _ := testService(t)
+	actor := Actor{Kind: "user", Name: "Test"}
+	opened := mustOpen(t, s, actor, "control")
+	x, y := 1, 1
+	request := ActionRequest{RequestID: newID(), SessionID: opened.ID, ControlGeneration: opened.Controller.Generation,
+		GeometryRevision: s.Snapshot().Geometry.Revision, Action: Action{Kind: "pointer", X: &x, Y: &y, Buttons: 1}}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := s.Apply(ctx, actor, request); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled input: %v", err)
+	}
+	p.mu.Lock()
+	if p.applied != 0 {
+		t.Fatal("a cancelled queued action reached the provider")
+	}
+	p.failure = context.DeadlineExceeded
+	before := p.released
+	p.mu.Unlock()
+	receipt, err := s.Apply(t.Context(), actor, request)
+	if err != nil || receipt.Status != "outcome_unknown" {
+		t.Fatalf("unknown drag outcome: %v %v", receipt, err)
+	}
+	p.mu.Lock()
+	if p.released != before+1 {
+		t.Fatal("uncertain drag left buttons held")
+	}
+	p.mu.Unlock()
+	if _, err := s.Apply(t.Context(), actor, request); err != nil {
+		t.Fatal(err)
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.applied != 1 {
+		t.Fatal("the uncertain drag was replayed")
+	}
+}
+
 func TestDesktopInputReceiptsOnlyBroadcastChangedStatus(t *testing.T) {
 	s, p, _ := testService(t)
 	user := Actor{Kind: "user"}

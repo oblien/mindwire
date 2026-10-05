@@ -109,9 +109,15 @@ func validEnvKey(key string) bool {
 	return true
 }
 
-// Shell restores managed paths AFTER the login shell has sourced its startup files. Merely
-// setting cmd.Env's PATH lets macOS path_helper choose a different, globally installed CLI.
+// Shell restores the launching account's PATH after login startup. Linux's
+// /etc/profile can replace it entirely; macOS path_helper can reorder it. Keep
+// native tool discovery consistent with CommandContext, retain additional login
+// paths, then put explicit managed selections ahead of both.
 func Shell(script string) string {
+	prefix := ""
+	if inherited := os.Getenv("PATH"); inherited != "" {
+		prefix = "export PATH=" + quote(inherited) + ":\"$PATH\"; "
+	}
 	var bins []string
 	var env []string
 	var pins []string
@@ -126,12 +132,12 @@ func Shell(script string) string {
 		}
 	}
 	if len(bins) == 0 {
-		return script
+		return prefix + script
 	}
 	sort.Strings(bins)
 	sort.Strings(env)
 	sort.Strings(pins)
-	prefix := "export PATH=" + quote(strings.Join(bins, string(os.PathListSeparator))) + ":\"$PATH\"; "
+	prefix += "export PATH=" + quote(strings.Join(bins, string(os.PathListSeparator))) + ":\"$PATH\"; "
 	prefix += "shopt -u checkhash; " + strings.Join(pins, "; ") + "; "
 	if len(env) > 0 {
 		prefix += strings.Join(env, "; ") + "; "
