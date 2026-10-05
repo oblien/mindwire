@@ -15,10 +15,11 @@ import (
 // server inside macOS. HTTPS/WSS also works where outbound SSH is unavailable.
 // The iOS viewer independently uses the provider's native, pinned SSH tunnel.
 func (p *Oblien) desktopSocket(ctx context.Context) (net.Conn, error) {
-	if p.binding.GatewayToken == "" {
+	binding := p.bindingSnapshot()
+	if binding.GatewayToken == "" {
 		return nil, problem("needs_authorization", "Refresh the workspace desktop authorization.")
 	}
-	endpoint, err := url.Parse(p.base + "/desktop/ws")
+	endpoint, err := url.Parse(p.base + p.desktopPath() + "/ws")
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +31,7 @@ func (p *Oblien) desktopSocket(ctx context.Context) (net.Conn, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	conn, response, err := websocket.Dial(dialCtx, endpoint.String(), &websocket.DialOptions{
-		HTTPHeader:   http.Header{"Authorization": {"Bearer " + p.binding.GatewayToken}},
+		HTTPHeader:   http.Header{"Authorization": {"Bearer " + binding.GatewayToken}},
 		Subprotocols: []string{"binary"}, CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {

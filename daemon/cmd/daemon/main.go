@@ -52,6 +52,15 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--desktop-tool" {
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer cancel()
+		if err := surface.DesktopToolHelper(ctx, os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "--git-credential" || os.Args[1] == "--git-ssh") {
 		var err error
 		if os.Args[1] == "--git-credential" {

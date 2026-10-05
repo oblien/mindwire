@@ -1,0 +1,104 @@
+---
+title: Project desktops
+description: Saved desktop sessions for projects, native viewing, and shared agent control.
+---
+
+Mindwire can open a saved desktop on an Oblien workspace and let an agent work in
+the same screen you watch from the app. Each Linux project can keep its own apps
+and desktop profile. Closing the viewer releases control and leaves those apps
+running.
+
+## Open a desktop
+
+In the app, open **Workspace → Desktop** to list saved desktops, or **Project →
+Desktop** to see the desktops linked to that project. Chat tools provide the same
+shortcut. Create a desktop with a name and supported resolution, then select it
+to connect. Reopening it uses the same saved session ID.
+
+Desktop settings support renaming, starting, stopping, and deleting a session.
+The current Oblien runtime requires a desktop to be stopped before its resolution
+can change. Mindwire does not stop apps implicitly for a resize. Renaming works
+while the desktop is running.
+
+| Action | What remains |
+| --- | --- |
+| Close the viewer or finish an agent run | Apps, profile, and project files |
+| Stop the desktop | Profile and project files; apps close |
+| Delete the desktop | Project files; the desktop is stopped and its private profile is removed |
+
+Oblien Mac workspaces expose one shared `console` screen with an OS-managed size.
+Projects on that workspace share the console. A paired personal Mac keeps its
+local opt-in flow: run `mindwire desktop enable` on the Mac and complete the macOS
+setup. Display traffic uses its existing encrypted SSH connection.
+
+## Let an agent use it
+
+On an authorized Oblien workspace, Mindwire supplies desktop instructions and
+tools to project chat runs. Codex and Claude use a temporary MCP configuration for
+that run. Other supported command-capable harnesses use a temporary command helper
+that calls the same service. Global harness configuration is unchanged.
+
+| Tool | Purpose |
+| --- | --- |
+| `surface_desktops` | List this project's saved desktops and session limits |
+| `surface_project_desktop` | Create or reuse the project desktop and open view/control access |
+| `surface_status` | Inspect desktop availability and its current controller |
+| `surface_open` | Open desktop access using the same project selection and approval flow |
+| `surface_capture` | Return a PNG and a fresh frame ID |
+| `surface_action` | Click, double-click, drag, scroll, type, or use supported clipboard operations |
+| `surface_release` | End this run's control session while leaving apps running |
+
+Approval happens before the agent creates, enables, or opens a desktop. Repeated
+requests reuse the same creation and approval intent. A tool result opens the
+same saved desktop in the app, and the user can take control at any time.
+
+The agent starts a development server with its normal command tool. To open a
+browser in the correct Linux desktop, it uses Alt+F2, types
+`xdg-open http://localhost:3000`, and presses Return. It should capture the screen
+again to verify the result. It must not guess a `DISPLAY` value or start another
+VNC server.
+
+## SDK and transport
+
+Saved project desktops require `surfaceProtocolVersion >= 2`. The client supplies
+an expiring, workspace-scoped runtime authorization through `surfaces.bindRuntime`.
+This is a private binding; an Oblien account login token is never passed to the
+agent or stored in project metadata. The app prepares this binding before cloud
+chat runs and when managing project desktops.
+
+Once the workspace binding and project exist:
+
+```ts
+const { session: saved } = await mw.surfaces.ensureProjectDesktop(projectId);
+const desktop = mw.surfaces.desktop(saved.id);
+const viewer = await desktop.open({
+  requestId: crypto.randomUUID(),
+  mode: "view",
+});
+const status = await desktop.status(true);
+// Close access when the viewer leaves; keep the saved desktop and its apps.
+await desktop.close(viewer.id);
+```
+
+For a named desktop with a custom size, use `surfaces.createDesktop` with
+`projectId`, `name`, `resolution`, and a stable `requestId`. Persist the request
+before sending and retry the same key and body if its response is lost.
+`listDesktops(projectId)`, `getDesktop`, `updateDesktop`, `startDesktop`,
+`stopDesktop`, and `deleteDesktop` manage its lifecycle. Deletion also releases
+that desktop's controllers and can safely be retried after completion.
+
+The Go SDK exposes the same catalog through `client.Surfaces`; select a saved
+desktop with `ForDesktop(id)`. HTTP viewers select it with `?desktopId=...` on the
+existing `/surfaces/desktop` routes. A saved desktop ID and an individual control
+session ID identify different resources.
+
+Each saved desktop has one shared controller. Captures and input receipts are
+bound to that desktop and run; a screenshot from another desktop cannot authorize
+pointer input. When delivery is uncertain, inspect the screen or the existing
+receipt rather than sending the action again with a new ID.
+
+Catalog management has no idle polling worker. The app caches lists and only
+polls visible sessions while they are starting, stopping, or deleting. Slow
+management operations do not block input or lease renewal on other open desktops.
+Desktop profiles share the workspace's files and permissions; they are not
+security sandboxes.

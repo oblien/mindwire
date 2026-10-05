@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const Version = 1
+const Version = 2
 const DesktopID = "desktop"
 const MaxTextBytes = 1 << 20
 const LocalDesktopVersion = 1
@@ -70,6 +70,7 @@ type Controller struct {
 
 type Snapshot struct {
 	ID          string     `json:"id"`
+	DesktopID   string     `json:"desktopId,omitempty"`
 	WorkspaceID string     `json:"workspaceId"`
 	Kind        string     `json:"kind"`
 	Provider    string     `json:"provider"`
@@ -88,6 +89,7 @@ type Snapshot struct {
 type Session struct {
 	ID         string      `json:"id"`
 	SurfaceID  string      `json:"surfaceId"`
+	DesktopID  string      `json:"desktopId,omitempty"`
 	Actor      string      `json:"actor"`
 	Name       string      `json:"name"`
 	ChatID     string      `json:"chatId,omitempty"`
@@ -98,6 +100,7 @@ type Session struct {
 }
 
 type OpenRequest struct {
+	DesktopID string `json:"desktopId,omitempty" jsonschema:"Saved provider desktop ID. Omit to use this project's desktop."`
 	RequestID string `json:"requestId"`
 	Name      string `json:"name,omitempty"`
 	Mode      string `json:"mode"`
@@ -156,10 +159,13 @@ type Capture struct {
 
 // Actor comes from authentication, not tool arguments.
 type Actor struct {
-	Kind   string
-	Name   string
-	RunID  string
-	ChatID string
+	Kind            string
+	Name            string
+	RunID           string
+	ChatID          string
+	ProjectID       string
+	CWD             string
+	desktopApproved bool
 }
 
 type Provider interface {

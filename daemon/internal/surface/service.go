@@ -34,23 +34,26 @@ type sessionState struct {
 	lastSeen   time.Time
 }
 type Service struct {
-	mu         sync.Mutex
-	operation  sync.Mutex
-	db         *registry.Store
-	artifacts  *artifact.Store
-	provider   Provider
-	snapshot   Snapshot
-	sessions   map[string]*sessionState
-	openIDs    map[string]string
-	changed    chan struct{}
-	stop       chan struct{}
-	closeOnce  sync.Once
-	approval   Approval
-	now        func() time.Time
-	ipc        *runIPC
-	lastPrune  time.Time
-	macFactory func(LocalDesktopSettings) (*MacDesktop, error)
-	viewers    map[string]io.ReadWriteCloser
+	mu           sync.Mutex
+	operation    sync.Mutex
+	db           *registry.Store
+	artifacts    *artifact.Store
+	provider     Provider
+	snapshot     Snapshot
+	sessions     map[string]*sessionState
+	openIDs      map[string]string
+	projectOpens map[string]OpenRequest // guarded by mu; approval/creation currently in flight
+	changed      chan struct{}
+	stop         chan struct{}
+	closeOnce    sync.Once
+	approval     Approval
+	now          func() time.Time
+	ipc          *runIPC
+	lastPrune    time.Time
+	macFactory   func(LocalDesktopSettings) (*MacDesktop, error)
+	viewers      map[string]io.ReadWriteCloser
+	surfaceID    string          // immutable; saved desktop ID for child controllers
+	catalog      *desktopCatalog // root only; children reuse this Service's control implementation
 }
 
 func New(db *registry.Store) (*Service, error) {
@@ -59,7 +62,8 @@ func New(db *registry.Store) (*Service, error) {
 		return nil, err
 	}
 	s := &Service{db: db, artifacts: artifacts, sessions: map[string]*sessionState{},
-		openIDs: map[string]string{}, viewers: map[string]io.ReadWriteCloser{}, changed: make(chan struct{}), stop: make(chan struct{}), now: time.Now}
+		openIDs: map[string]string{}, viewers: map[string]io.ReadWriteCloser{}, changed: make(chan struct{}), stop: make(chan struct{}), now: time.Now, surfaceID: DesktopID}
+	s.catalog = &desktopCatalog{children: map[string]*Service{}}
 	s.snapshot = Snapshot{ID: DesktopID, WorkspaceID: db.Identity(), Kind: "desktop", Provider: "oblien",
 		Version: Version, InstanceID: newID(), State: "not_configured"}
 	if err := s.pruneRecords(); err != nil {
@@ -95,8 +99,29 @@ func validRequest(id string) bool {
 	return len(id) > 0 && len(id) <= 128 && strings.IndexFunc(id, func(r rune) bool { return r < 33 || r > 126 }) < 0
 }
 func (s *Service) Artifacts() *artifact.Store { return s.artifacts }
-func (s *Service) ActiveSessionCount() int    { s.mu.Lock(); defer s.mu.Unlock(); return len(s.sessions) }
-func (s *Service) SetApproval(fn Approval)    { s.mu.Lock(); s.approval = fn; s.mu.Unlock() }
+func (s *Service) ActiveSessionCount() int {
+	s.mu.Lock()
+	n := len(s.sessions)
+	s.mu.Unlock()
+	for _, child := range s.desktopChildren() {
+		n += child.ActiveSessionCount()
+	}
+	return n
+}
+func (s *Service) SetApproval(fn Approval) {
+	if s.catalog != nil {
+		s.catalog.mu.Lock()
+		defer s.catalog.mu.Unlock()
+	}
+	s.mu.Lock()
+	s.approval = fn
+	s.mu.Unlock()
+	if s.catalog != nil {
+		for _, child := range s.catalog.children {
+			child.SetApproval(fn)
+		}
+	}
+}
 func (s *Service) signalLocked() {
 	s.snapshot.Revision++
 	close(s.changed)
@@ -197,6 +222,13 @@ func (s *Service) Refresh(ctx context.Context) (Snapshot, error) {
 }
 
 func (s *Service) Open(ctx context.Context, actor Actor, req OpenRequest) (Session, error) {
+	if req.DesktopID != "" && req.DesktopID != s.surfaceID {
+		child, err := s.ForDesktop(req.DesktopID)
+		if err != nil {
+			return Session{}, err
+		}
+		return child.Open(ctx, actor, req)
+	}
 	if !validRequest(req.RequestID) || (req.Mode != "view" && req.Mode != "control") {
 		return Session{}, problem("invalid_request", "Choose view or control and provide a request ID.")
 	}
@@ -204,6 +236,15 @@ func (s *Service) Open(ctx context.Context, actor Actor, req OpenRequest) (Sessi
 		return Session{}, problem("invalid_request", "Session name is too long.")
 	}
 	s.operation.Lock()
+	if s.catalog != nil {
+		s.catalog.mu.Lock()
+		configured := s.catalog.backend != nil
+		s.catalog.mu.Unlock()
+		if configured {
+			s.operation.Unlock()
+			return Session{}, problem("desktop_selection_required", "Select a saved desktop before opening a viewer.")
+		}
+	}
 	s.mu.Lock()
 	key := actor.Kind + ":" + actor.RunID + ":" + req.RequestID
 	if id := s.openIDs[key]; id != "" {
@@ -267,7 +308,7 @@ func (s *Service) Open(ctx context.Context, actor Actor, req OpenRequest) (Sessi
 	if name == "" {
 		name = "You"
 	}
-	session := &sessionState{Session: Session{ID: newID(), SurfaceID: DesktopID, Actor: actor.Kind, Name: name, ChatID: actor.ChatID, RunID: actor.RunID, Mode: "view", CreatedAt: at}, lastSeen: at}
+	session := &sessionState{Session: Session{ID: newID(), SurfaceID: s.surfaceID, DesktopID: s.snapshot.DesktopID, Actor: actor.Kind, Name: name, ChatID: actor.ChatID, RunID: actor.RunID, Mode: "view", CreatedAt: at}, lastSeen: at}
 	s.sessions[session.ID] = session
 	s.openIDs[key] = session.ID
 	s.snapshot.ProviderStatus = status
@@ -302,7 +343,7 @@ func (s *Service) authorize(ctx context.Context, id string, actor Actor) error {
 	}
 	authorized := session.authorized
 	s.mu.Unlock()
-	if actor.Kind == "agent" && !authorized {
+	if actor.Kind == "agent" && !authorized && !actor.desktopApproved {
 		if fn == nil {
 			return problem("approval_required", "Desktop control needs permission for this agent run.")
 		}
@@ -334,6 +375,15 @@ func (s *Service) sessionLocked(id string, actor Actor) (*sessionState, error) {
 }
 
 func (s *Service) Control(ctx context.Context, id string, actor Actor, req ControlRequest) (Session, error) {
+	if s.catalog != nil {
+		selected, err := s.serviceForSession(id, actor)
+		if err != nil {
+			return Session{}, err
+		}
+		if selected != s {
+			return selected.Control(ctx, id, actor, req)
+		}
+	}
 	// Heartbeats never wait behind network input. A long paste must not expire
 	// an otherwise connected user's lease.
 	if req.Action == "renew" {
@@ -453,7 +503,18 @@ func (s *Service) Control(ctx context.Context, id string, actor Actor, req Contr
 	return out, nil
 }
 
-func (s *Service) CloseSession(id string, actor Actor) error { return s.closeSession(id, actor, false) }
+func (s *Service) CloseSession(id string, actor Actor) error {
+	if s.catalog != nil {
+		selected, err := s.serviceForSession(id, actor)
+		if err != nil {
+			return err
+		}
+		if selected != s {
+			return selected.CloseSession(id, actor)
+		}
+	}
+	return s.closeSession(id, actor, false)
+}
 func (s *Service) closeSession(id string, actor Actor, expiredOnly bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -499,6 +560,9 @@ func (s *Service) closeSession(id string, actor Actor, expiredOnly bool) error {
 	return nil
 }
 func (s *Service) CloseRun(runID string) {
+	for _, child := range s.desktopChildren() {
+		child.CloseRun(runID)
+	}
 	s.mu.Lock()
 	ids := []string{}
 	for id, session := range s.sessions {
@@ -513,6 +577,15 @@ func (s *Service) CloseRun(runID string) {
 }
 
 func (s *Service) Capture(ctx context.Context, sessionID string, actor Actor) (Capture, error) {
+	if s.catalog != nil {
+		selected, err := s.serviceForSession(sessionID, actor)
+		if err != nil {
+			return Capture{}, err
+		}
+		if selected != s {
+			return selected.Capture(ctx, sessionID, actor)
+		}
+	}
 	s.operation.Lock()
 	defer s.operation.Unlock()
 	s.mu.Lock()
@@ -547,7 +620,7 @@ func (s *Service) Capture(ctx context.Context, sessionID string, actor Actor) (C
 	if err != nil {
 		return Capture{}, err
 	}
-	capture := Capture{ID: newID(), SurfaceID: DesktopID, ArtifactID: rec.ID, Mime: rec.Mime, Geometry: geometry, CreatedAt: s.now().UTC()}
+	capture := Capture{ID: newID(), SurfaceID: s.surfaceID, ArtifactID: rec.ID, Mime: rec.Mime, Geometry: geometry, CreatedAt: s.now().UTC()}
 	if err := s.db.SurfacePut("surface_capture", capture.ID, captureRecord{Capture: capture, SessionID: sessionID}); err != nil {
 		_ = s.artifacts.Delete(rec.ID)
 		return Capture{}, err
@@ -560,6 +633,15 @@ func (s *Service) Capture(ctx context.Context, sessionID string, actor Actor) (C
 	return capture, nil
 }
 func (s *Service) Apply(ctx context.Context, actor Actor, req ActionRequest) (Receipt, error) {
+	if s.catalog != nil {
+		selected, err := s.serviceForSession(req.SessionID, actor)
+		if err != nil {
+			return Receipt{}, err
+		}
+		if selected != s {
+			return selected.Apply(ctx, actor, req)
+		}
+	}
 	if !validRequest(req.RequestID) {
 		return Receipt{}, problem("invalid_request", "Provide a stable action request ID.")
 	}
@@ -580,7 +662,7 @@ func (s *Service) Apply(ctx context.Context, actor Actor, req ActionRequest) (Re
 	fingerprint := hex.EncodeToString(sum[:])
 	var old savedReceipt
 	if err := s.db.SurfaceGet("surface_receipt", req.RequestID, &old); err == nil {
-		if old.Fingerprint != fingerprint {
+		if old.Fingerprint != fingerprint || old.SurfaceID != s.surfaceID {
 			return Receipt{}, problem("request_conflict", "This request ID was already used for different input.")
 		}
 		return old.Receipt, nil
@@ -622,7 +704,7 @@ func (s *Service) Apply(ctx context.Context, actor Actor, req ActionRequest) (Re
 		}
 		if actor.Kind == "agent" {
 			var capture captureRecord
-			if req.FrameID == "" || s.db.SurfaceGet("surface_capture", req.FrameID, &capture) != nil || s.now().Sub(capture.CreatedAt) > 30*time.Second || capture.Geometry != *geometry || capture.SessionID != req.SessionID {
+			if req.FrameID == "" || s.db.SurfaceGet("surface_capture", req.FrameID, &capture) != nil || capture.SurfaceID != s.surfaceID || s.now().Sub(capture.CreatedAt) > 30*time.Second || capture.Geometry != *geometry || capture.SessionID != req.SessionID {
 				return Receipt{}, problem("stale_frame", "Capture the desktop again; the previous observation is missing, old or resized.")
 			}
 		} else if req.GeometryRevision != geometry.Revision {
@@ -642,7 +724,7 @@ func (s *Service) Apply(ctx context.Context, actor Actor, req ActionRequest) (Re
 	if count >= 100000 {
 		return Receipt{}, problem("receipt_limit", "Desktop input storage is busy. Wait for older receipts to expire before sending more input.")
 	}
-	rec := savedReceipt{Receipt: Receipt{ID: req.RequestID, SessionID: req.SessionID, SurfaceID: DesktopID, Kind: req.Action.Kind, Status: "dispatching", CreatedAt: s.now().UTC()}, Fingerprint: fingerprint}
+	rec := savedReceipt{Receipt: Receipt{ID: req.RequestID, SessionID: req.SessionID, SurfaceID: s.surfaceID, Kind: req.Action.Kind, Status: "dispatching", CreatedAt: s.now().UTC()}, Fingerprint: fingerprint}
 	if err := s.db.SurfacePut("surface_receipt", rec.ID, rec); err != nil {
 		return Receipt{}, err
 	}
@@ -671,6 +753,9 @@ func (s *Service) Apply(ctx context.Context, actor Actor, req ActionRequest) (Re
 func (s *Service) Receipt(id string) (Receipt, error) {
 	var rec savedReceipt
 	err := s.db.SurfaceGet("surface_receipt", id, &rec)
+	if err == nil && rec.SurfaceID != s.surfaceID {
+		return Receipt{}, registry.ErrNotFound
+	}
 	return rec.Receipt, err
 }
 func (s *Service) failLocked(err error) {
@@ -705,6 +790,16 @@ func asError(err error) *Error {
 func (s *Service) Close() {
 	s.closeOnce.Do(func() {
 		close(s.stop)
+		if s.catalog != nil {
+			s.catalog.mu.Lock()
+			s.catalog.childrenMu.Lock()
+			s.catalog.closed = true
+			s.catalog.childrenMu.Unlock()
+			s.catalog.mu.Unlock()
+		}
+		for _, child := range s.desktopChildren() {
+			child.Close()
+		}
 		if s.ipc != nil {
 			s.ipc.close()
 		}
@@ -731,23 +826,29 @@ func (s *Service) reap() {
 			return
 		case <-ticker.C:
 		}
-		s.mu.Lock()
-		var expired []Session
-		for _, session := range s.sessions {
-			if session.Actor == "agent" {
-				if c := s.snapshot.Controller; c != nil && c.SessionID == session.ID {
-					c.ExpiresAt = s.now().Add(15 * time.Second)
-				}
-				continue
-			}
-			if s.now().Sub(session.lastSeen) > 20*time.Second {
-				expired = append(expired, session.Session)
-			}
+		s.reapSessions()
+		for _, child := range s.desktopChildren() {
+			child.reapSessions()
 		}
-		s.mu.Unlock()
-		for _, session := range expired {
-			_ = s.closeSession(session.ID, Actor{Kind: "user"}, true)
+	}
+}
+func (s *Service) reapSessions() {
+	s.mu.Lock()
+	var expired []Session
+	for _, session := range s.sessions {
+		if session.Actor == "agent" {
+			if c := s.snapshot.Controller; c != nil && c.SessionID == session.ID {
+				c.ExpiresAt = s.now().Add(15 * time.Second)
+			}
+			continue
 		}
+		if s.now().Sub(session.lastSeen) > 20*time.Second {
+			expired = append(expired, session.Session)
+		}
+	}
+	s.mu.Unlock()
+	for _, session := range expired {
+		_ = s.closeSession(session.ID, Actor{Kind: "user"}, true)
 	}
 }
 func pointValid(x, y *int, g Geometry) bool {
@@ -839,9 +940,9 @@ func ErrorResponse(err error) (*Error, int) {
 		status = 400
 	case "forbidden", "denied":
 		status = 403
-	case "unsupported", "session_expired", "not_found":
+	case "unsupported", "session_expired", "not_found", "desktop_not_found":
 		status = 404
-	case "control_lost", "control_busy", "control_taken", "request_conflict", "workspace_mismatch", "stale_frame", "approval_pending":
+	case "control_lost", "control_busy", "control_taken", "request_conflict", "workspace_mismatch", "stale_frame", "approval_pending", "desktop_conflict":
 		status = 409
 	case "needs_authorization", "disabled", "preparing", "approval_required", "desktop_setup_required", "screen_sharing_off", "desktop_authentication", "desktop_auth_protocol":
 		status = 428

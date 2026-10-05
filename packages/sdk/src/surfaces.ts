@@ -14,6 +14,7 @@ export interface SurfaceController {
 }
 export interface SurfaceSnapshot {
   id: string; workspaceId: string; kind: "desktop"; provider: "oblien" | "macos";
+  desktopId?: string;
   version: number; revision: number; instanceId: string;
   state: string; observedAt?: string; supported: boolean; enabled: boolean; available: boolean;
   credentials: boolean; os?: string; capabilities: SurfaceCapabilities;
@@ -26,19 +27,20 @@ export interface LocalDesktopInfo { supported: boolean; enabled: boolean; screen
 export interface LocalDesktopSettings { enabled: boolean; username?: string; password?: string }
 /** Write-only, desktop-only, expiring provider grant. Never pass a user's session JWT. */
 export interface SurfaceBinding {
-  registryId: string; workspaceId: string; gatewayToken?: string;
+  registryId: string; workspaceId: string; gatewayToken?: string; desktopId?: string;
   connection: {
-    expires_at: string;
+    expires_at: string; session_id?: string;
     ssh: { host: string; port: number; username: string; password: string; host_key_fingerprint: string };
     vnc: { host: string; port: number; authentication: "none" };
   };
 }
 export interface SurfaceSession {
   id: string; surfaceId: string; actor: "user" | "agent"; name: string;
+  desktopId?: string;
   chatId?: string; runId?: string; mode: "view" | "control"; createdAt: string;
   controller?: SurfaceController;
 }
-export interface SurfaceOpenRequest { requestId: string; name?: string; mode: "view" | "control" }
+export interface SurfaceOpenRequest { requestId: string; name?: string; mode: "view" | "control"; desktopId?: string }
 export interface SurfaceControlRequest { action: "acquire" | "takeover" | "release" | "renew"; generation?: number }
 export interface SurfaceAction {
   kind: "pointer" | "click" | "drag" | "scroll" | "key" | "text" | "clipboard_read" | "clipboard_write" | "release";
@@ -69,17 +71,82 @@ export interface ArtifactContent {
 }
 export interface SurfaceToolAction {
   surfaceId: string; operation: string; sessionId?: string; receiptId?: string; status?: string;
+  desktopId?: string;
   capture?: { id: string; artifactId: string; width: number; height: number };
 }
 
-/** Workspace-scoped API. One controller is shared by every harness and app client. */
+/** Private workspace runtime authorization, never an account/session credential. */
+export interface DesktopRuntimeBinding {
+  registryId: string; workspaceId: string; gatewayToken: string; expiresAt?: string;
+}
+export interface DesktopResolution { width: number; height: number }
+export interface SavedDesktop {
+  id: string; name: string; state: string; managed: boolean; available: boolean;
+  resolution?: DesktopResolution; mode?: string; can_resize?: boolean; can_delete?: boolean;
+  deletion_pending?: boolean; created_at?: string; updated_at?: string; error?: string;
+}
+export interface DesktopCatalog {
+  success: boolean; projectId?: string; sessions: SavedDesktop[];
+  capabilities: {
+    mode: "virtual" | "console"; max_sessions: number; can_create: boolean;
+    resolution?: { min: DesktopResolution; max: DesktopResolution; default: DesktopResolution };
+  };
+}
+export interface SavedDesktopResult { success: boolean; session: SavedDesktop }
+export interface CreateSavedDesktop {
+  /** Reuse the same ID and body after an interrupted response. */
+  requestId: string; projectId?: string; name: string; resolution?: DesktopResolution;
+}
+export interface UpdateSavedDesktop { name?: string; resolution?: DesktopResolution }
+
+function savedDesktopID(id: string): string {
+  if (!/^(console|ds_[a-f0-9]{16})$/.test(id)) throw new Error("Invalid saved desktop ID.");
+  return id;
+}
+
+/** One controller per saved desktop, shared by every harness and app client. */
 export class SurfacesApi {
-  constructor(private readonly mw: Mindwire) {}
+  constructor(private readonly mw: Mindwire, private readonly desktopId?: string) {}
+  /** Select a saved display for status, events, captures and input receipts. */
+  desktop(id: string): SurfacesApi { return new SurfacesApi(this.mw, savedDesktopID(id)); }
+  private scoped(path: string): string {
+    return this.desktopId ? `${path}?desktopId=${encodeURIComponent(this.desktopId)}` : path;
+  }
+  bindRuntime(binding: DesktopRuntimeBinding): Promise<{ configured: boolean }> {
+    return this.mw.http.request("PUT", "/surfaces/desktop/runtime", { body: binding });
+  }
+  listDesktops(projectId?: string): Promise<DesktopCatalog> {
+    return this.mw.http.request("GET", "/surfaces/desktop/catalog", { query: { projectId } });
+  }
+  createDesktop(request: CreateSavedDesktop): Promise<SavedDesktopResult> {
+    return this.mw.http.request("POST", "/surfaces/desktop/catalog", { body: request });
+  }
+  ensureProjectDesktop(projectId: string): Promise<SavedDesktopResult> {
+    return this.mw.http.request("POST", `/surfaces/desktop/projects/${encodeURIComponent(projectId)}/ensure`);
+  }
+  getDesktop(id: string): Promise<SavedDesktopResult> {
+    return this.mw.http.request("GET", `/surfaces/desktop/catalog/${savedDesktopID(id)}`);
+  }
+  updateDesktop(id: string, request: UpdateSavedDesktop): Promise<SavedDesktopResult> {
+    return this.mw.http.request("PATCH", `/surfaces/desktop/catalog/${savedDesktopID(id)}`, { body: request });
+  }
+  startDesktop(id: string): Promise<SavedDesktopResult> {
+    return this.mw.http.request("POST", `/surfaces/desktop/catalog/${savedDesktopID(id)}/start`);
+  }
+  /** Stops this desktop's apps; keeps its profile and files. */
+  stopDesktop(id: string): Promise<SavedDesktopResult> {
+    return this.mw.http.request("POST", `/surfaces/desktop/catalog/${savedDesktopID(id)}/stop`);
+  }
+  /** Deletes the desktop's private profile. Closing a viewer uses close(), never this method. */
+  deleteDesktop(id: string): Promise<{ success: boolean; session?: SavedDesktop }> {
+    return this.mw.http.request("DELETE", `/surfaces/desktop/catalog/${savedDesktopID(id)}`);
+  }
   list(): Promise<SurfaceSnapshot[]> { return this.mw.http.request("GET", "/surfaces"); }
   status(refresh = false): Promise<SurfaceSnapshot> {
-    return this.mw.http.request("GET", "/surfaces/desktop", { query: { refresh } });
+    return this.mw.http.request("GET", this.scoped("/surfaces/desktop"), { query: { refresh } });
   }
   bind(binding: SurfaceBinding): Promise<SurfaceSnapshot> {
+    if (this.desktopId && binding.desktopId !== this.desktopId) throw new Error("The desktop grant belongs to another saved desktop.");
     return this.mw.http.request("PUT", "/surfaces/desktop/binding", { body: binding });
   }
   localStatus(): Promise<LocalDesktopInfo> { return this.mw.http.request("GET", "/surfaces/desktop/local"); }
@@ -91,22 +158,23 @@ export class SurfacesApi {
     });
   }
   open(request: SurfaceOpenRequest): Promise<SurfaceSession> {
-    return this.mw.http.request("POST", "/surfaces/desktop/sessions", { body: request });
+    if (this.desktopId && request.desktopId && request.desktopId !== this.desktopId) throw new Error("Select the matching saved desktop.");
+    return this.mw.http.request("POST", this.scoped("/surfaces/desktop/sessions"), { body: request });
   }
   control(id: string, request: SurfaceControlRequest): Promise<SurfaceSession> {
-    return this.mw.http.request("POST", `/surfaces/desktop/sessions/${encodeURIComponent(id)}/control`, { body: request });
+    return this.mw.http.request("POST", this.scoped(`/surfaces/desktop/sessions/${encodeURIComponent(id)}/control`), { body: request });
   }
   close(id: string): Promise<{ closed: boolean }> {
-    return this.mw.http.request("DELETE", `/surfaces/desktop/sessions/${encodeURIComponent(id)}`);
+    return this.mw.http.request("DELETE", this.scoped(`/surfaces/desktop/sessions/${encodeURIComponent(id)}`));
   }
   capture(id: string): Promise<SurfaceCapture> {
-    return this.mw.http.request("POST", `/surfaces/desktop/sessions/${encodeURIComponent(id)}/captures`);
+    return this.mw.http.request("POST", this.scoped(`/surfaces/desktop/sessions/${encodeURIComponent(id)}/captures`));
   }
   action(request: SurfaceActionRequest): Promise<SurfaceReceipt> {
-    return this.mw.http.request("POST", "/surfaces/desktop/actions", { body: request });
+    return this.mw.http.request("POST", this.scoped("/surfaces/desktop/actions"), { body: request });
   }
   receipt(id: string): Promise<SurfaceReceipt> {
-    return this.mw.http.request("GET", `/surfaces/desktop/actions/${encodeURIComponent(id)}`);
+    return this.mw.http.request("GET", this.scoped(`/surfaces/desktop/actions/${encodeURIComponent(id)}`));
   }
   artifact(id: string): Promise<ArtifactContent> {
     return this.mw.http.request("GET", `/artifacts/${encodeURIComponent(id)}`);
@@ -118,7 +186,7 @@ export class SurfacesApi {
     opts.signal?.addEventListener("abort", abort, { once: true });
     if (opts.signal?.aborted) controller.abort();
     try {
-      const response = await this.mw.http.open("GET", "/surfaces/desktop/events", { signal: controller.signal });
+      const response = await this.mw.http.open("GET", this.scoped("/surfaces/desktop/events"), { signal: controller.signal });
       let instance: string | undefined;
       let revision = -1;
       for await (const snapshot of readSSE<SurfaceSnapshot>(response.body!, controller.signal)) {

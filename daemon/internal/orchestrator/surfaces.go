@@ -69,7 +69,7 @@ func (s *Supervisor) desktopTurn(ctx context.Context, a *Agent, turn runner.Turn
 	if service == nil {
 		return turn, func() {}, nil
 	}
-	actor := surface.Actor{Kind: "agent", Name: a.ID(), RunID: turn.RunID, ChatID: turn.ChatID}
+	actor := surface.Actor{Kind: "agent", Name: a.ID(), RunID: turn.RunID, ChatID: turn.ChatID, CWD: turn.CWD}
 	overlay, env, cleanup, err := service.BindRun(ctx, actor, a.ID(), turn.Options.MCPServers)
 	if err != nil {
 		return turn, func() {}, err
@@ -86,6 +86,9 @@ func (s *Supervisor) desktopTurn(ctx context.Context, a *Agent, turn runner.Turn
 	}
 	for key, value := range env {
 		turn.Environment[key] = value
+	}
+	if env["MINDWIRE_DESKTOP_HELPER"] != "" {
+		turn.Message += surface.FallbackInstructions()
 	}
 	turn.AttachEmitter = func(emit agent.Emit) func() {
 		s.mu.Lock()

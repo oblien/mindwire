@@ -53,6 +53,10 @@ func (st *Store) SurfaceList(kind string) ([]json.RawMessage, error) {
 
 func (st *Store) Identity() string { return st.identity }
 
+// Desktop tools resolve the run's native working directory through the same
+// project records used by the app. They never invent a second project registry.
+func (st *Store) ProjectAtPath(path string) (*Project, error) { return projectAtPath(st.db, path, "") }
+
 // Prune only transient control metadata. Chat image retention is independent.
 func (st *Store) SurfacePruneBefore(kind string, before time.Time) error {
 	_, err := st.db.Exec("DELETE FROM surface_records WHERE kind=? AND updated_at < ?", kind, before.UTC().Format(time.RFC3339Nano))

@@ -83,3 +83,16 @@ func TestSurfaceHistoryRetainsOneToolAndResolvedApproval(t *testing.T) {
 		t.Fatal("normalizer mutated native transcript")
 	}
 }
+
+func TestDesktopHelperNormalizesToTheSavedDesktopWithoutCommandOrImageBytes(t *testing.T) {
+	event := ToolEvent{Name: "exec_command", Input: map[string]any{"command": `"$MINDWIRE_DESKTOP_HELPER" --desktop-tool surface_capture '{}'`},
+		Action: &ToolAction{Kind: KindShell}, Output: `{"mindwireSurface":{"surfaceId":"ds_0123456789abcdef","desktopId":"ds_0123456789abcdef","operation":"capture","capture":{"id":"frame","artifactId":"artifact","geometry":{"width":960,"height":640}}},"imagePath":"/private/run/image.png"}`}
+	NormalizeSurfaceTool(&event)
+	if event.Action.Kind != KindMCP || event.Action.Surface.DesktopID != "ds_0123456789abcdef" || event.Action.Surface.Capture == nil {
+		t.Fatal("helper lost selected desktop metadata")
+	}
+	encoded, _ := json.Marshal(event)
+	if strings.Contains(string(encoded), "--desktop-tool") || strings.Contains(string(encoded), "/private/run") {
+		t.Fatal("helper command or local image path leaked into transcript")
+	}
+}

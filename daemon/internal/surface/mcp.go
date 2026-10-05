@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -29,8 +30,12 @@ func (p *runIPC) close() { _ = p.server.Close() }
 // BindRun returns a per-turn, harness-native MCP overlay and private environment.
 // Existing MCP servers are preserved; the built-in name cannot be shadowed.
 func (s *Service) BindRun(ctx context.Context, actor Actor, harness string, existing json.RawMessage) (json.RawMessage, map[string]string, func(), error) {
-	if harness != "codex" && harness != "claude-code" {
+	native := harness == "codex" || harness == "claude-code"
+	if !native && !s.HasDesktopCatalog() {
 		return existing, nil, func() {}, nil
+	}
+	if project, err := s.projectForActor(actor); err == nil && project != nil {
+		actor.ProjectID = project.ID
 	}
 	s.mu.Lock()
 	if s.ipc == nil {
@@ -71,10 +76,39 @@ func (s *Service) BindRun(ctx context.Context, actor Actor, harness string, exis
 	p.mu.Lock()
 	p.runs[token] = handler
 	p.mu.Unlock()
+	imageDir := ""
+	if !native {
+		var err error
+		imageDir, err = os.MkdirTemp("", "mindwire-desktop-")
+		if err != nil {
+			p.mu.Lock()
+			delete(p.runs, token)
+			p.mu.Unlock()
+			return nil, nil, nil, err
+		}
+	}
 	var once sync.Once
-	cleanup := func() { once.Do(func() { p.mu.Lock(); delete(p.runs, token); p.mu.Unlock(); s.CloseRun(actor.RunID) }) }
+	cleanup := func() {
+		once.Do(func() {
+			p.mu.Lock()
+			delete(p.runs, token)
+			p.mu.Unlock()
+			s.CloseRun(actor.RunID)
+			if imageDir != "" {
+				_ = os.RemoveAll(imageDir)
+			}
+		})
+	}
 	stop := context.AfterFunc(ctx, cleanup)
 	finish := func() { stop(); cleanup() }
+	if !native {
+		helper, err := os.Executable()
+		if err != nil {
+			finish()
+			return nil, nil, nil, err
+		}
+		return existing, map[string]string{runTokenEnv: token, "MINDWIRE_DESKTOP_URL": p.url, "MINDWIRE_DESKTOP_HELPER": helper, "MINDWIRE_DESKTOP_IMAGES": imageDir}, finish, nil
+	}
 	servers := map[string]json.RawMessage{}
 	if len(existing) > 0 {
 		if err := json.Unmarshal(existing, &servers); err != nil {
@@ -136,7 +170,7 @@ func PermissionSettings(harness string, existing json.RawMessage) (json.RawMessa
 			return nil, err
 		}
 	}
-	for _, tool := range []string{"surface_status", "surface_open", "surface_capture", "surface_action", "surface_release"} {
+	for _, tool := range []string{"surface_status", "surface_desktops", "surface_project_desktop", "surface_open", "surface_capture", "surface_action", "surface_release"} {
 		rule := "mcp__" + MCPName + "__" + tool
 		found := false
 		for _, existing := range allow {
@@ -155,13 +189,16 @@ type sessionInput struct {
 	SessionID string `json:"sessionId"`
 }
 type toolPayload struct {
-	SurfaceID string    `json:"surfaceId"`
-	Operation string    `json:"operation"`
-	Session   *Session  `json:"session,omitempty"`
-	Snapshot  *Snapshot `json:"snapshot,omitempty"`
-	Capture   *Capture  `json:"capture,omitempty"`
-	Receipt   *Receipt  `json:"receipt,omitempty"`
-	Error     *Error    `json:"error,omitempty"`
+	SurfaceID string          `json:"surfaceId"`
+	DesktopID string          `json:"desktopId,omitempty"`
+	Desktop   *SavedDesktop   `json:"desktop,omitempty"`
+	Catalog   *DesktopCatalog `json:"catalog,omitempty"`
+	Operation string          `json:"operation"`
+	Session   *Session        `json:"session,omitempty"`
+	Snapshot  *Snapshot       `json:"snapshot,omitempty"`
+	Capture   *Capture        `json:"capture,omitempty"`
+	Receipt   *Receipt        `json:"receipt,omitempty"`
+	Error     *Error          `json:"error,omitempty"`
 }
 
 func toolResult(payload toolPayload, image []byte, err error) (*mcp.CallToolResult, any, error) {
@@ -181,7 +218,7 @@ func toolResult(payload toolPayload, image []byte, err error) (*mcp.CallToolResu
 }
 
 func (s *Service) mcpServer(run context.Context, actor Actor) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: MCPName, Version: "1"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: MCPName, Version: "2"}, &mcp.ServerOptions{Instructions: s.desktopInstructions(actor)})
 	// Bind cancellation to both the RPC and the owning run. The HTTP session may
 	// outlive a disconnected tool request, but it may never outlive this run.
 	operation := func(ctx context.Context) (context.Context, func()) {
@@ -195,19 +232,42 @@ func (s *Service) mcpServer(run context.Context, actor Actor) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{Name: "surface_status", Description: "Check the shared workspace desktop and its current controller. No desktop access is enabled automatically."}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := operation(ctx)
 		defer cancel()
+		if s.HasDesktopCatalog() && actor.ProjectID != "" {
+			catalog, err := s.ListDesktops(ctx, actor.ProjectID)
+			return toolResult(toolPayload{SurfaceID: DesktopID, Operation: "status", Catalog: &catalog}, nil, err)
+		}
 		snapshot, err := s.Refresh(ctx)
 		return toolResult(toolPayload{SurfaceID: DesktopID, Operation: "status", Snapshot: &snapshot}, nil, err)
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "surface_open", Description: "Open the shared desktop in view or control mode. Requests user approval once for this session. A controller is exclusive within Mindwire. Use a stable requestId. Never bypass a busy or revoked controller."}, func(ctx context.Context, _ *mcp.CallToolRequest, in OpenRequest) (*mcp.CallToolResult, any, error) {
+	var openMu sync.Mutex
+	open := func(ctx context.Context, _ *mcp.CallToolRequest, in OpenRequest) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := operation(ctx)
 		defer cancel()
-		session, err := s.Open(ctx, actor, in)
-		return toolResult(toolPayload{SurfaceID: DesktopID, Operation: "open", Session: &session}, nil, err)
-	})
+		openMu.Lock()
+		defer openMu.Unlock()
+		return s.openForRun(ctx, actor, in)
+	}
+	mcp.AddTool(server, &mcp.Tool{Name: "surface_open", Description: "Open this project's saved desktop in view or control mode, creating it if needed on an Oblien VM. Requests user approval once for this control session. Use a stable requestId. Never bypass a busy or revoked controller."}, open)
+	if s.HasDesktopCatalog() {
+		mcp.AddTool(server, &mcp.Tool{Name: "surface_project_desktop", Description: "Create or reconnect to this project's saved GUI desktop. Returns its saved desktopId and a control session. Closing releases control but keeps apps and the desktop profile. The user can watch this exact desktop from the project or tool result."}, open)
+		mcp.AddTool(server, &mcp.Tool{Name: "surface_desktops", Description: "List saved desktops linked to the current project, with resolution, state and provider session limits. Does not create or start a desktop."}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+			ctx, cancel := operation(ctx)
+			defer cancel()
+			if actor.ProjectID == "" {
+				return toolResult(toolPayload{SurfaceID: DesktopID, Operation: "list"}, nil, problem("project_required", "Open a project chat to use a project desktop."))
+			}
+			catalog, err := s.ListDesktops(ctx, actor.ProjectID)
+			return toolResult(toolPayload{SurfaceID: DesktopID, Operation: "list", Catalog: &catalog}, nil, err)
+		})
+	}
 	mcp.AddTool(server, &mcp.Tool{Name: "surface_capture", Description: "Observe the desktop as an image. Returns a frame ID, dimensions and a durable artifact. Capture again after input; pointer actions require a frame younger than 30 seconds."}, func(ctx context.Context, _ *mcp.CallToolRequest, in sessionInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := operation(ctx)
 		defer cancel()
-		capture, err := s.Capture(ctx, in.SessionID, actor)
+		selected, err := s.serviceForSession(in.SessionID, actor)
+		if err != nil {
+			return toolResult(toolPayload{SurfaceID: DesktopID, Operation: "capture"}, nil, err)
+		}
+		capture, err := selected.Capture(ctx, in.SessionID, actor)
 		var data []byte
 		if err == nil {
 			content, e := s.artifacts.Get(capture.ArtifactID)
@@ -216,19 +276,27 @@ func (s *Service) mcpServer(run context.Context, actor Actor) *mcp.Server {
 				data = content.Data
 			}
 		}
-		return toolResult(toolPayload{SurfaceID: DesktopID, Operation: "capture", Capture: &capture}, data, err)
+		return toolResult(toolPayload{SurfaceID: selected.surfaceID, DesktopID: selected.Snapshot().DesktopID, Operation: "capture", Capture: &capture}, data, err)
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "surface_action", Description: "Send desktop input through the shared controller. Use the controlGeneration from surface_open, frameId from surface_capture, and a unique stable requestId. Coordinates are pixels in that image. Kinds: click, drag, scroll, key (e.g. [Meta,l]), text, clipboard_read/write, pointer, release. A dispatched receipt confirms delivery to VNC, not the application's result; capture to verify. Never repeat an outcome_unknown action blindly."}, func(ctx context.Context, _ *mcp.CallToolRequest, in ActionRequest) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := operation(ctx)
 		defer cancel()
-		receipt, err := s.Apply(ctx, actor, in)
+		selected, err := s.serviceForSession(in.SessionID, actor)
+		if err != nil {
+			return toolResult(toolPayload{SurfaceID: DesktopID, Operation: "action"}, nil, err)
+		}
+		receipt, err := selected.Apply(ctx, actor, in)
 		if err == nil && receipt.Error != nil {
 			err = receipt.Error
 		}
-		return toolResult(toolPayload{SurfaceID: DesktopID, Operation: "action", Receipt: &receipt}, nil, err)
+		return toolResult(toolPayload{SurfaceID: selected.surfaceID, DesktopID: selected.Snapshot().DesktopID, Operation: "action", Receipt: &receipt}, nil, err)
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "surface_release", Description: "Close this run's desktop session and release all held input. Does not disable the workspace display or close another user's viewer."}, func(ctx context.Context, _ *mcp.CallToolRequest, in sessionInput) (*mcp.CallToolResult, any, error) {
-		return toolResult(toolPayload{SurfaceID: DesktopID, Operation: "release"}, nil, s.CloseSession(in.SessionID, actor))
+		selected, err := s.serviceForSession(in.SessionID, actor)
+		if err != nil {
+			return toolResult(toolPayload{SurfaceID: DesktopID, Operation: "release"}, nil, err)
+		}
+		return toolResult(toolPayload{SurfaceID: selected.surfaceID, DesktopID: selected.Snapshot().DesktopID, Operation: "release"}, nil, selected.CloseSession(in.SessionID, actor))
 	})
 	return server
 }

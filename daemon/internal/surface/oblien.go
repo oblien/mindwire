@@ -20,12 +20,15 @@ import (
 // Binding is write-only. Its SSH grant is desktop-only, expires at the provider's
 // deadline, and must match the workspace for which it was issued.
 type Binding struct {
-	RegistryID   string        `json:"registryId"`
-	WorkspaceID  string        `json:"workspaceId"`
-	GatewayToken string        `json:"gatewayToken,omitempty"`
-	Connection   SSHConnection `json:"connection"`
+	RegistryID       string        `json:"registryId"`
+	WorkspaceID      string        `json:"workspaceId"`
+	GatewayToken     string        `json:"gatewayToken,omitempty"`
+	Connection       SSHConnection `json:"connection"`
+	DesktopID        string        `json:"desktopId,omitempty"`
+	RuntimeExpiresAt time.Time     `json:"runtimeExpiresAt,omitempty"`
 }
 type SSHConnection struct {
+	SessionID string      `json:"session_id,omitempty"`
 	ExpiresAt time.Time   `json:"expires_at"`
 	SSH       SSHSettings `json:"ssh"`
 	VNC       VNCSettings `json:"vnc"`
@@ -55,11 +58,24 @@ type Oblien struct {
 
 func NewOblien(binding Binding) (*Oblien, error) {
 	c := binding.Connection
-	if !regexp.MustCompile(`^[a-fA-F0-9]{16}$`).MatchString(binding.WorkspaceID) || len(binding.GatewayToken) > 8192 || c.SSH.Host != "ssh.oblien.com" || c.SSH.Port != 22 ||
+	if !regexp.MustCompile(`^[a-fA-F0-9]{16}$`).MatchString(binding.WorkspaceID) || len(binding.GatewayToken) > 8192 ||
+		(binding.DesktopID != "" && !validDesktopID(binding.DesktopID)) {
+		return nil, problem("invalid_binding", "Invalid workspace desktop binding.")
+	}
+	if c.SSH.Host == "" && !binding.RuntimeExpiresAt.IsZero() && binding.GatewayToken != "" {
+		if time.Now().After(binding.RuntimeExpiresAt) {
+			return nil, problem("needs_authorization", "Refresh the workspace desktop authorization.")
+		}
+		return &Oblien{binding: binding, http: &http.Client{Timeout: 20 * time.Second}, base: "https://workspace.oblien.com"}, nil
+	}
+	if c.SSH.Host != "ssh.oblien.com" || c.SSH.Port != 22 ||
 		c.VNC.Host != "127.0.0.1" || c.VNC.Port != 5900 || c.VNC.Authentication != "none" ||
 		!strings.HasPrefix(c.SSH.Username, "desktop-") || c.SSH.Password == "" || len(c.SSH.Password) > 2048 ||
 		!strings.HasPrefix(c.SSH.HostKeyFingerprint, "SHA256:") {
 		return nil, problem("invalid_binding", "Use the desktop SSH connection issued by Oblien for this workspace.")
+	}
+	if binding.DesktopID != "" && c.SessionID != binding.DesktopID {
+		return nil, problem("workspace_mismatch", "The desktop grant belongs to another saved desktop.")
 	}
 	if !strings.Contains(c.SSH.Username, binding.WorkspaceID) {
 		return nil, problem("workspace_mismatch", "Desktop credentials belong to another workspace.")
@@ -69,7 +85,20 @@ func NewOblien(binding Binding) (*Oblien, error) {
 	}
 	return &Oblien{binding: binding, http: &http.Client{Timeout: 20 * time.Second}, base: "https://workspace.oblien.com"}, nil
 }
-func (p *Oblien) ExpiresAt() time.Time { return p.binding.Connection.ExpiresAt }
+func (p *Oblien) bindingSnapshot() Binding { p.mu.Lock(); defer p.mu.Unlock(); return p.binding }
+func (p *Oblien) ExpiresAt() time.Time {
+	b := p.bindingSnapshot()
+	if !b.RuntimeExpiresAt.IsZero() {
+		return b.RuntimeExpiresAt
+	}
+	return b.Connection.ExpiresAt
+}
+func (p *Oblien) desktopPath() string {
+	if id := p.bindingSnapshot().DesktopID; id != "" {
+		return "/desktop/sessions/" + id
+	}
+	return "/desktop"
+}
 func (p *Oblien) expired() error {
 	if time.Now().After(p.ExpiresAt()) {
 		_ = p.Close()
@@ -78,14 +107,15 @@ func (p *Oblien) expired() error {
 	return nil
 }
 func (p *Oblien) request(ctx context.Context, method, path string, body []byte, contentType string) (*http.Response, error) {
-	if p.binding.GatewayToken == "" {
+	binding := p.bindingSnapshot()
+	if binding.GatewayToken == "" {
 		return nil, problem("needs_authorization", "Refresh the workspace desktop connection to use this operation.")
 	}
 	req, err := http.NewRequestWithContext(ctx, method, p.base+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+p.binding.GatewayToken)
+	req.Header.Set("Authorization", "Bearer "+binding.GatewayToken)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -94,12 +124,33 @@ func (p *Oblien) request(ctx context.Context, method, path string, body []byte, 
 		return nil, problem("unavailable", "The workspace desktop service could not be reached.")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		response.Body.Close()
+		defer response.Body.Close()
+		if response.StatusCode == 400 || response.StatusCode == 422 {
+			return nil, problem("invalid_request", "The desktop settings were rejected. Use a name of 1–80 bytes and a supported screen size.")
+		}
 		if response.StatusCode == 401 || response.StatusCode == 403 {
 			return nil, problem("needs_authorization", "Refresh the workspace desktop authorization.")
 		}
 		if response.StatusCode == 404 {
+			if strings.HasPrefix(path, "/desktop/sessions/") {
+				return nil, problem("desktop_not_found", "This saved desktop was removed. Choose or create another desktop.")
+			}
 			return nil, problem("unsupported", "This workspace runtime does not expose desktop access.")
+		}
+		if response.StatusCode == 409 {
+			var detail struct {
+				Error string `json:"error"`
+			}
+			_ = json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&detail)
+			// Use known provider preconditions without exposing arbitrary upstream
+			// error bodies (which may contain private connection details).
+			switch strings.ToLower(strings.TrimSpace(detail.Error)) {
+			case "stop the desktop before changing its resolution":
+				return nil, problem("desktop_conflict", "Stop this desktop before changing its resolution.")
+			case "stop the desktop before deleting its saved profile":
+				return nil, problem("desktop_conflict", "Stop this desktop before deleting it.")
+			}
+			return nil, problem("desktop_conflict", "The desktop is busy or the session limit has been reached. Refresh its status.")
 		}
 		return nil, problem("unavailable", "The workspace display is not ready. Retry when the workspace is running.")
 	}
@@ -130,7 +181,7 @@ func (p *Oblien) Status(ctx context.Context) (ProviderStatus, error) {
 		return ProviderStatus{}, err
 	}
 	var status ProviderStatus
-	if err := p.json(ctx, "GET", "/desktop/status", nil, &status); err != nil {
+	if err := p.json(ctx, "GET", p.desktopPath()+"/status", nil, &status); err != nil {
 		return status, err
 	}
 	var runtimes struct {
@@ -147,7 +198,7 @@ func (p *Oblien) Status(ctx context.Context) (ProviderStatus, error) {
 			return status, err
 		}
 		target := runtimes.Default
-		parts := strings.Split(p.binding.GatewayToken, ".")
+		parts := strings.Split(p.bindingSnapshot().GatewayToken, ".")
 		if len(parts) == 3 {
 			if payload, err := base64.RawURLEncoding.DecodeString(parts[1]); err == nil {
 				var claims struct {
