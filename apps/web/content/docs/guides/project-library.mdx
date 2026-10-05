@@ -1,0 +1,50 @@
+---
+title: Project folders & ordering
+description: Organize projects in the workspace registry, with atomic edits and offline synchronization.
+---
+
+The workspace registry stores project folders, membership, and manual order. Folders organize
+project references; moving or deleting a folder does not move files, run Git, or delete projects
+and conversations. Clients can keep their own flat or folder-based view preferences.
+
+Read `health.projectLibraryVersion` before using the library API. Version `1` supports
+`GET /workspace/project-library` and `PATCH /workspace/project-library`, plus the matching
+TypeScript and Go SDK methods.
+
+## Read and edit
+
+```ts
+const library = await mw.workspace.library();
+const folderId = crypto.randomUUID();
+const saved = await mw.workspace.editLibrary({
+  expectedRevision: library.revision,
+  folders: [{ id: folderId, name: "Client work" }],
+  placements: [{ projectId, folderId }],
+  order: [projectId],
+});
+```
+
+The project ID must belong to this workspace. The Go equivalent is
+`client.Workspace.Library()` and `client.Workspace.EditLibrary(edit)`.
+The returned library contains `version`, `revision`, `folders`, `membership`, and `order`.
+
+An edit can upsert folders, delete folder IDs, place projects into a folder or set their folder to
+`null`, and reorder selected projects or folders. Reordering a subset preserves the other entries'
+positions. The daemon validates and saves the complete edit in one transaction; invalid edits
+change nothing.
+
+## Offline clients and conflicts
+
+Cache the library and save outgoing edits durably with local UI changes. Send edits through one
+writer per workspace. The API requires the last observed `expectedRevision`; a `409` means the
+library changed and must be read again before rebasing. An identical retry is a no-op.
+
+Full workspace snapshots include `projectLibrary`. Incremental snapshots include it only when
+organization changes, so an idle client needs no additional polling. Keep disconnected workspace
+data until the daemon confirms a deletion. When a folder is deleted remotely, remove dependent
+stale edits instead of recreating that folder; its deletion is recorded in the registry.
+
+Use `importIfEmpty: true` only to migrate existing local organization into an untouched registry.
+Existing daemon organization wins. Older services can keep the client's organization local until
+upgraded. [Project switching](/docs/guides/project-sync) can retain logical membership when a project
+has copies on multiple workspaces.

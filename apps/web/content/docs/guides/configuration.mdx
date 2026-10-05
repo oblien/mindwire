@@ -15,6 +15,22 @@ Both are filtered server-side to the agent's **declared, non-secret** keys — a
 ignored, and a setting can never introduce a credential. Discover what a given agent declares with
 `GET /agent` (`mw.agent()` / `client.Agent(ctx)`).
 
+## Native command access
+
+Direct workspaces use the computer account running MindWire, including root when the service was
+started as root. Commands have that account's normal access to files, installed tools and the
+network. The launcher preserves inherited PATH entries after login-shell startup; explicitly
+managed CLI versions still take precedence. Docker workspaces keep their container boundary.
+
+Codex defaults to `danger-full-access` unless a sandbox was explicitly selected. A native
+`sandbox_mode` in the user config or its selected profile, a sticky `sandbox` setting, or a per-turn
+override remains effective. Approval policy is independent. These settings apply to new and resumed
+sessions through both the CLI and app-server transports.
+
+To restrict commands, select `workspace-write` or `read-only`. Codex's `workspace-write` network
+restrictions still apply unless enabled in its native configuration. A blocked GitHub command can
+report a DNS error even when the host itself is online.
+
 ## Sticky config
 
 Read and merge persisted settings. `setConfig` merges recognized keys; unknown keys are dropped.
@@ -130,12 +146,9 @@ per-turn prompt uses. A per-turn `options.systemPrompt` still wins for that one 
 await mw.setConfig({ systemPrompt: "You are a terse senior engineer." });
 ```
 
-<Callout type="warn">
-**Codex approval mode.** Codex only carries a system prompt on its autonomous `exec` transport. With
-any `permissionMode` other than `never`, a turn carrying a system prompt (sticky or per-turn) is
-rejected with a `400` rather than silently dropped — the interactive-approval (app-server) transport
-can't take the overlay. Claude has no such constraint.
-</Callout>
+Codex sends system instructions through the private app-server connection for interactive turns.
+Headless `exec` turns use a temporary native config overlay. Both honor the same prompt and approval
+settings without placing private instructions on the command line.
 
 The sticky system prompt is one of the three persistent layers beneath a turn; the full picture —
 memory files (`CLAUDE.md` / `AGENTS.md`) and saved prompt templates — is in
