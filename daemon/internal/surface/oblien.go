@@ -47,13 +47,14 @@ type VNCSettings struct {
 }
 
 type Oblien struct {
-	mu      sync.Mutex
-	binding Binding
-	http    *http.Client
-	base    string
-	client  *rfbClient
-	status  ProviderStatus
-	target  string
+	mu       sync.Mutex
+	binding  Binding
+	http     *http.Client
+	base     string
+	client   *rfbClient
+	onCursor func(*Cursor)
+	status   ProviderStatus
+	target   string
 }
 
 func NewOblien(binding Binding) (*Oblien, error) {
@@ -253,7 +254,9 @@ func (p *Oblien) Connect(ctx context.Context) (Geometry, error) {
 	}
 	p.mu.Lock()
 	p.client = rfb
+	onCursor := p.onCursor
 	p.mu.Unlock()
+	rfb.setCursorObserver(onCursor)
 	return rfb.geometry(), nil
 }
 func (p *Oblien) Capture(ctx context.Context) (image.Image, Geometry, error) {
@@ -264,6 +267,19 @@ func (p *Oblien) Capture(ctx context.Context) (image.Image, Geometry, error) {
 	client := p.client
 	p.mu.Unlock()
 	return client.capture(ctx)
+}
+
+func (p *Oblien) InputGeometry(ctx context.Context, action Action) (Geometry, error) {
+	if err := p.expired(); err != nil {
+		return Geometry{}, err
+	}
+	p.mu.Lock()
+	client := p.client
+	p.mu.Unlock()
+	if client == nil || !client.alive() {
+		return p.Connect(ctx)
+	}
+	return client.inputGeometry(ctx, action)
 }
 func (p *Oblien) Apply(ctx context.Context, a Action) (string, error) {
 	// Service.Apply refreshes geometry before spatial validation. Reusing the live

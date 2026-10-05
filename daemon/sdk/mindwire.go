@@ -261,6 +261,7 @@ type Health struct {
 	Agent                          string `json:"agent"`
 	Version                        string `json:"version"`
 	WorkspaceMetadataVersion       int    `json:"workspaceMetadataVersion"`
+	ProjectLibraryVersion          int    `json:"projectLibraryVersion"`
 	ProjectOperationsVersion       int    `json:"projectOperationsVersion"`
 	ProjectIconsVersion            int    `json:"projectIconsVersion"`
 	ProjectSyncVersion             int    `json:"projectSyncVersion"`
@@ -284,7 +285,7 @@ func (c *Client) Health() Health {
 	if runtime.GOOS == "darwin" && os.Geteuid() != 0 {
 		localDesktopVersion = surface.LocalDesktopVersion
 	}
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectLibraryVersion: registry.ProjectLibraryVersion, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package

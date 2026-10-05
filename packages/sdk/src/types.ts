@@ -954,10 +954,12 @@ export interface HarnessSoftware {
   installedVersion: string;
   recommendedVersion?: string;
   latestVersion?: string;
-  compatibility: "supported" | "untested" | "incompatible" | "not_installed" | (string & {});
+  compatibility: "supported" | "untested" | "incompatible" | "unavailable" | "not_installed" | (string & {});
   managed: boolean;
   updateAvailable: boolean;
   requiresDaemonUpdate: boolean;
+  /** An explicitly requested update can repair this damaged managed installation. */
+  repairAvailable?: boolean;
   requiredDaemonVersion?: string;
   message?: string;
   catalogRevision: number;
@@ -1133,6 +1135,8 @@ export interface Health {
   localDesktopVersion?: number;
   /** Workspace registry protocol version; absent on daemons predating workspace metadata. */
   workspaceMetadataVersion?: number;
+  /** Durable project folders, membership and ordering, with conditional edits. */
+  projectLibraryVersion?: number;
   /** Durable project creation/clone operations; absent on older daemons. */
   projectOperationsVersion?: number;
   /** Project-relative icons and authenticated image previews. */

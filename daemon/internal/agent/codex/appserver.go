@@ -89,7 +89,9 @@ func (a appServer) Run(ctx context.Context, in agent.TurnInput, emit agent.Emit)
 	if err != nil {
 		return agent.TurnResult{Text: err.Error(), IsError: true}, err
 	}
-	cmd := exec.CommandContext(ctx, "bash", "-lc", toolchain.Shell(a.command))
+	commandCtx, stopCommand := context.WithCancel(ctx)
+	defer stopCommand()
+	cmd := exec.CommandContext(commandCtx, "bash", "-lc", toolchain.Shell(a.command))
 	proc.Group(cmd) // cancel/interrupt kills the whole app-server tree, not just the bash parent
 	cmd.Env = toolchain.Environment()
 	for k, v := range a.env {
@@ -113,6 +115,12 @@ func (a appServer) Run(ctx context.Context, in agent.TurnInput, emit agent.Emit)
 
 	result, got := a.converse(ctx, stdin, stdout, in.Inbound, emit)
 	_ = stdin.Close() // signal the server we're done so it exits and stdout hits EOF
+	// A rejected resume (for example, a thread owned by another Codex client) can
+	// leave app-server alive after EOF. This process belongs only to this turn;
+	// reap it before waiting so the run always becomes terminal and Stop stays usable.
+	if !got || result.IsError || result.Cancelled || ctx.Err() != nil {
+		stopCommand()
+	}
 	werr := cmd.Wait()
 
 	if !got {
@@ -177,7 +185,19 @@ func (e *rpcErr) text() string {
 	if detail := errorText(e.Data, ""); detail != "" && !strings.Contains(message, detail) {
 		message = strings.TrimSpace(message + "\n" + detail)
 	}
+	if conflict := sessionConflictText(message); conflict != "" {
+		return conflict
+	}
 	return fmt.Sprintf("Codex RPC error %d: %s", e.Code, message)
+}
+
+func sessionConflictText(message string) string {
+	lower := strings.ToLower(message)
+	if (strings.Contains(lower, "thread") || strings.Contains(lower, "session") || strings.Contains(lower, "conversation")) &&
+		(strings.Contains(lower, "already in use") || strings.Contains(lower, "another client") || strings.Contains(lower, "another process")) {
+		return "This Codex conversation is open in another client. Close it there, then try sending again."
+	}
+	return ""
 }
 
 type pendingResp struct {
@@ -581,7 +601,19 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 					if p.WillRetry {
 						emit(agent.Event{Type: agent.EventStatus, Meta: map[string]any{"message": lastError, "willRetry": true}})
 					} else {
-						emit(agent.Event{Type: agent.EventError, Error: lastError})
+						if conflict := sessionConflictText(lastError); conflict != "" {
+							lastError = conflict
+							emit(agent.Event{Type: agent.EventError, Error: lastError})
+							terminated = true
+							// Session ownership errors need no turn/completed event; Codex
+							// may never have accepted a turn in the first place.
+							smu.Lock()
+							sid := sessionID
+							smu.Unlock()
+							emitTerminal(agent.TurnResult{Text: conflict, IsError: true, SessionID: sid}, tokenMeta())
+						} else {
+							emit(agent.Event{Type: agent.EventError, Error: lastError})
+						}
 					}
 				}
 
@@ -633,6 +665,12 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 			select {
 			case resp = <-ch:
 			default:
+				smu.Lock()
+				terminal := result
+				smu.Unlock()
+				if terminal.IsError && terminal.Text != "" {
+					return nil, errors.New(terminal.Text)
+				}
 				return nil, errTransportClosed
 			}
 		case resp = <-ch:

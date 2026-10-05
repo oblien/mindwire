@@ -2,6 +2,10 @@ import type { Mindwire } from "./client.js";
 import { readSSE } from "./sse.js";
 
 export interface SurfaceGeometry { width: number; height: number; revision: number }
+/** Actual remote cursor. The base64 PNG changes only with its shape, not its position. */
+export interface SurfaceCursor {
+  id: string; width: number; height: number; hotspotX: number; hotspotY: number; png: string;
+}
 export interface SurfaceProblem { code: string; message: string }
 export interface SurfaceCapabilities {
   view: boolean; capture: boolean; pointer: boolean; keyboard: boolean; text: boolean;
@@ -18,7 +22,7 @@ export interface SurfaceSnapshot {
   version: number; revision: number; instanceId: string;
   state: string; observedAt?: string; supported: boolean; enabled: boolean; available: boolean;
   credentials: boolean; os?: string; capabilities: SurfaceCapabilities;
-  geometry?: SurfaceGeometry; controller?: SurfaceController;
+  geometry?: SurfaceGeometry; cursor?: SurfaceCursor; controller?: SurfaceController;
   authorizationExpiresAt?: string; error?: SurfaceProblem;
   setup?: { reason: string; command: string };
 }
@@ -57,7 +61,7 @@ export interface SurfaceActionRequest {
 }
 export interface SurfaceReceipt {
   id: string; sessionId: string; surfaceId: string; kind: string;
-  status: "dispatching" | "dispatched" | "outcome_unknown"; createdAt: string; error?: SurfaceProblem;
+  status: "dispatching" | "dispatched" | "outcome_unknown" | "cancelled"; createdAt: string; error?: SurfaceProblem;
   /** Transient clipboard output, not stored in the receipt. */
   text?: string;
 }

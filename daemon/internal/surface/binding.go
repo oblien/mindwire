@@ -99,11 +99,13 @@ func (s *Service) Bind(binding Binding, credentials Credentials) error {
 	s.mu.Lock()
 	s.provider = provider
 	s.snapshot.Geometry = nil
+	s.snapshot.Cursor = nil
 	s.snapshot.Error = nil
 	s.snapshot.State = "disconnected"
 	expires := provider.ExpiresAt()
 	s.snapshot.AuthorizationExpiresAt = &expires
 	s.signalLocked()
 	s.mu.Unlock()
+	s.observeProviderCursor(provider)
 	return nil
 }

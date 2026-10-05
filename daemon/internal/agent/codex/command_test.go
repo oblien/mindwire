@@ -128,15 +128,15 @@ func TestBuildExecCommandSessionPrecedence(t *testing.T) {
 	}
 }
 
-// Defaults: an unconfigured turn is autonomous — approval never, sandbox workspace-write — and unset
+// Defaults: an unconfigured turn is autonomous with native host/container access, and unset
 // settings never appear as flags.
 func TestBuildExecCommandDefaultsAndOmits(t *testing.T) {
 	cmd := buildExecCommand(agent.TurnInput{Message: "x"}, materialized{})
 	if !strings.Contains(cmd, "-c 'approval_policy=never'") {
 		t.Errorf("expected default approval_policy=never, got: %s", cmd)
 	}
-	if !strings.Contains(cmd, "-s 'workspace-write'") {
-		t.Errorf("expected default sandbox workspace-write, got: %s", cmd)
+	if !strings.Contains(cmd, "-s 'danger-full-access'") {
+		t.Errorf("expected default native access, got: %s", cmd)
 	}
 	for _, bad := range []string{"-m ", "-C ", "--add-dir", "model_reasoning_effort", "resume"} {
 		if strings.Contains(cmd, bad) {

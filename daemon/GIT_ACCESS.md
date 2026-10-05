@@ -119,9 +119,17 @@ reservation until recovery and returns an observation error.
 Pull only fast-forwards the current branch from origin; push sets upstream to
 origin and never forces. A forwarded connection rejects another push destination.
 Concurrent managed Git mutations and agent/project operations in overlapping directories
-conflict. Clients must wait for `activeOperations == 0` before replacing the
-daemon, in addition to existing run/setup/project-operation checks. Native
-terminal commands remain subject to Git's own locking.
+conflict, except that staging and unstaging can run while an agent, ordinary command,
+or terminal is active. These index-only actions still reserve the repository against
+other managed Git mutations and project synchronization/removal, and retain Git's
+native index lock. A competing managed Git operation returns HTTP 409 with a Git-busy
+message instead of the unrelated registry revision-conflict message. Other Git
+actions retain their active-work guard.
+
+Clients must wait for `activeOperations == 0` before replacing the daemon, in
+addition to existing run/setup/project-operation checks. Native terminal commands
+remain subject to Git's own locking. Observe `/workspace/git/operations/{id}/stream`
+for immediate completion; a disconnected observer can read the same durable receipt.
 
 The TypeScript HTTP SDK exposes `workspace.git.start/operation/operations/watch/cancel`,
 account settings on `workspace.git`, `turn/resolve({gitAuth})`, and
@@ -138,4 +146,7 @@ revocation, cloning and restart recovery, metadata compatibility, authenticated
 run/resume lifecycle, and local fetch/pull/push with divergence protection. Git
 operation tests also cover lost acknowledgements, idempotency across restart,
 interrupted recovery without replay, cancellation, persistence failure, literal
-paths, unborn unstaging, and discard failures that preserve working files.
+paths, unborn unstaging, and discard failures that preserve working files. HTTP
+tests also stage and unstage real files during a live command, an idle terminal,
+and an agent turn, while verifying that competing Git operations and project
+synchronization still block the operation.

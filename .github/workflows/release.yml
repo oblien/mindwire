@@ -206,6 +206,7 @@ jobs:
     uses: ./.github/workflows/docker-images.yml
     with:
       tag: ${{ github.ref_name }}
+      publish-latest: true
 
   verify-runtime-image:
     name: "E2E: released runtime image"

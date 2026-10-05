@@ -1,10 +1,37 @@
 import { test, expect } from "bun:test";
-import { Mindwire, ApiError, remote, ensureDaemon, type WorkspaceSnapshot, type SandboxHost } from "../src/index.js";
+import { Mindwire, ApiError, remote, ensureDaemon, type WorkspaceSnapshot, type ProjectLibrary, type ProjectLibraryEdit, type SandboxHost } from "../src/index.js";
 
 const snapshot: WorkspaceSnapshot = {
   version: 1, workspaceId: "workspace-identity", revision: 4, full: true,
   agents: [], projects: [], chats: [], deleted: [],
 };
+
+test("project folders use the workspace API with conditional edits and explicit null membership", async () => {
+  const library: ProjectLibrary = { version: 1, revision: 7, folders: [{ id: "work", name: "Work" }], membership: {}, order: ["project"] };
+  const edit: ProjectLibraryEdit = { expectedRevision: 6, placements: [{ projectId: "project", folderId: null }] };
+  const calls: { path: string; method: string; body: unknown }[] = [];
+  const mw = new Mindwire({ target: remote("http://registry"), fetch: async (input, init) => {
+    calls.push({ path: new URL(input).pathname, method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+    return Response.json(new URL(input).pathname === "/workspace" ? { ...snapshot, projectLibrary: library } : library);
+  } });
+  expect(await mw.workspace.library()).toEqual(library);
+  expect(await mw.workspace.editLibrary(edit)).toEqual(library);
+  expect((await mw.workspace.snapshot()).projectLibrary).toEqual(library);
+  expect(calls.slice(0, 2)).toEqual([
+    { path: "/workspace/project-library", method: "GET", body: null },
+    { path: "/workspace/project-library", method: "PATCH", body: edit },
+  ]);
+});
+
+test("a stale library edit exposes its conflict without silently replaying it", async () => {
+  let writes = 0;
+  const mw = new Mindwire({ target: remote("http://registry"), fetch: async () => {
+    writes++;
+    return Response.json({ error: "record changed on another client" }, { status: 409 });
+  } });
+  await expect(mw.workspace.editLibrary({ expectedRevision: 1, order: ["b", "a"] })).rejects.toMatchObject({ status: 409 });
+  expect(writes).toBe(1);
+});
 
 test("global conversations browse without a cwd and adopt the original reference through the shared workspace API", async () => {
   const calls: { url: URL; method: string; body: unknown }[] = [];

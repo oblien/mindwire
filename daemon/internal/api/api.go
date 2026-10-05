@@ -139,6 +139,8 @@ type Route struct {
 // Routes is the full authenticated API surface. Every agent-specific route accepts ?agent=<type>.
 func (a *API) Routes() []Route {
 	return []Route{
+		{"GET", "/workspace/project-library", a.projectLibrary},
+		{"PATCH", "/workspace/project-library", a.projectLibrary},
 		{"GET", "/workspace/host", a.workspaceHost},
 		{"GET", "/workspace/resources", a.workspaceResources},
 		{"GET", "/workspace/files", a.workspaceFiles},

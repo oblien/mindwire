@@ -58,10 +58,23 @@ opening their own display connections.
 
 The Go RFB adapter handles standard RFB 3.8 None security results, explicit BGR
 true-color pixels, bounded block decoding, resize notifications and release of held
-keys/buttons. Before pointer input it requests a one-pixel update to reconcile
-display geometry. Captures request the full image and return actual PNG image
+keys/buttons. Button transitions and clicks request a one-pixel update to reconcile
+display geometry; continuing human motion reuses geometry observed in the last
+250ms. Agent actions still validate their capture. Captures request the full image and return actual PNG image
 content to the harness. Repeated announcements of an unchanged size preserve the
 frame and pointer revision; an actual resize invalidates the old coordinates.
+
+The controller also negotiates RichCursor. Changed cursor PNGs and hotspots are
+optional `cursor` fields in surface snapshots/events; the stable image ID avoids
+decoding an unchanged cursor again. This is needed because TigerVNC can render the
+cursor into a separate video viewer instead of sending it local cursor images.
+One incremental 1px request waits for changes with no idle polling. Explicit
+geometry checks/captures share that connection and take priority. Pixel coverage
+tracks partial/tiled replies; cursor-only responses cannot acknowledge a capture.
+If the server consumes a request with a cursor or partial reply, remaining pixels
+are requested again. Input is never sent by the observer. Cursor dimensions,
+hotspots and per-update allocations are bounded; empty cursor updates retain the
+last usable shape. Closing the last control/view session closes the observer too.
 
 The initial SetPixelFormat must also use network byte order for channel maxima.
 The pinned go-vnc dependency encodes those fields incorrectly during Connect;
@@ -155,7 +168,11 @@ cannot take over; after revocation it needs a fresh, approved session.
 
 Input is serialized across all clients. Each action has a stable request ID and a
 durable receipt written before dispatch. Identical retries return the receipt;
-a different request with the same ID conflicts. Transport failures and a crash
+a different request with the same ID conflicts. A cancelled request is checked
+after acquiring the operation lock and immediately
+before provider dispatch. It cannot click later when the queue drains. A provider
+failure releases held input under the same lock with a separate bounded deadline.
+Transport failures and a crash
 after dispatch produce `outcome_unknown`: observe the desktop before issuing any
 replacement action. `dispatched` acknowledges VNC/provider delivery, not the remote
 application's final state. Capture to verify the application.

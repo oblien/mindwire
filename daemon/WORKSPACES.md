@@ -21,6 +21,7 @@ release architectures remain static, with CGO disabled.
 | Transcripts | Harness native history, with the daemon's recorded fallback |
 | Active runs, stop/reconnect state and notifications | Daemon session/run store |
 | Project setup, clone progress, folder deletion, cancellation and recovery | Daemon project service; durable operations in workspace.db |
+| Library folders, folder membership and manual project order | Workspace registry; atomic revisioned library |
 | List ordering by last use, collapsed UI state, navigation | Client cache |
 
 Profiles are named harness selections. They do not duplicate harness configuration,
@@ -36,6 +37,8 @@ All routes require the daemon bearer credential. They are workspace-wide:
 |---|---|
 | `GET /workspace` | Full snapshot |
 | `GET /workspace/changes?since=N&workspaceId=ID` | Changes newer than revision N |
+| `GET /workspace/project-library` | Read folders and manual order without scanning conversations |
+| `PATCH /workspace/project-library` | Conditionally edit folders, placements and order together |
 | `POST /workspace/import` | Add missing legacy records without overwriting existing data |
 | `PUT /workspace/{agents,projects,chats}/{id}` | Create or replace one record |
 | `DELETE /workspace/{agents,projects,chats}/{id}?revision=N` | Remove membership at the expected record revision |
@@ -64,6 +67,34 @@ It does not remove files or native transcripts. Running chats block deletion wit
 tombstones registry membership. Existing rename/fork endpoints update the registry.
 Registered turns use their saved profile's harness and project's directory; a
 conflicting explicit harness is rejected.
+
+## Project library
+
+`projectLibraryVersion: 1` advertises durable folder organization. Full snapshots
+include `projectLibrary`; deltas include it only when its revision changed.
+The standalone read uses only that small record. There is no polling worker,
+filesystem scan, transcript copy, or extra database process for this feature.
+
+A library contains ordered `folders` (`id`, `name`), `membership` (project ID to
+folder ID), and `order` (project IDs). PATCH accepts `expectedRevision`, folder
+upserts, `deleteFolders`, `placements`, `order`, and `folderOrder`. A placement
+with `folderId: null` returns a project to the flat list. Reorders replace only
+the requested entries' slots, retaining other projects' relative positions.
+
+Every edit commits in one SQLite transaction with the workspace revision.
+Identical retries are no-ops. A stale differing edit returns 409; fetch the current
+library and rebase only the intended fields. Deleted folder IDs return 410 and
+cannot be recreated by a delayed rename. Folder deletion keeps all files,
+projects and chats. Project deletion removes library references in its existing
+transaction. `importIfEmpty: true` migrates a device's old local organization only
+if the daemon library has never been edited; it cannot replace another phone's
+saved organization.
+
+TypeScript exposes `workspace.library()` and `workspace.editLibrary(edit)`;
+Go exposes `Workspace.Library()` and `Workspace.EditLibrary(edit)`. Views and
+recent/name sort preferences remain local. Clients can cache organization and
+queue edits offline, but should distinguish pending edits from acknowledged
+workspace data.
 
 ## Project icons
 

@@ -259,6 +259,13 @@ type gitOperationRequest struct {
 	Auth           *gitaccess.Auth       `json:"auth,omitempty"`
 }
 
+// Admission conflicts are not registry revision conflicts. Keep the HTTP 409
+// classification, but tell the caller which work actually needs to finish.
+type gitBusyError string
+
+func (e gitBusyError) Error() string { return string(e) }
+func (e gitBusyError) Unwrap() error { return registry.ErrConflict }
+
 func (a *API) startGitOperation(ctx context.Context, projectID string, req gitOperationRequest) (registry.GitOperation, error) {
 	spec := registry.GitSpec{ID: req.ID, ProjectID: projectID, Action: req.Action, Paths: req.Paths, Message: req.Message,
 		Branch: req.Branch, Remote: req.Remote, NewName: req.NewName, ExpectedTip: req.ExpectedTip, Force: req.Force, Identity: req.Identity,
@@ -284,8 +291,16 @@ func (a *API) startGitOperation(ctx context.Context, projectID string, req gitOp
 	if err != nil {
 		return registry.GitOperation{}, err
 	}
-	if a.BusyPath(spec.Path) {
-		return registry.GitOperation{}, registry.ErrConflict
+	if a.gitBusyPath(spec.Path) {
+		return registry.GitOperation{}, gitBusyError("Another Git operation is running in this repository. Wait for it to finish and try again.")
+	}
+	// Index-only actions can run while an agent edits files or a terminal is
+	// open. Git's own index lock still excludes competing native Git writes.
+	// Worktree/history mutations retain the active-work guard; every action also
+	// retains the durable Git/project-sync reservation below.
+	indexOnly := spec.Action == "stage" || spec.Action == "unstage"
+	if !indexOnly && a.BusyPath(spec.Path) {
+		return registry.GitOperation{}, gitBusyError("Close active terminals or wait for the agent or command to finish before running this Git operation.")
 	}
 	if err := a.registry.CheckProjectPath(spec.Path); err != nil {
 		return registry.GitOperation{}, err

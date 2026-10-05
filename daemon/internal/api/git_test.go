@@ -195,6 +195,8 @@ func TestGitHTTPDurableMutationsAndRecovery(t *testing.T) {
 		body := `{"id":"competing","action":"` + action + `","paths":["tracked"]}`
 		if got := serve(t, h, "POST", "/workspace/projects/project/git/operations", body); got.Code != 409 {
 			t.Fatalf("%s bypassed coordination: %d %s", action, got.Code, got.Body.String())
+		} else if strings.Contains(got.Body.String(), "record changed") || !strings.Contains(got.Body.String(), "Git operation") {
+			t.Fatalf("%s has a misleading conflict: %s", action, got.Body.String())
 		}
 	}
 	if got := serve(t, h, "GET", "/workspace/projects/project/git/operations?active=true", ""); got.Code != 200 || !strings.Contains(got.Body.String(), "blocked-commit") {

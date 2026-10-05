@@ -57,6 +57,11 @@ configured, call [`agent()`](/docs/guides/agents#discover-an-agent) — its `ins
 already satisfied is skipped, so calling it on a healthy agent is a no-op that just reports "satisfied."
 `update()` is the same flow aimed at upgrading an already-installed agent.
 
+For a managed CLI, a failed version probe reports `compatibility: "unavailable"`; it does not
+claim the selected version changed. A real mismatch reports both versions. When
+`repairAvailable` is true, an explicit `update()` repairs the managed installation using the
+recommended supported version. Externally installed CLIs are not silently downgraded or replaced.
+
 <ApiTabs>
 
 <Tab value="TypeScript">

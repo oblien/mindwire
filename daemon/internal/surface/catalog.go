@@ -281,6 +281,7 @@ func (s *Service) ForDesktop(id string) (*Service, error) {
 	child := &Service{db: s.db, artifacts: s.artifacts, surfaceID: id, provider: p, approval: approval,
 		sessions: map[string]*sessionState{}, openIDs: map[string]string{}, viewers: map[string]io.ReadWriteCloser{}, changed: make(chan struct{}), stop: make(chan struct{}), now: s.now}
 	child.snapshot = Snapshot{ID: id, DesktopID: id, WorkspaceID: s.db.Identity(), Kind: "desktop", Provider: "oblien", Version: Version, InstanceID: newID(), State: "disconnected"}
+	child.observeProviderCursor(p)
 	expiry := p.ExpiresAt()
 	if !expiry.IsZero() {
 		child.snapshot.AuthorizationExpiresAt = &expiry

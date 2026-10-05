@@ -246,6 +246,29 @@ export interface WorkspaceImport {
   chats?: (WorkspaceInput<WorkspaceChat> & { id: string })[];
 }
 
+export interface ProjectFolder { id: string; name: string }
+
+/** Daemon-owned grouping and manual order; all IDs refer to this workspace. */
+export interface ProjectLibrary {
+  version: number;
+  revision: number;
+  folders: ProjectFolder[];
+  membership: Record<string, string>;
+  order: string[];
+}
+
+/** Partial atomic edit. On 409, read the current library before deciding how to rebase. */
+export interface ProjectLibraryEdit {
+  expectedRevision: number;
+  folders?: ProjectFolder[];
+  deleteFolders?: string[];
+  placements?: { projectId: string; folderId: string | null }[];
+  order?: string[];
+  folderOrder?: string[];
+  /** Migration only: existing daemon organization always wins. */
+  importIfEmpty?: boolean;
+}
+
 export interface WorkspaceSnapshot {
   version: number;
   workspaceId: string;
@@ -258,6 +281,8 @@ export interface WorkspaceSnapshot {
   deleted: { kind: WorkspaceKind; id: string; revision: number }[];
   /** Cached chats are retained when a harness's native list could not be refreshed. */
   sessionDiscoveryIssues?: { projectId: string; agent: string; message: string }[];
+  /** Present on full snapshots, or when organization changed in a delta. */
+  projectLibrary?: ProjectLibrary;
 }
 
 export class WorkspaceCollection<T extends WorkspaceRecord> {
@@ -302,6 +327,14 @@ export class WorkspaceApi {
 
   snapshot(options: { refresh?: boolean } = {}): Promise<WorkspaceSnapshot> {
     return this.mw.http.request("GET", "/workspace", { query: options });
+  }
+
+  library(): Promise<ProjectLibrary> {
+    return this.mw.http.request("GET", "/workspace/project-library");
+  }
+
+  editLibrary(edit: ProjectLibraryEdit): Promise<ProjectLibrary> {
+    return this.mw.http.request("PATCH", "/workspace/project-library", { body: edit });
   }
 
   /** Read the saved icon, or preview a candidate relative path within the project. Requires projectIconsVersion >= 1. */

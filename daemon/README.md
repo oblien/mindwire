@@ -30,13 +30,16 @@ curl -s -H "Authorization: Bearer $DAEMON_TOKEN" http://127.0.0.1:8790/healthz
 | `STATE_PATH` | `agent-state.json` | Local JSON state file. |
 | `WORKSPACE_DB_PATH` | `workspace.db` beside `STATE_PATH` | Authoritative SQLite registry for agent profiles, projects and chat links. |
 | `DAEMON_TOKEN` | *(required)* | Bearer token, also saved privately beside the state file for authorized workspace clients. |
-| `MINDWIRE_ISOLATION` | `direct` | Trusted launch setting: `container` means the enclosing container provides isolation. Codex defaults to using that boundary; explicit sandbox settings and approvals are preserved. Reported by `/healthz` as `workspaceIsolation` with `workspaceIsolationVersion: 1`. |
+| `MINDWIRE_ISOLATION` | `direct` | Trusted launch setting: `direct` uses the host account's normal access; `container` uses the enclosing container as its boundary. Codex adds no inner sandbox by default. Explicit sandbox settings and approvals are preserved. Reported by `/healthz` as `workspaceIsolation` with `workspaceIsolationVersion: 1`. |
 | `DEV_CORS` | off | `1` allows a cross-origin browser client (e.g. the preview app's dev server). |
 
 The runtime image and the SDK's Docker/SSH-container launchers set `MINDWIRE_ISOLATION=container`.
-Direct host launchers leave it unset. This avoids requiring privileged nested Linux namespaces for
-Codex inside Docker; it does not disable the container boundary or change approval policy. See
-[Codex sandboxing](https://developers.openai.com/codex/sandboxing) for the native container guidance.
+Direct host launchers leave it unset. Commands run as the account that started Mindwire, with its
+normal filesystem, tools and network access (including root when started as root). Codex defaults
+to `danger-full-access` in both placements; Docker still supplies the container boundary. This
+also avoids requiring privileged nested Linux namespaces. Explicit Codex sandbox settings and
+approval policies remain effective. See [Codex sandboxing](https://learn.chatgpt.com/docs/agent-approvals-security)
+for the native controls and container guidance.
 Mount only the workspace data you intend to expose to its agents. This contract requires service
 0.1.17 or later; older services do not advertise `workspaceIsolationVersion`.
 

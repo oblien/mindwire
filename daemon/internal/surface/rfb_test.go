@@ -25,16 +25,19 @@ type wireInput struct {
 	data []byte
 }
 type rfbFixture struct {
-	mu             sync.Mutex
-	inputs         []wireInput
-	resize         bool
-	largeFrame     bool
-	tiledFrame     bool
-	debug          bool
-	frameRequests  int
-	formats16      int
-	formats24      int
-	authentication func(io.ReadWriteCloser) bool
+	mu                sync.Mutex
+	inputs            []wireInput
+	resize            bool
+	largeFrame        bool
+	tiledFrame        bool
+	debug             bool
+	frameRequests     int
+	formats16         int
+	formats24         int
+	authentication    func(io.ReadWriteCloser) bool
+	cursorBeforeFrame bool
+	cursorSent        chan struct{}
+	continueFrame     <-chan struct{}
 }
 
 func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
@@ -77,6 +80,7 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 	}
 	resized := false
 	sentPixels := false
+	sentCursor := false
 	pixel := []byte{40, 30, 200, 0}
 	debugMessages := 0
 	for {
@@ -125,6 +129,27 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 			request, err := read(9)
 			if err != nil {
 				return
+			}
+			if f.cursorBeforeFrame {
+				if request[0] != 0 {
+					continue // An idle incremental cursor request stays pending.
+				}
+				if !sentCursor {
+					var cursor bytes.Buffer
+					cursor.Write([]byte{0, 0, 0, 1})
+					for _, value := range []uint16{1, 0, 2, 2} {
+						_ = binary.Write(&cursor, binary.BigEndian, value)
+					}
+					_ = binary.Write(&cursor, binary.BigEndian, int32(cursorEncodingType))
+					cursor.Write(bytes.Repeat([]byte{255, 255, 255, 0}, 4))
+					cursor.Write([]byte{0xc0, 0xc0})
+					if _, err := conn.Write(cursor.Bytes()); err != nil {
+						return
+					}
+					close(f.cursorSent)
+					<-f.continueFrame
+					sentCursor = true
+				}
 			}
 			if f.largeFrame && sentPixels && request[0] != 0 {
 				// Keep the synthetic desktop still after its first complete frame.
@@ -204,6 +229,58 @@ func (f *rfbFixture) serve(conn io.ReadWriteCloser) {
 		default:
 			return
 		}
+	}
+}
+
+func TestRFBCursorWatchSharesConnectionWithoutAcknowledgingAnOldFrame(t *testing.T) {
+	allowFrame := make(chan struct{})
+	fixture := &rfbFixture{cursorBeforeFrame: true, cursorSent: make(chan struct{}), continueFrame: allowFrame}
+	local, remote := net.Pipe()
+	defer remote.Close()
+	go fixture.serve(remote)
+	client, err := newRFB(t.Context(), local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.close()
+	cursors := make(chan *Cursor, 1)
+	client.setCursorObserver(func(cursor *Cursor) { cursors <- cursor })
+	completed := make(chan error, 1)
+	go func() {
+		img, _, err := client.capture(t.Context())
+		if err == nil && img.Bounds() != image.Rect(0, 0, 2, 2) {
+			err = fmt.Errorf("incomplete screenshot")
+		}
+		completed <- err
+	}()
+	select {
+	case <-cursors:
+	case <-time.After(2 * time.Second):
+		close(allowFrame)
+		t.Fatal("cursor was not forwarded while awaiting screenshot pixels")
+	}
+	select {
+	case err := <-completed:
+		close(allowFrame)
+		t.Fatalf("cursor-only reply falsely completed screenshot: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(allowFrame)
+	if err := <-completed; err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(120 * time.Millisecond)
+	fixture.mu.Lock()
+	requests := fixture.frameRequests
+	fixture.mu.Unlock()
+	time.Sleep(120 * time.Millisecond)
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if fixture.frameRequests != requests {
+		t.Fatal("idle cursor watcher polled for unchanged frames")
+	}
+	if len(fixture.inputs) != 0 {
+		t.Fatal("cursor observer sent mouse or keyboard input")
 	}
 }
 
@@ -347,6 +424,61 @@ func TestLiveKeystrokesDoNotWaitForGeometryOrReplaceClipboard(t *testing.T) {
 	want := []uint32{'a', 0xffe1, 'b', 0xffe1, '1', 0xffc9}
 	if fmt.Sprint(downs) != fmt.Sprint(want) {
 		t.Fatalf("physical keyboard events %x, want %x", downs, want)
+	}
+}
+
+func TestHumanMotionReusesRecentGeometryButReconcilesButtonChangesAndIdle(t *testing.T) {
+	local, remote := net.Pipe()
+	fixture := &rfbFixture{}
+	go fixture.serve(remote)
+	client, err := newRFB(t.Context(), local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.close()
+	if _, err := client.refreshGeometry(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	requests := func() int { fixture.mu.Lock(); defer fixture.mu.Unlock(); return fixture.frameRequests }
+	before := requests()
+	x, y := 1, 1
+	for range 20 {
+		if _, err := client.inputGeometry(t.Context(), Action{Kind: "pointer", X: &x, Y: &y}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if requests() != before {
+		t.Fatal("ordinary motion waited for an extra video round trip")
+	}
+	if _, err := client.inputGeometry(t.Context(), Action{Kind: "pointer", X: &x, Y: &y, Buttons: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if requests() != before+1 {
+		t.Fatal("mouse down did not reconcile current geometry")
+	}
+	if err := client.apply(t.Context(), Action{Kind: "pointer", X: &x, Y: &y, Buttons: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.inputGeometry(t.Context(), Action{Kind: "pointer", X: &x, Y: &y, Buttons: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if requests() != before+1 {
+		t.Fatal("continuing a drag waited for another frame")
+	}
+	if _, err := client.inputGeometry(t.Context(), Action{Kind: "pointer", X: &x, Y: &y, Buttons: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if requests() != before+2 {
+		t.Fatal("mouse up lost its geometry boundary")
+	}
+	client.mu.Lock()
+	client.observedAt = time.Now().Add(-time.Second)
+	client.mu.Unlock()
+	if _, err := client.inputGeometry(t.Context(), Action{Kind: "pointer", X: &x, Y: &y, Buttons: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if requests() != before+3 {
+		t.Fatal("stale geometry was reused after idle")
 	}
 }
 

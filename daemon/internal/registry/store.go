@@ -26,7 +26,7 @@ import (
 
 const Version = 1
 const NotificationPreferencesVersion = 1
-const schemaVersion = 6
+const schemaVersion = 7
 
 var (
 	ErrConflict = errors.New("record changed on another client; refresh and try again")
@@ -94,6 +94,7 @@ type Snapshot struct {
 	Full                   bool                    `json:"full"`
 	Deleted                []Deletion              `json:"deleted"`
 	SessionDiscoveryIssues []SessionDiscoveryIssue `json:"sessionDiscoveryIssues,omitempty"`
+	ProjectLibrary         *ProjectLibrary         `json:"projectLibrary,omitempty"`
 }
 
 type Store struct {
@@ -181,7 +182,9 @@ CREATE INDEX IF NOT EXISTS native_chat_links_chat ON native_chat_links(chat_id);
 CREATE TABLE IF NOT EXISTS project_sync_locks (id TEXT PRIMARY KEY, path TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS project_sync_records (kind TEXT NOT NULL, id TEXT NOT NULL, data BLOB NOT NULL,
  PRIMARY KEY(kind,id));
-PRAGMA user_version=6;`); err != nil {
+CREATE TABLE IF NOT EXISTS project_library (id INTEGER PRIMARY KEY CHECK(id=1), data BLOB NOT NULL);
+CREATE TABLE IF NOT EXISTS project_folder_deletions (id TEXT PRIMARY KEY);
+PRAGMA user_version=7;`); err != nil {
 		return err
 	}
 	identity := make([]byte, 16)
@@ -639,6 +642,11 @@ func deleteRecord(tx *sql.Tx, kind, id string, expected *int64, force bool, revi
 	if _, err = tx.Exec("DELETE FROM "+kind+" WHERE id=?", id); err != nil {
 		return false, err
 	}
+	if kind == "projects" {
+		if err := removeProjectPlacement(tx, id, revision); err != nil {
+			return false, err
+		}
+	}
 	_, err = tx.Exec("INSERT INTO deleted VALUES (?,?,?)", kind, id, revision)
 	return true, err
 }
@@ -720,6 +728,13 @@ func (st *Store) Snapshot(since *int64) (Snapshot, error) {
 	rows.Close()
 	if err != nil {
 		return s, err
+	}
+	library, err := readLibrary(tx)
+	if err != nil {
+		return s, err
+	}
+	if library.Revision > minimum {
+		s.ProjectLibrary = &library
 	}
 	return s, tx.Commit()
 }

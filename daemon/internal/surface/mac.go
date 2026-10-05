@@ -48,6 +48,7 @@ type MacDesktop struct {
 	settings     LocalDesktopSettings
 	username     string
 	client       *rfbClient
+	onCursor     func(*Cursor)
 	inputDelay   time.Duration
 	inputReadyAt time.Time
 	dial         func(context.Context) (net.Conn, error)
@@ -178,6 +179,7 @@ func (p *MacDesktop) Connect(ctx context.Context) (Geometry, error) {
 		return Geometry{}, macConnectionError(ctx, err)
 	}
 	p.client = client
+	client.setCursorObserver(p.onCursor)
 	// Screen Sharing can deliver frames before its input session is ready. macOS
 	// silently discards early events, so delay only initial input, not the video.
 	p.inputReadyAt = time.Now().Add(p.inputDelay)
@@ -219,6 +221,16 @@ func (p *MacDesktop) Capture(ctx context.Context) (image.Image, Geometry, error)
 	client := p.client
 	p.mu.Unlock()
 	return client.capture(ctx)
+}
+
+func (p *MacDesktop) InputGeometry(ctx context.Context, action Action) (Geometry, error) {
+	p.mu.Lock()
+	client := p.client
+	p.mu.Unlock()
+	if client == nil || !client.alive() {
+		return p.Connect(ctx)
+	}
+	return client.inputGeometry(ctx, action)
 }
 
 func (p *MacDesktop) PrepareControl(ctx context.Context) error {
