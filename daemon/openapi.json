@@ -299,6 +299,10 @@
           "attachmentUploadVersion": {
             "type": "integer",
             "description": "1 when resumable durable chat uploads are available."
+          },
+          "agentDiscoveryVersion": {
+            "type": "integer",
+            "description": "Installed native-harness discovery and atomic workspace agent setup admission."
           }
         },
         "required": [
@@ -2739,6 +2743,16 @@
           "notificationsMuted": {
             "type": "boolean",
             "description": "Mutes this saved profile and all its current and future chats, independent of other profiles using the same harness. Omit to preserve an existing value; send false to clear. Applies to every notification channel and condition. Requires notificationPreferencesVersion >= 1."
+          },
+          "installation": {
+            "type": "string",
+            "enum": [
+              "installed",
+              "missing",
+              "repair"
+            ],
+            "readOnly": true,
+            "description": "Observed on the workspace by the daemon. Omitted until checked. A missing executable retains profiles and chat links; clients cannot set this field."
           }
         }
       },
@@ -3087,6 +3101,25 @@
           "projectLibrary": {
             "$ref": "#/components/schemas/ProjectLibrary",
             "description": "Present in full snapshots and when organization changed since the requested revision."
+          },
+          "agentDiscoveryIssues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "agent",
+                "message"
+              ],
+              "properties": {
+                "agent": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Failed executable checks retain the last known installation state."
           }
         }
       },
@@ -6527,6 +6560,37 @@
           "offset",
           "complete"
         ]
+      },
+      "EnsureAgentRequest": {
+        "type": "object",
+        "required": [
+          "agentType"
+        ],
+        "properties": {
+          "agentType": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 512,
+            "description": "Initial name, used only when no profile exists."
+          }
+        }
+      },
+      "EnsureAgentResult": {
+        "type": "object",
+        "required": [
+          "agentId",
+          "snapshot"
+        ],
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/WorkspaceSnapshot"
+          }
+        }
       }
     }
   },
@@ -17569,6 +17633,87 @@
           },
           "507": {
             "description": "Attachment storage quota exhausted"
+          }
+        }
+      }
+    },
+    "/workspace/agents/ensure": {
+      "post": {
+        "tags": [
+          "Workspace"
+        ],
+        "summary": "Find or create the workspace profile for harness setup",
+        "description": "Requires agentDiscoveryVersion >= 1. Atomically reuses an existing profile for the harness, including native-discovered profiles. Concurrent/retried requests return the same ID. Preserves existing names, notification preferences, and chat parents. Does not install a CLI or start a turn; use the ordinary setup flow next.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnsureAgentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Canonical agent identity and authoritative workspace snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnsureAgentResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Update Mindwire to use native agent discovery and setup admission.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

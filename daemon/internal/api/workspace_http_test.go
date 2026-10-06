@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/oblien/mindwire/daemon/internal/inventory"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/registry"
@@ -36,6 +37,9 @@ func newRegistryAPIEnv(t *testing.T) (http.Handler, *session.Store, *API) {
 	sup := orchestrator.New(st, hub, notify.Fanout(nil), dir, "claude-code")
 	mux := http.NewServeMux()
 	api := New(st, hub, sup, reg)
+	// These migration tests exercise only their imported fixture inventory.
+	// Native executable discovery has separate HTTP tests with isolated binaries.
+	api.agents = inventory.NewAgents(reg, nil, &api.registryMu)
 	if err := api.InitError(); err != nil {
 		t.Fatal(err)
 	}

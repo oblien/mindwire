@@ -98,3 +98,7 @@ jobs:
         env:
           MINDWIRE_COMPUTER_TEST_BINARY: ${{ runner.temp }}/mindwired
         run: bun --cwd packages/sdk test test/computer-live.test.ts
+      - name: Verify installed agents and workspace synchronization
+        env:
+          MINDWIRE_TEST_DAEMON: ${{ runner.temp }}/mindwired
+        run: bun test packages/sdk/test/agent-inventory-live.test.ts packages/sdk/test/workspace-live.test.ts

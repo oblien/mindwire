@@ -6,6 +6,26 @@ const snapshot: WorkspaceSnapshot = {
   agents: [], projects: [], chats: [], deleted: [],
 };
 
+test("native agent setup uses the canonical workspace profile and preserves installation observations", async () => {
+  const profile = { id: "discovered-codex", workspaceId: snapshot.workspaceId, revision: 4,
+    createdAt: "2026-10-06T00:00:00Z", name: "Native coding", agentType: "codex", installation: "installed" as const };
+  const calls: { method: string; path: string; body: unknown }[] = [];
+  const mw = new Mindwire({ target: remote("http://registry"), fetch: async (input, init) => {
+    const url = new URL(input);
+    calls.push({ method: init?.method ?? "GET", path: url.pathname, body: init?.body ? JSON.parse(String(init.body)) : null });
+    return Response.json({ agentId: profile.id, snapshot: { ...snapshot, agents: [profile] } });
+  } });
+  const first = await mw.workspace.ensureAgent({ agentType: "codex" });
+  const second = await mw.withAgent("claude-code").workspace.ensureAgent({ agentType: "codex", name: "Setup again" });
+  expect(first.agentId).toBe(second.agentId);
+  expect(first.snapshot.agents[0]?.installation).toBe("installed");
+  expect(second.snapshot.agents[0]?.name).toBe("Native coding");
+  expect(calls.map(call => [call.method, call.path])).toEqual([
+    ["POST", "/workspace/agents/ensure"], ["POST", "/workspace/agents/ensure"],
+  ]);
+  expect(calls[1]?.body).toEqual({ agentType: "codex", name: "Setup again" });
+});
+
 test("project folders use the workspace API with conditional edits and explicit null membership", async () => {
   const library: ProjectLibrary = { version: 1, revision: 7, folders: [{ id: "work", name: "Work" }], membership: {}, order: ["project"] };
   const edit: ProjectLibraryEdit = { expectedRevision: 6, placements: [{ projectId: "project", folderId: null }] };
