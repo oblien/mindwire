@@ -64,7 +64,7 @@ export type { ProjectSyncEntry, ProjectSyncCheckpoint, ProjectSyncRequest, Proje
 export type { ProjectRequest, ProjectAuth, ProjectOperation, ProjectRemoveRequest,
   GitConnection, GitAccessState, ProjectGitState, GitAction, GitIdentity, GitIdentityScope, GitIdentitySettings,
   GitIdentityUpdate, GitOperationRequest, GitOperation } from "./workspace.js";
-export type { WorkspaceRecord, WorkspaceAgent, WorkspaceProject, WorkspaceChat, WorkspaceKind,
+export type { WorkspaceRecord, WorkspaceAgent, WorkspaceProject, WorkspaceChat, WorkspaceKind, EnsureAgentRequest, EnsureAgentResult,
   WorkspaceInput, WorkspaceImport, WorkspaceSnapshot, ProjectIcon,
   ProjectFolder, ProjectLibrary, ProjectLibraryEdit } from "./workspace.js";
 

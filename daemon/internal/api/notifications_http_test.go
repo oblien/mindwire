@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/inventory"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/registry"
@@ -34,6 +35,7 @@ func TestWorkspaceMutesThroughHTTPPreserveRunStreamAndHistory(t *testing.T) {
 	hub := stream.New()
 	sup := orchestrator.New(store, hub, notify.Fanout(notify.All(store)), dir, fake.id)
 	api := New(store, hub, sup, reg)
+	api.agents = inventory.NewAgents(reg, []agent.Adapter{fake}, &api.registryMu)
 	if err := api.InitError(); err != nil {
 		t.Fatal(err)
 	}

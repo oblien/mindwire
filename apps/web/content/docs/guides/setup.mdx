@@ -51,6 +51,46 @@ Each `CatalogEntry` is `{ id, name, tagline }`. To learn whether a specific agen
 configured, call [`agent()`](/docs/guides/agents#discover-an-agent) — its `installedVersion` and
 `configured` fields answer exactly that.
 
+## Discover installed workspace agents
+
+`workspace.snapshot()` discovers installed native harnesses even when a workspace has no
+projects or conversations. It uses the workspace account's executable paths and MindWire's
+selected managed installations. It does not start a harness, authenticate, or install anything.
+This requires `health().agentDiscoveryVersion >= 1`.
+
+```ts
+const workspace = await mw.workspace.snapshot();
+const installed = workspace.agents.filter(agent => agent.installation === "installed");
+```
+
+The daemon reuses existing profiles and preserves their names, notification preferences, and
+conversation links. The read-only `installation` field is `installed`, `missing`, or `repair`;
+older or not-yet-checked profiles omit it. `repair` keeps a damaged managed CLI accessible for
+repair instead of silently selecting a different installation. Uninstalling a CLI marks its
+profiles as missing without deleting conversations.
+
+Scans are shared by concurrent requests and cached for one minute. Use
+`workspace.snapshot({ refresh: true })` for a manual check. Failed checks retain the last known
+state and return `agentDiscoveryIssues`; an unreachable workspace must not be treated as an empty
+inventory. There is no idle scan or background polling task.
+
+An **Add agent** action should open setup for the existing harness rather than create another
+profile. `ensureAgent()` atomically returns the same profile across clients and retries:
+
+```ts
+const { agentId, snapshot } = await mw.workspace.ensureAgent({ agentType: "codex" });
+const status = await mw.withAgent("codex").setup();
+```
+
+The Go equivalent is `client.Workspace.EnsureAgent(mindwire.EnsureAgentRequest{AgentType: "codex"})`;
+REST clients use `POST /workspace/agents/ensure`. An optional `name` only names a newly created
+profile. Existing names are edited through the ordinary conditional profile update.
+Installation and authentication still use the shared setup/auth flow below.
+
+Clients should scope cached profiles to their currently connected workspaces and signed-in
+account. Signing out hides that account's agents; it does not delete their native data. A temporary
+network failure retains the last good workspace and agent inventory for offline rendering.
+
 ## Install an agent
 
 `setup()` runs the agent's install steps (fetching Node, the CLI, etc.). It's **idempotent** — a step

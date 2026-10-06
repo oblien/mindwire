@@ -14,18 +14,21 @@ import (
 
 // Aliases keep the same records, revisions and deletion protocol across Go, HTTP, TypeScript and iOS.
 type (
-	WorkspaceRecord    = registry.Record
-	WorkspaceAgent     = registry.Agent
-	WorkspaceProject   = registry.Project
-	WorkspaceChat      = registry.Chat
-	WorkspaceDeletion  = registry.Deletion
-	WorkspaceImport    = registry.Import
-	WorkspaceSnapshot  = registry.Snapshot
-	ProjectIcon        = projecticon.Image
-	ProjectFolder      = registry.ProjectFolder
-	ProjectLibrary     = registry.ProjectLibrary
-	ProjectLibraryEdit = registry.ProjectLibraryEdit
-	ProjectPlacement   = registry.ProjectPlacement
+	WorkspaceRecord     = registry.Record
+	WorkspaceAgent      = registry.Agent
+	EnsureAgentRequest  = registry.EnsureAgentRequest
+	EnsureAgentResult   = registry.EnsureAgentResult
+	AgentDiscoveryIssue = registry.AgentDiscoveryIssue
+	WorkspaceProject    = registry.Project
+	WorkspaceChat       = registry.Chat
+	WorkspaceDeletion   = registry.Deletion
+	WorkspaceImport     = registry.Import
+	WorkspaceSnapshot   = registry.Snapshot
+	ProjectIcon         = projecticon.Image
+	ProjectFolder       = registry.ProjectFolder
+	ProjectLibrary      = registry.ProjectLibrary
+	ProjectLibraryEdit  = registry.ProjectLibraryEdit
+	ProjectPlacement    = registry.ProjectPlacement
 )
 
 // Workspace is workspace-wide metadata; selecting a different harness never changes its scope.
@@ -72,6 +75,24 @@ func workspaceError(op string, err error) error {
 }
 
 type WorkspaceSyncOptions struct{ Refresh bool }
+
+// EnsureAgent reuses one workspace-owned profile for setup of this harness.
+// Concurrent clients receive the same ID; existing names and chat links are kept.
+func (w *Workspace) EnsureAgent(request EnsureAgentRequest) (EnsureAgentResult, error) {
+	co := w.c.core
+	harness, ok := co.sup.Resolve(request.AgentType)
+	if !ok || request.AgentType == "" || len(request.Name) > 512 {
+		return EnsureAgentResult{}, &APIError{Message: "invalid harness or name", Status: http.StatusBadRequest, Op: "Workspace.EnsureAgent"}
+	}
+	co.registryMu.Lock()
+	defer co.registryMu.Unlock()
+	profile, err := co.registry.EnsureAgent(request, harness.Adapter.Meta().Name)
+	if err != nil {
+		return EnsureAgentResult{}, workspaceError("Workspace.EnsureAgent", err)
+	}
+	snapshot, err := co.registry.Snapshot(nil)
+	return EnsureAgentResult{AgentID: profile.ID, Snapshot: snapshot}, workspaceError("Workspace.EnsureAgent", err)
+}
 
 func (w *Workspace) Library() (ProjectLibrary, error) {
 	library, err := w.c.core.registry.ProjectLibrary()
@@ -142,10 +163,15 @@ func (w *Workspace) Snapshot(options ...WorkspaceSyncOptions) (WorkspaceSnapshot
 	if err != nil {
 		return WorkspaceSnapshot{}, workspaceError("Workspace.Snapshot", err)
 	}
+	agentIssues, err := w.c.core.agents.Refresh(context.Background(), len(options) > 0 && options[0].Refresh)
+	if err != nil {
+		return WorkspaceSnapshot{}, workspaceError("Workspace.Snapshot", err)
+	}
 	w.c.core.registryMu.Lock()
 	defer w.c.core.registryMu.Unlock()
 	s, err := w.c.core.registry.Snapshot(nil)
 	s.SessionDiscoveryIssues = issues
+	s.AgentDiscoveryIssues = agentIssues
 	return s, workspaceError("Workspace.Snapshot", err)
 }
 
@@ -163,10 +189,15 @@ func (w *Workspace) Changes(since int64, workspaceID string, options ...Workspac
 	if err != nil {
 		return s, workspaceError("Workspace.Changes", err)
 	}
+	agentIssues, err := w.c.core.agents.Refresh(context.Background(), len(options) > 0 && options[0].Refresh)
+	if err != nil {
+		return s, workspaceError("Workspace.Changes", err)
+	}
 	w.c.core.registryMu.Lock()
 	defer w.c.core.registryMu.Unlock()
 	s, err = w.c.core.registry.Snapshot(&since)
 	s.SessionDiscoveryIssues = issues
+	s.AgentDiscoveryIssues = agentIssues
 	return s, workspaceError("Workspace.Changes", err)
 }
 

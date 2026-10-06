@@ -11,6 +11,7 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/api"
+	"github.com/oblien/mindwire/daemon/internal/inventory"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/session"
@@ -113,6 +114,7 @@ func newFakeClient(t *testing.T, n Notifier) *Client {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	c.core.agents = inventory.NewAgents(c.core.registry, []agent.Adapter{fakeAdapter{}}, &c.core.registryMu)
 	t.Cleanup(func() { _ = c.Close() })
 	return c
 }
@@ -700,6 +702,7 @@ func TestSDKRouteParity(t *testing.T) {
 		"GET /workspace/changes":                                 "Workspace.Changes",
 		"GET /workspace/conversations":                           "Workspace.Conversations",
 		"POST /workspace/conversations/open":                     "Workspace.OpenConversation",
+		"POST /workspace/agents/ensure":                          "Workspace.EnsureAgent",
 		"POST /workspace/import":                                 "Workspace.Import",
 		"POST /workspace/projects":                               "Workspace.CreateProject",
 		"POST /workspace/projects/{id}/remove":                   "Workspace.RemoveProjectFiles",

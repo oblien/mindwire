@@ -66,6 +66,11 @@ func (a *API) workspaceSnapshot(w http.ResponseWriter, r *http.Request) {
 		workspaceError(w, err)
 		return
 	}
+	agentIssues, err := a.agents.Refresh(r.Context(), r.URL.Query().Get("refresh") == "true")
+	if err != nil {
+		workspaceError(w, err)
+		return
+	}
 	a.registryMu.Lock()
 	defer a.registryMu.Unlock()
 	snapshot, err = a.registry.Snapshot(since)
@@ -74,7 +79,37 @@ func (a *API) workspaceSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snapshot.SessionDiscoveryIssues = issues
+	snapshot.AgentDiscoveryIssues = agentIssues
 	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (a *API) ensureWorkspaceAgent(w http.ResponseWriter, r *http.Request) {
+	if !a.requireRegistry(w) {
+		return
+	}
+	var input registry.EnsureAgentRequest
+	if err := decode(w, r, &input); err != nil || strings.TrimSpace(input.AgentType) == "" || len(input.Name) > 512 {
+		badRequest(w, "a harness type and an optional name are required")
+		return
+	}
+	harness, ok := a.sup.Resolve(input.AgentType)
+	if !ok {
+		badRequest(w, "unknown harness type")
+		return
+	}
+	a.registryMu.Lock()
+	defer a.registryMu.Unlock()
+	profile, err := a.registry.EnsureAgent(input, harness.Adapter.Meta().Name)
+	if err != nil {
+		workspaceError(w, err)
+		return
+	}
+	snapshot, err := a.registry.Snapshot(nil)
+	if err != nil {
+		workspaceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, registry.EnsureAgentResult{AgentID: profile.ID, Snapshot: snapshot})
 }
 
 func (a *API) workspaceImport(w http.ResponseWriter, r *http.Request) {

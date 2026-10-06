@@ -42,6 +42,8 @@ test.skipIf(!process.env.MINDWIRE_TEST_DAEMON)("workspace SDK survives daemon re
     await ready();
     expect((await a.health()).workspaceMetadataVersion).toBe(1);
     await a.workspace.agents.put("profile", { name: "Codex profile", agentType: "codex" });
+    // Settle native installation observations before comparing later snapshots.
+    await a.workspace.snapshot({ refresh: true });
     await a.workspace.projects.put("project", { name: "App", path: directory });
     const created = await a.workspace.chats.put("chat", { agentId: "profile", projectId: "project", title: "Build app" });
     expect(await b.workspace.snapshot()).toEqual(created);

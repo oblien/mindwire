@@ -26,6 +26,7 @@ import (
 
 const Version = 1
 const NotificationPreferencesVersion = 1
+const AgentDiscoveryVersion = 1
 const schemaVersion = 7
 
 var (
@@ -46,6 +47,9 @@ type Agent struct {
 	Name          string `json:"name"`
 	AgentType     string `json:"agentType"`
 	AgentTypeName string `json:"agentTypeName,omitempty"`
+	// Daemon-observed executable presence. Empty means not checked by this daemon.
+	// Clients cannot set this field; profiles/chat links survive an uninstall.
+	Installation string `json:"installation,omitempty"`
 	// A profile-level mute applies to all of its chats, including future ones.
 	NotificationsMuted *bool `json:"notificationsMuted,omitempty"`
 }
@@ -94,6 +98,7 @@ type Snapshot struct {
 	Full                   bool                    `json:"full"`
 	Deleted                []Deletion              `json:"deleted"`
 	SessionDiscoveryIssues []SessionDiscoveryIssue `json:"sessionDiscoveryIssues,omitempty"`
+	AgentDiscoveryIssues   []AgentDiscoveryIssue   `json:"agentDiscoveryIssues,omitempty"`
 	ProjectLibrary         *ProjectLibrary         `json:"projectLibrary,omitempty"`
 }
 
@@ -243,6 +248,7 @@ func (st *Store) normalize(kind, id string, data []byte, revision int64) ([]byte
 			return nil, "", "", invalid("agent")
 		}
 		row.Record = base
+		row.Installation = "" // only a local executable scan can attest to an installation
 		row.Name = strings.TrimSpace(row.Name)
 		if row.Name == "" || len(row.Name) > 512 || !validID(row.AgentType) || len(row.AgentTypeName) > 512 {
 			return nil, "", "", invalid("agent name or harness")
@@ -378,6 +384,11 @@ func (st *Store) Put(kind, id string, data []byte, expected *int64) error {
 			// Logical replica identities are daemon-owned, including for older clients.
 			if v, exists := previous["syncId"]; exists {
 				incoming["syncId"] = v
+			}
+			if kind == "agents" {
+				if state, exists := previous["installation"]; exists {
+					incoming["installation"] = state
+				}
 			}
 			// Older clients do not know this optional field. Their unrelated metadata
 			// edits must preserve a mute; clearing one requires an explicit false.

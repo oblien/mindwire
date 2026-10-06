@@ -189,6 +189,9 @@ export interface WorkspaceRecord {
 
 /** A saved agent profile. Profiles using one harness share that workspace's native configuration. */
 export interface WorkspaceAgent extends WorkspaceRecord {
+
+  /** Daemon-observed executable presence. Omitted until checked; never client-owned. */
+  installation?: "installed" | "missing" | "repair";
   name: string;
   agentType: string;
   agentTypeName?: string;
@@ -235,7 +238,7 @@ export interface WorkspaceChat extends WorkspaceRecord {
 }
 
 export type WorkspaceKind = "agents" | "projects" | "chats";
-export type WorkspaceInput<T extends WorkspaceRecord> = Omit<T, "id" | "workspaceId" | "revision" | "createdAt"> & {
+export type WorkspaceInput<T extends WorkspaceRecord> = Omit<T, "id" | "workspaceId" | "revision" | "createdAt" | "installation"> & {
   createdAt?: string;
 };
 
@@ -281,9 +284,14 @@ export interface WorkspaceSnapshot {
   deleted: { kind: WorkspaceKind; id: string; revision: number }[];
   /** Cached chats are retained when a harness's native list could not be refreshed. */
   sessionDiscoveryIssues?: { projectId: string; agent: string; message: string }[];
+  /** Failed installation checks preserve the last known inventory. */
+  agentDiscoveryIssues?: { agent: string; message: string }[];
   /** Present on full snapshots, or when organization changed in a delta. */
   projectLibrary?: ProjectLibrary;
 }
+
+export interface EnsureAgentRequest { agentType: string; name?: string }
+export interface EnsureAgentResult { agentId: string; snapshot: WorkspaceSnapshot }
 
 export class WorkspaceCollection<T extends WorkspaceRecord> {
   constructor(private readonly mw: Mindwire, private readonly kind: WorkspaceKind) {}
@@ -327,6 +335,11 @@ export class WorkspaceApi {
 
   snapshot(options: { refresh?: boolean } = {}): Promise<WorkspaceSnapshot> {
     return this.mw.http.request("GET", "/workspace", { query: options });
+  }
+
+  /** Reuse the workspace's existing harness profile or create one for setup. Atomic across clients. */
+  ensureAgent(request: EnsureAgentRequest): Promise<EnsureAgentResult> {
+    return this.mw.http.request("POST", "/workspace/agents/ensure", { body: request });
   }
 
   library(): Promise<ProjectLibrary> {

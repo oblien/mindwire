@@ -9,9 +9,44 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestEnsureAgentReusesProfileAcrossConcurrentHarnessViews(t *testing.T) {
+	c := newFakeClient(t, nil)
+	if c.Health().AgentDiscoveryVersion != 1 {
+		t.Fatal("missing discovery capability")
+	}
+	var wg sync.WaitGroup
+	results := make(chan EnsureAgentResult, 16)
+	errors := make(chan error, 16)
+	for range 16 {
+		wg.Go(func() {
+			result, err := c.WithAgent("codex").Workspace.EnsureAgent(EnsureAgentRequest{AgentType: "fake", Name: "Workspace agent"})
+			results <- result
+			errors <- err
+		})
+	}
+	wg.Wait()
+	close(results)
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	full, err := c.Workspace.Snapshot()
+	if err != nil || len(full.Agents) != 1 {
+		t.Fatal(full, err)
+	}
+	for result := range results {
+		if result.AgentID != full.Agents[0].ID || len(result.Snapshot.Agents) != 1 {
+			t.Fatal("setup returned different profile identities", result)
+		}
+	}
+}
 
 func TestWorkspaceProjectLibrarySharesOneRegistryAcrossHarnesses(t *testing.T) {
 	c := newFakeClient(t, nil)

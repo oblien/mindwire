@@ -18,6 +18,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/artifact"
 	"github.com/oblien/mindwire/daemon/internal/conversations"
+	"github.com/oblien/mindwire/daemon/internal/inventory"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/projecticon"
@@ -61,6 +62,7 @@ type core struct {
 	cwd           string
 	registry      *registry.Store
 	conversations *conversations.Index
+	agents        *inventory.Agents
 	projects      *projects.Service
 	projectSync   *projectsync.Service
 	surfaces      *surface.Service
@@ -160,6 +162,7 @@ func New(opts Options) (*Client, error) {
 		execution: workspaceexec.New(opts.CWD),
 	}
 	co.conversations = conversations.New(workspaceRegistry, store, agent.All(), &co.registryMu, sup.Busy)
+	co.agents = inventory.NewAgents(workspaceRegistry, agent.All(), &co.registryMu)
 	co.execution.SetMutationGuard(&co.registryMu, workspaceRegistry.CheckSyncPath)
 	co.projectSync, err = projectsync.New(workspaceRegistry, store, co, &co.registryMu, agent.All(), co.discoverForSync)
 	if err != nil {
@@ -262,6 +265,7 @@ type Health struct {
 	Agent                          string `json:"agent"`
 	Version                        string `json:"version"`
 	WorkspaceMetadataVersion       int    `json:"workspaceMetadataVersion"`
+	AgentDiscoveryVersion          int    `json:"agentDiscoveryVersion"`
 	ProjectLibraryVersion          int    `json:"projectLibraryVersion"`
 	ProjectOperationsVersion       int    `json:"projectOperationsVersion"`
 	ProjectIconsVersion            int    `json:"projectIconsVersion"`
@@ -288,7 +292,7 @@ func (c *Client) Health() Health {
 	if runtime.GOOS == "darwin" && os.Geteuid() != 0 {
 		localDesktopVersion = surface.LocalDesktopVersion
 	}
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectLibraryVersion: registry.ProjectLibraryVersion, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, QueuedInputVersion: orchestrator.QueuedInputVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion, AttachmentUploadVersion: artifact.UploadVersion}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, AgentDiscoveryVersion: registry.AgentDiscoveryVersion, ProjectLibraryVersion: registry.ProjectLibraryVersion, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, QueuedInputVersion: orchestrator.QueuedInputVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion, AttachmentUploadVersion: artifact.UploadVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package

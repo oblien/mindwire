@@ -27,6 +27,7 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/gitaccess"
 	"github.com/oblien/mindwire/daemon/internal/gitauthor"
 	"github.com/oblien/mindwire/daemon/internal/gitops"
+	"github.com/oblien/mindwire/daemon/internal/inventory"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/procmon"
@@ -63,6 +64,7 @@ type API struct {
 	initError                error
 	registry                 *registry.Store
 	conversations            *conversations.Index
+	agents                   *inventory.Agents
 	registryMu               sync.Mutex // order registry mutations against starting/deleting a chat
 	store                    *session.Store
 	hub                      *stream.Hub
@@ -80,6 +82,7 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 		if a.registry != nil {
 			a.execution.SetMutationGuard(&a.registryMu, a.registry.CheckSyncPath)
 			a.conversations = conversations.New(a.registry, store, agent.All(), &a.registryMu, sup.Busy)
+			a.agents = inventory.NewAgents(a.registry, agent.All(), &a.registryMu)
 			a.gitAuthors = gitauthor.New(a.registry)
 			sup.SetNotificationPreferences(a.registry)
 			sup.SetInteractionContext(a.registry)
@@ -186,6 +189,7 @@ func (a *API) Routes() []Route {
 		{"GET", "/workspace/changes", a.workspaceSnapshot},
 		{"GET", "/workspace/conversations", a.conversationsBrowse},
 		{"POST", "/workspace/conversations/open", a.conversationsOpen},
+		{"POST", "/workspace/agents/ensure", a.ensureWorkspaceAgent},
 		{"POST", "/workspace/import", a.workspaceImport},
 		{"POST", "/workspace/sync/preview", a.projectSyncPreview},
 		{"POST", "/workspace/sync/exports", a.projectSyncExport},

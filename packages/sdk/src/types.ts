@@ -1154,6 +1154,8 @@ export interface Health {
   localDesktopVersion?: number;
   /** Workspace registry protocol version; absent on daemons predating workspace metadata. */
   workspaceMetadataVersion?: number;
+  /** Native installed-harness discovery and atomic workspace.ensureAgent(). */
+  agentDiscoveryVersion?: number;
   /** Durable project folders, membership and ordering, with conditional edits. */
   projectLibraryVersion?: number;
   /** Durable project creation/clone operations; absent on older daemons. */
