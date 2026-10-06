@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 )
@@ -13,7 +14,7 @@ func (s *Service) dataEntry(ctx context.Context, data []byte, cwd string) (*Entr
 		return nil, nil
 	}
 	var b bytes.Buffer
-	if err := remapJSON(bytes.NewReader(data), &b, cwd, projectMarker); err != nil {
+	if err := remapJSON(bytes.NewReader(data), &b, cwd, projectMarker, [2]string{filepath.Join(s.reg.Directory(), "artifacts"), attachmentMarker}); err != nil {
 		return nil, err
 	}
 	e, err := s.blob(ctx, &b)

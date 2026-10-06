@@ -313,6 +313,11 @@ func TestMacDesktopOptInAuthenticationAndIdempotentSetup(t *testing.T) {
 	if _, err := s.Apply(t.Context(), Actor{Kind: "user"}, input); err != nil {
 		t.Fatal(err)
 	}
+	// Input writes return before the fixture's reader consumes them. A frame
+	// response on the same ordered connection observes both requests first.
+	if _, err := s.provider.(*MacDesktop).client.refreshGeometry(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	fixture.mu.Lock()
 	inputs := 0
 	for _, input := range fixture.inputs {

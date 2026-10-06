@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -74,22 +73,7 @@ func userMessageBlocks(text string, imageBlocks []any) map[string]any {
 
 // imageMediaType returns an attachment's image/* media type — from its declared MIME, else inferred
 // from the file extension — or "" when it isn't a supported image (so it stays a path reference).
-func imageMediaType(at agent.Attachment) string {
-	if mt := strings.TrimSpace(at.Mime); strings.HasPrefix(mt, "image/") {
-		return mt
-	}
-	switch strings.ToLower(filepath.Ext(at.Path)) {
-	case ".png":
-		return "image/png"
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".gif":
-		return "image/gif"
-	case ".webp":
-		return "image/webp"
-	}
-	return ""
-}
+func imageMediaType(at agent.Attachment) string { return agent.NativeImageMime(at) }
 
 // imageBlock builds a Claude base64 image content block from an attachment, or ok=false when the
 // attachment isn't a readable image (no image MIME/extension, or the bytes can't be obtained). Inline

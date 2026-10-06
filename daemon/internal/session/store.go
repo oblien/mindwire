@@ -29,14 +29,16 @@ type Message = agent.Message
 // Ordinary single turns leave all of ParentID/Kind/StopReason/Iterations zero, so the shape is
 // unchanged for existing callers.
 type Run struct {
-	ID        string `json:"id"`
-	ChatID    string `json:"chatId"`
-	Agent     string `json:"agent,omitempty"` // agent type that executed the turn
-	Status    string `json:"status"`          // "running" | "done" | "error" | "cancelled"
-	Error     string `json:"error,omitempty"`
-	ReplyID   string `json:"replyId,omitempty"` // assistant message id when done
-	CreatedAt string `json:"createdAt"`
-	EndedAt   string `json:"endedAt,omitempty"`
+	ID         string            `json:"id"`
+	ChatID     string            `json:"chatId"`
+	Agent      string            `json:"agent,omitempty"` // agent type that executed the turn
+	Status     string            `json:"status"`          // "running" | "done" | "error" | "cancelled"
+	Error      string            `json:"error,omitempty"`
+	ReplyID    string            `json:"replyId,omitempty"` // assistant message id when done
+	CreatedAt  string            `json:"createdAt"`
+	EndedAt    string            `json:"endedAt,omitempty"`
+	Inputs     []agent.UserInput `json:"inputs,omitempty"`
+	MessageIDs []string          `json:"messageIds,omitempty"` // ordered response segments when a run includes follow-ups
 	// Resolve-mode tree fields (all zero for an ordinary turn):
 	ParentID   string `json:"parentId,omitempty"`   // set on a child iteration → its parent resolve Run id
 	Kind       string `json:"kind,omitempty"`       // "" ordinary | "resolve" parent
@@ -320,8 +322,8 @@ func (st *Store) DeleteChat(chatID string) ([]SessionRef, error) {
 // ForkChat clones a chat's session mapping into a new chat id so the fork transparently shows the
 // shared native history until its first turn branches it. It seeds Sessions[agent, newChatID] from the
 // source for every agent that has one, copies the cwd and title, and records a fork-pending marker per
-// agent (consumed by the runner to force ForkOnResume on turn one). Messages are NOT copied — GET
-// messages is native-first, so the fork reads the source transcript until it branches. Errors if the
+// agent (consumed by the runner to force ForkOnResume on turn one). Only durable attachment metadata
+// is retained; GET messages reads native history until it branches. Errors if the
 // source is unknown or the target id is already in use.
 func (st *Store) ForkChat(srcChatID, newChatID string, options ...ForkOptions) error {
 	st.mu.Lock()
@@ -363,6 +365,19 @@ func (st *Store) ForkChat(srcChatID, newChatID string, options ...ForkOptions) e
 	}
 	if t, ok := st.s.Titles[srcChatID]; ok {
 		st.s.Titles[newChatID] = t
+	}
+	attachments := opts.Attachments
+	if opts.Point.BeforeMessageID == "" {
+		attachments = durableInputs(st.s.Messages, srcChatID)
+	}
+	for _, message := range attachments {
+		if strings.HasPrefix(message.ID, "input-") {
+			message.ID = "input-" + newChatID + ":attachment:" + message.ID
+		} else {
+			message.ID = newChatID + ":attachment:" + message.ID
+		}
+		message.ChatID = newChatID
+		st.s.Messages = append(st.s.Messages, message)
 	}
 	if err := st.save(); err != nil {
 		st.s = newState()
@@ -444,6 +459,9 @@ func (st *Store) SaveRun(run Run) error {
 	defer st.mu.Unlock()
 	for i, r := range st.s.Runs {
 		if r.ID == run.ID {
+			// Follow-up receipts may advance concurrently with turn completion.
+			// Only SaveRunInput/UpdateRunInput own this field.
+			run.Inputs = r.Inputs
 			st.s.Runs[i] = run
 			return st.save()
 		}
@@ -494,6 +512,14 @@ func (st *Store) ReconcileRunning(reason string) error {
 			st.s.Runs[i].Status = "error"
 			st.s.Runs[i].Error = reason
 			st.s.Runs[i].EndedAt = time.Now().UTC().Format(time.RFC3339)
+			inputs := append([]agent.UserInput(nil), st.s.Runs[i].Inputs...)
+			for j := range inputs {
+				if inputs[j].Status == "queued" {
+					inputs[j].Status = "failed"
+					inputs[j].Error = "Mindwire restarted before delivery was confirmed. Check the conversation before sending again."
+				}
+			}
+			st.s.Runs[i].Inputs = inputs
 			changed = true
 		}
 	}

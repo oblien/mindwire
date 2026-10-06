@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/artifact"
 	"github.com/oblien/mindwire/daemon/internal/conversations"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/orchestrator"
@@ -275,6 +276,8 @@ type Health struct {
 	WorkspaceExecutionVersion      int    `json:"workspaceExecutionVersion"`
 	TerminalProtocolVersion        int    `json:"terminalProtocolVersion"`
 	TurnRequestVersion             int    `json:"turnRequestVersion"`
+	QueuedInputVersion             int    `json:"queuedInputVersion"`
+	AttachmentUploadVersion        int    `json:"attachmentUploadVersion"`
 	ImageAttachmentsVersion        int    `json:"imageAttachmentsVersion"`
 	ChatForkVersion                int    `json:"chatForkVersion"`
 }
@@ -285,7 +288,7 @@ func (c *Client) Health() Health {
 	if runtime.GOOS == "darwin" && os.Geteuid() != 0 {
 		localDesktopVersion = surface.LocalDesktopVersion
 	}
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectLibraryVersion: registry.ProjectLibraryVersion, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion}
+	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, ProjectLibraryVersion: registry.ProjectLibraryVersion, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, QueuedInputVersion: orchestrator.QueuedInputVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion, AttachmentUploadVersion: artifact.UploadVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package
@@ -608,7 +611,7 @@ func (c *Client) DeleteChat(chatID string) (DeleteResult, error) {
 	if err := c.core.registry.Delete("chats", chatID, nil, true, c.core.store); err != nil {
 		return DeleteResult{}, workspaceError("DeleteChat", err)
 	}
-	if err := c.core.surfaces.Artifacts().DeleteChat(chatID); err != nil {
+	if err := c.core.surfaces.Artifacts().DeleteChat(chatID, c.core.store.ArtifactOwners(chatID)); err != nil {
 		return DeleteResult{}, err
 	}
 	refs, err := c.core.store.DeleteChat(chatID)
@@ -733,13 +736,15 @@ func (c *Client) Messages(chatID string, opts MessagesOptions) ([]Message, error
 	if err != nil {
 		return nil, err
 	}
+	rec := c.core.store.Messages(chatID)
+	run, hasRun := c.core.store.LatestRun(chatID)
 	if ag.Adapter.Capabilities().History == agent.SupportNative {
 		cwd := c.core.store.ChatCWD(chatID)
 		if cwd == "" {
 			cwd = c.core.sup.CWD()
 		}
 		recorded := []agent.Message{}
-		for _, message := range c.core.store.Messages(chatID) {
+		for _, message := range rec {
 			recorded = append(recorded, agent.Message(message))
 		}
 		msgs, err := ag.Adapter.History(agent.HistoryQuery{
@@ -749,13 +754,18 @@ func (c *Client) Messages(chatID string, opts MessagesOptions) ([]Message, error
 			for i := range msgs {
 				msgs[i].Parts = c.core.store.OverlayInteractions(chatID, msgs[i].Parts)
 			}
+			if hasRun && run.Status == "running" {
+				msgs = session.HistoryBeforeRun(msgs, rec, run)
+			}
 			return pageWindow(msgs, opts.Limit, opts.Before, func(m Message) string { return m.ID }), nil
 		}
 	}
-	rec := c.core.store.Messages(chatID)
 	out := make([]Message, len(rec))
 	for i, m := range rec {
-		out[i] = Message{ID: m.ID, ChatID: m.ChatID, Role: m.Role, Text: m.Text, CreatedAt: m.CreatedAt, Parts: m.Parts}
+		out[i] = Message(m)
+	}
+	if hasRun && run.Status == "running" {
+		out = session.HistoryBeforeRun(out, rec, run)
 	}
 	return pageWindow(out, opts.Limit, opts.Before, func(m Message) string { return m.ID }), nil
 }
@@ -773,12 +783,13 @@ func (c *Client) LatestRun(chatID string) (*Run, error) {
 // overrides the working directory for this turn only; Options carries per-turn settings, prompts, and
 // structured passthroughs.
 type TurnRequest struct {
-	RequestID string
-	ChatID    string
-	Message   string
-	CWD       string
-	Options   TurnOptions
-	Agent     string
+	RequestID      string
+	QueueIfRunning bool
+	ChatID         string
+	Message        string
+	CWD            string
+	Options        TurnOptions
+	Agent          string
 }
 
 // Turn starts a turn and returns a handle to the running Run. It enforces the same gates as POST
@@ -799,14 +810,20 @@ func (c *Client) Turn(ctx context.Context, req TurnRequest) (*Run, error) {
 	if msg, ok := agent.UnsupportedTurnOption(ag.Adapter.Capabilities(), req.Options); !ok {
 		return nil, &APIError{Message: msg, Status: http.StatusBadRequest, Op: "Turn"}
 	}
+	resolved, err := c.core.surfaces.Artifacts().ResolveInputs(req.ChatID, req.Options.Attachments)
+	if err != nil {
+		return nil, err
+	}
+	req.Options.Attachments = resolved
 	run, startErr := c.core.sup.StartTurnChecked(ag, orchestrator.StartTurnInput{
 		RequestID: req.RequestID, ChatID: req.ChatID, Message: req.Message, CWD: cwd, Options: req.Options,
+		QueueIfRunning: req.QueueIfRunning,
 	})
 	if startErr != nil {
-		if errors.Is(startErr, orchestrator.ErrInvalidTurnRequest) {
+		if errors.Is(startErr, orchestrator.ErrInvalidTurnRequest) || errors.Is(startErr, orchestrator.ErrInputUnsupported) || errors.Is(startErr, orchestrator.ErrInputOptions) {
 			return nil, &APIError{Message: startErr.Error(), Status: http.StatusBadRequest, Op: "Turn"}
 		}
-		if errors.Is(startErr, session.ErrTurnRequestConflict) {
+		if errors.Is(startErr, session.ErrTurnRequestConflict) || errors.Is(startErr, orchestrator.ErrInputQueueFull) {
 			return nil, &APIError{Message: startErr.Error(), Status: http.StatusConflict, Op: "Turn"}
 		}
 		return nil, &APIError{Message: c.core.sup.StartConflict(ag), Status: http.StatusConflict, Op: "Turn"}

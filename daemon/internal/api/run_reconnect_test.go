@@ -77,7 +77,7 @@ func TestActiveHistoryKeepsEarlierTurnWithinSameSecond(t *testing.T) {
 	}
 	run := session.Run{ID: "run", Status: "running", CreatedAt: "2026-09-14T10:00:00.6Z"}
 	for _, source := range [][]agent.Message{native, {agent.Message(recorded[0]), agent.Message(recorded[1]), agent.Message(user), agent.Message(recorded[3])}} {
-		got := historyBeforeRun(source, recorded, run)
+		got := session.HistoryBeforeRun(source, recorded, run)
 		if len(got) != 3 || got[1].Text != "First build" || got[2].ID != user.ID {
 			t.Fatalf("same-second turns were confused: %+v", got)
 		}

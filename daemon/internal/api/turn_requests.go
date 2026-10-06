@@ -9,11 +9,11 @@ import (
 )
 
 func turnRequestError(w http.ResponseWriter, err error) bool {
-	if errors.Is(err, orchestrator.ErrInvalidTurnRequest) {
+	if errors.Is(err, orchestrator.ErrInvalidTurnRequest) || errors.Is(err, orchestrator.ErrInputUnsupported) || errors.Is(err, orchestrator.ErrInputOptions) {
 		badRequest(w, err.Error())
 		return true
 	}
-	if errors.Is(err, session.ErrTurnRequestConflict) {
+	if errors.Is(err, session.ErrTurnRequestConflict) || errors.Is(err, orchestrator.ErrInputQueueFull) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return true
 	}

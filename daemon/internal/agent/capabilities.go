@@ -65,9 +65,10 @@ type Capabilities struct {
 	// User-in-loop ingress — each a CORE switch gating its route. The supervisor allocates a run's
 	// inbound channel when any of these (or the runtime-control pair below) is set; the adapter must
 	// pick a transport that can pump it.
-	Respond   bool `json:"respond"`   // CORE switch: POST /runs/{id}/respond (answer an approval/question/plan)
-	Input     bool `json:"input"`     // CORE switch: POST /runs/{id}/input (inject a follow-up message mid-turn)
-	Interrupt bool `json:"interrupt"` // CORE switch: POST /runs/{id}/interrupt (soft-stop, keeping the turn open)
+	Respond     bool `json:"respond"`               // CORE switch: POST /runs/{id}/respond (answer an approval/question/plan)
+	Input       bool `json:"input"`                 // CORE switch: POST /runs/{id}/input (inject a follow-up message mid-turn)
+	QueuedInput bool `json:"queuedInput,omitempty"` // native acknowledgements and safe completion-boundary continuation
+	Interrupt   bool `json:"interrupt"`             // CORE switch: POST /runs/{id}/interrupt (soft-stop, keeping the turn open)
 	// Runtime control — change the model / permission mode of a LIVE turn (only meaningful on a
 	// persistent transport; a one-shot turn accepts the call as a best-effort no-op). Each a CORE
 	// switch gating its route, like the ingress trio.

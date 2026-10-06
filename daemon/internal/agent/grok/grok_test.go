@@ -2,6 +2,7 @@ package grok
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ func TestRunACPStreamsNativeUpdates(t *testing.T) {
 read line; echo '{"jsonrpc":"2.0","id":1,"result":{"authMethods":[]}}'
 read line; echo '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"native-1"}}'
 read line
+printf '%s' "$line" > "$MINDWIRE_GROK_PROMPT_CHECK"
 echo '{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_thought_chunk","content":{"text":"plan "}}}}'
 echo '{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"tool-1","title":"Read","rawInput":{"path":"a.go"}}}}'
 echo '{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-1","status":"completed","content":{"text":"package a"}}}}'
@@ -29,8 +31,12 @@ echo '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}'
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	promptPath := filepath.Join(dir, "prompt.json")
+	t.Setenv("MINDWIRE_GROK_PROMPT_CHECK", promptPath)
 	var events []agent.Event
-	got, err := runACP(context.Background(), agent.TurnInput{Message: "hi", CWD: dir}, func(e agent.Event) { events = append(events, e) })
+	attachment := agent.Attachment{ArtifactID: "uploaded-file", Name: "notes.txt", Mime: "text/plain", Path: filepath.Join(dir, "notes.txt")}
+	got, err := runACP(context.Background(), agent.TurnInput{Message: "hi", CWD: dir,
+		Options: agent.TurnOptions{Attachments: []agent.Attachment{attachment}}}, func(e agent.Event) { events = append(events, e) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +52,20 @@ echo '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}'
 	}
 	if !text || !thinking || !use || !result {
 		t.Fatalf("ACP updates not normalized: %#v", events)
+	}
+	data, err := os.ReadFile(promptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prompt struct {
+		Params struct {
+			Prompt []struct {
+				Text string `json:"text"`
+			} `json:"prompt"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(data, &prompt) != nil || len(prompt.Params.Prompt) != 1 || !strings.Contains(prompt.Params.Prompt[0].Text, attachment.Path) {
+		t.Fatal("uploaded file path missing from native ACP prompt")
 	}
 }
 

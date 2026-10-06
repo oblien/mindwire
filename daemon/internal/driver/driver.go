@@ -124,12 +124,15 @@ func (p Persistent) Run(ctx context.Context, _ agent.TurnInput, emit agent.Emit)
 
 	// The turn's terminal result closes `done` (via the emit wrapper below); the writer then closes
 	// stdin so the CLI — which would otherwise block reading stdin for another turn — exits, and Parse
-	// returns on stdout EOF. This keeps the CLI hot-path lifecycle (one process = one turn) intact.
+	// returns on stdout EOF. The native parser may first consume queued follow-ups
+	// and emit intermediate continuations; only its final result closes stdin.
 	done := make(chan struct{})
 	var once sync.Once
 	closeDone := func() { once.Do(func() { close(done) }) }
+	writerDone := make(chan struct{})
 
 	go func() {
+		defer close(writerDone)
 		w := bufio.NewWriter(stdin)
 		writeLine := func(b []byte) bool {
 			if _, e := w.Write(b); e != nil {
@@ -158,6 +161,17 @@ func (p Persistent) Run(ctx context.Context, _ agent.TurnInput, emit agent.Emit)
 					_ = stdin.Close()
 					return
 				}
+				// A terminal result can race with channel selection. Do not write
+				// an input after the native parser has closed its acceptance window.
+				select {
+				case <-done:
+					if in.Ack != nil {
+						in.Ack <- agent.ErrInputClosed
+					}
+					_ = stdin.Close()
+					return
+				default:
+				}
 				if line, ok := p.Encode(in); ok {
 					if in.Kind == "response" && in.Interaction != nil {
 						resolved := *in.Interaction
@@ -184,6 +198,7 @@ func (p Persistent) Run(ctx context.Context, _ agent.TurnInput, emit agent.Emit)
 
 	result, got := p.Parse(stdout, wrapped)
 	closeDone() // stdout ended without a result (error/EOF) → unblock the writer too
+	<-writerDone
 	werr := cmd.Wait()
 	return finish(result, got, stderr.String(), werr, emit)
 }

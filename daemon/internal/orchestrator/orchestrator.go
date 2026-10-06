@@ -178,6 +178,7 @@ type Supervisor struct {
 	// capability); pending records the run's respondable interactions so Respond can echo their
 	// adapter correlators (Interaction.Meta) back on the Inbound without the adapter keeping state.
 	inputs             map[string]chan agent.Inbound
+	inputQueues        map[string]*runInputQueue
 	pending            map[string]map[string]agent.Interaction // runId -> interactionId -> interaction
 	answering          map[string]bool
 	runClosed          map[string]chan struct{}
@@ -207,7 +208,8 @@ func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, d
 		active: map[string]string{}, cancels: map[string]context.CancelFunc{},
 		activeAgents: map[string]int{}, authChanging: map[string]bool{}, setup: setup.NewTracker(), toolchain: toolchain.New(agent.Version),
 		inputs: map[string]chan agent.Inbound{}, pending: map[string]map[string]agent.Interaction{},
-		answering: map[string]bool{}, runClosed: map[string]chan struct{}{},
+		inputQueues: map[string]*runInputQueue{},
+		answering:   map[string]bool{}, runClosed: map[string]chan struct{}{},
 	}
 	s.idle = sync.NewCond(&s.mu)
 	for _, ad := range agent.All() {
@@ -251,14 +253,15 @@ func (s *Supervisor) CWD() string { return s.cwd }
 // StartTurnInput is one turn's request from the API layer. Bundled into a value object so the
 // StartTurn signature doesn't grow per-field as per-turn options expand.
 type StartTurnInput struct {
-	RequestID string // stable client receipt; retrying returns the same durable run
-	ChatID    string
-	Message   string
-	CWD       string // run this turn in a specific dir (a project workdir); else the daemon default
-	Options   agent.TurnOptions
-	GitAuth   *gitaccess.Auth // write-only; never session or transcript state
-	gitLease  *gitaccess.Lease
-	reply     *session.InteractionReply // internal: atomically commit a resumed async answer with the turn
+	RequestID      string // stable client receipt; retrying returns the same durable run
+	QueueIfRunning bool   // native follow-up when busy; ordinary turn when idle
+	ChatID         string
+	Message        string
+	CWD            string // run this turn in a specific dir (a project workdir); else the daemon default
+	Options        agent.TurnOptions
+	GitAuth        *gitaccess.Auth // write-only; never session or transcript state
+	gitLease       *gitaccess.Lease
+	reply          *session.InteractionReply // internal: atomically commit a resumed async answer with the turn
 }
 
 // StartTurn records the user message, creates a running Run, registers cancellation, and
@@ -363,92 +366,131 @@ func (s *Supervisor) start(a *Agent, req StartTurnInput, compact bool) (session.
 }
 
 func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (session.Run, error) {
-	if err := s.checkSoftware(a); err != nil {
-		return session.Run{}, err
+	if req.QueueIfRunning && req.RequestID == "" {
+		return session.Run{}, ErrInvalidTurnRequest
 	}
-	s.mu.Lock()
-	mode := "turn"
-	if compact {
-		mode = "compact"
-	}
-	replayed, found, digest, replayErr := s.replayTurn(a, req, mode, nil)
-	if found || replayErr != nil {
-		s.mu.Unlock()
-		return replayed, replayErr
-	}
-	if s.serviceUpdatingLocked() {
-		s.mu.Unlock()
-		return session.Run{}, ErrServiceUpdating
-	}
-	if _, busy := s.active[req.ChatID]; busy || s.setup.Status(a.ID()).Running {
-		s.mu.Unlock()
-		return session.Run{}, ErrChatBusy
-	}
-	if err := s.authAdmissionLocked(a); err != nil {
-		s.mu.Unlock()
-		return session.Run{}, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), maxTurn)
-	if s.prepareGit != nil && !compact {
-		var err error
-		req.gitLease, err = s.prepareGit(ctx, req.ChatID, req.CWD, req.GitAuth)
-		if err != nil {
-			cancel()
+	softwareChecked := false
+	for {
+		s.mu.Lock()
+		mode := "turn"
+		if compact {
+			mode = "compact"
+		}
+		replayed, found, digest, replayErr := s.replayTurn(a, req, mode, nil)
+		if found || replayErr != nil {
+			s.mu.Unlock()
+			return replayed, replayErr
+		}
+		if s.serviceUpdatingLocked() {
+			s.mu.Unlock()
+			return session.Run{}, ErrServiceUpdating
+		}
+		// The store can expose completion a moment before process/ingress teardown.
+		// A fresh send waits for that exact run, instead of returning a spurious busy error.
+		if _, busy := s.active[req.ChatID]; busy {
+			if last, ok := s.store.LatestRun(req.ChatID); ok && last.Status != "running" {
+				if closed := s.runClosed[last.ID]; closed != nil {
+					s.mu.Unlock()
+					<-closed
+					continue
+				}
+			}
+		}
+		if _, busy := s.active[req.ChatID]; busy && req.QueueIfRunning && !compact {
+			run, _ := s.store.LatestRun(req.ChatID)
+			if queue := s.inputQueues[run.ID]; queue != nil && !queue.accepting && !queue.cancelled {
+				closed := s.runClosed[run.ID]
+				s.mu.Unlock()
+				if closed != nil {
+					<-closed
+				}
+				return s.startChecked(a, req, compact)
+			}
+			queued, err := s.enqueueRunInputLocked(a, run, req, digest)
+			s.mu.Unlock()
+			return queued, err
+		}
+		if _, busy := s.active[req.ChatID]; busy || s.setup.Status(a.ID()).Running {
+			s.mu.Unlock()
+			return session.Run{}, ErrChatBusy
+		}
+		if !softwareChecked {
+			s.mu.Unlock()
+			if err := s.checkSoftware(a); err != nil {
+				return session.Run{}, err
+			}
+			softwareChecked = true
+			continue // Recheck admission after the unlocked executable probe.
+		}
+		if err := s.authAdmissionLocked(a); err != nil {
 			s.mu.Unlock()
 			return session.Run{}, err
 		}
-	}
-	req.GitAuth = nil
-	run := session.Run{ID: newID(), ChatID: req.ChatID, Agent: a.ID(), Status: "running", CreatedAt: nowISO()}
-	if req.reply != nil {
-		message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments}
-		if err := s.store.CommitInteractionReply(*req.reply, run.ID, message, &run); err != nil {
-			req.closeGit()
-			cancel()
-			s.mu.Unlock()
-			return session.Run{}, err
+		ctx, cancel := context.WithTimeout(context.Background(), maxTurn)
+		if s.prepareGit != nil && !compact {
+			var err error
+			req.gitLease, err = s.prepareGit(ctx, req.ChatID, req.CWD, req.GitAuth)
+			if err != nil {
+				cancel()
+				s.mu.Unlock()
+				return session.Run{}, err
+			}
 		}
-	} else {
-		var message *session.Message
+		req.GitAuth = nil
+		run := session.Run{ID: newID(), ChatID: req.ChatID, Agent: a.ID(), Status: "running", CreatedAt: nowISO()}
+		if req.reply != nil {
+			message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments}
+			if err := s.store.CommitInteractionReply(*req.reply, run.ID, message, &run); err != nil {
+				req.closeGit()
+				cancel()
+				s.mu.Unlock()
+				return session.Run{}, err
+			}
+		} else {
+			var message *session.Message
+			if !compact {
+				message = &session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments}
+			}
+			if err := s.store.SaveTurnStart(run, message, req.RequestID, digest); err != nil {
+				req.closeGit()
+				cancel()
+				s.mu.Unlock()
+				return session.Run{}, err
+			}
+		}
+		s.active[req.ChatID] = s.activePath(req.CWD)
+		s.activeAgents[a.ID()]++
+		// Create + register the cancel func BEFORE returning the run id, so a client that
+		// cancels immediately after POST /turns can't race an unregistered run into a 404.
+		s.cancels[run.ID] = cancel
+		s.runClosed[run.ID] = make(chan struct{})
+		// Same anti-race for user-in-loop: if the agent can take ingress (respond/input/interrupt),
+		// register its inbound channel + pending map now, so a client that answers an interaction
+		// immediately can't race an unallocated channel into a 404. A compaction takes no ingress, so
+		// it's allocated only for ordinary turns.
+		var inbound chan agent.Inbound
 		if !compact {
-			message = &session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments}
+			caps := a.Adapter.Capabilities()
+			if caps.Respond || caps.Input || caps.Interrupt || caps.SetModel || caps.SetPermissionMode {
+				inbound = make(chan agent.Inbound, 16)
+				s.inputs[run.ID] = inbound
+				s.pending[run.ID] = map[string]agent.Interaction{}
+			}
+			if caps.QueuedInput {
+				s.inputQueues[run.ID] = &runInputQueue{accepting: true}
+			}
 		}
-		if err := s.store.SaveTurnStart(run, message, req.RequestID, digest); err != nil {
-			req.closeGit()
-			cancel()
-			s.mu.Unlock()
-			return session.Run{}, err
-		}
-	}
-	s.active[req.ChatID] = s.activePath(req.CWD)
-	s.activeAgents[a.ID()]++
-	// Create + register the cancel func BEFORE returning the run id, so a client that
-	// cancels immediately after POST /turns can't race an unregistered run into a 404.
-	s.cancels[run.ID] = cancel
-	s.runClosed[run.ID] = make(chan struct{})
-	// Same anti-race for user-in-loop: if the agent can take ingress (respond/input/interrupt),
-	// register its inbound channel + pending map now, so a client that answers an interaction
-	// immediately can't race an unallocated channel into a 404. A compaction takes no ingress, so
-	// it's allocated only for ordinary turns.
-	var inbound chan agent.Inbound
-	if !compact {
-		caps := a.Adapter.Capabilities()
-		if caps.Respond || caps.Input || caps.Interrupt || caps.SetModel || caps.SetPermissionMode {
-			inbound = make(chan agent.Inbound, 16)
-			s.inputs[run.ID] = inbound
-			s.pending[run.ID] = map[string]agent.Interaction{}
-		}
-	}
-	s.inflight++ // paired with execRun's deferred runDone; unconditional launch below
-	s.mu.Unlock()
+		s.inflight++ // paired with execRun's deferred runDone; unconditional launch below
+		s.mu.Unlock()
 
-	// Make this turn's process group visible to on-demand resource monitoring. The reporter rides on
-	// ctx (survives the driver's per-turn spawn) and Tracks the group leader pid the instant a spawn
-	// site reports it; execRun's teardown Untracks. No-op unless a client is watching /processes/stream.
-	ctx = proc.WithReporter(ctx, func(pid int) { s.mon.Track(run.ID, a.ID(), run.ChatID, pid) })
+		// Make this turn's process group visible to on-demand resource monitoring. The reporter rides on
+		// ctx (survives the driver's per-turn spawn) and Tracks the group leader pid the instant a spawn
+		// site reports it; execRun's teardown Untracks. No-op unless a client is watching /processes/stream.
+		ctx = proc.WithReporter(ctx, func(pid int) { s.mon.Track(run.ID, a.ID(), run.ChatID, pid) })
 
-	go s.execRun(ctx, cancel, a, run, req, inbound, compact)
-	return run, nil
+		go s.execRun(ctx, cancel, a, run, req, inbound, compact)
+		return run, nil
+	}
 }
 
 // Busy reports whether a turn is currently running for a chat. The API uses it to 409 a delete or
@@ -514,11 +556,16 @@ func (s *Supervisor) Wait() {
 func (s *Supervisor) Cancel(runID string) bool {
 	s.mu.Lock()
 	cancel := s.cancels[runID]
+	if cancel != nil {
+		if q := s.inputQueues[runID]; q != nil {
+			q.cancelled, q.accepting = true, false
+		}
+		cancel()
+	}
 	s.mu.Unlock()
 	if cancel == nil {
 		return false
 	}
-	cancel()
 	return true
 }
 
@@ -570,6 +617,12 @@ var ErrInteractionNotPending = errors.New("interaction is no longer waiting for 
 // SendInput queues a follow-up user message into a running turn (steer/append without cancelling).
 // false = no open ingress channel for that run id.
 func (s *Supervisor) SendInput(runID, text string) bool {
+	if run, ok := s.store.GetRun(runID); ok {
+		if a, ok := s.Resolve(run.Agent); ok && a.Adapter.Capabilities().QueuedInput {
+			_, err := s.SendInputChecked(runID, text, "", nil)
+			return err == nil
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.trySend(runID, agent.Inbound{Kind: "input", Text: text})
@@ -659,7 +712,7 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 	defer s.runDone() // registered first ⇒ runs last, after the terminal SaveRun and teardown
 	defer cancel()
 	defer req.closeGit()
-	defer func() {
+	release := sync.OnceFunc(func() {
 		s.mu.Lock()
 		delete(s.active, run.ChatID)
 		s.activeAgents[a.ID()]--
@@ -668,34 +721,28 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 		// channel is out of s.inputs, a concurrent send sees nil and returns false, so we never send on
 		// (or close) a channel a caller still holds — no send-on-closed race. Closing wakes the driver's
 		// writer if it is still selecting (it has usually already exited via the turn's terminal result).
-		if ch := s.inputs[run.ID]; ch != nil {
-			delete(s.inputs, run.ID)
-			close(ch)
-			// A result can win the race before an adapter consumes queued input.
-			// Acknowledge only those unconsumed values as safe to send in a resumed turn.
-			for in := range ch {
-				if in.Ack != nil {
-					in.Ack <- agent.ErrInputClosed
-				}
-			}
-		}
+		s.closeRunIngressLocked(run.ID)
+		delete(s.inputQueues, run.ID)
 		delete(s.pending, run.ID)
 		if closed := s.runClosed[run.ID]; closed != nil {
 			close(closed)
 			delete(s.runClosed, run.ID)
 		}
 		s.mu.Unlock()
-		s.mon.Untrack(run.ID) // PID lifecycle == turn lifecycle: stop reporting this turn's resources
-	}()
+		s.mon.Untrack(run.ID) // PID lifecycle == turn lifecycle
+	})
+	defer release()
 	// Panic isolation: an adapter panic must not crash the daemon and every other agent's
 	// in-flight turn. Record the run as errored and close its stream.
 	defer func() {
 		if rec := recover(); rec != nil {
 			run.Status = "error"
 			run.Error = fmt.Sprintf("agent crashed: %v", rec)
+			_, _, _ = s.advanceRunInputs(run.ID, false, run.Error)
 			run.EndedAt = nowISO()
 			s.saveReply(&run, "", nil, run.Error)
 			_ = s.store.SaveRun(run)
+			release()
 			s.hub.Publish(run.ID, agent.Event{Type: agent.EventError, Error: run.Error})
 			s.hub.Close(run.ID)
 			s.emit(a, run, agent.Errored, snippet(run.Error))
@@ -707,11 +754,19 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 	// hub topic closes at turn end. Separate from the terminal finished/error emits below.
 	go s.watchInteractions(a, run)
 
+	var terminal agent.Event
+	deferResult := !compact && a.Adapter.Capabilities().QueuedInput
 	turn := runner.Turn{
 		ChatID: run.ChatID, Message: req.Message, RunID: run.ID, CWD: req.CWD, Options: req.Options,
 		Environment: req.gitEnvironment(),
 		Inbound:     inbound,
+		DeferResult: deferResult,
 		BeforePublish: func(ev agent.Event) {
+			if ev.Type == agent.EventInput && ev.Input != nil {
+				if err := s.store.UpdateRunInput(run.ID, *ev.Input); err != nil {
+					log.Printf("save native input acknowledgement: %v", err)
+				}
+			}
 			if ev.Interaction != nil {
 				ev.Interaction.RunID = run.ID
 				if ev.Interaction.IsMessageQuestion() {
@@ -726,6 +781,7 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 				s.recordPending(run.ID, *ev.Interaction)
 			}
 			if ev.Type == agent.EventResult {
+				terminal = ev
 				s.mu.Lock()
 				delete(s.pending, run.ID)
 				s.mu.Unlock()
@@ -749,10 +805,49 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 			res = agent.TurnResult{Text: "Could not prepare desktop tools: " + err.Error(), IsError: true}
 		} else {
 			defer cleanup()
-			res, parts = a.Runner.RunTurn(ctx, prepared)
+			for {
+				terminal = agent.Event{}
+				var current []agent.Part
+				res, current = a.Runner.RunTurn(ctx, prepared)
+				parts = append(parts, current...)
+				next, ingress, inputErr := s.advanceRunInputs(run.ID, ctx.Err() == nil && !res.IsError && !res.Cancelled, res.Text)
+				if inputErr != nil {
+					res.IsError, res.Text = true, "Could not save the queued message: "+inputErr.Error()
+				}
+				if next == nil || inputErr != nil {
+					break
+				}
+				// A send at the completion boundary continues the same native
+				// conversation and stream, once, after its session was persisted.
+				s.hub.Publish(run.ID, agent.Event{Type: agent.EventContinuation, Result: terminal.Result,
+					Continuation: &agent.ContinuationInfo{Reason: "queued_input"}})
+				s.hub.Publish(run.ID, agent.Event{Type: agent.EventInput, Input: next})
+				parts = append(parts, agent.Part{Type: "user", ID: next.ID, Input: next, At: nowISO()})
+				prepared.Message, prepared.Inbound = next.Text, ingress
+				prepared.Options.Attachments = next.Attachments
+				prepared.Options.SessionID, prepared.Options.ContinueLatest, prepared.Options.ForkOnResume = "", false, false
+			}
 		}
 	}
+	// Setup failures never entered the runner, but may have admitted follow-ups.
+	if res.IsError {
+		_, _, _ = s.advanceRunInputs(run.ID, false, res.Text)
+	}
 	run.EndedAt = nowISO()
+	if deferResult {
+		// Exactly one public terminal event follows receipt settlement. The
+		// adapter still sees every native result to manage its own input queue.
+		info := terminal.Result
+		if info == nil {
+			info = &agent.ResultInfo{Text: res.Text, SessionID: res.SessionID}
+		}
+		copy := *info
+		copy.IsError, copy.Cancelled = res.IsError, ctx.Err() == context.Canceled || res.Cancelled
+		if res.IsError {
+			copy.Text = res.Text
+		}
+		s.hub.Publish(run.ID, agent.Event{Type: agent.EventResult, Result: &copy})
+	}
 
 	// A user-initiated cancel surfaces as context.Canceled (vs DeadlineExceeded for the
 	// turn timeout). Record it as cancelled, no error notification.
@@ -762,6 +857,7 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 			s.saveReply(&run, "", parts, "")
 		}
 		_ = s.store.SaveRun(run)
+		release()
 		s.hub.Close(run.ID)
 		return
 	}
@@ -770,6 +866,7 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 		run.Error = agent.FirstNonEmpty(res.Text, "The agent turn failed.")
 		s.saveReply(&run, "", parts, run.Error)
 		_ = s.store.SaveRun(run)
+		release()
 		s.emit(a, run, agent.Errored, snippet(res.Text)) // notify + publish result BEFORE closing
 		s.hub.Close(run.ID)
 		return
@@ -778,6 +875,7 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 	s.saveReply(&run, res.Text, parts, "")
 	run.Status = "done"
 	_ = s.store.SaveRun(run)
+	release()
 	// An unanswered async form is the action the user needs. Do not immediately
 	// cover its input-needed notification with a generic completion notification.
 	if !s.store.HasPendingMessageQuestion(run.ID) {
@@ -797,14 +895,15 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 	defer s.runDone() // registered first ⇒ runs last, after the terminal SaveRun and teardown
 	defer cancel()
 	defer req.closeGit()
-	defer func() {
+	release := sync.OnceFunc(func() {
 		s.mu.Lock()
 		delete(s.active, parent.ChatID)
 		s.activeAgents[a.ID()]--
 		delete(s.cancels, parent.ID)
 		s.mu.Unlock()
 		s.mon.Untrack(parent.ID) // PID lifecycle == resolve lifecycle
-	}()
+	})
+	defer release()
 	// Panic isolation: an adapter panic mid-resolve records the parent as errored and closes the topic,
 	// rather than crashing the daemon and every other agent's in-flight turn.
 	defer func() {
@@ -814,6 +913,7 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 			parent.StopReason = "error"
 			parent.EndedAt = nowISO()
 			_ = s.store.SaveRun(parent)
+			release()
 			s.hub.Publish(parent.ID, agent.Event{Type: agent.EventError, Error: parent.Error})
 			s.hub.Close(parent.ID)
 			s.emit(a, parent, agent.Errored, snippet(parent.Error))
@@ -953,12 +1053,14 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 	case "cancelled":
 		parent.Status = "cancelled"
 		_ = s.store.SaveRun(parent)
+		release()
 		s.hub.Close(parent.ID)
 		return
 	case "error":
 		parent.Status = "error"
 		parent.Error = lastText
 		_ = s.store.SaveRun(parent)
+		release()
 		s.hub.Publish(parent.ID, agent.Event{Type: agent.EventContinuation, Continuation: &agent.ContinuationInfo{
 			Iteration: iterations, StopReason: stopReason,
 		}})
@@ -971,6 +1073,7 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 	// is published LAST (so wait() returns it, not a sub-turn's result), then the finished notification.
 	parent.Status = "done"
 	_ = s.store.SaveRun(parent)
+	release()
 	s.hub.Publish(parent.ID, agent.Event{Type: agent.EventContinuation, Continuation: &agent.ContinuationInfo{
 		Iteration: iterations, StopReason: stopReason,
 	}})

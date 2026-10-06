@@ -44,6 +44,57 @@ test("agent-scoped calls attach ?agent= (per-call override beats client default)
   expect(calls[2]?.url).toBe("http://d/agent?agent=opencode");
 });
 
+test("file upload resumes after a lost acknowledgement and sends only its durable reference", async () => {
+  const file = { name: "project notes.txt", mime: "text/plain", data: new Uint8Array(950_000).fill(65) };
+  const received: Uint8Array[] = [];
+  const ids = new Set<string>();
+  const progress: number[] = [];
+  let committed = 0, dropResponse = true;
+  const { fn, calls } = mockFetch((url, init) => {
+    if (url.includes("/turns")) return Response.json({ id: "run", chatId: "chat/one", status: "running" }, { status: 202 });
+    expect(url).toContain("/chats/chat%2Fone/attachments/");
+    const id = url.split("/").at(-1)!;
+    ids.add(id);
+    const chunk = JSON.parse(init!.body as string);
+    const data = Uint8Array.from(atob(chunk.data), char => char.charCodeAt(0));
+    expect(data.length).toBeLessThanOrEqual(384 * 1024);
+    expect(new TextEncoder().encode(init!.body as string).length).toBeLessThan(1024 * 1024);
+    if (chunk.offset === committed) { received.push(data); committed += data.length; }
+    else expect(chunk.offset).toBe(0); // Same first chunk after its response was lost.
+    if (dropResponse) { dropResponse = false; throw new TypeError("Connection interrupted after storing the chunk"); }
+    return Response.json({ id, name: chunk.name, mime: chunk.mime, bytes: chunk.bytes,
+      offset: committed, complete: committed === chunk.bytes });
+  });
+  const mw = new Mindwire({ target: remote("http://d", { token: "secret" }), fetch: fn });
+  await expect(mw.uploadAttachment("chat/one", file)).rejects.toThrow("network request failed");
+  const reference = await mw.uploadAttachment("chat/one", file, { onProgress: value => progress.push(value) });
+  expect(ids.size).toBe(1);
+  expect(Buffer.concat(received)).toEqual(Buffer.from(file.data));
+  expect(progress.at(-1)).toBe(1);
+  expect(progress).toEqual([...progress].sort((a, b) => a - b));
+  expect(reference).toEqual({ artifactId: [...ids][0], name: file.name, mime: file.mime, bytes: file.data.length });
+  await mw.turn({ chatId: "chat/one", message: "Read these notes", options: { attachments: [reference] } });
+  const turn = JSON.parse(calls.at(-1)!.init!.body as string);
+  expect(turn.options.attachments).toEqual([reference]);
+  expect(calls.at(-1)!.init!.body!.toString().length).toBeLessThan(500);
+});
+
+test("file upload rejects premature completion and respects cancellation before transfer", async () => {
+  const { fn, calls } = mockFetch((url, init) => {
+    const chunk = JSON.parse(init!.body as string);
+    return Response.json({ id: url.split("/").at(-1), name: chunk.name, mime: chunk.mime, bytes: chunk.bytes,
+      offset: atob(chunk.data).length, complete: true });
+  });
+  const mw = new Mindwire({ target: remote("http://d"), fetch: fn });
+  await expect(mw.uploadAttachment("chat", { name: "notes.txt", data: new Uint8Array(900_000) }))
+    .rejects.toThrow("Invalid attachment upload acknowledgement");
+  const controller = new AbortController();
+  controller.abort();
+  await expect(mw.uploadAttachment("chat", { name: "empty.txt", data: new Uint8Array() }, { signal: controller.signal }))
+    .rejects.toMatchObject({ name: "AbortError" });
+  expect(calls.length).toBe(1);
+});
+
 test("turn(): POSTs body, returns a Run handle, 409 surfaces as ApiError", async () => {
   const { fn, calls } = mockFetch((url) => {
     if (url.includes("/turns")) {
@@ -87,6 +138,32 @@ test("run.stream(): parses multi-frame SSE, filters the stream-open sentinel", a
 
   expect(seen.map((e) => e.type)).toEqual(["session", "text", "text", "result"]); // no "status" sentinel
   expect(seen.filter((e) => e.type === "text").map((e) => e.text).join("")).toBe("hello");
+});
+
+test("queued turns keep durable input receipts across response, snapshot and stream", async () => {
+  const input = { id: "input-once", text: "", status: "queued", createdAt: "2026-10-06T10:00:00Z",
+    attachments: [{ mime: "image/png", data: "aW1hZ2U=" }] };
+  const record = { id: "run", chatId: "chat", agent: "codex", status: "running", createdAt: input.createdAt, inputs: [input] };
+  const { fn, calls } = mockFetch((url) => {
+    if (url.includes("/snapshot")) return Response.json({ run: record, sequence: 4, parts: [] });
+    if (url.includes("/stream")) return sseResponse(`data: ${JSON.stringify({ type: "input", sequence: 5,
+      input: { ...input, status: "accepted" } })}\n\n`);
+    return Response.json(record, { status: 202 });
+  });
+  const client = new Mindwire({ target: remote("http://fixture"), agent: "codex", fetch: fn });
+  const request = { chatId: "chat", message: "", requestId: input.id, queueIfRunning: true,
+    options: { attachments: input.attachments } };
+  const run = await client.turn(request);
+  expect(JSON.parse(calls[0]!.init!.body as string)).toEqual(request);
+  expect(run.value.inputs).toEqual([input]);
+  const snapshot = await run.snapshot();
+  expect(snapshot.run.inputs).toEqual([input]);
+  const events: Event[] = [];
+  for await (const event of run.stream({ after: snapshot.sequence })) events.push(event);
+  expect(events[0]?.input?.id).toBe(input.id);
+  expect(events[0]?.input?.status).toBe("accepted");
+  await run.sendInput("", { requestId: input.id, attachments: input.attachments });
+  expect(JSON.parse(calls.at(-1)!.init!.body as string)).toEqual({ text: "", requestId: input.id, attachments: input.attachments });
 });
 
 test("run.snapshot() restores partial output and stream(after) requests only the suffix", async () => {

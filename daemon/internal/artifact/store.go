@@ -1,4 +1,4 @@
-// Package artifact stores durable tool-output images beside the workspace registry.
+// Package artifact stores durable chat attachments and tool images beside the workspace registry.
 package artifact
 
 import (
@@ -21,7 +21,7 @@ import (
 const MaxBytes = 8 << 20
 const maxWorkspaceBytes = 512 << 20
 
-var ErrStorageFull = errors.New("workspace capture storage is full; remove unneeded chats before capturing more images")
+var ErrStorageFull = errors.New("workspace attachment storage is full; remove unneeded chats before adding more files")
 var ErrImageLimit = errors.New("capture exceeds the supported image size")
 
 type Record struct {
@@ -32,6 +32,9 @@ type Record struct {
 	Width     int       `json:"width"`
 	Height    int       `json:"height"`
 	CreatedAt time.Time `json:"createdAt"`
+	Kind      string    `json:"kind,omitempty"`
+	Name      string    `json:"name,omitempty"`
+	SHA256    string    `json:"sha256,omitempty"`
 }
 type Content struct {
 	Record
@@ -72,25 +75,8 @@ func (s *Store) SaveImage(chatID string, img image.Image) (Record, error) {
 	if err := encoder.Encode(&data, img); err != nil {
 		return Record{}, err
 	}
-	rows, err := s.db.SurfaceList("artifact")
-	if err != nil {
+	if err := s.reserveUpload(data.Len()); err != nil {
 		return Record{}, err
-	}
-	total := data.Len()
-	for _, row := range rows {
-		var rec Record
-		if json.Unmarshal(row, &rec) == nil {
-			// Unattached human captures expire. Chat artifacts persist until chat deletion.
-			if rec.ChatID == "" && time.Since(rec.CreatedAt) > 24*time.Hour {
-				_ = os.Remove(s.path(rec.ID))
-				_ = s.db.SurfaceDelete("artifact", rec.ID)
-			} else {
-				total += rec.Bytes
-			}
-		}
-	}
-	if total > maxWorkspaceBytes {
-		return Record{}, ErrStorageFull
 	}
 	key := make([]byte, 16)
 	if _, err := rand.Read(key); err != nil {
@@ -131,17 +117,17 @@ func (s *Store) Get(id string) (Content, error) {
 	if err := s.db.SurfaceGet("artifact", id, &rec); err != nil {
 		return Content{}, err
 	}
-	info, err := os.Lstat(s.path(id))
+	info, err := os.Lstat(s.recordPath(rec))
 	if err != nil {
 		return Content{}, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > MaxBytes {
-		return Content{}, errors.New("invalid image artifact")
+	if !info.Mode().IsRegular() || info.Size() > MaxAttachmentBytes || info.Size() != int64(rec.Bytes) {
+		return Content{}, errors.New("invalid attachment artifact")
 	}
-	data, err := os.ReadFile(s.path(id))
+	data, err := os.ReadFile(s.recordPath(rec))
 	return Content{Record: rec, Data: data}, err
 }
-func (s *Store) DeleteChat(chatID string) error {
+func (s *Store) DeleteChat(chatID string, retained ...map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rows, err := s.db.SurfaceList("artifact")
@@ -151,10 +137,32 @@ func (s *Store) DeleteChat(chatID string) error {
 	for _, row := range rows {
 		var rec Record
 		if json.Unmarshal(row, &rec) == nil && rec.ChatID == chatID {
+			if len(retained) > 0 && retained[0][rec.ID] != "" {
+				rec.ChatID = retained[0][rec.ID]
+				if err := s.db.SurfacePut("artifact", rec.ID, rec); err != nil {
+					return err
+				}
+				continue
+			}
 			if err := s.db.SurfaceDelete("artifact", rec.ID); err != nil {
 				return err
 			}
-			_ = os.Remove(s.path(rec.ID))
+			_ = os.Remove(s.recordPath(rec))
+		}
+	}
+	files, err := filepath.Glob(filepath.Join(s.dir, "*.upload.json"))
+	if err != nil {
+		return err
+	}
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var rec Record
+		if json.Unmarshal(data, &rec) == nil && rec.ChatID == chatID && validID.MatchString(rec.ID) {
+			_ = os.Remove(filepath.Join(s.dir, rec.ID+".part"))
+			_ = os.Remove(path)
 		}
 	}
 	return nil
@@ -167,7 +175,11 @@ func (s *Store) Delete(id string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.Remove(s.path(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	var rec Record
+	if err := s.db.SurfaceGet("artifact", id, &rec); err != nil {
+		return err
+	}
+	if err := os.Remove(s.recordPath(rec)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return s.db.SurfaceDelete("artifact", id)

@@ -180,6 +180,7 @@ func (a *API) Routes() []Route {
 		{"POST", "/surfaces/desktop/actions", a.surfaceAction},
 		{"GET", "/surfaces/desktop/actions/{id}", a.surfaceReceipt},
 		{"GET", "/artifacts/{id}", a.artifact},
+		{"PUT", "/chats/{id}/attachments/{attachmentID}", a.uploadAttachment},
 
 		{"GET", "/workspace", a.workspaceSnapshot},
 		{"GET", "/workspace/changes", a.workspaceSnapshot},
@@ -364,12 +365,13 @@ func (a *API) agentFor(w http.ResponseWriter, r *http.Request) *orchestrator.Age
 // ---- turns -----------------------------------------------------------------
 
 type turnReq struct {
-	RequestID string            `json:"requestId,omitempty"`
-	GitAuth   *gitaccess.Auth   `json:"gitAuth,omitempty"`
-	ChatID    string            `json:"chatId"`
-	Message   string            `json:"message"`
-	Cwd       string            `json:"cwd,omitempty"`     // run this turn in a specific dir (a project workdir); else the daemon default
-	Options   agent.TurnOptions `json:"options,omitempty"` // per-turn options (canon-addressed overrides + structured fields)
+	RequestID      string            `json:"requestId,omitempty"`
+	QueueIfRunning bool              `json:"queueIfRunning,omitempty"`
+	GitAuth        *gitaccess.Auth   `json:"gitAuth,omitempty"`
+	ChatID         string            `json:"chatId"`
+	Message        string            `json:"message"`
+	Cwd            string            `json:"cwd,omitempty"`     // run this turn in a specific dir (a project workdir); else the daemon default
+	Options        agent.TurnOptions `json:"options,omitempty"` // per-turn options (canon-addressed overrides + structured fields)
 	// Mode selects the run shape. "" / "turn" (default) = one ordinary turn that ends at the CLI's
 	// terminal result. "resolve" = a GLOBAL-RESOLVE run: the daemon holds the run open and auto-continues
 	// the agent's own multi-step work until the task is globally complete, returning a parent Run whose
@@ -400,6 +402,12 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 	}
 	a.registryMu.Lock()
 	defer a.registryMu.Unlock()
+	attachments, attachmentErr := a.resolveAttachments(req.ChatID, req.Options.Attachments)
+	if attachmentErr != nil {
+		attachmentError(w, attachmentErr)
+		return
+	}
+	req.Options.Attachments = attachments
 	if a.registry != nil {
 		chat, profile, project, err := a.registry.NativeChatContext(req.ChatID, a.store)
 		if err != nil {
@@ -441,6 +449,7 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 	}
 	in := orchestrator.StartTurnInput{
 		RequestID: req.RequestID, ChatID: req.ChatID, Message: req.Message, CWD: req.Cwd, Options: req.Options, GitAuth: req.GitAuth,
+		QueueIfRunning: req.QueueIfRunning,
 	}
 	// Mode routing: "resolve" holds the run open and auto-continues to global completion (a parent Run);
 	// "" / "turn" is the unchanged single-turn path. Any other value is a caller error.
@@ -460,6 +469,10 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusAccepted, run)
 	case "resolve":
+		if req.QueueIfRunning {
+			badRequest(w, "queued input is available for ordinary chat turns")
+			return
+		}
 		var ro orchestrator.ResolveOptions
 		if req.Resolve != nil {
 			ro.MaxIterations = req.Resolve.MaxIterations
@@ -631,7 +644,9 @@ func (a *API) respondRun(w http.ResponseWriter, r *http.Request) {
 
 // inputReq is the body of POST /runs/{id}/input: a follow-up message steered into the running turn.
 type inputReq struct {
-	Text string `json:"text"`
+	Text        string             `json:"text"`
+	RequestID   string             `json:"requestId,omitempty"`
+	Attachments []agent.Attachment `json:"attachments,omitempty"`
 }
 
 // inputRun queues a follow-up user message into the running turn (without cancelling it). 404 if no
@@ -649,8 +664,30 @@ func (a *API) inputRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req inputReq
-	if err := decode(w, r, &req); err != nil || req.Text == "" {
+	if err := decode(w, r, &req); err != nil || !agent.HasUserInput(req.Text, agent.TurnOptions{Attachments: req.Attachments}) {
 		badRequest(w, "text is required")
+		return
+	}
+	attachments, err := a.resolveAttachments(run.ChatID, req.Attachments)
+	if err != nil {
+		attachmentError(w, err)
+		return
+	}
+	req.Attachments = attachments
+	if ag, ok := a.sup.Resolve(run.Agent); ok && ag.Adapter.Capabilities().QueuedInput {
+		updated, err := a.sup.SendInputChecked(id, req.Text, req.RequestID, req.Attachments)
+		if err != nil {
+			if turnRequestError(w, err) {
+				return
+			}
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusAccepted, updated)
+		return
+	}
+	if req.RequestID != "" || len(req.Attachments) > 0 {
+		badRequest(w, "this harness does not support acknowledged input or input attachments")
 		return
 	}
 	if !a.sup.SendInput(id, req.Text) {
@@ -960,7 +997,7 @@ func (a *API) deleteChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.surfaces != nil {
-		if err := a.surfaces.Artifacts().DeleteChat(id); err != nil {
+		if err := a.surfaces.Artifacts().DeleteChat(id, a.store.ArtifactOwners(id)); err != nil {
 			surfaceError(w, err)
 			return
 		}
@@ -1239,7 +1276,7 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 				msgs[i].Parts = a.store.OverlayInteractions(chatID, msgs[i].Parts)
 			}
 			if hasRun && run.Status == "running" {
-				msgs = historyBeforeRun(msgs, recorded, run)
+				msgs = session.HistoryBeforeRun(msgs, recorded, run)
 			}
 			writeHistory(w, r, msgs, func(m agent.Message) string { return m.ID })
 			return
@@ -1250,36 +1287,11 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 		for _, message := range recorded {
 			messages = append(messages, agent.Message(message))
 		}
-		committed := historyBeforeRun(messages, recorded, run)
+		committed := session.HistoryBeforeRun(messages, recorded, run)
 		writeHistory(w, r, committed, func(m agent.Message) string { return m.ID })
 		return
 	}
 	writeHistory(w, r, recorded, func(m session.Message) string { return m.ID })
-}
-
-// An active assistant turn belongs only to the run stream. Keep the native prefix
-// (including forked history and its pagination IDs), then the accepted user input.
-// Filtering also excludes a reply saved just before the run's terminal status write.
-func historyBeforeRun(native []agent.Message, recorded []session.Message, run session.Run) []agent.Message {
-	start, err := time.Parse(time.RFC3339Nano, run.CreatedAt)
-	if err != nil {
-		return native
-	}
-	committed := make([]agent.Message, 0, len(native))
-	for _, message := range native {
-		at, err := time.Parse(time.RFC3339Nano, message.CreatedAt)
-		if err == nil && !at.Before(start) {
-			break
-		}
-		committed = append(committed, message)
-	}
-	for _, message := range recorded {
-		at, err := time.Parse(time.RFC3339Nano, message.CreatedAt)
-		if message.Role == "user" && err == nil && !at.Before(start) {
-			committed = append(committed, agent.Message(message))
-		}
-	}
-	return committed
 }
 
 // pageWindow returns the tail window of an oldest→newest message slice: everything strictly BEFORE

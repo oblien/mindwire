@@ -30,7 +30,8 @@ func (s *Supervisor) turnDigest(a *Agent, req StartTurnInput, mode string, resol
 		Agent, Chat, Message, CWD, Mode string
 		Options                         agent.TurnOptions
 		Resolve                         *ResolveOptions
-	}{a.ID(), req.ChatID, req.Message, s.activePath(req.CWD), mode, req.Options, resolve}
+		QueueIfRunning                  bool `json:",omitempty"`
+	}{a.ID(), req.ChatID, req.Message, s.activePath(req.CWD), mode, req.Options, resolve, req.QueueIfRunning}
 	data, err := json.Marshal(value)
 	if err != nil {
 		return "", err

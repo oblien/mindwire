@@ -17,10 +17,11 @@ import (
 )
 
 const projectMarker = "__MINDWIRE_PROJECT_ROOT__"
+const attachmentMarker = "__MINDWIRE_CHAT_ATTACHMENTS__"
 
 // Normalize structural path fields only. Prompt text, tool arguments as opaque
 // strings, unknown records, compaction payloads and image bytes are preserved.
-func remapJSON(r io.Reader, w io.Writer, from, to string) error {
+func remapJSON(r io.Reader, w io.Writer, from, to string, attachmentRoots ...[2]string) error {
 	d := json.NewDecoder(r)
 	d.UseNumber()
 	e := json.NewEncoder(w)
@@ -33,6 +34,18 @@ func remapJSON(r io.Reader, w io.Writer, from, to string) error {
 				if p, ok := value.(string); ok && (k == "cwd" || k == "workdir" || k == "working_directory" || k == "path" || k == "file_path" || k == "filePath" || k == "image_path") {
 					if p == from || strings.HasPrefix(p, from+"/") {
 						x[k] = to + strings.TrimPrefix(p, from)
+					}
+					for _, roots := range attachmentRoots {
+						if p == roots[0] || strings.HasPrefix(p, roots[0]+"/") {
+							x[k] = roots[1] + strings.TrimPrefix(p, roots[0])
+						}
+					}
+				} else if p, ok := value.(string); ok && (k == "text" || k == "content") {
+					if head, tail, found := strings.Cut(p, "\n\nAttached files:\n"); found {
+						for _, roots := range attachmentRoots {
+							tail = strings.ReplaceAll(tail, "("+roots[0]+"/", "("+roots[1]+"/")
+						}
+						x[k] = head + "\n\nAttached files:\n" + tail
 					}
 				} else {
 					visit(value)
@@ -99,7 +112,7 @@ func (s *Service) capture(ctx context.Context, path, cwd string, jsonLines bool)
 			}
 			defer os.Remove(tmp.Name())
 			defer tmp.Close()
-			if err = remapJSON(f, tmp, cwd, projectMarker); err != nil {
+			if err = remapJSON(f, tmp, cwd, projectMarker, [2]string{filepath.Join(s.reg.Directory(), "artifacts"), attachmentMarker}); err != nil {
 				return nil, err
 			}
 			if _, err = tmp.Seek(0, 0); err != nil {
@@ -206,8 +219,8 @@ func (s *Service) validateManifest(m Manifest) error {
 	if err := s.validateArtifacts(m); err != nil {
 		return err
 	}
-	for id := range m.Artifacts {
-		owned["artifacts/"+id+".png"] = true
+	for _, row := range m.Artifacts {
+		owned["artifacts/"+row.FileName()] = true
 	}
 	for id, c := range m.Chats {
 		if !hashOK(id) || id != c.ID || c.ArchiveVersion != 1 || !agent.ValidNativeSessionID(c.Harness) || len(c.Title) > 16384 || len(c.NativeFiles) > maxEntries {
@@ -299,7 +312,7 @@ func (s *Service) expanded(e Entry, cwd string) ([]byte, error) {
 	}
 	if e.JSONLines {
 		var out bytes.Buffer
-		err = remapJSON(bytes.NewReader(b), &out, projectMarker, cwd)
+		err = remapJSON(bytes.NewReader(b), &out, projectMarker, cwd, [2]string{attachmentMarker, filepath.Join(s.reg.Directory(), "artifacts")})
 		return out.Bytes(), err
 	}
 	return b, nil

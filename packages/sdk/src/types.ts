@@ -21,6 +21,7 @@ export type EventType =
   | "result" // turn finished; `result` has the final summary
   | "error"
   | "status" // generic status (retry, queued, stream-open sentinel) in `meta`
+  | "input" // a saved follow-up receipt changed status
   | "interaction" // structured agent-defined prompt/feedback (todos, approval, …)
   | "compaction" // the conversation was compacted; `compaction` carries the trigger + token counts
   | "continuation"; // resolve-mode iteration boundary; `continuation` carries the iteration + reason
@@ -188,6 +189,7 @@ export interface Event {
   compaction?: CompactionInfo;
   /** Populated on a `continuation` event (resolve mode). */
   continuation?: ContinuationInfo;
+  input?: UserInput;
   error?: string;
   meta?: Record<string, unknown>;
   /** RFC3339 timestamp. */
@@ -338,6 +340,7 @@ export interface Capabilities {
   /** User-in-loop ingress — each gates its route: answer an interaction, inject a follow-up, soft-stop. */
   respond: boolean;
   input: boolean;
+  queuedInput?: boolean;
   interrupt: boolean;
   /** Runtime control — switch the model / permission mode of a live turn (persistent transport only). */
   setModel: boolean;
@@ -764,7 +767,18 @@ export interface Part {
   interaction?: Interaction;
   /** Set on a `compaction` part — a conversation boundary in the reloaded transcript. */
   compaction?: CompactionInfo;
+  input?: UserInput;
   at?: string;
+}
+
+/** Durable follow-up; queued messages belong to the daemon, including while a client is disconnected. */
+export interface UserInput {
+  id: string;
+  text: string;
+  attachments?: Attachment[];
+  createdAt: string;
+  status: "queued" | "accepted" | "failed" | "cancelled" | (string & {});
+  error?: string;
 }
 
 export interface Message {
@@ -864,6 +878,9 @@ export interface ResolveOptions {
  * Inline image content blocks require the persistent transport and are a follow-on.
  */
 export interface Attachment {
+  /** Completed upload belonging to this conversation. No inline bytes are needed. */
+  artifactId?: string;
+  bytes?: number;
   /** Display/file name shown to the agent when the file is referenced. */
   name?: string;
   /** Absolute path to a file already on disk (preferred). */
@@ -899,6 +916,8 @@ export interface Run {
   stopReason?: "done" | "capped" | "error" | "cancelled" | (string & {});
   /** Parent-only: how many child turns the resolve loop ran. */
   iterations?: number;
+  inputs?: UserInput[];
+  messageIds?: string[];
 }
 
 /** The daemon's view of a chat, for a sessions list. */
@@ -1163,9 +1182,11 @@ export interface Health {
   workspaceExecutionVersion?: number;
   terminalProtocolVersion?: number;
   turnRequestVersion?: number;
+  queuedInputVersion?: number;
   chatForkVersion?: number;
   /** Image-only input and image attachments retained in message history. */
   imageAttachmentsVersion?: number;
+  attachmentUploadVersion?: number;
   computerConnectionVersion?: number;
   workspaceIsolation?: "direct" | "container";
 }
@@ -1240,4 +1261,24 @@ export interface ProcessFrame {
  */
 export interface ApiErrorBody {
   error: string;
+}
+
+/** One resumable 384 KiB chunk. The SHA-256 covers the complete file. */
+export interface AttachmentUploadChunk {
+  name: string;
+  mime: string;
+  bytes: number;
+  sha256: string;
+  offset: number;
+  data: string;
+}
+export interface AttachmentUploadState {
+  id: string;
+  chatId: string;
+  name: string;
+  mime: string;
+  bytes: number;
+  sha256: string;
+  offset: number;
+  complete: boolean;
 }

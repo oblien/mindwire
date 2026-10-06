@@ -3,10 +3,11 @@ package mindwire
 import (
 	"context"
 	"errors"
-	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"iter"
 	"net/http"
 
+	"github.com/oblien/mindwire/daemon/internal/agent"
+	"github.com/oblien/mindwire/daemon/internal/orchestrator"
 	"github.com/oblien/mindwire/daemon/internal/session"
 )
 
@@ -148,14 +149,50 @@ func (r *Run) Respond(in RespondInput) error {
 	return nil
 }
 
-// SendInput injects a follow-up user message into a running turn (steer without cancelling).
-// APIError{400} if unsupported or text is empty; APIError{404} if no turn is accepting input.
-func (r *Run) SendInput(text string) error {
+// InputOptions adds a stable retry receipt and optional images to a follow-up.
+// Reuse RequestID only when retrying the same text and attachments.
+type InputOptions struct {
+	RequestID   string
+	Attachments []Attachment
+}
+
+// SendInput submits a follow-up without cancelling the run. Codex and Claude
+// consume it on their native schedule. Use Client.Turn with QueueIfRunning to
+// also start a new turn if this run has already finished.
+func (r *Run) SendInput(text string, opts ...InputOptions) error {
 	if err := r.capGate(func(c Capabilities) bool { return c.Input }, "this agent does not support mid-turn input", "Run.SendInput"); err != nil {
 		return err
 	}
-	if text == "" {
-		return &APIError{Message: "text is required", Status: http.StatusBadRequest, Op: "Run.SendInput"}
+	var options InputOptions
+	if len(opts) > 0 {
+		options = opts[0]
+	}
+	if !agent.HasUserInput(text, agent.TurnOptions{Attachments: options.Attachments}) {
+		return &APIError{Message: "a message or attachment is required", Status: http.StatusBadRequest, Op: "Run.SendInput"}
+	}
+	resolved, err := r.core.surfaces.Artifacts().ResolveInputs(r.data.ChatID, options.Attachments)
+	if err != nil {
+		return err
+	}
+	options.Attachments = resolved
+	if ag, ok := r.core.sup.Resolve(r.data.Agent); ok && ag.Adapter.Capabilities().QueuedInput {
+		_, err := r.core.sup.SendInputChecked(r.data.ID, text, options.RequestID, options.Attachments)
+		if err == nil {
+			return nil
+		}
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, orchestrator.ErrChatBusy):
+			status = http.StatusNotFound
+		case errors.Is(err, orchestrator.ErrInputUnsupported), errors.Is(err, orchestrator.ErrInvalidTurnRequest), errors.Is(err, orchestrator.ErrInputOptions):
+			status = http.StatusBadRequest
+		case errors.Is(err, session.ErrTurnRequestConflict), errors.Is(err, orchestrator.ErrInputQueueFull):
+			status = http.StatusConflict
+		}
+		return &APIError{Message: err.Error(), Status: status, Op: "Run.SendInput"}
+	}
+	if options.RequestID != "" || len(options.Attachments) > 0 {
+		return &APIError{Message: "this harness does not support queued input receipts or images", Status: http.StatusBadRequest, Op: "Run.SendInput"}
 	}
 	if !r.core.sup.SendInput(r.data.ID, text) {
 		return notAccepting("Run.SendInput")

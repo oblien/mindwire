@@ -291,6 +291,14 @@
           "projectLibraryVersion": {
             "type": "integer",
             "description": "1 supports durable project folders, membership and custom ordering."
+          },
+          "queuedInputVersion": {
+            "type": "integer",
+            "description": "Version 1 supports native queued input with durable receipts and ordered user-message boundaries."
+          },
+          "attachmentUploadVersion": {
+            "type": "integer",
+            "description": "1 when resumable durable chat uploads are available."
           }
         },
         "required": [
@@ -439,7 +447,7 @@
               "turn",
               "resolve"
             ],
-            "description": "Run shape. Absent or \"turn\" (default) = one ordinary turn that ends at the CLI's terminal result. \"resolve\" = a global-resolve run: the daemon holds the run open and auto-continues the agent's own multi-step work until the task is globally complete, returning a parent Run whose per-iteration turns are its children (GET /runs/{id}/children)."
+            "description": "Run shape. Absent or turn is an ordinary run, including any native queued follow-ups. resolve starts a bounded global-resolve parent; queueIfRunning is not available in resolve mode."
           },
           "resolve": {
             "$ref": "#/components/schemas/ResolveOptions",
@@ -455,6 +463,11 @@
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9_-]+$",
             "description": "Optional durable idempotency key. Retry the same request ID and payload to recover its original run, including after completion or restart. Reusing an ID with a different payload returns 409. Requires turnRequestVersion >= 1."
+          },
+          "queueIfRunning": {
+            "type": "boolean",
+            "default": false,
+            "description": "Queue the message on this chat’s ordinary active run, or start a new run when idle. Requires requestId and queuedInputVersion >= 1. Active input accepts attachments only; changing turn settings is rejected."
           }
         },
         "required": [
@@ -526,7 +539,7 @@
       },
       "Attachment": {
         "type": "object",
-        "description": "A file made available to a turn (path-reference only). Set path for a file already on disk (preferred), or data (base64) for inline bytes the daemon writes to a temp file, then references.",
+        "description": "A native image or readable file. Use artifactId for a durable upload, path for an existing workspace file, or inline base64 data for a small request.",
         "properties": {
           "name": {
             "type": "string",
@@ -542,6 +555,14 @@
           "data": {
             "type": "string",
             "description": "Inline bytes, base64-encoded (Go []byte); written to a temp file, then referenced."
+          },
+          "artifactId": {
+            "type": "string",
+            "description": "Completed attachment upload for this chat."
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -607,6 +628,20 @@
           "iterations": {
             "type": "integer",
             "description": "Parent-only: how many child turns the resolve loop ran."
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserInput"
+            },
+            "description": "Durable receipts for follow-ups, also available in run snapshots."
+          },
+          "messageIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered recorded message segments when a run spans multiple user inputs."
           }
         },
         "required": [
@@ -630,7 +665,8 @@
           "status",
           "interaction",
           "compaction",
-          "continuation"
+          "continuation",
+          "input"
         ]
       },
       "ToolEvent": {
@@ -810,6 +846,9 @@
           "replay": {
             "type": "boolean",
             "description": "True for events replayed from the run buffer; absent or false for newly arriving activity."
+          },
+          "input": {
+            "$ref": "#/components/schemas/UserInput"
           }
         },
         "required": [
@@ -998,7 +1037,8 @@
               "thinking",
               "tool",
               "interaction",
-              "compaction"
+              "compaction",
+              "user"
             ]
           },
           "text": {
@@ -1022,6 +1062,10 @@
           },
           "at": {
             "type": "string"
+          },
+          "input": {
+            "$ref": "#/components/schemas/UserInput",
+            "description": "Accepted user-message boundary in a live run snapshot. Render it as user input, not assistant output."
           }
         },
         "required": [
@@ -1319,6 +1363,10 @@
           "fork": {
             "type": "boolean",
             "description": "Native edit-and-resend branching is supported."
+          },
+          "queuedInput": {
+            "type": "boolean",
+            "description": "Durable follow-ups in an ordinary active run. Native harness decides when input is consumed; input events report its state."
           }
         }
       },
@@ -1713,10 +1761,22 @@
       },
       "InputRequest": {
         "type": "object",
-        "description": "A follow-up message steered into a running turn.",
+        "description": "A follow-up delivered on the harness’s native schedule. Text may be empty with attachments. Receipts and attachments require queuedInput.",
         "properties": {
           "text": {
             "type": "string"
+          },
+          "requestId": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "description": "Stable optional receipt for a queued follow-up. Retrying the same input returns its original run, including after completion."
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Attachment"
+            }
           }
         },
         "required": [
@@ -3241,16 +3301,18 @@
             "type": "string"
           },
           "data": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 255
-            },
-            "description": "Base64 PNG bytes, at most 8 MiB decoded. Private authenticated resource; not a provider URL."
+            "type": "string",
+            "contentEncoding": "base64",
+            "description": "Authenticated artifact bytes. Captures are at most 8 MiB; file attachments are at most 16 MiB."
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
           }
         },
         "required": [
@@ -6336,6 +6398,135 @@
             "description": "One-time migration: ignored once this workspace has any library revision."
           }
         }
+      },
+      "UserInput": {
+        "type": "object",
+        "description": "A durable follow-up receipt. queued means saved for native delivery; accepted means consumed into the native conversation or admitted as its next turn. failed/cancelled retain the input for review without automatic replay.",
+        "required": [
+          "id",
+          "text",
+          "createdAt",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Attachment"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "accepted",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "AttachmentUploadChunk": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 240
+          },
+          "mime": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16777216
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "data": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "description": "At most 384 KiB decoded. Repeating an identical chunk is safe."
+          }
+        },
+        "required": [
+          "name",
+          "mime",
+          "bytes",
+          "sha256",
+          "offset",
+          "data"
+        ]
+      },
+      "AttachmentUploadState": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "chatId": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "chatId",
+          "name",
+          "mime",
+          "bytes",
+          "sha256",
+          "offset",
+          "complete"
+        ]
       }
     }
   },
@@ -7901,7 +8092,7 @@
           "Turns & runs"
         ],
         "summary": "Start a turn",
-        "description": "Records the user message, starts the turn in the background, and returns a Run immediately. One in-flight turn per chat (409 otherwise). Stream events via `GET /runs/{id}/stream`.",
+        "description": "Starts a turn in the background and returns its Run. With queueIfRunning and a requestId, atomically appends to the existing ordinary run or starts one if idle. Reusing the receipt with the same payload never submits twice. Follow input events for native consumption.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -7919,7 +8110,7 @@
         },
         "responses": {
           "202": {
-            "description": "Run created",
+            "description": "Run created, existing input queued, or original receipt replayed",
             "content": {
               "application/json": {
                 "schema": {
@@ -7930,6 +8121,16 @@
           },
           "409": {
             "description": "A turn is already running for this chat, or the harness is being installed or updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, unsupported queued input, or turn settings changed during active input",
             "content": {
               "application/json": {
                 "schema": {
@@ -8118,7 +8319,7 @@
           "Turns & runs"
         ],
         "summary": "Send follow-up input to a running turn",
-        "description": "Queue a follow-up user message into the running turn without cancelling it (steer/append). Requires the agent's `input` capability.",
+        "description": "Queue a follow-up in a specific run without cancelling it. Codex and Claude support durable requestId receipts, images and input state events. A queuedInput-capable harness returns the updated Run; older input-capable harnesses return a simple acknowledgement. New input to an ended run is rejected; retrying an existing receipt returns its original run.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -8136,7 +8337,26 @@
         },
         "responses": {
           "202": {
-            "description": "Input queued"
+            "description": "Input saved for native consumption; returns Run for queuedInput-capable harnesses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Run"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "ok": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
           },
           "400": {
             "description": "Agent does not support input, or text missing",
@@ -8150,6 +8370,16 @@
           },
           "404": {
             "description": "Unknown run or no turn accepting input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Receipt reused with a different input or pending input limit reached",
             "content": {
               "application/json": {
                 "schema": {
@@ -17281,6 +17511,64 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/chats/{id}/attachments/{attachmentID}": {
+      "put": {
+        "operationId": "uploadChatAttachment",
+        "tags": [
+          "Chats"
+        ],
+        "summary": "Upload a durable conversation attachment in verified resumable chunks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attachmentID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachmentUploadChunk"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Confirmed offset and completion state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentUploadState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid upload metadata or chunk"
+          },
+          "409": {
+            "description": "Conflicting content or offset"
+          },
+          "507": {
+            "description": "Attachment storage quota exhausted"
           }
         }
       }

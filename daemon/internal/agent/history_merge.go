@@ -21,7 +21,8 @@ func MergeRecordedHistory(native, recorded []Message) []Message {
 	}
 	groups, records := historyTurns(native), historyTurns(recorded)
 	cursor := 0
-	for r, record := range records {
+	for r := 0; r < len(records); r++ {
+		record := records[r]
 		if len(record) == 0 {
 			continue
 		}
@@ -31,24 +32,38 @@ func MergeRecordedHistory(native, recorded []Message) []Message {
 			end, _ = historyTime(records[r+1][0].CreatedAt)
 		}
 		match := -1
+		consumed := 1
+		queued := record[0].Role == "user" && strings.HasPrefix(record[0].ID, "input-")
 		for i := cursor; i < len(groups); i++ {
 			candidate := groups[i][0]
-			if candidate.Role != record[0].Role || candidate.Text != record[0].Text {
+			if candidate.Role != record[0].Role {
 				continue
+			}
+			matchedRecord, count := record, 1
+			if candidate.Text != record[0].Text && candidate.Text != record[0].Text+AttachmentReferenceText(record[0].Attachments) {
+				var ok bool
+				matchedRecord, count, ok = queuedHistoryBatch(records, r, candidate.Text)
+				if !ok {
+					continue
+				}
 			}
 			if stamp, ok := historyTime(candidate.CreatedAt); ok && hasStart {
 				// Legacy stored user timestamps have second precision; native echoes use milliseconds.
-				if stamp.Before(start.Add(-time.Second)) || end.After(start) && !stamp.Before(end) {
+				// Queued messages can be consumed after the NEXT send's timestamp.
+				// Native order, rather than send time, defines that upper boundary.
+				if stamp.Before(start.Add(-time.Second)) || !queued && end.After(start) && !stamp.Before(end) {
 					continue
 				}
 			}
 			match = i
+			record, consumed = matchedRecord, count
 			break
 		}
 		if match >= 0 {
 			record = withoutSteeredPrefix(groups, match, record)
 			groups[match] = mergeTurnParts(groups[match], record)
 			cursor = match + 1
+			r += consumed - 1
 			continue
 		}
 		// A failed start may have no native user echo or item at all. Retain the whole
@@ -72,6 +87,40 @@ func MergeRecordedHistory(native, recorded []Message) []Message {
 		result = append(result, group...)
 	}
 	return result
+}
+
+// Native streaming input may merge consecutive queued prompts, including image
+// content blocks. Match that batch as one native turn without duplicating either
+// user input or crossing an intervening assistant response.
+func queuedHistoryBatch(records [][]Message, start int, text string) ([]Message, int, bool) {
+	var chunks, display []string
+	var attachments []Attachment
+	for i := start; i < len(records); i++ {
+		if i > start && len(records[i-1]) != 1 {
+			break
+		}
+		if len(records[i]) == 0 {
+			break
+		}
+		user := records[i][0]
+		if user.Role != "user" || !strings.HasPrefix(user.ID, "input-") {
+			break
+		}
+		chunks = append(chunks, user.Text+AttachmentReferenceText(user.Attachments))
+		display = append(display, user.Text)
+		attachments = append(attachments, user.Attachments...)
+		if i == start {
+			continue
+		}
+		for _, separator := range []string{"", "\n", "\n\n"} {
+			if strings.Join(chunks, separator) == text {
+				first := records[start][0]
+				first.Text, first.Attachments = strings.Join(display, separator), attachments
+				return append([]Message{first}, records[i][1:]...), i - start + 1, true
+			}
+		}
+	}
+	return nil, 0, false
 }
 
 // Native steering adds a user-message boundary inside one daemon run. Its final
@@ -268,6 +317,15 @@ func mergeTurnParts(native, recorded []Message) []Message {
 		user := native[0]
 		if len(recorded) > 0 && recorded[0].Role == "user" {
 			user.Attachments = MergeInputAttachments(user.Attachments, recorded[0].Attachments)
+			for _, attachment := range recorded[0].Attachments {
+				if attachment.ArtifactID != "" {
+					user.Text = recorded[0].Text
+					break
+				}
+			}
+			if user.Text == recorded[0].Text+AttachmentReferenceText(recorded[0].Attachments) {
+				user.Text = recorded[0].Text
+			}
 		}
 		result = append(result, user)
 	}
