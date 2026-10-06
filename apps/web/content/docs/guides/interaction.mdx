@@ -101,6 +101,11 @@ The daemon persists the accepted `response`. Duplicate taps cannot send it twice
 retry after a lost acknowledgement is idempotent. Keep the user's draft selections while the live
 form moves into history. Native control requests without `responseMode` expire when their run ends.
 
+Stopping a turn closes its unanswered questions, including async forms. They remain readable in
+history with `needsResponse: false`; replying cannot restart a cancelled turn. The daemon saves
+the cancellation and question state together and repairs pending forms left by older versions
+when it reopens its state. Questions from a normally completed turn remain answerable.
+
 Each distinct pending question emits `waiting_feedback` through the configured notification
 channels. Chat and agent notification preferences still apply.
 

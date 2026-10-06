@@ -69,6 +69,51 @@ func finishQuestionTurn(emit agent.Emit) (agent.TurnResult, error) {
 	return agent.TurnResult{Text: "Questions sent.", SessionID: "native-session"}, nil
 }
 
+func TestStopDismissesAsyncQuestionInHistoryAndRestartedSupervisor(t *testing.T) {
+	ready := make(chan struct{})
+	var calls atomic.Int32
+	s, a, path := questionSupervisor(t, func(ctx context.Context, _ agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
+		calls.Add(1)
+		it := messageQuestion()
+		emit(agent.Event{Type: agent.EventInteraction, Interaction: &it})
+		close(ready)
+		<-ctx.Done()
+		return agent.TurnResult{}, ctx.Err()
+	})
+	run, ok := s.StartTurn(a, StartTurnInput{ChatID: "chat", Message: "ask"})
+	if !ok {
+		t.Fatal("not started")
+	}
+	<-ready
+	if !s.Cancel(run.ID) {
+		t.Fatal("stop was not accepted")
+	}
+	s.Wait()
+	ended, _ := s.store.GetRun(run.ID)
+	if ended.Status != "cancelled" || s.store.HasPendingMessageQuestion(run.ID) {
+		t.Fatal("stopped run kept its pending question")
+	}
+	snapshot, _ := s.Snapshot(run.ID)
+	for _, part := range snapshot.Parts {
+		if part.Interaction != nil && part.Interaction.IsMessageQuestion() && part.Interaction.NeedsResponse {
+			t.Fatal("snapshot revived a cancelled question")
+		}
+	}
+	store, err := session.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := New(store, stream.New(), notify.Fanout(nil), s.cwd, a.ID())
+	t.Cleanup(restarted.Wait)
+	if err := restarted.RespondInteraction(run.ID, messageAnswer()); !errors.Is(err, ErrInteractionNotPending) {
+		t.Fatalf("cancelled question could resume after restart: %v", err)
+	}
+	q, _ := store.MessageQuestion(run.ID, messageQuestion().ID)
+	if q.Interaction.Response != nil || len(q.Interaction.Questions) != 2 || calls.Load() != 1 {
+		t.Fatal("stop must retain the question text without supplying an answer or restarting work")
+	}
+}
+
 func TestAsyncQuestionSurvivesCompletionRestartAndResumesExactlyOnce(t *testing.T) {
 	var calls atomic.Int32
 	received := make(chan agent.TurnInput, 2)
