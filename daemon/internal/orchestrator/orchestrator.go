@@ -32,9 +32,6 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 )
 
-// maxTurn bounds a single turn so a stuck CLI can't run forever.
-const maxTurn = 30 * time.Minute
-
 // Resolve-mode bounds and the completion contract. resolveSentinel is the exact line an agent emits
 // to declare the whole task globally complete; the loop strips it from the surfaced text. The caps
 // (iterations + overall deadline) are the backstop when an agent never emits it — the loop then ends
@@ -154,13 +151,14 @@ func (v *CredView) All() map[string]string {
 
 // Supervisor hosts all agents and supervises their turns for one sandbox.
 type Supervisor struct {
-	prepareGit GitPreparation
-	store      *session.Store
-	hub        *stream.Hub
-	notifier   notify.Notifier
-	notes      *notify.Stream   // local SSE broadcaster (in-app live notifications)
-	mon        *procmon.Monitor // on-demand per-turn CPU/mem sampler (idle until a client subscribes)
-	cwd        string
+	prepareGit  GitPreparation
+	store       *session.Store
+	hub         *stream.Hub
+	notifier    notify.Notifier
+	notes       *notify.Stream   // local SSE broadcaster (in-app live notifications)
+	mon         *procmon.Monitor // on-demand per-turn CPU/mem sampler (idle until a client subscribes)
+	cwd         string
+	turnTimeout time.Duration // zero: native harness lifetime, independent of connected viewers
 
 	agents map[string]*Agent // by agent type
 	def    string            // default agent type when a request omits ?agent=
@@ -200,7 +198,7 @@ type Supervisor struct {
 // New builds a supervisor over EVERY registered adapter (each with its own auth + runner +
 // namespaced creds). defaultAgent selects the agent for requests that omit ?agent=; if it
 // isn't registered, the first adapter by ID is used (deterministic).
-func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, defaultAgent string) *Supervisor {
+func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, defaultAgent string, options ...Option) *Supervisor {
 	s := &Supervisor{
 		store: store, hub: hub, notifier: notifier, notes: notify.NewStream(), mon: procmon.NewMonitor(), cwd: cwd,
 		agents: map[string]*Agent{}, def: defaultAgent,
@@ -210,6 +208,9 @@ func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, d
 		inputs: map[string]chan agent.Inbound{}, pending: map[string]map[string]agent.Interaction{},
 		inputQueues: map[string]*runInputQueue{},
 		answering:   map[string]bool{}, runClosed: map[string]chan struct{}{},
+	}
+	for _, option := range options {
+		option(s)
 	}
 	s.idle = sync.NewCond(&s.mu)
 	for _, ad := range agent.All() {
@@ -334,8 +335,8 @@ func (s *Supervisor) StartResolveChecked(a *Agent, req StartTurnInput, ro Resolv
 		}
 	}
 	req.GitAuth = nil
-	// The parent context bounds the WHOLE resolve (overall deadline); each child turn derives a 30-min
-	// timeout from it. Register the cancel under the parent id BEFORE returning, so an immediate cancel
+	// The parent context bounds the WHOLE resolve (its explicit overall budget). Child turns inherit
+	// it, plus an optional configured turn limit. Register the cancel BEFORE returning, so a cancel
 	// can't race an unregistered run into a 404 (same anti-race as start()).
 	parent := session.Run{ID: newID(), ChatID: req.ChatID, Agent: a.ID(), Status: "running", Kind: "resolve", CreatedAt: nowISO()}
 	message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments}
@@ -426,7 +427,7 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 			s.mu.Unlock()
 			return session.Run{}, err
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), maxTurn)
+		ctx, cancel := s.turnContext(context.Background())
 		if s.prepareGit != nil && !compact {
 			var err error
 			req.gitLease, err = s.prepareGit(ctx, req.ChatID, req.CWD, req.GitAuth)
@@ -952,7 +953,7 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 			opts.ForkOnResume = false
 		}
 
-		childCtx, childCancel := context.WithTimeout(ctx, maxTurn)
+		childCtx, childCancel := s.turnContext(ctx)
 		turn, cleanup, prepareErr := s.desktopTurn(childCtx, a, runner.Turn{
 			ChatID: parent.ChatID, Message: msg, RunID: parent.ID, CWD: req.CWD, Options: opts,
 			Environment: req.gitEnvironment(),
