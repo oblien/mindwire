@@ -6,6 +6,7 @@ import { SurfacesApi } from "./surfaces.js";
 import { ServiceApi } from "./service.js";
 import { ExecutionApi } from "./execution.js";
 import { ComputerApi } from "./computer.js";
+import { executableChecksum } from "./binary-cache.js";
 import { local, type Target, type TargetHandle, type ConnectSpec } from "./target/index.js";
 import type { EnsureEvent } from "./target/host.js";
 import type {
@@ -337,10 +338,15 @@ export class Mindwire {
     options: { signal?: AbortSignal; onProgress?: (fraction: number) => void } = {}): Promise<Attachment> {
     if (file.data.byteLength > 16 * 1024 * 1024) throw new RangeError("Attachments must be at most 16 MiB");
     const data = new Uint8Array(file.data);
-    const hash = async (bytes: Uint8Array<ArrayBuffer>) => new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-    const hex = (bytes: Uint8Array) => Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
-    const sha256 = hex(await hash(data));
-    const id = hex((await hash(new TextEncoder().encode(`${chatId}\0${file.name}\0${sha256}`))).slice(0, 16));
+    const hash = async (bytes: Uint8Array<ArrayBuffer>) => {
+      // Older supported Node runtimes do not expose Web Crypto globally.
+      // Keep the native fallback lazy so browser imports still work.
+      if (!globalThis.crypto?.subtle) return executableChecksum(bytes);
+      const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes));
+      return Array.from(digest, b => b.toString(16).padStart(2, "0")).join("");
+    };
+    const sha256 = await hash(data);
+    const id = (await hash(new TextEncoder().encode(`${chatId}\0${file.name}\0${sha256}`))).slice(0, 32);
     let offset = 0;
     for (;;) {
       options.signal?.throwIfAborted();

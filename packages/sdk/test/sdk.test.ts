@@ -95,6 +95,25 @@ test("file upload rejects premature completion and respects cancellation before 
   expect(calls.length).toBe(1);
 });
 
+test("file upload works on supported Node runtimes without global Web Crypto", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  const { fn, calls } = mockFetch((url, init) => {
+    const chunk = JSON.parse(init!.body as string);
+    return Response.json({ id: url.split("/").at(-1), name: chunk.name, mime: chunk.mime, bytes: chunk.bytes,
+      offset: chunk.bytes, complete: true });
+  });
+  try {
+    Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true });
+    const mw = new Mindwire({ target: remote("http://d"), fetch: fn });
+    const attachment = await mw.uploadAttachment("chat", { name: "empty.txt", data: new Uint8Array() });
+    expect(attachment.bytes).toBe(0);
+    expect(JSON.parse(calls[0]!.init!.body as string).sha256)
+      .toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, "crypto", descriptor);
+  }
+});
+
 test("turn(): POSTs body, returns a Run handle, 409 surfaces as ApiError", async () => {
   const { fn, calls } = mockFetch((url) => {
     if (url.includes("/turns")) {
