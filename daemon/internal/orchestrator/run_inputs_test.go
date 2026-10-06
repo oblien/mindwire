@@ -29,7 +29,7 @@ func (f *queuedInputAdapter) RunStream(ctx context.Context, in agent.TurnInput, 
 	return f.run(ctx, in, emit)
 }
 
-func inputSupervisor(t *testing.T, fn func(context.Context, agent.TurnInput, agent.Emit) (agent.TurnResult, error)) (*Supervisor, *Agent, string) {
+func inputSupervisor(t *testing.T, fn func(context.Context, agent.TurnInput, agent.Emit) (agent.TurnResult, error), options ...Option) (*Supervisor, *Agent, string) {
 	t.Helper()
 	fake := &queuedInputAdapter{fakeAdapter: &fakeAdapter{id: t.Name()}, run: fn}
 	agent.Register(fake)
@@ -38,7 +38,7 @@ func inputSupervisor(t *testing.T, fn func(context.Context, agent.TurnInput, age
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := New(store, stream.New(), notify.Fanout(nil), t.TempDir(), fake.id)
+	s := New(store, stream.New(), notify.Fanout(nil), t.TempDir(), fake.id, options...)
 	a, _ := s.Resolve(fake.id)
 	t.Cleanup(func() {
 		s.mu.Lock()

@@ -169,6 +169,19 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 		if !accepting {
 			return
 		}
+		if ev.Type == agent.EventError {
+			result := r.normalizeResult(ctx, agent.TurnResult{Text: ev.Error, IsError: true})
+			if result.Cancelled {
+				return // an explicit Stop is not a failed turn
+			}
+			ev.Error = result.Text
+		}
+		if ev.Type == agent.EventResult && ev.Result != nil {
+			copy := *ev.Result
+			result := r.normalizeResult(ctx, agent.TurnResult{Text: copy.Text, IsError: copy.IsError, Cancelled: copy.Cancelled})
+			copy.Text, copy.IsError, copy.Cancelled = result.Text, result.IsError, result.Cancelled
+			ev.Result = &copy
+		}
 		if ev.At == "" {
 			ev.At = time.Now().UTC().Format(time.RFC3339Nano)
 		}
@@ -204,6 +217,9 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 			res.Text = err.Error()
 		}
 		res.IsError = true
+	}
+	res = r.normalizeResult(ctx, res)
+	if res.IsError && (err != nil || ctx.Err() != nil) {
 		emit(agent.Event{Type: agent.EventError, Error: res.Text})
 	}
 	emitMu.Lock()

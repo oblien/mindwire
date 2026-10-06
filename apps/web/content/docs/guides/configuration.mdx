@@ -31,6 +31,27 @@ To restrict commands, select `workspace-write` or `read-only`. Codex's `workspac
 restrictions still apply unless enabled in its native configuration. A blocked GitHub command can
 report a DNS error even when the host itself is online.
 
+## Long-running turns
+
+Normal turns have **no MindWire time limit**. The daemon owns the native harness process: closing
+the mobile app, losing its connection, or unsubscribing from the event stream leaves that process
+running. Reopen the chat to attach to the same run. Native harness retry policies remain in effect.
+
+For an optional wall-clock limit, set `TURN_TIMEOUT` in the **daemon's environment** before starting
+it, for example `TURN_TIMEOUT=72h`. Unset or `0` means unlimited. Invalid or negative durations are
+rejected at startup. This setting applies to new runs after restarting the service; it does not
+change an already-running process. Resolve mode also has its own explicit overall deadline and
+iteration budget.
+
+An explicit Stop cancels only that run. A configured deadline is reported as a time-limit error,
+and a process terminated on the workspace is reported separately. Saved session IDs and partial
+transcripts remain available so you can continue the chat. MindWire does not automatically replay
+an interrupted prompt, which could repeat file changes or commands.
+
+The computer and daemon must remain running. Computer shutdown, daemon restart, or the operating
+system terminating the harness interrupts execution; reconnecting the phone cannot restart that
+process in place.
+
 ## Sticky config
 
 Read and merge persisted settings. `setConfig` merges recognized keys; unknown keys are dropped.

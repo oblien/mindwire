@@ -94,6 +94,10 @@ func main() {
 	statePath := env("STATE_PATH", "agent-state.json")
 	defaultAgent := env("AGENT_TYPE", "claude-code") // default when a request omits ?agent=
 	cwd := os.Getenv("AGENT_CWD")
+	turnTimeout, err := configuredTurnTimeout(os.Getenv("TURN_TIMEOUT"))
+	if err != nil {
+		log.Fatal(err)
+	}
 	token := os.Getenv("DAEMON_TOKEN")
 	if token == "" {
 		log.Fatal("DAEMON_TOKEN is required; generate one with: openssl rand -hex 32")
@@ -156,7 +160,7 @@ func main() {
 	notifier := notify.Fanout(notify.All(store))
 
 	// The orchestrator hosts every adapter and supervises turns; the API is glue over it.
-	sup := orchestrator.New(store, hub, notifier, cwd, defaultAgent)
+	sup := orchestrator.New(store, hub, notifier, cwd, defaultAgent, orchestrator.WithTurnTimeout(turnTimeout))
 	workspaceAPI := api.New(store, hub, sup, workspaceRegistry)
 	if err := workspaceAPI.InitError(); err != nil {
 		log.Fatalf("recover project operations: %v", err)
