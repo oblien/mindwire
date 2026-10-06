@@ -124,6 +124,17 @@ func Open(path string) (*Store, error) {
 	default:
 		return nil, err
 	}
+	// Older versions left async questions actionable after Stop. Repair that
+	// cached state once on open; the next ordinary write persists it as well.
+	if len(st.s.Interactions) > 0 {
+		cancelled := map[string]bool{}
+		for _, run := range st.s.Runs {
+			if run.Status == "cancelled" {
+				cancelled[run.ID] = true
+			}
+		}
+		st.closeCancelledQuestions(cancelled)
+	}
 	return st, nil
 }
 
@@ -457,17 +468,39 @@ func (st *Store) GetRun(id string) (Run, bool) {
 func (st *Store) SaveRun(run Run) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	var previousQuestions map[string]MessageQuestion
+	if run.Status == "cancelled" {
+		previousQuestions = st.closeCancelledQuestions(map[string]bool{run.ID: true})
+	}
+	count := len(st.s.Runs)
+	index := count
+	var previousRun Run
 	for i, r := range st.s.Runs {
 		if r.ID == run.ID {
 			// Follow-up receipts may advance concurrently with turn completion.
 			// Only SaveRunInput/UpdateRunInput own this field.
 			run.Inputs = r.Inputs
-			st.s.Runs[i] = run
-			return st.save()
+			index, previousRun = i, r
+			break
 		}
 	}
-	st.s.Runs = append(st.s.Runs, run)
-	return st.save()
+	if index == count {
+		st.s.Runs = append(st.s.Runs, run)
+	} else {
+		st.s.Runs[index] = run
+	}
+	if err := st.save(); err != nil {
+		if index == count {
+			st.s.Runs = st.s.Runs[:index]
+		} else {
+			st.s.Runs[index] = previousRun
+		}
+		for key, question := range previousQuestions {
+			st.s.Interactions[key] = question
+		}
+		return err
+	}
+	return nil
 }
 
 // LatestRun returns the most recent TOP-LEVEL run for a chat (runs are append-ordered, so the last

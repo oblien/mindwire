@@ -62,6 +62,92 @@ func TestQuestionPersistenceFailureDoesNotRecordAnAcceptedReply(t *testing.T) {
 	}
 }
 
+func TestCancellationClosesOnlyItsQuestionsAtomicallyAndSurvivesReplay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	st, _ := Open(path)
+	it := agent.Interaction{ID: "form", Kind: "form", ResponseMode: "message", NeedsResponse: true,
+		Questions: []agent.Question{{ID: "q", Title: "Color?", AllowOther: true}}}
+	for _, id := range []string{"stopped", "other"} {
+		if err := st.SaveRun(Run{ID: id, ChatID: id, Status: "running"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.RecordMessageQuestion(id, id, it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st.path = filepath.Join(t.TempDir(), "missing", "state.json")
+	if err := st.SaveRun(Run{ID: "stopped", ChatID: "stopped", Status: "cancelled"}); err == nil {
+		t.Fatal("failed save reported a committed cancellation")
+	}
+	run, _ := st.GetRun("stopped")
+	if run.Status != "running" || !st.HasPendingMessageQuestion("stopped") {
+		t.Fatal("failed cancellation did not roll back the run and questions together")
+	}
+	st.path = path
+	if err := st.SaveRun(Run{ID: "stopped", ChatID: "stopped", Status: "cancelled"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"form", "late-form"} {
+		it.ID = id
+		replay, err := st.RecordMessageQuestion("stopped", "stopped", it)
+		if err != nil || replay.NeedsResponse || replay.Response != nil {
+			t.Fatalf("late native event revived or answered a stopped question: %+v %v", replay, err)
+		}
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.HasPendingMessageQuestion("stopped") || !reopened.HasPendingMessageQuestion("other") {
+		t.Fatal("cancellation lost its scope after restart")
+	}
+	ref := InteractionReply{RunID: "stopped", Response: agent.InteractionResponse{InteractionID: "form"}}
+	if err := reopened.CommitInteractionReply(ref, "resumed", Message{ID: "answer"}, &Run{ID: "resumed"}); err == nil {
+		t.Fatal("cancelled question resumed work")
+	}
+	if _, exists := reopened.GetRun("resumed"); exists {
+		t.Fatal("rejected reply created a run")
+	}
+	parts := reopened.OverlayInteractions("stopped", []agent.Part{{Type: "interaction", Interaction: &it}})
+	if parts[0].Interaction.NeedsResponse || len(parts[0].Interaction.Questions) != 1 {
+		t.Fatal("history should retain the question as read-only")
+	}
+}
+
+func TestOldCancelledQuestionsAreRepairedOnOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	st, _ := Open(path)
+	_ = st.SaveRun(Run{ID: "run", ChatID: "chat", Status: "cancelled"})
+	it := agent.Interaction{ID: "form", Kind: "form", RunID: "run", ResponseMode: "message", NeedsResponse: true,
+		Questions: []agent.Question{{ID: "q", Title: "Color?", AllowOther: true}}}
+	// Reproduce the state written by older daemons, without invoking the fixed writer.
+	st.s.Interactions = map[string]MessageQuestion{interactionKey("run", "form"): {ChatID: "chat", RunID: "run", Interaction: it}}
+	if err := st.save(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, ok := reopened.MessageQuestion("run", "form")
+	if !ok || q.Interaction.NeedsResponse || q.Interaction.Response != nil {
+		t.Fatal("old cancelled prompt was not repaired without inventing an answer")
+	}
+}
+
+func TestCancelledLegacyQuestionIsNotRecoveredAsPending(t *testing.T) {
+	st, _ := Open(filepath.Join(t.TempDir(), "state.json"))
+	legacy := &agent.Interaction{ID: "native:question:0", Kind: "info", Title: "Color?", Meta: map[string]any{"asyncQuestion": true}}
+	_ = st.AddMessage(Message{ID: "reply", ChatID: "chat", Role: "assistant", Parts: []agent.Part{{Type: "interaction", Interaction: legacy}}})
+	_ = st.SaveRun(Run{ID: "run", ChatID: "chat", Status: "cancelled", ReplyID: "reply"})
+	form := &agent.Interaction{ID: "native:questions", Kind: "form", RunID: "run", ResponseMode: "message", NeedsResponse: true,
+		Questions: []agent.Question{{ID: "q", Title: "Color?", AllowOther: true}}}
+	parts := st.OverlayInteractions("chat", []agent.Part{{Type: "interaction", Interaction: form}})
+	if parts[0].Interaction.NeedsResponse || st.HasPendingMessageQuestion("run") {
+		t.Fatal("legacy migration reopened a stopped question")
+	}
+}
+
 func TestLatestLegacyQuestionCanBeRecoveredButOldQuestionsDoNotReopen(t *testing.T) {
 	for _, latest := range []bool{true, false} {
 		path := filepath.Join(t.TempDir(), "state.json")

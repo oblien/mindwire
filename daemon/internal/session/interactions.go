@@ -29,9 +29,17 @@ func (st *Store) RecordMessageQuestion(chatID, runID string, it agent.Interactio
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	it.RunID = runID
+	for i := len(st.s.Runs) - 1; i >= 0; i-- {
+		if st.s.Runs[i].ID == runID {
+			if st.s.Runs[i].Status == "cancelled" {
+				it.NeedsResponse = false
+			}
+			break
+		}
+	}
 	key := interactionKey(runID, it.ID)
 	if old, ok := st.s.Interactions[key]; ok {
-		if old.Interaction.Response != nil || reflect.DeepEqual(old.Interaction, it) {
+		if old.Interaction.Response != nil || !old.Interaction.NeedsResponse || reflect.DeepEqual(old.Interaction, it) {
 			return old.Interaction, nil
 		}
 	}
@@ -77,7 +85,7 @@ func (st *Store) CommitInteractionReply(ref InteractionReply, responseRunID stri
 	defer st.mu.Unlock()
 	key := interactionKey(ref.RunID, ref.Response.InteractionID)
 	old, ok := st.s.Interactions[key]
-	if !ok || old.Interaction.Response != nil {
+	if !ok || !old.Interaction.NeedsResponse || old.Interaction.Response != nil {
 		return errors.New("question is no longer waiting for an answer")
 	}
 	q := old
@@ -150,7 +158,7 @@ func (st *Store) recoverLegacyQuestion(chatID string, it agent.Interaction) {
 			break
 		}
 	}
-	if latest.ID != it.RunID || latest.Status == "running" || latest.ReplyID == "" {
+	if latest.ID != it.RunID || latest.Status == "running" || latest.Status == "cancelled" || latest.ReplyID == "" {
 		return
 	}
 	for i, message := range st.s.Messages {
@@ -179,4 +187,23 @@ func (st *Store) recoverLegacyQuestion(chatID string, it agent.Interaction) {
 		}
 		return
 	}
+}
+
+// closeCancelledQuestions runs under the store lock (or while opening the store).
+// A stopped turn keeps its question text but can no longer accept an answer or
+// resume work. Return old values so SaveRun can roll back a failed disk write.
+func (st *Store) closeCancelledQuestions(runIDs map[string]bool) map[string]MessageQuestion {
+	var previous map[string]MessageQuestion
+	for key, q := range st.s.Interactions {
+		if !runIDs[q.RunID] || !q.Interaction.NeedsResponse {
+			continue
+		}
+		if previous == nil {
+			previous = map[string]MessageQuestion{}
+		}
+		previous[key] = q
+		q.Interaction.NeedsResponse = false
+		st.s.Interactions[key] = q
+	}
+	return previous
 }
