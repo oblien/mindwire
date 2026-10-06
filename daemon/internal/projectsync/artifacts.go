@@ -38,7 +38,7 @@ func (s *Service) captureArtifacts(ctx context.Context, m *Manifest, chats map[s
 		if !artifactID(row.ID) {
 			return invalid("invalid selected chat artifact")
 		}
-		path := filepath.Join(s.reg.Directory(), "artifacts", row.ID+".png")
+		path := filepath.Join(s.reg.Directory(), "artifacts", row.FileName())
 		e, err := s.capture(ctx, path, "", false)
 		if err != nil {
 			return err
@@ -51,7 +51,7 @@ func (s *Service) captureArtifacts(ctx context.Context, m *Manifest, chats map[s
 			m.Artifacts = map[string]artifact.Record{}
 		}
 		m.Artifacts[row.ID] = row
-		m.Entries["artifacts/"+row.ID+".png"] = *e
+		m.Entries["artifacts/"+row.FileName()] = *e
 	}
 	return nil
 }
@@ -90,7 +90,7 @@ func portableAttachments(data *session.PortableChat, cwd string) error {
 	for i := range data.Messages {
 		for j := range data.Messages[i].Attachments {
 			a := &data.Messages[i].Attachments[j]
-			if len(a.Data) > 0 || a.Path == "" {
+			if a.ArtifactID != "" || len(a.Data) > 0 || a.Path == "" {
 				continue
 			}
 			path := a.Path
@@ -118,24 +118,31 @@ func portableAttachments(data *session.PortableChat, cwd string) error {
 }
 
 func (s *Service) validateArtifacts(m Manifest) error {
+	owned := map[string]bool{}
 	for id, row := range m.Artifacts {
-		if !artifactID(id) || id != row.ID || row.Mime != "image/png" || row.Bytes < 0 || row.Bytes > artifact.MaxBytes || row.Width < 1 || row.Height < 1 || row.Width*row.Height > 16<<20 {
+		if !artifactID(id) || id != row.ID || row.Bytes < 0 || row.Bytes > artifact.MaxAttachmentBytes {
+			return invalid("invalid chat artifact")
+		}
+		if row.Kind == "attachment" {
+			if row.Name == "" || len(row.Name) > 240 || strings.ContainsAny(row.Name, "/\\\x00\r\n") || !hashOK(row.SHA256) {
+				return invalid("invalid chat attachment")
+			}
+		} else if row.Kind != "" || row.Mime != "image/png" || row.Bytes > artifact.MaxBytes || row.Width < 1 || row.Height < 1 || row.Width*row.Height > 16<<20 {
 			return invalid("invalid chat image artifact")
 		}
 		if _, ok := m.Chats[row.ChatID]; !ok {
-			return invalid("image artifact belongs to an unknown conversation")
+			return invalid("artifact belongs to an unknown conversation")
 		}
-		e, ok := m.Entries["artifacts/"+id+".png"]
+		key := "artifacts/" + row.FileName()
+		owned[key] = true
+		e, ok := m.Entries[key]
 		if !ok || e.Kind != "file" || e.Size != int64(row.Bytes) {
-			return invalid("image artifact content is missing")
+			return invalid("artifact content is missing")
 		}
 	}
 	for key := range m.Entries {
-		if strings.HasPrefix(key, "artifacts/") {
-			id := strings.TrimSuffix(strings.TrimPrefix(key, "artifacts/"), ".png")
-			if _, ok := m.Artifacts[id]; !ok {
-				return invalid("unowned image artifact")
-			}
+		if strings.HasPrefix(key, "artifacts/") && !owned[key] {
+			return invalid("unowned chat artifact")
 		}
 	}
 	return nil

@@ -1,6 +1,6 @@
 ---
 title: Attachments
-description: Attach files and images to a turn — by path or inline base64 — through one unified options field.
+description: Send files and images through durable uploads, host paths, or inline image data.
 ---
 
 A turn can carry **attachments**: files or images the agent should see alongside your message. You pass
@@ -8,20 +8,53 @@ them the same way for every agent; the adapter maps them to whatever that agent'
 
 **Images are true vision input.** When an attachment is an image, the model actually *sees* the pixels —
 it doesn't just receive a file path it has to open with a Read tool. Codex feeds images to
-`codex exec -i <file>` natively; Claude delivers them as base64 image content blocks over a stream-json
+`localImage` input through Codex app-server (or `-i` in exec mode); Claude delivers them as base64 image content blocks over a stream-json
 turn. Non-image files are referenced by path instead (the model opens them with its own tools). The
 `imageInput` [capability](/docs/guides/agents) flag reports whether an agent sees images natively — both
 Claude and Codex do.
 
-Each attachment is either a **path** on the daemon host or **inline base64 data** — you supply one or the
-other:
+For mobile, browser, and remote clients, upload once and send the returned reference. Uploads use the
+same authenticated connection as chat, with replayable 384 KiB chunks and a full-file SHA-256 check.
+Files remain with the conversation after the turn ends and travel with project context switching.
+There is no background synchronization or polling while idle.
+
+```ts
+const attachment = await mw.uploadAttachment("demo", {
+  name: "design.png",
+  mime: "image/png",
+  data: new Uint8Array(await file.arrayBuffer()),
+}, { onProgress: fraction => console.log(Math.round(fraction * 100)) });
+
+const run = await mw.turn({
+  chatId: "demo",
+  message: "Implement this design",
+  options: { attachments: [attachment] },
+});
+```
+
+The Go equivalent is `client.UploadAttachment(chatID, name, mime, data)`. REST clients send chunks to
+`PUT /chats/{id}/attachments/{attachmentID}` with `name`, `mime`, `bytes`, `sha256`, `offset`, and base64
+`data`, then send `{ artifactId: attachmentID }` in `options.attachments`. Keep the same upload ID when
+retrying; the response reports the next confirmed `offset` and `complete`. Uploaded files are limited
+to 16 MiB each, eight attachments per turn, and 512 MiB of artifact storage per workspace.
+
+`GET /artifacts/{id}` loads an attachment on demand. History carries references instead of copying
+large file bytes into every message page. Deleting the last conversation that uses an attachment
+removes its saved file; inherited attachments remain available in conversation forks.
+`attachmentUploadVersion: 1` in health advertises this protocol; older services still accept small
+inline images but must be updated for durable file uploads.
+
+An attachment has one source: an uploaded **artifact reference**, a **path** on the daemon host, or
+**inline base64 data**. Ordinary remote files should use uploads so they remain available on resume.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
+| `artifactId` | string | Durable reference returned by `uploadAttachment`. The daemon resolves its saved name, MIME, and path. |
 | `path` | string | A path readable by the daemon. Use when the file already lives where the daemon runs. |
 | `data` | base64 string / `[]byte` | Inline bytes. Use when the client and daemon aren't on the same host. |
 | `mime` | string | Optional MIME type (e.g. `image/png`); helps the agent classify the bytes. |
 | `name` | string | Optional display name. |
+| `bytes` | number | File size returned by an upload, for display without downloading its data. |
 
 Attachments ride on `options.attachments` — one array on the same `turn` call you already make.
 

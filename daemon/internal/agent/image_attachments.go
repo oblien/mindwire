@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -10,12 +11,53 @@ import (
 // ImageAttachmentsVersion advertises image-only turns and durable image history.
 const ImageAttachmentsVersion = 1
 
+// NativeImageMime is the common raster-image input understood by the harnesses.
+// SVGs, PDFs, audio and other files remain ordinary readable attachments.
+func NativeImageMime(at Attachment) string {
+	media := strings.ToLower(strings.TrimSpace(at.Mime))
+	switch media {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return media
+	}
+	for _, name := range []string{at.Name, at.Path} {
+		switch strings.ToLower(filepath.Ext(name)) {
+		case ".png":
+			return "image/png"
+		case ".jpg", ".jpeg":
+			return "image/jpeg"
+		case ".gif":
+			return "image/gif"
+		case ".webp":
+			return "image/webp"
+		}
+	}
+	return ""
+}
+
+func AttachmentReferenceText(attachments []Attachment) string {
+	var refs []string
+	for _, at := range attachments {
+		if at.Path == "" || NativeImageMime(at) != "" {
+			continue
+		}
+		if name := strings.TrimSpace(at.Name); name != "" {
+			refs = append(refs, fmt.Sprintf("- %s (%s)", name, at.Path))
+		} else {
+			refs = append(refs, "- "+at.Path)
+		}
+	}
+	if len(refs) == 0 {
+		return ""
+	}
+	return "\n\nAttached files:\n" + strings.Join(refs, "\n")
+}
+
 func HasUserInput(message string, options TurnOptions) bool {
 	if strings.TrimSpace(message) != "" {
 		return true
 	}
 	for _, attachment := range options.Attachments {
-		if strings.TrimSpace(attachment.Path) != "" || len(attachment.Data) > 0 {
+		if attachment.ArtifactID != "" || strings.TrimSpace(attachment.Path) != "" || len(attachment.Data) > 0 {
 			return true
 		}
 	}
@@ -95,6 +137,14 @@ func ImageFromDataURL(value string) (Attachment, bool) {
 // MergeInputAttachments keeps native input order. Recorded bytes restore previews
 // when a harness persists only a temporary image path which it later deletes.
 func MergeInputAttachments(native, recorded []Attachment) []Attachment {
+	// The native image block may embed megabytes of bytes and omit ordinary files.
+	// A matched recorded turn retains the complete attachment order and small,
+	// durable references; don't replace it with only the native image subset.
+	for _, attachment := range recorded {
+		if attachment.ArtifactID != "" {
+			return recorded
+		}
+	}
 	if len(native) == 0 {
 		return recorded
 	}

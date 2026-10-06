@@ -450,6 +450,92 @@ func TestAsyncQuestionSteerReportsNativeAcknowledgement(t *testing.T) {
 	}
 }
 
+func TestQueuedSteerWaitsForNativeUserItemAfterRPCAcknowledgement(t *testing.T) {
+	clientR, clientW := io.Pipe()
+	serverR, serverW := io.Pipe()
+	defer clientR.Close()
+	defer clientW.Close()
+	defer serverR.Close()
+	defer serverW.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	inbound := make(chan agent.Inbound, 1)
+	ack := make(chan error, 1)
+	input := agent.UserInput{ID: "follow", Text: "Again", Status: "queued"}
+	ready, consume, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var events collector
+	go func() {
+		defer serverW.Close()
+		decoder, encoder := json.NewDecoder(clientR), json.NewEncoder(serverW)
+		var req rpcIn
+		for _, body := range []string{`{}`, ``, `{"thread":{"id":"thread-1"}}`, `{"turn":{"id":"turn-1","status":"inProgress","items":[]}}`} {
+			if decoder.Decode(&req) != nil {
+				return
+			}
+			if body != "" {
+				_ = encoder.Encode(map[string]any{"id": req.ID, "result": json.RawMessage(body)})
+			}
+		}
+		_, _ = io.WriteString(serverW, `{"method":"item/started","params":{"item":{"id":"initial","type":"userMessage","content":[{"type":"text","text":"Again"}]}}}`+"\n")
+		close(ready)
+		if decoder.Decode(&req) != nil {
+			return
+		}
+		_ = encoder.Encode(map[string]any{"id": req.ID, "result": map[string]any{"turnId": "turn-1"}})
+		select {
+		case <-consume:
+		case <-ctx.Done():
+			return
+		}
+		for _, phase := range []string{"started", "completed"} {
+			_ = encoder.Encode(map[string]any{"method": "item/" + phase, "params": map[string]any{
+				"item": map[string]any{"id": "native-follow", "type": "userMessage", "content": []any{map[string]any{"type": "text", "text": "Again"}}},
+			}})
+		}
+		_, _ = io.WriteString(serverW, `{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed","items":[]}}}`+"\n")
+	}()
+	go func() {
+		defer close(finished)
+		(appServer{message: "Again"}).converse(ctx, clientW, serverR, inbound, events.emit)
+	}()
+	select {
+	case <-ready:
+	case <-ctx.Done():
+		t.Fatal("handshake did not complete")
+	}
+	inbound <- agent.Inbound{Kind: "input", Text: input.Text, Input: &input, Ack: ack}
+	select {
+	case err := <-ack:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("steer was not acknowledged")
+	}
+	events.mu.Lock()
+	for _, event := range events.events {
+		if event.Input != nil {
+			t.Error("RPC acknowledgement incorrectly marked input consumed")
+		}
+	}
+	events.mu.Unlock()
+	close(consume)
+	select {
+	case <-finished:
+	case <-ctx.Done():
+		t.Fatal("native turn did not finish")
+	}
+	accepted := 0
+	for _, event := range events.events {
+		if event.Input != nil && event.Input.ID == input.ID && event.Input.Status == "accepted" {
+			accepted++
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("native start/completion echoed %d input boundaries", accepted)
+	}
+}
+
 func TestRichAppServerToolOutputs(t *testing.T) {
 	var events []agent.Event
 	st := newStreamState()

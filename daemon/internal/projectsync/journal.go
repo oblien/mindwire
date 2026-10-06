@@ -127,7 +127,7 @@ func (s *Service) install(ctx context.Context, w Write) error {
 				_, err = raw.Seek(0, 0)
 			}
 			if err == nil {
-				err = remapJSON(raw, f, projectMarker, w.CWD)
+				err = remapJSON(raw, f, projectMarker, w.CWD, [2]string{attachmentMarker, filepath.Join(s.reg.Directory(), "artifacts")})
 			}
 			if err != nil {
 				f.Close()

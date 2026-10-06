@@ -714,6 +714,7 @@ func TestSDKRouteParity(t *testing.T) {
 		"DELETE /chats/{id}":                                     "Client.DeleteChat",
 		"POST /chats/{id}/fork":                                  "Client.ForkChat",
 		"POST /chats/{id}/compact":                               "Client.Compact",
+		"PUT /chats/{id}/attachments/{attachmentID}":             "Client.UploadAttachment / UploadAttachmentChunk",
 		"GET /chats/{id}/messages":                               "Client.Messages",
 		"GET /chats/{id}/run":                                    "Client.LatestRun",
 		"GET /catalog":                                           "Client.Catalog",

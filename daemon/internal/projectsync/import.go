@@ -23,7 +23,7 @@ func (s *Service) recordEntry(ctx context.Context, data session.PortableChat, cw
 		return Entry{}, err
 	}
 	var normalized bytes.Buffer
-	if err = remapJSON(bytes.NewReader(b), &normalized, cwd, projectMarker); err != nil {
+	if err = remapJSON(bytes.NewReader(b), &normalized, cwd, projectMarker, [2]string{filepath.Join(s.reg.Directory(), "artifacts"), attachmentMarker}); err != nil {
 		return Entry{}, err
 	}
 	e, err := s.blob(ctx, &normalized)

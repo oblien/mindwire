@@ -121,6 +121,15 @@ func (t *Transcript) Apply(ev agent.Event) {
 				t.state.Parts = append(t.state.Parts, agent.Part{Type: "interaction", At: ev.At, Interaction: ev.Interaction})
 			}
 		}
+	case agent.EventInput:
+		if ev.Input != nil && ev.Input.Status == "accepted" {
+			key := "input:" + ev.Input.ID
+			if _, exists := t.items[key]; !exists {
+				t.finishThinking(now)
+				t.items[key] = len(t.state.Parts)
+				t.state.Parts = append(t.state.Parts, agent.Part{Type: "user", ID: ev.Input.ID, Input: ev.Input, At: ev.At})
+			}
+		}
 	case agent.EventCompaction:
 		t.finishThinking(now)
 		t.state.Parts = append(t.state.Parts, agent.Part{Type: "compaction", At: ev.At, Compaction: ev.Compaction})
@@ -165,6 +174,11 @@ func (t *Transcript) Apply(ev agent.Event) {
 			t.state.StatusMessage, _ = ev.Meta["message"].(string)
 		}
 	case agent.EventContinuation:
+		if ev.Result != nil {
+			// Some native protocols end one response before consuming queued
+			// input. Preserve result-only text while keeping the run open.
+			t.Apply(agent.Event{Type: agent.EventResult, Result: ev.Result, At: ev.At, Sequence: ev.Sequence})
+		}
 		t.finishThinking(now)
 		t.state.Result = nil
 	}

@@ -31,6 +31,8 @@ type streamEnvelope struct {
 	RequestID string          `json:"request_id"`
 	Request   json.RawMessage `json:"request"`
 	Response  json.RawMessage `json:"response"`
+	UUID      string          `json:"uuid"`
+	IsReplay  bool            `json:"isReplay"`
 	// EstimatedTokens is the CUMULATIVE thinking-token estimate on a `system/thinking_tokens` event
 	// (Claude Code's own "thinking preview" counter). Present even on subscription auth where the
 	// thinking TEXT is withheld, so it's the reliable live progress signal for the thinking block.
@@ -56,6 +58,10 @@ func parseStream(r io.Reader, emit agent.Emit) (agent.TurnResult, bool) {
 }
 
 func parseStreamControlled(r io.Reader, emit agent.Emit, control func(json.RawMessage, agent.Emit)) (agent.TurnResult, bool) {
+	return parseStreamHooks(r, emit, control, nil, nil)
+}
+
+func parseStreamHooks(r io.Reader, emit agent.Emit, control func(json.RawMessage, agent.Emit), user func(streamEnvelope, agent.Emit), resultBoundary func(agent.Event, agent.Emit) bool) (agent.TurnResult, bool) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 1<<20), 16<<20) // assistant messages can be large
 
@@ -152,6 +158,9 @@ func parseStreamControlled(r io.Reader, emit agent.Emit, control func(json.RawMe
 			}
 
 		case "user":
+			if user != nil && env.IsReplay {
+				user(env, emit)
+			}
 			for _, b := range contentBlocks(env.Message) {
 				if b.Type == "tool_result" {
 					if it, ok := interactions[b.ToolUseID]; ok {
@@ -193,7 +202,10 @@ func parseStreamControlled(r io.Reader, emit agent.Emit, control func(json.RawMe
 					TotalTokens:      u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens,
 				}
 			}
-			emit(agent.Event{Type: agent.EventResult, SessionID: sessionID, Result: ri})
+			ev := agent.Event{Type: agent.EventResult, SessionID: sessionID, Result: ri}
+			if resultBoundary == nil || resultBoundary(ev, emit) {
+				emit(ev)
+			}
 
 		case "control_response":
 			if control != nil {

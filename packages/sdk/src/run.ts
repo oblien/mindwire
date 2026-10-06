@@ -1,7 +1,7 @@
 import type { Http } from "./http.js";
 import { readSSE } from "./sse.js";
 import { RunFailedError } from "./errors.js";
-import type { Event, ResultInfo, RespondInput, RunSnapshot, Run as RunData } from "./types.js";
+import type { Attachment, Event, ResultInfo, RespondInput, RunSnapshot, Run as RunData } from "./types.js";
 
 export interface StreamOptions {
   signal?: AbortSignal;
@@ -114,8 +114,8 @@ export class Run {
    * Steer a follow-up message into the running turn without cancelling it. Requires the agent's
    * `input` capability.
    */
-  async sendInput(text: string): Promise<void> {
-    await this.http.request<void>("POST", `/runs/${encodeURIComponent(this.id)}/input`, { body: { text } });
+  async sendInput(text: string, options: { requestId?: string; attachments?: Attachment[] } = {}): Promise<void> {
+    await this.http.request<void>("POST", `/runs/${encodeURIComponent(this.id)}/input`, { body: { text, ...options } });
   }
 
   /**

@@ -6,10 +6,14 @@ import { SurfacesApi } from "./surfaces.js";
 import { ServiceApi } from "./service.js";
 import { ExecutionApi } from "./execution.js";
 import { ComputerApi } from "./computer.js";
+import { executableChecksum } from "./binary-cache.js";
 import { local, type Target, type TargetHandle, type ConnectSpec } from "./target/index.js";
 import type { EnsureEvent } from "./target/host.js";
 import type {
   AgentInfo,
+  Attachment,
+  AttachmentUploadChunk,
+  AttachmentUploadState,
   AuthMethod,
   AuthState,
   AuthStatus,
@@ -324,6 +328,47 @@ export class Mindwire {
     });
   }
 
+  /** Resumable upload over the same connection as chat. Retrying an identical chunk is safe. */
+  uploadAttachmentChunk(chatId: string, id: string, chunk: AttachmentUploadChunk, signal?: AbortSignal): Promise<AttachmentUploadState> {
+    return this.http.request("PUT", `/chats/${encodeURIComponent(chatId)}/attachments/${encodeURIComponent(id)}`, { body: chunk, signal });
+  }
+
+  /** Store a file with its conversation, then pass the returned reference in turn options. */
+  async uploadAttachment(chatId: string, file: { name: string; mime?: string; data: Uint8Array },
+    options: { signal?: AbortSignal; onProgress?: (fraction: number) => void } = {}): Promise<Attachment> {
+    if (file.data.byteLength > 16 * 1024 * 1024) throw new RangeError("Attachments must be at most 16 MiB");
+    const data = new Uint8Array(file.data);
+    const hash = async (bytes: Uint8Array<ArrayBuffer>) => {
+      // Older supported Node runtimes do not expose Web Crypto globally.
+      // Keep the native fallback lazy so browser imports still work.
+      if (!globalThis.crypto?.subtle) return executableChecksum(bytes);
+      const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes));
+      return Array.from(digest, b => b.toString(16).padStart(2, "0")).join("");
+    };
+    const sha256 = await hash(data);
+    const id = (await hash(new TextEncoder().encode(`${chatId}\0${file.name}\0${sha256}`))).slice(0, 32);
+    let offset = 0;
+    for (;;) {
+      options.signal?.throwIfAborted();
+      const end = Math.min(data.length, offset + 384 * 1024);
+      let binary = "";
+      for (let start = offset; start < end; start += 16384) {
+        binary += String.fromCharCode(...data.subarray(start, Math.min(end, start + 16384)));
+      }
+      const state = await this.uploadAttachmentChunk(chatId, id, {
+        name: file.name, mime: file.mime ?? "application/octet-stream", bytes: data.length,
+        sha256, offset, data: btoa(binary),
+      }, options.signal);
+      if (state.id !== id || state.bytes !== data.length || state.offset < end || state.offset > data.length ||
+          (state.complete && state.offset !== data.length) || (!state.complete && state.offset <= offset)) {
+        throw new Error("Invalid attachment upload acknowledgement");
+      }
+      options.onProgress?.(data.length === 0 ? 1 : state.offset / data.length);
+      if (state.complete) return { artifactId: id, name: state.name, mime: state.mime, bytes: state.bytes };
+      offset = state.offset;
+    }
+  }
+
   /**
    * `DELETE /chats/{id}` — a true, irreversible delete: purges ALL of the chat's mindwire
    * bookkeeping and, for every session the chat mapped to, removes that agent's native transcript
@@ -408,6 +453,8 @@ export class Mindwire {
     input: {
       /** Keep this ID when retrying an unacknowledged turn. Requires turnRequestVersion >= 1. */
       requestId?: string;
+      /** Queue native follow-up input when this chat is active. Requires requestId and queuedInputVersion >= 1. */
+      queueIfRunning?: boolean;
       chatId: string;
       message: string;
       cwd?: string;
@@ -419,6 +466,7 @@ export class Mindwire {
   ): Promise<Run> {
     const body: {
       requestId?: string;
+      queueIfRunning?: boolean;
       chatId: string;
       message: string;
       cwd?: string;
@@ -431,6 +479,7 @@ export class Mindwire {
       message: input.message,
     };
     if (input.requestId !== undefined) body.requestId = input.requestId;
+    if (input.queueIfRunning !== undefined) body.queueIfRunning = input.queueIfRunning;
     if (input.cwd !== undefined) body.cwd = input.cwd;
     if (input.options !== undefined) body.options = input.options;
     if (input.mode !== undefined) body.mode = input.mode;

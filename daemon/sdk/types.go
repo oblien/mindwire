@@ -22,6 +22,7 @@ type (
 	// EventType is the kind discriminator on an Event; see the Event* consts. Additive to the wire — a
 	// consumer that doesn't recognize a value should ignore that event.
 	EventType      = agent.EventType
+	UserInput      = agent.UserInput
 	ToolEvent      = agent.ToolEvent
 	ResultInfo     = agent.ResultInfo
 	RunSnapshot    = orchestrator.RunSnapshot
@@ -67,6 +68,7 @@ const (
 	EventResult       = agent.EventResult
 	EventError        = agent.EventError
 	EventStatus       = agent.EventStatus
+	EventInput        = agent.EventInput
 	EventInteraction  = agent.EventInteraction
 	EventCompaction   = agent.EventCompaction
 	EventContinuation = agent.EventContinuation

@@ -323,7 +323,8 @@ func acpRun(ctx context.Context, c *acpClient, in agent.TurnInput, emit agent.Em
 		err error
 	}, 1)
 	go func() {
-		raw, err := c.requestTo(ctx, "session/prompt", map[string]any{"sessionId": sessionID, "prompt": []map[string]string{{"type": "text", "text": in.Message}}})
+		message := in.Message + agent.AttachmentReferenceText(in.Options.Attachments)
+		raw, err := c.requestTo(ctx, "session/prompt", map[string]any{"sessionId": sessionID, "prompt": []map[string]string{{"type": "text", "text": message}}})
 		promptDone <- struct {
 			raw json.RawMessage
 			err error

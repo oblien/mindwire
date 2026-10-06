@@ -46,9 +46,10 @@ func (adapter) Capabilities() agent.Capabilities {
 		ImageInput: true,
 		// User-in-loop: claude answers permission asks (control_response), takes follow-up input, and
 		// interrupts over the stream-json control protocol on the persistent transport.
-		Respond:   true,
-		Input:     true,
-		Interrupt: true,
+		Respond:     true,
+		Input:       true,
+		QueuedInput: true,
+		Interrupt:   true,
 		// Runtime controls share the bidirectional connection. Permission changes
 		// return only after the CLI acknowledges or rejects them.
 		SetModel:          true,
@@ -280,7 +281,7 @@ func buildCommand(in agent.TurnInput, files materialized, tr transport) string {
 	switch tr {
 	case transportPersistent:
 		cli = "claude -p --input-format stream-json" +
-			" --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"
+			" --output-format stream-json --verbose --include-partial-messages --replay-user-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"
 	case transportStreamInput:
 		cli = "claude -p --input-format stream-json" +
 			" --output-format stream-json --verbose --include-partial-messages"

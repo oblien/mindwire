@@ -8,6 +8,91 @@ current action, switch the model or permission mode, or hard-cancel — each gat
 matching capability, so an agent that can't do one rejects it with a `400` rather than dropping it
 silently.
 
+## Send while the agent works
+
+Codex and Claude Code accept another message while a conversation is running. In the mobile app,
+type your follow-up and press **Send**; **Stop** remains beside it. The compact queue above the
+composer shows messages waiting for the harness. Tap it to review them. Messages enter the chat
+when the harness consumes them, and reopening the conversation restores the same queue.
+
+| Harness | Native delivery |
+| --- | --- |
+| Codex | Uses app-server `turn/steer`. Codex decides when the message is consumed during the active turn. |
+| Claude Code | Writes to its stream-json input. Claude consumes the queue at its own boundaries and may combine consecutive messages. |
+
+For a composer, use `queueIfRunning` on the ordinary turn endpoint. Admission is atomic: it queues
+on the current run, or starts a new turn if the previous run finished before the request arrived.
+There is no need to read the run status first. Use a unique `requestId` for each send and reuse it
+with the same payload only when retrying that send.
+
+<ApiTabs>
+
+<Tab value="TypeScript">
+
+```ts
+const requestId = crypto.randomUUID(); // retain this ID if the response is lost
+const run = await mw.turn({
+  chatId: "my-chat",
+  message: "Also check the empty state",
+  requestId,
+  queueIfRunning: true,
+});
+
+// If this is already the run being streamed, keep that subscription.
+console.log(run.id, run.value.inputs);
+```
+
+</Tab>
+
+<Tab value="Go">
+
+```go
+run, err := client.Turn(ctx, mindwire.TurnRequest{
+    ChatID: "my-chat",
+    Message: "Also check the empty state",
+    RequestID: "one-unique-send-id",
+    QueueIfRunning: true,
+})
+```
+
+</Tab>
+
+<Tab value="REST">
+
+```bash
+curl -XPOST 'http://127.0.0.1:8790/turns?agent=codex' \
+  -H 'Content-Type: application/json' \
+  -d '{"chatId":"my-chat","message":"Also check the empty state","requestId":"one-unique-send-id","queueIfRunning":true}'
+```
+
+</Tab>
+
+</ApiTabs>
+
+Discover support through `health.queuedInputVersion >= 1` and `capabilities.queuedInput`.
+Active follow-ups support `options.attachments`, including image-only messages. They keep the
+running turn's model, permissions, and working directory; submit settings changes after it ends.
+Queued input applies to ordinary turns, not global-resolve or compact runs. Up to 16 unconsumed
+messages may wait in one run; a full queue returns `409` without admitting another message.
+
+Each saved input appears in `run.inputs` and emits an `input` event when its state changes:
+
+| State | Meaning |
+| --- | --- |
+| `queued` | Saved by Mindwire and awaiting native consumption. |
+| `accepted` | Consumed by the harness, or admitted as its next turn at the completion boundary. |
+| `failed` | Delivery failed or could not be confirmed. The text and attachments remain available for review. |
+| `cancelled` | Stop ended the run before the pending input was confirmed. |
+
+An accepted input also creates a `user` part in the run snapshot. Render it between the surrounding
+assistant parts. Committed history excludes that active run, so subscribing after the snapshot's
+sequence does not duplicate its messages. The run emits one final `result` after the queue settles.
+
+Retries with the same request ID recover the original run, even after completion or restart.
+Mindwire never automatically resends an input whose native delivery is uncertain. After a stopped
+run or daemon restart, review the conversation before using **Use as Draft** for an unconfirmed
+message. Stop cancels the active work and pending inputs; it does not launch the pending messages.
+
 ## Inject a follow-up — `sendInput`
 
 Steer a message into the running turn without cancelling it (requires the `input` capability).
@@ -18,6 +103,11 @@ Steer a message into the running turn without cancelling it (requires the `input
 
 ```ts
 await run.sendInput("also add a test for the empty case");
+// With a durable receipt (requires queuedInput):
+await run.sendInput("Check this image too", {
+  requestId: crypto.randomUUID(),
+  attachments: [{ name: "screen.png", mime: "image/png", path: "/work/screen.png" }],
+});
 ```
 
 </Tab>
@@ -26,6 +116,10 @@ await run.sendInput("also add a test for the empty case");
 
 ```go
 run.SendInput("also add a test for the empty case")
+run.SendInput("Check this image too", mindwire.InputOptions{
+    RequestID: "another-unique-send-id",
+    Attachments: []mindwire.Attachment{{Path: "/work/screen.png", Mime: "image/png"}},
+})
 ```
 
 </Tab>
@@ -145,5 +239,6 @@ curl -XPOST "http://127.0.0.1:8790/runs/$RUN/cancel"
 
 </ApiTabs>
 
-Each control returns a `404` if no turn is currently accepting input for that run id, and a `400` if
-the agent lacks the capability — discover support with `GET /agent`.
+Controls return a `404` when no turn is accepting new input for that run ID, and a `400` when the
+agent lacks the capability. Retrying an existing queued-input receipt still returns its original
+run. Discover support with `GET /agent`.

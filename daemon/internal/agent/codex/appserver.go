@@ -290,6 +290,56 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	// shared turn state
 	var smu sync.Mutex
 	var threadID, turnID, sessionID string
+	type pendingSteer struct {
+		input agent.Inbound
+		text  string
+	}
+	var steered []pendingSteer
+	seenUserItems := map[string]bool{}
+	initialUserSeen := false
+	consumeInput := func(raw json.RawMessage) {
+		var item asItem
+		if json.Unmarshal(raw, &item) != nil || item.Type != "userMessage" {
+			return
+		}
+		smu.Lock()
+		if seenUserItems[item.ID] {
+			smu.Unlock()
+			return
+		}
+		seenUserItems[item.ID] = true
+		if !initialUserSeen {
+			initialUserSeen = true
+			smu.Unlock()
+			return
+		}
+		var blocks []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		_ = json.Unmarshal(item.Content, &blocks)
+		var text []string
+		for _, block := range blocks {
+			if block.Type == "text" {
+				text = append(text, block.Text)
+			}
+		}
+		body := strings.TrimSpace(strings.Join(text, "\n"))
+		var accepted *agent.Inbound
+		for i, pending := range steered {
+			if strings.TrimSpace(pending.text) == body {
+				copy := pending.input
+				copy.Ack = nil // turn/steer acknowledged acceptance separately
+				accepted = &copy
+				steered = append(steered[:i], steered[i+1:]...)
+				break
+			}
+		}
+		smu.Unlock()
+		if accepted != nil {
+			agent.AcknowledgeInput(*accepted, nil, emit)
+		}
+	}
 	turnReady := make(chan struct{})
 	var turnReadyOnce sync.Once
 	recordTurnID := func(id string) {
@@ -491,6 +541,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 						Item json.RawMessage `json:"item"`
 					}
 					if json.Unmarshal(msg.Params, &p) == nil {
+						consumeInput(p.Item)
 						emitItem(phaseStarted, p.Item, emit, st)
 					}
 				case "item/updated":
@@ -507,6 +558,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 						Item json.RawMessage `json:"item"`
 					}
 					if json.Unmarshal(msg.Params, &p) == nil {
+						consumeInput(p.Item)
 						emitItem(phaseCompleted, p.Item, emit, st)
 						// A contextCompaction item is the compaction boundary (preferred terminal signal for a
 						// compact turn; also emitted when Codex auto-compacts mid-turn). Surface it as
@@ -832,6 +884,12 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	ingressDone := make(chan struct{})
 	go func() {
 		defer close(ingressDone)
+		var inputCleanups []func()
+		defer func() {
+			for _, cleanup := range inputCleanups {
+				cleanup()
+			}
+		}()
 		for {
 			select {
 			case <-ctx.Done():
@@ -877,31 +935,65 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 					}
 				case "input":
 					text := strings.TrimSpace(msg.Text)
-					if text == "" {
-						if msg.Ack != nil {
-							msg.Ack <- errors.New("input is empty")
-						}
+					var attachments []agent.Attachment
+					if msg.Input != nil {
+						attachments = msg.Input.Attachments
+					}
+					if text == "" && len(attachments) == 0 {
+						agent.AcknowledgeInput(msg, errors.New("input is empty"), emit)
 						continue
 					}
 					t, u, ready := awaitTurn()
 					if !ready {
-						if msg.Ack != nil {
-							msg.Ack <- agent.ErrInputClosed
-						}
+						agent.AcknowledgeInput(msg, agent.ErrInputClosed, emit)
 						return
 					}
+					files, suffix, cleanup, err := materialize(agent.TurnInput{Options: agent.TurnOptions{Attachments: attachments}})
+					if err != nil {
+						cleanup()
+						agent.AcknowledgeInput(msg, err, emit)
+						continue
+					}
+					// Codex may read local images after the steer acknowledgement.
+					// Keep their files until the native turn has ended.
+					inputCleanups = append(inputCleanups, cleanup)
+					input := (appServer{message: text + suffix, images: files.imagePaths}).turnParams(t)["input"]
 					params := map[string]any{
 						"threadId":       t,
 						"expectedTurnId": u,
-						"input":          []any{map[string]any{"type": "text", "text": text}},
+						"input":          input,
 					}
 					if msg.Ack != nil {
+						if msg.Input != nil {
+							smu.Lock()
+							steered = append(steered, pendingSteer{input: msg, text: text + suffix})
+							smu.Unlock()
+						}
 						// A question stays pending until Codex acknowledges the native steer.
 						response, err := call("turn/steer", params)
 						if err == nil {
 							_, err = await(response)
 						}
-						msg.Ack <- err
+						// Only an explicit native rejection proves it is safe to
+						// continue in a new turn. A lost RPC response is ambiguous.
+						if err != nil && strings.Contains(strings.ToLower(err.Error()), "no active turn") {
+							err = agent.ErrInputClosed
+						}
+						if err == nil {
+							// RPC acceptance means queued. Only the native user item
+							// places the message into the streamed conversation.
+							msg.Ack <- nil
+						} else {
+							smu.Lock()
+							for i, pending := range steered {
+								if pending.input.Ack == msg.Ack {
+									steered = append(steered[:i], steered[i+1:]...)
+									break
+								}
+							}
+							smu.Unlock()
+							agent.AcknowledgeInput(msg, err, emit)
+						}
 					} else if err := sendRequest("turn/steer", params); err != nil {
 						emit(agent.Event{Type: agent.EventError, Error: "Could not send Codex input: " + err.Error()})
 					}

@@ -13,6 +13,7 @@ const (
 	EventResult       EventType = "result"      // turn finished; Result has the final summary
 	EventError        EventType = "error"
 	EventStatus       EventType = "status"       // generic status (retry, queued, …) in Meta
+	EventInput        EventType = "input"        // durable follow-up queued/accepted/failed
 	EventInteraction  EventType = "interaction"  // structured agent-defined prompt/feedback (todos, approval, …)
 	EventCompaction   EventType = "compaction"   // the conversation was compacted; Compaction has trigger + token counts
 	EventContinuation EventType = "continuation" // resolve-mode iteration boundary; Continuation has the iteration + reason
@@ -103,6 +104,7 @@ type Event struct {
 	Interaction  *Interaction      `json:"interaction,omitempty"`
 	Compaction   *CompactionInfo   `json:"compaction,omitempty"`   // populated on EventCompaction
 	Continuation *ContinuationInfo `json:"continuation,omitempty"` // populated on EventContinuation (resolve mode)
+	Input        *UserInput        `json:"input,omitempty"`
 	Error        string            `json:"error,omitempty"`
 	Meta         map[string]any    `json:"meta,omitempty"`
 	At           string            `json:"at,omitempty"`

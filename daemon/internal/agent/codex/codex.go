@@ -52,6 +52,7 @@ func (adapter) Capabilities() agent.Capabilities {
 		// model/permission switches stay off (their routes 400).
 		Respond:           true,
 		Input:             true,
+		QueuedInput:       true,
 		Interrupt:         true,
 		SetModel:          false,
 		SetPermissionMode: false,
@@ -519,18 +520,7 @@ func materialize(in agent.TurnInput) (files materialized, msgAppend string, clea
 }
 
 // isImage reports whether an attachment should be passed as a Codex `-i` image (by mime or extension).
-func isImage(at agent.Attachment) bool {
-	if strings.HasPrefix(strings.ToLower(at.Mime), "image/") {
-		return true
-	}
-	for _, name := range []string{at.Path, at.Name} {
-		switch strings.ToLower(filepath.Ext(name)) {
-		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg":
-			return true
-		}
-	}
-	return false
-}
+func isImage(at agent.Attachment) bool { return agent.NativeImageMime(at) != "" }
 
 // RunStream uses app-server for every chat turn, including autonomous approvalPolicy=never turns.
 // exec --json is retained for callers without an inbound channel; it may emit only completed blocks.

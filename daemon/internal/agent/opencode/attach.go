@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
@@ -17,49 +16,15 @@ import (
 // appended to the message text (the same posture codex/claude take for non-images). This is what makes
 // Capabilities.ImageInput honest: the bytes reach the model, not just a path it must open.
 
-// imageExts mirrors codex's isImage extension set: an attachment with no image mime is still treated as
-// an image when its name/path carries one of these extensions.
-var imageExts = map[string]bool{
-	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".bmp": true, ".svg": true,
-}
-
-// attachName is the best available name for extension/mime inference: the display name, else the path.
-func attachName(at agent.Attachment) string {
-	if at.Name != "" {
-		return at.Name
-	}
-	return at.Path
-}
-
-// isImageAttachment reports whether an attachment should ride the vision `file` part (image mime, or a
-// known image extension when the mime is absent).
+// Raster images use vision. Documents and vectors stay readable file inputs.
 func isImageAttachment(at agent.Attachment) bool {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(at.Mime)), "image/") {
-		return true
-	}
-	return imageExts[strings.ToLower(filepath.Ext(attachName(at)))]
+	return agent.NativeImageMime(at) != ""
 }
 
 // imageMime resolves the MIME to stamp into the data: URL — the declared mime, else inferred from the
 // extension, else a safe image/* default so the part is always well-formed.
 func imageMime(at agent.Attachment) string {
-	if m := strings.TrimSpace(at.Mime); m != "" {
-		return m
-	}
-	switch strings.ToLower(filepath.Ext(attachName(at))) {
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".gif":
-		return "image/gif"
-	case ".webp":
-		return "image/webp"
-	case ".bmp":
-		return "image/bmp"
-	case ".svg":
-		return "image/svg+xml"
-	default:
-		return "image/png"
-	}
+	return agent.NativeImageMime(at)
 }
 
 // resolveAttachments converts attachments into extra prompt parts plus a message suffix. Images become

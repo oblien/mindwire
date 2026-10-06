@@ -57,6 +57,9 @@ type Turn struct {
 	Inbound <-chan agent.Inbound
 	// Register requests before publishing them, so a fast client can answer immediately.
 	BeforePublish agent.Emit
+	// The supervisor commits completion only after settling follow-up receipts.
+	// Native result events still reach the driver/parser and the local reducer.
+	DeferResult bool
 }
 
 // RunTurn executes one turn, streaming unified events to the hub under t.RunID and persisting the
@@ -186,7 +189,9 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 		}
 		agent.NormalizeSurfaceTool(ev.Tool)
 		transcript.Apply(ev)
-		r.hub.Publish(runID, ev)
+		if !t.DeferResult || ev.Type != agent.EventResult {
+			r.hub.Publish(runID, ev)
+		}
 	}
 
 	if t.AttachEmitter != nil {

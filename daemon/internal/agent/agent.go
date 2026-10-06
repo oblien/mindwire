@@ -64,6 +64,9 @@ type Inbound struct {
 	// writing to stdin is not acceptance. ErrInputClosed means no input was submitted.
 	Ack       chan error `json:"-"`
 	ControlID string     `json:"-"`
+	// Input is a durable follow-up receipt. Adapters acknowledge it only after
+	// their native protocol accepts the message, using AcknowledgeInput.
+	Input *UserInput `json:"-"`
 	// Meta is the adapter's own correlators, copied verbatim from the interaction's Meta by the
 	// supervisor and handed back so the adapter can encode the native response without server state
 	// (e.g. respondVia, toolUseId).
@@ -117,10 +120,12 @@ type TurnOptions struct {
 // Inline bytes are base64 on the wire and retained in user history so a temporary
 // materialized file can be removed without losing the client's image preview.
 type Attachment struct {
-	Name string `json:"name,omitempty"` // display/file name (shown to the agent when referenced)
-	Path string `json:"path,omitempty"` // absolute path already on disk (preferred)
-	Mime string `json:"mime,omitempty"`
-	Data []byte `json:"data,omitempty"` // inline bytes (base64 on the wire); written to a file, then referenced
+	ArtifactID string `json:"artifactId,omitempty"` // durable upload in this conversation
+	Bytes      int    `json:"bytes,omitempty"`
+	Name       string `json:"name,omitempty"` // display/file name (shown to the agent when referenced)
+	Path       string `json:"path,omitempty"` // absolute path already on disk (preferred)
+	Mime       string `json:"mime,omitempty"`
+	Data       []byte `json:"data,omitempty"` // inline bytes (base64 on the wire); written to a file, then referenced
 }
 
 // TurnResult is the final outcome of a turn (the stream carries the detail).
@@ -163,6 +168,7 @@ type Part struct {
 	Tool        *ToolPart       `json:"tool,omitempty"`
 	Interaction *Interaction    `json:"interaction,omitempty"` // structured prompt (todos / plan / choice / …)
 	Compaction  *CompactionInfo `json:"compaction,omitempty"`  // set on a "compaction" part (a conversation boundary)
+	Input       *UserInput      `json:"input,omitempty"`       // accepted follow-up boundary within a live run
 	At          string          `json:"at,omitempty"`
 }
 

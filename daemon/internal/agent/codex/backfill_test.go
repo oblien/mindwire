@@ -69,8 +69,8 @@ func TestHistoryResolvesRollout(t *testing.T) {
 	}
 }
 
-// isImage classifies an attachment as a Codex `-i` image by mime prefix or by extension (on either the
-// path or the name), and treats everything else as a non-image reference.
+// Only Codex's supported raster formats use native vision; document/vector formats
+// stay file references for the CLI's tools to read.
 func TestIsImage(t *testing.T) {
 	cases := []struct {
 		name string
@@ -80,7 +80,8 @@ func TestIsImage(t *testing.T) {
 		{"mime prefix", agent.Attachment{Mime: "image/png"}, true},
 		{"mime uppercased", agent.Attachment{Mime: "IMAGE/JPEG"}, true},
 		{"png by path", agent.Attachment{Path: "/tmp/shot.PNG"}, true},
-		{"svg by name", agent.Attachment{Name: "diagram.svg"}, true},
+		{"svg stays a file", agent.Attachment{Name: "diagram.svg"}, false},
+		{"svg mime stays a file", agent.Attachment{Mime: "image/svg+xml"}, false},
 		{"webp by path", agent.Attachment{Path: "/x/y.webp"}, true},
 		{"text file", agent.Attachment{Name: "notes.txt", Mime: "text/plain"}, false},
 		{"no signal", agent.Attachment{}, false},
