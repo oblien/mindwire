@@ -151,6 +151,7 @@ func (v *CredView) All() map[string]string {
 
 // Supervisor hosts all agents and supervises their turns for one sandbox.
 type Supervisor struct {
+	authSource  *agent.AuthSource
 	prepareGit  GitPreparation
 	store       *session.Store
 	hub         *stream.Hub
@@ -176,6 +177,7 @@ type Supervisor struct {
 	// capability); pending records the run's respondable interactions so Respond can echo their
 	// adapter correlators (Interaction.Meta) back on the Inbound without the adapter keeping state.
 	inputs             map[string]chan agent.Inbound
+	voices             map[string]*agent.VoiceBridge
 	inputQueues        map[string]*runInputQueue
 	pending            map[string]map[string]agent.Interaction // runId -> interactionId -> interaction
 	answering          map[string]bool
@@ -206,6 +208,7 @@ func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, d
 		active: map[string]string{}, cancels: map[string]context.CancelFunc{},
 		activeAgents: map[string]int{}, authChanging: map[string]bool{}, setup: setup.NewTracker(), toolchain: toolchain.New(agent.Version),
 		inputs: map[string]chan agent.Inbound{}, pending: map[string]map[string]agent.Interaction{},
+		voices:      map[string]*agent.VoiceBridge{},
 		inputQueues: map[string]*runInputQueue{},
 		answering:   map[string]bool{}, runClosed: map[string]chan struct{}{},
 	}
@@ -216,6 +219,7 @@ func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, d
 	for _, ad := range agent.All() {
 		creds := newCredView(store, ad.ID())
 		au := agent.ManageAuth(ad.Auth(creds), creds)
+		au.SetAuthSource(s.authSource)
 		s.agents[ad.ID()] = &Agent{
 			Adapter: ad, Auth: au, Creds: creds,
 			Runner: runner.New(store, ad, au, creds, hub, cwd),
@@ -297,6 +301,12 @@ func (s *Supervisor) StartResolve(a *Agent, req StartTurnInput, ro ResolveOption
 }
 
 func (s *Supervisor) StartResolveChecked(a *Agent, req StartTurnInput, ro ResolveOptions) (session.Run, error) {
+	if req.Options.Command != nil {
+		return session.Run{}, errors.New("Run native commands as an ordinary turn, not a resolve loop.")
+	}
+	if req.Options.Voice != nil {
+		return session.Run{}, errors.New("Start live voice as a conversation, not an unattended resolve run.")
+	}
 	if err := s.checkSoftware(a); err != nil {
 		return session.Run{}, err
 	}
@@ -367,6 +377,23 @@ func (s *Supervisor) start(a *Agent, req StartTurnInput, compact bool) (session.
 }
 
 func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (session.Run, error) {
+	if req.Options.Command != nil && (req.QueueIfRunning || compact) {
+		return session.Run{}, errors.New("Wait for the current turn to finish before running a command.")
+	}
+	if req.Options.Command != nil {
+		if message, ok := agent.UnsupportedTurnOption(a.Capabilities(), req.Options); !ok {
+			return session.Run{}, errors.New(message)
+		}
+		req.Message = req.Options.Command.Text()
+	}
+	if req.Options.Voice != nil {
+		if msg, ok := agent.UnsupportedTurnOption(a.Capabilities(), req.Options); !ok {
+			return session.Run{}, errors.New(msg)
+		}
+		if compact || req.QueueIfRunning || strings.TrimSpace(req.Message) != "" {
+			return session.Run{}, errors.New("Start live voice separately from queued or typed messages.")
+		}
+	}
 	if req.QueueIfRunning && req.RequestID == "" {
 		return session.Run{}, ErrInvalidTurnRequest
 	}
@@ -385,6 +412,14 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 		if s.serviceUpdatingLocked() {
 			s.mu.Unlock()
 			return session.Run{}, ErrServiceUpdating
+		}
+		if req.Options.Voice != nil {
+			for id, voice := range s.voices {
+				if existing, ok := s.store.GetRun(id); ok && existing.Agent == a.ID() && voice.InputOpen() {
+					s.mu.Unlock()
+					return session.Run{}, errors.New("End the other voice conversation before starting one here.")
+				}
+			}
 		}
 		// The store can expose completion a moment before process/ingress teardown.
 		// A fresh send waits for that exact run, instead of returning a spurious busy error.
@@ -439,8 +474,11 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 		}
 		req.GitAuth = nil
 		run := session.Run{ID: newID(), ChatID: req.ChatID, Agent: a.ID(), Status: "running", CreatedAt: nowISO()}
+		if req.Options.Voice != nil {
+			run.Kind = "voice"
+		}
 		if req.reply != nil {
-			message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments}
+			message := session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments, Command: req.Options.Command}
 			if err := s.store.CommitInteractionReply(*req.reply, run.ID, message, &run); err != nil {
 				req.closeGit()
 				cancel()
@@ -449,8 +487,8 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 			}
 		} else {
 			var message *session.Message
-			if !compact {
-				message = &session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments}
+			if !compact && req.Options.Voice == nil {
+				message = &session.Message{ID: newID(), ChatID: req.ChatID, Role: "user", Text: req.Message, CreatedAt: nowISO(), Attachments: req.Options.Attachments, Command: req.Options.Command}
 			}
 			if err := s.store.SaveTurnStart(run, message, req.RequestID, digest); err != nil {
 				req.closeGit()
@@ -465,6 +503,9 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 		// cancels immediately after POST /turns can't race an unregistered run into a 404.
 		s.cancels[run.ID] = cancel
 		s.runClosed[run.ID] = make(chan struct{})
+		if req.Options.Voice != nil {
+			s.voices[run.ID] = agent.NewVoiceBridge(req.Options.Voice.ClientID)
+		}
 		// Same anti-race for user-in-loop: if the agent can take ingress (respond/input/interrupt),
 		// register its inbound channel + pending map now, so a client that answers an interaction
 		// immediately can't race an unallocated channel into a 404. A compaction takes no ingress, so
@@ -723,6 +764,10 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 		// (or close) a channel a caller still holds — no send-on-closed race. Closing wakes the driver's
 		// writer if it is still selecting (it has usually already exited via the turn's terminal result).
 		s.closeRunIngressLocked(run.ID)
+		if voice := s.voices[run.ID]; voice != nil {
+			voice.Close()
+			delete(s.voices, run.ID)
+		}
 		delete(s.inputQueues, run.ID)
 		delete(s.pending, run.ID)
 		if closed := s.runClosed[run.ID]; closed != nil {
@@ -763,7 +808,7 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 		Inbound:     inbound,
 		DeferResult: deferResult,
 		BeforePublish: func(ev agent.Event) {
-			if ev.Type == agent.EventInput && ev.Input != nil {
+			if ev.Type == agent.EventInput && ev.Input != nil && ev.Meta["nativeVoice"] != true {
 				if err := s.store.UpdateRunInput(run.ID, *ev.Input); err != nil {
 					log.Printf("save native input acknowledgement: %v", err)
 				}
@@ -789,6 +834,9 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 			}
 		},
 	}
+	s.mu.Lock()
+	turn.Voice = s.voices[run.ID]
+	s.mu.Unlock()
 	var res agent.TurnResult
 	var parts []agent.Part
 	if compact {

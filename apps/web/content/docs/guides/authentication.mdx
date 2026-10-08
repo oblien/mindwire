@@ -57,6 +57,63 @@ curl -s "http://127.0.0.1:8790/auth/methods?agent=claude-code" | jq '.[] | {id, 
 
 </ApiTabs>
 
+## Reuse a computer's native connection
+
+The default local daemon uses the computer's existing agent configuration. An
+embedded application can instead supply a private environment and reuse the host
+connection through the same authentication API:
+
+```ts
+const mw = new Mindwire({
+  agent: "codex",
+  target: local({
+    cwd: privateWorkDirectory,
+    statePath: privateStateFile,
+    environment: privateEnvironment,
+    authSource: "host",
+    shared: false,
+  }),
+});
+// First use discovers and verifies the saved connection automatically.
+const status = await mw.auth.status();
+// A direct mw.turn() also prepares the connection before selecting its model.
+// If status.configured is false, render the native auth methods for sign-in.
+// When the application closes this profile:
+await mw.close();
+```
+
+`environment` replaces the daemon's inherited environment. `authSource` supplies
+credential discovery separately; it may also be `{ home, environment }` for a
+native host that already knows the account location. Reuse is automatic on first
+setup by default. Set `reuse: "manual"` on that object to require an explicit
+`auth.begin(method.id)` selection. The Go SDK offers the same
+capability through `Options.AuthSource`. This is trusted startup configuration,
+not an HTTP argument or a model tool.
+
+The daemon's Codex and Claude adapters own discovery and import. Codex recognizes
+its selected provider/profile, model, bearer token or named environment key, and
+saved account records. Claude recognizes its saved account record. Matching macOS
+keychain entries are discovered without reading their secret until the connection
+is reused. Listing methods alone is metadata-only; the first status read or turn
+performs automatic reuse when enabled.
+Only the chosen connection crosses profiles; native tools, hooks, MCP servers,
+permissions, unrelated providers, and history are not imported. Destination-owned
+tools and policies remain intact. Failed native verification rolls back the private
+connection; the source is never modified. An existing account choice is never
+replaced, and explicit sign-out remains authoritative across daemon restarts.
+After sign-out or a failed automatic import, the client can offer the method with
+`existing` metadata and call `auth.begin(method.id)` for an explicit retry. A missing
+host login can be discovered later, but a failed import is not repeated on every
+poll. Subsequent turns do not repeat native status commands once initialized.
+
+`AuthMethod.existing` is display metadata, not proof that credentials are still
+valid. Native account checks and field/provider credential presence have the same
+semantics as `auth.status()`; discovery does not send a model inference request.
+Clients should render the offered methods and their fields rather than inspect
+native config files or maintain provider-specific sign-in branches. A daemon must
+report `health.nativeAuthSource` for this startup option; the SDK rejects older
+binaries before using it.
+
 ## Non-interactive: API key
 
 Begin the method, then submit the fields it asked for.

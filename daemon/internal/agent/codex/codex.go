@@ -44,9 +44,14 @@ func (adapter) Capabilities() agent.Capabilities {
 		Persistent: true,
 		// Native model/list supplies supported models and their reasoning levels.
 		// Private deployments retain explicit names and manual entry (models.go).
-		Models: true,
+		Models:   true,
+		Commands: true,
 		// Codex feeds image attachments to `codex exec -i <file>` natively, so the model sees the image.
 		ImageInput: true,
+		// Verified localAudio input in the supported 0.155.0 and current 0.160.1 schemas.
+		AudioInput: true,
+		Voice: &agent.VoiceCapability{Mode: "conversation", Support: agent.SupportNative, Remote: true,
+			Detail: "Native Codex voice uses its voice backend and the conversation's coding model."},
 		// User-in-loop over the app-server transport: answer approvals (respond), steer mid-turn (input),
 		// and interrupt. Native thread/settings/update only affects subsequent turns, so live
 		// model/permission switches stay off (their routes 400).
@@ -321,9 +326,11 @@ func sandbox(in agent.TurnInput) string {
 // materialized holds per-turn temp-file paths and resolved attachment references the adapter creates
 // in RunStream. Passing resolved paths keeps buildExecCommand pure/side-effect-free and unit-testable.
 type materialized struct {
-	outputSchemaPath string   // --output-schema <path> (from Options.OutputSchema)
-	imagePaths       []string // -i <path> per image attachment
-	configProfile    string   // -p <profile>: per-run config overlay carrying systemPrompt/mcpServers
+	outputSchemaPath string             // --output-schema <path> (from Options.OutputSchema)
+	imagePaths       []string           // -i <path> per image attachment
+	audioAttachments []agent.Attachment // native app-server localAudio input, or files for text-only models
+	fileAttachments  []agent.Attachment // all non-image files, in the user's original order
+	configProfile    string             // -p <profile>: per-run config overlay carrying systemPrompt/mcpServers
 	systemPrompt     string
 	mcpServers       map[string]codexMCPServer
 }
@@ -492,11 +499,14 @@ func materialize(in agent.TurnInput) (files materialized, msgAppend string, clea
 		}
 	}
 
-	var refs []string
 	for i, at := range opts.Attachments {
 		path := at.Path
 		if path == "" && len(at.Data) > 0 {
-			p, e := tmp.Write("mindwire-codex-attachment-*", at.Data)
+			pattern := "mindwire-codex-attachment-*"
+			if extension := nativeAudioExtension(at); extension != "" {
+				pattern = "mindwire-codex-audio-*" + extension
+			}
+			p, e := tmp.Write(pattern, at.Data)
 			if e != nil {
 				return files, "", cleanup, fmt.Errorf("write attachment %d: %w", i, e)
 			}
@@ -507,15 +517,15 @@ func materialize(in agent.TurnInput) (files materialized, msgAppend string, clea
 		}
 		if isImage(at) {
 			files.imagePaths = append(files.imagePaths, path) // -i understands images natively
-		} else if name := strings.TrimSpace(at.Name); name != "" {
-			refs = append(refs, fmt.Sprintf("- %s (%s)", name, path))
 		} else {
-			refs = append(refs, "- "+path)
+			at.Path, at.Data = path, nil
+			files.fileAttachments = append(files.fileAttachments, at)
+			if nativeAudioExtension(at) != "" {
+				files.audioAttachments = append(files.audioAttachments, at)
+			}
 		}
 	}
-	if len(refs) > 0 {
-		msgAppend = "\n\nAttached files:\n" + strings.Join(refs, "\n")
-	}
+	msgAppend = agent.AttachmentReferenceText(files.fileAttachments)
 	return files, msgAppend, cleanup, nil
 }
 
@@ -531,11 +541,10 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 		emit(agent.Event{Type: agent.EventError, Error: err.Error()})
 		return agent.TurnResult{Text: err.Error(), IsError: true}, nil
 	}
-	in.Message += msgAppend // path-reference non-image attachments so the CLI can open them
-
-	if in.Inbound != nil || in.Options.ForkOnResume {
+	if in.Inbound != nil || in.Command != nil || in.Options.ForkOnResume || len(files.audioAttachments) > 0 || in.Options.Voice != nil {
 		return newAppServer(in, files).Run(ctx, in, emit)
 	}
+	in.Message += msgAppend // exec has no native audio input; keep one ordered file-reference block
 
 	env := map[string]string{}
 	for k, v := range in.Env {

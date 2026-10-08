@@ -35,3 +35,28 @@ func TestUserImageBlocksAndRecordedTemporaryFiles(t *testing.T) {
 		t.Fatal("Image bytes shared across history cache readers")
 	}
 }
+
+func TestNativeAudioHistoryKeepsMediaOrderWithoutFetchingURLs(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"type":"input_audio","audio_url":"data:audio/mp4;base64,AQID"},
+		{"type":"input_image","image_url":"data:image/png;base64,BAUG"},
+		{"type":"localAudio","path":"/private/voice.wav"},
+		{"type":"audio","url":"https://example.invalid/voice.m4a"},
+		{"type":"input_audio","audio_url":"data:image/png;base64,AQID"},
+		{"type":"input_audio","audio_url":"data:audio/mp4;base64,not-base64"},
+		{"type":"text","text":"data:audio/mp4;base64,AQID"}
+	]`)
+	attachments := InputAttachmentsFromContent(raw)
+	if len(attachments) != 3 || attachments[0].Mime != "audio/mp4" || !bytes.Equal(attachments[0].Data, []byte{1, 2, 3}) ||
+		attachments[1].Mime != "image/png" || attachments[2].Name != "voice.wav" || len(attachments[2].Data) != 0 {
+		t.Fatalf("lost mixed input order or interpreted an unsupported block: %+v", attachments)
+	}
+	if images := ImagesFromContent(raw); len(images) != 1 || images[0].Mime != "image/png" {
+		t.Fatal("image-only readers started interpreting audio")
+	}
+	recorded := []Attachment{{ArtifactID: "saved", Name: "Voice.m4a", Mime: "audio/mp4", Bytes: 3}}
+	merged := MergeInputAttachments(attachments[:1], recorded)
+	if len(merged) != 1 || merged[0].ArtifactID != "saved" || len(merged[0].Data) != 0 {
+		t.Fatal("durable audio reference replaced by embedded native bytes")
+	}
+}

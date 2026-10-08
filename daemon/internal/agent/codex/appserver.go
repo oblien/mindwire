@@ -25,6 +25,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +34,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/proc"
@@ -77,8 +79,14 @@ type appServer struct {
 	config         map[string]any
 	instructions   string
 	images         []string
+	audio          []agent.Attachment
+	files          []agent.Attachment
+	nativeAudio    bool
 	outputSchema   json.RawMessage
 	continueLatest bool
+	voice          *agent.VoiceBridge
+	voiceOptions   *agent.VoiceOptions
+	skill          *agent.Command
 }
 
 // Run spawns the app-server process, drives one turn over its stdio, and returns the terminal result.
@@ -118,7 +126,7 @@ func (a appServer) Run(ctx context.Context, in agent.TurnInput, emit agent.Emit)
 	// A rejected resume (for example, a thread owned by another Codex client) can
 	// leave app-server alive after EOF. This process belongs only to this turn;
 	// reap it before waiting so the run always becomes terminal and Stop stays usable.
-	if !got || result.IsError || result.Cancelled || ctx.Err() != nil {
+	if a.voice != nil || !got || result.IsError || result.Cancelled || ctx.Err() != nil {
 		stopCommand()
 	}
 	werr := cmd.Wait()
@@ -290,6 +298,8 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	// shared turn state
 	var smu sync.Mutex
 	var threadID, turnID, sessionID string
+	voiceOpen := a.voice != nil
+	var lastVoiceResult agent.TurnResult
 	type pendingSteer struct {
 		input agent.Inbound
 		text  string
@@ -413,6 +423,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		st := newStreamState()
 		st.cwd = a.cwd
 		st.compactTrigger = compactTrigger
+		completedVoiceTurns := map[string]bool{}
 		// Both notifications and any terminal start response are reconciled on this reader.
 		// It is the sole owner of item state, so final snapshots cannot race streaming deltas.
 		completeTurn := func(raw json.RawMessage) {
@@ -428,6 +439,12 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 			smu.Unlock()
 			if !terminalStatus(te.Turn.Status) {
 				return
+			}
+			if a.voice != nil && completedVoiceTurns[te.Turn.ID] {
+				return
+			}
+			if a.voice != nil {
+				completedVoiceTurns[te.Turn.ID] = true
 			}
 			st.interrupted = te.Turn.Status == "interrupted"
 			for _, item := range te.Turn.Items {
@@ -448,8 +465,45 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 					text = "Conversation compacted."
 				}
 			}
+			outcome := agent.TurnResult{Text: text, SessionID: sid, IsError: isErr, Cancelled: st.interrupted}
+			smu.Lock()
+			keepVoice := voiceOpen
+			if keepVoice {
+				lastVoiceResult = outcome
+				turnID = ""
+			}
+			smu.Unlock()
+			if keepVoice {
+				emit(agent.Event{Type: agent.EventContinuation, Result: &agent.ResultInfo{Text: text, SessionID: sid, IsError: isErr},
+					Continuation: &agent.ContinuationInfo{Reason: "voice"}})
+				st = newStreamState()
+				st.cwd, st.compactTrigger = a.cwd, compactTrigger
+				lastError = ""
+				return
+			}
 			terminated = true
-			emitTerminal(agent.TurnResult{Text: text, SessionID: sid, IsError: isErr, Cancelled: st.interrupted}, tokenMeta())
+			emitTerminal(outcome, tokenMeta())
+		}
+		finishVoice := func(failure string) {
+			smu.Lock()
+			voiceOpen = false
+			active, sid, outcome := turnID != "", sessionID, lastVoiceResult
+			smu.Unlock()
+			if !active {
+				outcome.SessionID = sid
+				if failure != "" {
+					outcome.Text, outcome.IsError = failure, true
+				}
+				terminated = true
+				emitTerminal(outcome, tokenMeta())
+			}
+		}
+		voiceCanonical := false
+		voiceTextSequence := 0
+		voiceSegments := map[string]bool{}
+		voiceTranscriptPrefix := ""
+		if a.voice != nil {
+			voiceTranscriptPrefix = rand.Text() + ":"
 		}
 		for sc.Scan() {
 			if terminated {
@@ -506,6 +560,43 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 				wrongTurn := route.TurnID != "" && turnID != "" && route.TurnID != turnID
 				smu.Unlock()
 				if wrongThread || wrongTurn {
+					continue
+				}
+				if a.voice != nil && strings.HasPrefix(msg.Method, "thread/realtime/") {
+					if msg.Method == "thread/realtime/started" {
+						var started struct {
+							Version string `json:"version"`
+						}
+						_ = json.Unmarshal(msg.Params, &started)
+						voiceCanonical = started.Version == "v3"
+					}
+					if event, ok := nativeVoiceEvent(msg.Method, msg.Params); ok {
+						a.voice.Publish(event)
+						if event.Type == "transcript" && event.Final && (event.ItemID != "" || !voiceCanonical) && event.Text != "" {
+							if event.ItemID != "" && voiceSegments[event.ItemID] {
+								continue
+							}
+							if event.ItemID != "" {
+								voiceSegments[event.ItemID] = true
+							}
+							voiceTextSequence++
+							id := "voice:" + agent.FirstNonEmpty(event.ItemID, voiceTranscriptPrefix+strconv.Itoa(voiceTextSequence))
+							if event.Role == "user" {
+								emit(agent.Event{Type: agent.EventInput, Meta: map[string]any{"nativeVoice": true},
+									Input: &agent.UserInput{ID: id, Text: event.Text, Status: "accepted", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}})
+							} else if event.Role == "assistant" {
+								emit(agent.Event{Type: agent.EventText, ItemID: id, Text: event.Text})
+							}
+						}
+						if event.Type == "error" {
+							a.voice.EndInput()
+							finishVoice(event.Text)
+						}
+						if event.Type == "closed" {
+							a.voice.EndInput()
+							finishVoice("")
+						}
+					}
 					continue
 				}
 				switch msg.Method {
@@ -676,6 +767,10 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 				delete(pending, string(msg.ID))
 				delete(pendingMethods, string(msg.ID))
 				idmu.Unlock()
+				if a.voice != nil && method == "thread/realtime/stop" && !terminated {
+					a.voice.Publish(agent.VoiceEvent{Type: "closed"})
+					finishVoice("")
+				}
 				if !terminated && (method == "turn/start" || method == "thread/compact/start") {
 					if msg.Error != nil {
 						smu.Lock()
@@ -706,11 +801,13 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		closeDone() // stdout ended → nothing more will arrive
 	}()
 
-	await := func(ch chan pendingResp) (json.RawMessage, error) {
+	awaitWithContext := func(waitCtx context.Context, ch chan pendingResp) (json.RawMessage, error) {
 		var resp pendingResp
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
+		case <-waitCtx.Done():
+			return nil, waitCtx.Err()
 		case <-done:
 			// A server may send its rejection and close stdout immediately. Drain the queued
 			// response before reporting EOF, otherwise the actionable RPC error is lost.
@@ -732,6 +829,45 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		}
 		return resp.result, nil
 	}
+	await := func(ch chan pendingResp) (json.RawMessage, error) { return awaitWithContext(ctx, ch) }
+	awaitVoice := func(ch chan pendingResp) (json.RawMessage, error) {
+		waitCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		return awaitWithContext(waitCtx, ch)
+	}
+	// Bound only voice startup. Once the native session accepts audio, its coding
+	// work keeps the ordinary long-lived run context, even after media stops.
+	startupCtx := ctx
+	finishStartup := func() {}
+	if a.voice != nil {
+		var cancel context.CancelFunc
+		startupCtx, cancel = context.WithTimeout(ctx, 25*time.Second)
+		finished := make(chan struct{})
+		var once sync.Once
+		finishStartup = func() { once.Do(func() { close(finished); cancel() }) }
+		defer finishStartup()
+		go func() {
+			select {
+			case <-a.voice.Stop:
+				cancel()
+			case <-finished:
+			case <-ctx.Done():
+			}
+		}()
+	}
+	awaitStartup := func(ch chan pendingResp) (json.RawMessage, error) {
+		data, err := awaitWithContext(startupCtx, ch)
+		if err != nil && a.voice != nil && !a.voice.InputOpen() {
+			return nil, agent.ErrVoiceClosed
+		}
+		return data, err
+	}
+	startupFailure := func(stage string, err error) (agent.TurnResult, bool) {
+		if errors.Is(err, agent.ErrVoiceClosed) {
+			return agent.TurnResult{SessionID: a.resumeID}, true
+		}
+		return agent.TurnResult{Text: stage + ": " + err.Error(), IsError: true, SessionID: a.resumeID}, false
+	}
 
 	// 1. initialize handshake — arms the experimental v2 API (item/*/requestApproval etc.).
 	ch, err := call("initialize", map[string]any{
@@ -741,8 +877,8 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	if err != nil {
 		return agent.TurnResult{Text: "initialize: " + err.Error(), IsError: true}, false
 	}
-	if _, err := await(ch); err != nil {
-		return agent.TurnResult{Text: "initialize: " + err.Error(), IsError: true}, false
+	if _, err := awaitStartup(ch); err != nil {
+		return startupFailure("initialize", err)
 	}
 	// 2. initialized notification.
 	if err := writeJSON(rpcNotification{Method: "initialized"}); err != nil {
@@ -762,9 +898,9 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		if err != nil {
 			return agent.TurnResult{Text: "find latest thread: " + err.Error(), IsError: true}, false
 		}
-		data, err := await(ch)
+		data, err := awaitStartup(ch)
 		if err != nil {
-			return agent.TurnResult{Text: "find latest thread: " + err.Error(), IsError: true}, false
+			return startupFailure("find latest thread", err)
 		}
 		var list struct {
 			Data []struct {
@@ -792,9 +928,9 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	if err != nil {
 		return agent.TurnResult{Text: "thread: " + err.Error(), IsError: true}, false
 	}
-	res, err := await(ch)
+	res, err := awaitStartup(ch)
 	if err != nil {
-		return agent.TurnResult{Text: "thread: " + err.Error(), IsError: true}, false
+		return startupFailure("thread", err)
 	}
 	var ts struct {
 		Model  string `json:"model"`
@@ -809,6 +945,54 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	_ = json.Unmarshal(res, &ts)
 	if a.model == "" {
 		a.model = ts.Model
+	}
+	// Consult the existing native connection only when audio is submitted, once per run.
+	// Codex otherwise replaces unsupported audio with "audio content omitted". Keep the
+	// original file available to the agent's tools for models without audio input.
+	var audioOnce sync.Once
+	var supportsAudio bool
+	modelSupportsAudio := func() bool {
+		audioOnce.Do(func() {
+			cursor := ""
+			for page := 0; page < 20; page++ {
+				params := map[string]any{"limit": 100, "includeHidden": true}
+				if cursor != "" {
+					params["cursor"] = cursor
+				}
+				response, err := call("model/list", params)
+				if err != nil {
+					return
+				}
+				data, err := await(response)
+				if err != nil {
+					return
+				}
+				var models struct {
+					Data       []nativeModel `json:"data"`
+					NextCursor string        `json:"nextCursor"`
+				}
+				if json.Unmarshal(data, &models) != nil {
+					return
+				}
+				for _, model := range models.Data {
+					if agent.FirstNonEmpty(model.Model, model.ID) != a.model {
+						continue
+					}
+					for _, modality := range model.Input {
+						supportsAudio = supportsAudio || modality == "audio"
+					}
+					return
+				}
+				if models.NextCursor == "" || models.NextCursor == cursor {
+					return
+				}
+				cursor = models.NextCursor
+			}
+		})
+		return supportsAudio
+	}
+	if len(a.audio) > 0 {
+		a.nativeAudio = modelSupportsAudio()
 	}
 	tid := agent.FirstNonEmpty(ts.Thread.ID, a.resumeID)
 	// sessionId is the live tree's root; a fork can share it with its source.
@@ -850,7 +1034,23 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	// legacy thread/compacted notification), which the reader turns into the terminal result. Otherwise:
 	// turn/start returns the initial inProgress turn. The reader captures that id and continues
 	// consuming items until turn/completed; the acknowledgement must never close the transport.
-	if a.compact {
+	if a.voice != nil {
+		params := map[string]any{"threadId": tid, "outputModality": "audio", "transport": map[string]any{"type": "websocket"}}
+		if a.voiceOptions != nil && a.voiceOptions.Voice != "" {
+			params["voice"] = a.voiceOptions.Voice
+		}
+		response, err := call("thread/realtime/start", params)
+		if err == nil {
+			_, err = awaitStartup(response)
+		}
+		if err != nil {
+			if !errors.Is(err, agent.ErrVoiceClosed) {
+				a.voice.Publish(agent.VoiceEvent{Type: "error", Text: err.Error()})
+			}
+			return startupFailure("Could not start Codex voice", err)
+		}
+		finishStartup()
+	} else if a.compact {
 		_, err := call("thread/compact/start", map[string]any{"threadId": tid})
 		if err != nil {
 			return agent.TurnResult{Text: "compact: " + err.Error()}, false
@@ -860,6 +1060,47 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 		if err != nil {
 			return agent.TurnResult{Text: "turn: " + err.Error()}, false
 		}
+	}
+	var voicePumpDone <-chan struct{}
+	if a.voice != nil {
+		closed := make(chan struct{})
+		voicePumpDone = closed
+		go func() {
+			defer close(closed)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-done:
+					return
+				case <-a.voice.Stop:
+					// Stopping voice must not send turn/interrupt or cancel its coding work.
+					_ = sendRequest("thread/realtime/stop", map[string]any{"threadId": tid})
+					return
+				case command := <-a.voice.Commands:
+					if command.Audio == nil {
+						continue
+					}
+					if !a.voice.InputOpen() {
+						command.Ack <- agent.ErrVoiceClosed
+						_ = sendRequest("thread/realtime/stop", map[string]any{"threadId": tid})
+						return
+					}
+					response, err := call("thread/realtime/appendAudio", map[string]any{"threadId": tid, "audio": map[string]any{
+						"data": command.Audio.Data, "sampleRate": command.Audio.SampleRate, "numChannels": command.Audio.Channels,
+						"samplesPerChannel": len(command.Audio.Data) / 2,
+					}})
+					if err == nil {
+						_, err = awaitVoice(response)
+					}
+					command.Ack <- err
+					if err != nil {
+						a.voice.Publish(agent.VoiceEvent{Type: "error", Text: err.Error()})
+						a.voice.EndInput()
+					}
+				}
+			}
+		}()
 	}
 
 	// Inbound pump: answer approvals, steer, or interrupt mid-turn. Stateless-correlator pattern —
@@ -934,6 +1175,10 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 						emit(agent.Event{Type: agent.EventError, Error: "Could not answer Codex: " + err.Error()})
 					}
 				case "input":
+					if a.voice != nil && a.voice.InputOpen() {
+						agent.AcknowledgeInput(msg, errors.New("End voice before sending a typed message or attachment."), emit)
+						continue
+					}
 					text := strings.TrimSpace(msg.Text)
 					var attachments []agent.Attachment
 					if msg.Input != nil {
@@ -948,7 +1193,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 						agent.AcknowledgeInput(msg, agent.ErrInputClosed, emit)
 						return
 					}
-					files, suffix, cleanup, err := materialize(agent.TurnInput{Options: agent.TurnOptions{Attachments: attachments}})
+					files, _, cleanup, err := materialize(agent.TurnInput{Options: agent.TurnOptions{Attachments: attachments}})
 					if err != nil {
 						cleanup()
 						agent.AcknowledgeInput(msg, err, emit)
@@ -957,7 +1202,11 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 					// Codex may read local images after the steer acknowledgement.
 					// Keep their files until the native turn has ended.
 					inputCleanups = append(inputCleanups, cleanup)
-					input := (appServer{message: text + suffix, images: files.imagePaths}).turnParams(t)["input"]
+					steer := appServer{message: text, images: files.imagePaths, audio: files.audioAttachments, files: files.fileAttachments}
+					if len(steer.audio) > 0 {
+						steer.nativeAudio = modelSupportsAudio()
+					}
+					input := steer.turnParams(t)["input"]
 					params := map[string]any{
 						"threadId":       t,
 						"expectedTurnId": u,
@@ -966,7 +1215,7 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 					if msg.Ack != nil {
 						if msg.Input != nil {
 							smu.Lock()
-							steered = append(steered, pendingSteer{input: msg, text: text + suffix})
+							steered = append(steered, pendingSteer{input: msg, text: steer.inputText()})
 							smu.Unlock()
 						}
 						// A question stays pending until Codex acknowledges the native steer.
@@ -998,6 +1247,16 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 						emit(agent.Event{Type: agent.EventError, Error: "Could not send Codex input: " + err.Error()})
 					}
 				case "interrupt":
+					if a.voice != nil {
+						a.voice.EndInput()
+						smu.Lock()
+						t, u := threadID, turnID
+						smu.Unlock()
+						if t != "" && u != "" {
+							_ = sendRequest("turn/interrupt", map[string]any{"threadId": t, "turnId": u})
+						}
+						continue
+					}
 					t, u, ready := awaitTurn()
 					if !ready {
 						return
@@ -1024,6 +1283,9 @@ func (a appServer) converse(ctx context.Context, w io.Writer, r io.Reader, inbou
 	}
 
 	<-ingressDone
+	if voicePumpDone != nil {
+		<-voicePumpDone
+	}
 	smu.Lock()
 	res2, ok := result, got
 	failure, sid := failureText, sessionID
@@ -1084,12 +1346,20 @@ func (a appServer) threadOptions(p map[string]any) {
 }
 
 func (a appServer) turnParams(threadID string) map[string]any {
-	input := make([]any, 0, len(a.images)+1)
-	if strings.TrimSpace(a.message) != "" {
-		input = append(input, map[string]any{"type": "text", "text": a.message})
+	input := make([]any, 0, len(a.images)+len(a.audio)+1)
+	if message := a.inputText(); strings.TrimSpace(message) != "" {
+		input = append(input, map[string]any{"type": "text", "text": message})
+	}
+	if a.skill != nil && a.skill.SkillPath != "" {
+		input = append(input, map[string]any{"type": "skill", "name": a.skill.Name, "path": a.skill.SkillPath})
 	}
 	for _, path := range a.images {
 		input = append(input, map[string]any{"type": "localImage", "path": path})
+	}
+	if a.nativeAudio {
+		for _, audio := range a.audio {
+			input = append(input, map[string]any{"type": "localAudio", "path": audio.Path})
+		}
 	}
 	p := map[string]any{
 		"threadId": threadID,

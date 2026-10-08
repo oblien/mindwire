@@ -185,6 +185,10 @@
       "Health": {
         "type": "object",
         "properties": {
+          "nativeAuthSource": {
+            "type": "boolean",
+            "description": "Offers saved host connections through the normal auth methods API when a native auth source is configured at daemon startup."
+          },
           "ok": {
             "type": "boolean"
           },
@@ -194,7 +198,7 @@
           },
           "version": {
             "type": "string",
-            "description": "agent.Version — the definitions/protocol version."
+            "description": "agent.Version \u2014 the definitions/protocol version."
           },
           "workspaceMetadataVersion": {
             "type": "integer",
@@ -333,7 +337,7 @@
           },
           "numGoroutine": {
             "type": "integer",
-            "description": "Live goroutines — a rough concurrency gauge."
+            "description": "Live goroutines \u2014 a rough concurrency gauge."
           },
           "memAllocBytes": {
             "type": "integer",
@@ -369,7 +373,7 @@
       },
       "ProcessSample": {
         "type": "object",
-        "description": "One running turn's live resource use at a single sampling tick. Labels and numbers only — never a secret. A turn runs in its own process group; the figures are summed over that whole group (bash → node → the agent).",
+        "description": "One running turn's live resource use at a single sampling tick. Labels and numbers only \u2014 never a secret. A turn runs in its own process group; the figures are summed over that whole group (bash \u2192 node \u2192 the agent).",
         "properties": {
           "agent": {
             "type": "string",
@@ -385,12 +389,12 @@
           },
           "pid": {
             "type": "integer",
-            "description": "Group-leader pid — the whole turn's process tree."
+            "description": "Group-leader pid \u2014 the whole turn's process tree."
           },
           "cpuPercent": {
             "type": "number",
             "format": "double",
-            "description": "CPU% over the last sampling window (delta of cumulative CPU seconds ÷ wall-clock). 0 on the first tick a group is seen."
+            "description": "CPU% over the last sampling window (delta of cumulative CPU seconds \u00f7 wall-clock). 0 on the first tick a group is seen."
           },
           "rssBytes": {
             "type": "integer",
@@ -471,7 +475,7 @@
           "queueIfRunning": {
             "type": "boolean",
             "default": false,
-            "description": "Queue the message on this chat’s ordinary active run, or start a new run when idle. Requires requestId and queuedInputVersion >= 1. Active input accepts attachments only; changing turn settings is rejected."
+            "description": "Queue the message on this chat\u2019s ordinary active run, or start a new run when idle. Requires requestId and queuedInputVersion >= 1. Active input accepts attachments only; changing turn settings is rejected."
           }
         },
         "required": [
@@ -502,7 +506,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Per-turn setting overrides addressed by canonical key (see Field.canon). Resolved canon→the selected agent's key and filtered to declared non-secret keys server-side; overrides win over the sticky config."
+            "description": "Per-turn setting overrides addressed by canonical key (see Field.canon). Resolved canon\u2192the selected agent's key and filtered to declared non-secret keys server-side; overrides win over the sticky config."
           },
           "systemPrompt": {
             "type": "string",
@@ -538,6 +542,12 @@
               "$ref": "#/components/schemas/Attachment"
             },
             "description": "Files made available to the turn, referenced from the message text."
+          },
+          "voice": {
+            "$ref": "#/components/schemas/VoiceOptions"
+          },
+          "command": {
+            "$ref": "#/components/schemas/CommandInvocation"
           }
         }
       },
@@ -627,7 +637,7 @@
               "error",
               "cancelled"
             ],
-            "description": "Parent-only: why the resolve loop ended — \"done\" (the agent signalled completion), \"capped\" (hit the iteration/deadline bound), \"error\", or \"cancelled\"."
+            "description": "Parent-only: why the resolve loop ended \u2014 \"done\" (the agent signalled completion), \"capped\" (hit the iteration/deadline bound), \"error\", or \"cancelled\"."
           },
           "iterations": {
             "type": "integer",
@@ -718,7 +728,7 @@
           },
           "subtype": {
             "type": "string",
-            "description": "The agent's own terminal-result classifier when it distinguishes one (Claude's result subtype: \"success\", \"error_max_turns\", \"error_max_budget_usd\", …). Absent for agents whose terminal event is always fully settled (Codex)."
+            "description": "The agent's own terminal-result classifier when it distinguishes one (Claude's result subtype: \"success\", \"error_max_turns\", \"error_max_budget_usd\", \u2026). Absent for agents whose terminal event is always fully settled (Codex)."
           },
           "incomplete": {
             "type": "boolean",
@@ -747,7 +757,7 @@
               "max_turns",
               "max_budget"
             ],
-            "description": "Why this iteration is running: \"start\" (first), \"max_turns\"/\"max_budget\" (resuming a continuable stop), or \"probe\" (a clean settle with no completion sentinel — probing for done)."
+            "description": "Why this iteration is running: \"start\" (first), \"max_turns\"/\"max_budget\" (resuming a continuable stop), or \"probe\" (a clean settle with no completion sentinel \u2014 probing for done)."
           },
           "childRunId": {
             "type": "string",
@@ -1115,6 +1125,10 @@
           "canFork": {
             "type": "boolean",
             "description": "This native user message has a safe boundary for edit and resend."
+          },
+          "command": {
+            "$ref": "#/components/schemas/CommandInvocation",
+            "description": "Explicit command identified by the native transcript or daemon receipt. Used to reconcile native skill expansion with a single visible user message."
           }
         },
         "required": [
@@ -1182,10 +1196,14 @@
       },
       "CompactRequest": {
         "type": "object",
-        "description": "On-demand compaction. instructions is optional — when present it focuses the continuation summary (Claude's `/compact <instructions>`); agents that don't honor focus still compact.",
+        "description": "On-demand compaction. instructions is optional \u2014 when present it focuses the continuation summary (Claude's `/compact <instructions>`); agents that don't honor focus still compact.",
         "properties": {
           "instructions": {
             "type": "string"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Keep this ID when retrying a request whose acknowledgment was lost. The same request reuses its run; a changed payload with the same ID is rejected. Supported when capabilities.commands is true."
           }
         }
       },
@@ -1298,6 +1316,10 @@
             "type": "boolean",
             "description": "Client hint: image attachments are delivered as true vision content (the model sees the image), not just a path it must open with a Read tool. Attachments themselves are ungated."
           },
+          "audioInput": {
+            "type": "boolean",
+            "description": "Supports native audio for models whose inputModalities include audio; otherwise sends the original file attachment."
+          },
           "respond": {
             "type": "boolean"
           },
@@ -1350,7 +1372,7 @@
           },
           "resolve": {
             "type": "boolean",
-            "description": "Agent supports global-resolve runs (POST /turns {mode:\"resolve\"}). Unlike the other switches this is NOT gated in the daemon — resolve is pure daemon logic over the existing resume path, so every agent that can resume can be resolved; the flag is a UI hint only."
+            "description": "Agent supports global-resolve runs (POST /turns {mode:\"resolve\"}). Unlike the other switches this is NOT gated in the daemon \u2014 resolve is pure daemon logic over the existing resume path, so every agent that can resume can be resolved; the flag is a UI hint only."
           },
           "protocol": {
             "type": "string",
@@ -1371,6 +1393,13 @@
           "queuedInput": {
             "type": "boolean",
             "description": "Durable follow-ups in an ordinary active run. Native harness decides when input is consumed; input events report its state."
+          },
+          "voice": {
+            "$ref": "#/components/schemas/VoiceCapability"
+          },
+          "commands": {
+            "type": "boolean",
+            "description": "Native commands and settings selectors are available through GET /commands. Resolve each entry by kind; controls are not model prompts."
           }
         }
       },
@@ -1485,7 +1514,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Resolved absolute path — always set, even when the file is absent."
+            "description": "Resolved absolute path \u2014 always set, even when the file is absent."
           },
           "exists": {
             "type": "boolean",
@@ -1529,7 +1558,7 @@
       },
       "SubagentMeta": {
         "type": "object",
-        "description": "Best-effort parsed view of a subagent definition's frontmatter. A convenience only — the raw `content` is canonical. Every field is optional; absent frontmatter yields no meta object.",
+        "description": "Best-effort parsed view of a subagent definition's frontmatter. A convenience only \u2014 the raw `content` is canonical. Every field is optional; absent frontmatter yields no meta object.",
         "properties": {
           "name": {
             "type": "string"
@@ -1631,7 +1660,7 @@
       },
       "CustomProvider": {
         "type": "object",
-        "description": "One registered custom OpenAI-compatible LLM provider. SECURITY: the API key is NEVER part of this shape — it is supplied write-only on PUT and reported only as `hasKey`. The harness config references the key solely through an env-var placeholder; the value lives in the daemon and enters a run only via the auth env path.",
+        "description": "One registered custom OpenAI-compatible LLM provider. SECURITY: the API key is NEVER part of this shape \u2014 it is supplied write-only on PUT and reported only as `hasKey`. The harness config references the key solely through an env-var placeholder; the value lives in the daemon and enters a run only via the auth env path.",
         "properties": {
           "id": {
             "type": "string",
@@ -1765,7 +1794,7 @@
       },
       "InputRequest": {
         "type": "object",
-        "description": "A follow-up delivered on the harness’s native schedule. Text may be empty with attachments. Receipts and attachments require queuedInput.",
+        "description": "A follow-up delivered on the harness\u2019s native schedule. Text may be empty with attachments. Receipts and attachments require queuedInput.",
         "properties": {
           "text": {
             "type": "string"
@@ -1876,7 +1905,7 @@
       },
       "Interaction": {
         "type": "object",
-        "description": "A structured, self-describing request the agent surfaces mid-turn for the client to render generically — and, when needsResponse, for the user to answer.",
+        "description": "A structured, self-describing request the agent surfaces mid-turn for the client to render generically \u2014 and, when needsResponse, for the user to answer.",
         "properties": {
           "id": {
             "type": "string"
@@ -2100,10 +2129,28 @@
           }
         }
       },
+      "ExistingAuthConnection": {
+        "type": "object",
+        "description": "Display metadata for an existing native connection. Discovery does not validate credentials or expose secrets.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
+        }
+      },
       "AuthMethod": {
         "type": "object",
-        "description": "One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin→step→status flow.",
+        "description": "One way to authenticate an agent. Field-based methods collect `fields`; interactive ones drive a begin\u2192step\u2192status flow.",
         "properties": {
+          "existing": {
+            "$ref": "#/components/schemas/ExistingAuthConnection"
+          },
           "id": {
             "type": "string"
           },
@@ -2482,7 +2529,7 @@
       },
       "NotifyChannelMasked": {
         "type": "object",
-        "description": "The read-side view of a notification channel. Secrets are never returned — the URL, token, HMAC secret, and header values are all withheld; only their presence (and the URL host, as a display hint) is reported.",
+        "description": "The read-side view of a notification channel. Secrets are never returned \u2014 the URL, token, HMAC secret, and header values are all withheld; only their presence (and the URL host, as a display hint) is reported.",
         "properties": {
           "id": {
             "type": "string",
@@ -2559,7 +2606,7 @@
           },
           "url": {
             "type": "string",
-            "description": "Destination URL. Required (on create). For slack/discord this is the incoming-webhook URL; for telegram the full bot `sendMessage` URL. Write-only — never returned."
+            "description": "Destination URL. Required (on create). For slack/discord this is the incoming-webhook URL; for telegram the full bot `sendMessage` URL. Write-only \u2014 never returned."
           },
           "headers": {
             "type": "object",
@@ -2584,7 +2631,7 @@
       },
       "NotifyChannelTestResult": {
         "type": "object",
-        "description": "Outcome of a synthetic delivery to one channel. The send result is DATA — a failed delivery still returns HTTP 200 with `ok:false` and an `error` message.",
+        "description": "Outcome of a synthetic delivery to one channel. The send result is DATA \u2014 a failed delivery still returns HTTP 200 with `ok:false` and an `error` message.",
         "properties": {
           "ok": {
             "type": "boolean"
@@ -5391,6 +5438,14 @@
           "before": {
             "type": "string",
             "description": "The oldest returned message ID; pass as before for the preceding page."
+          },
+          "revision": {
+            "type": "string",
+            "description": "Opaque freshness token covering recorded history, run and interaction overlays, and native transcript files. Return as ifRevision to check a cached latest page. May be omitted when a reliable revision is unavailable."
+          },
+          "notModified": {
+            "type": "boolean",
+            "description": "When true, the requested latest revision is unchanged. Keep cached messages and pagination; the empty messages array is not a replacement transcript."
           }
         }
       },
@@ -6278,7 +6333,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 80,
-            "description": "Desktop name, 1–80 UTF-8 bytes."
+            "description": "Desktop name, 1\u201380 UTF-8 bytes."
           },
           "resolution": {
             "$ref": "#/components/schemas/DesktopResolution"
@@ -6296,7 +6351,7 @@
           "name": {
             "type": "string",
             "maxLength": 80,
-            "description": "Desktop name, 1–80 UTF-8 bytes."
+            "description": "Desktop name, 1\u201380 UTF-8 bytes."
           },
           "resolution": {
             "$ref": "#/components/schemas/DesktopResolution"
@@ -6589,6 +6644,259 @@
           },
           "snapshot": {
             "$ref": "#/components/schemas/WorkspaceSnapshot"
+          }
+        }
+      },
+      "VoiceCapability": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "conversation",
+              "dictation",
+              "none"
+            ]
+          },
+          "support": {
+            "type": "string",
+            "enum": [
+              "native",
+              "emulated",
+              "none"
+            ]
+          },
+          "remote": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "support",
+          "remote"
+        ]
+      },
+      "VoiceStatus": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/VoiceCapability"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "voices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "capability",
+          "available"
+        ]
+      },
+      "VoiceOptions": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 80
+          },
+          "voice": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "clientId"
+        ]
+      },
+      "VoiceAudio": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "string",
+            "format": "byte",
+            "description": "Base64 PCM16 little-endian. Input is mono 24000 Hz, at most 500 ms (24000 bytes) per ordered batch."
+          },
+          "sampleRate": {
+            "type": "integer"
+          },
+          "channels": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "sampleRate",
+          "channels"
+        ]
+      },
+      "VoiceEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "connecting",
+              "ready",
+              "audio",
+              "transcript",
+              "listening",
+              "error",
+              "closed",
+              "heartbeat"
+            ]
+          },
+          "audio": {
+            "$ref": "#/components/schemas/VoiceAudio"
+          },
+          "text": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string"
+          },
+          "final": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "VoiceInput": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "audio",
+              "heartbeat",
+              "stop"
+            ]
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "audio": {
+            "$ref": "#/components/schemas/VoiceAudio"
+          }
+        },
+        "required": [
+          "clientId",
+          "action"
+        ]
+      },
+      "CommandInvocation": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Name or alias advertised by GET /commands for a prompt entry."
+          },
+          "arguments": {
+            "type": "string",
+            "maxLength": 65536,
+            "description": "Optional native command arguments. No shell interpretation is added by Mindwire."
+          }
+        },
+        "description": "Explicit native invocation. The daemon resolves the advertised command or skill against the selected harness and project. It supplies the native skill path itself. Commands cannot be queued onto a running turn or used in a resolve loop."
+      },
+      "HarnessCommand": {
+        "type": "object",
+        "required": [
+          "name",
+          "label",
+          "kind"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "settings",
+              "compact",
+              "prompt",
+              "new_chat",
+              "history",
+              "rename"
+            ]
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "argumentHint": {
+            "type": "string"
+          },
+          "acceptsArguments": {
+            "type": "boolean"
+          },
+          "settingCanons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Display these fields from the existing agent schema. An absent list means all settings."
+          },
+          "requiresIdle": {
+            "type": "boolean"
+          },
+          "requiresSession": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CommandCatalog": {
+        "type": "object",
+        "required": [
+          "commands"
+        ],
+        "properties": {
+          "commands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HarnessCommand"
+            }
+          },
+          "warning": {
+            "type": "string",
+            "description": "Additional native discovery failed; available controls are still returned. The client can retry or explicitly refresh."
           }
         }
       }
@@ -6908,7 +7216,7 @@
           "Health"
         ],
         "summary": "Daemon process resource snapshot",
-        "description": "The daemon PROCESS's own runtime stats (heap in use, memory reserved from the OS, goroutines, GC cycles) plus host facts (cores, platform, uptime). Cheap and on-demand — a single runtime.ReadMemStats, no background sampling. Not the whole machine's RAM/CPU.",
+        "description": "The daemon PROCESS's own runtime stats (heap in use, memory reserved from the OS, goroutines, GC cycles) plus host facts (cores, platform, uptime). Cheap and on-demand \u2014 a single runtime.ReadMemStats, no background sampling. Not the whole machine's RAM/CPU.",
         "responses": {
           "200": {
             "description": "Snapshot",
@@ -6929,7 +7237,7 @@
           "Health"
         ],
         "summary": "Stream live per-turn CPU/memory (SSE)",
-        "description": "Server-Sent Events of live resource use for currently-running turns, grouped by agent. On-demand and refcounted: the daemon starts sampling only while at least one client is connected and stops the instant the last one disconnects — zero background work when nothing is watching. Each turn runs in its own process group; a sample is the whole group's summed RSS and its CPU% over the sampling window. Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream; one ProcessFrame per frame. Optional `?agent=` filters each frame's samples to one agent. Payload carries labels and numbers only — no secrets.",
+        "description": "Server-Sent Events of live resource use for currently-running turns, grouped by agent. On-demand and refcounted: the daemon starts sampling only while at least one client is connected and stops the instant the last one disconnects \u2014 zero background work when nothing is watching. Each turn runs in its own process group; a sample is the whole group's summed RSS and its CPU% over the sampling window. Same `data: <json>\\n\\n` framing and `: ping` heartbeat as the run stream; one ProcessFrame per frame. Optional `?agent=` filters each frame's samples to one agent. Payload carries labels and numbers only \u2014 no secrets.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -7211,7 +7519,7 @@
           "Prompts"
         ],
         "summary": "Delete a persistent memory file",
-        "description": "Removes one scope's memory file (?scope=, default user) and returns the resulting doc (exists:false). Idempotent — deleting an absent file still succeeds.",
+        "description": "Removes one scope's memory file (?scope=, default user) and returns the resulting doc (exists:false). Idempotent \u2014 deleting an absent file still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -7389,7 +7697,7 @@
           "Prompts"
         ],
         "summary": "Delete a prompt template",
-        "description": "Removes one template by name at a scope (?scope=, default user). Idempotent — deleting an absent template still succeeds.",
+        "description": "Removes one template by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent template still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -7580,7 +7888,7 @@
           "Prompts"
         ],
         "summary": "Delete a subagent definition",
-        "description": "Removes one definition by name at a scope (?scope=, default user). Idempotent — deleting an absent definition still succeeds.",
+        "description": "Removes one definition by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent definition still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -7633,7 +7941,7 @@
           "MCP"
         ],
         "summary": "List persistent MCP servers",
-        "description": "Returns the agent's persistent MCP-server config across every supported scope, keyed scope→name→server. A missing config file yields an empty object for that scope. 400 if the agent has no persistent MCP-config module. Carries only an env-var NAME for HTTP auth (bearerTokenEnvVar), never a secret value; on Claude only the mcpServers subtree of the config is ever read.",
+        "description": "Returns the agent's persistent MCP-server config across every supported scope, keyed scope\u2192name\u2192server. A missing config file yields an empty object for that scope. 400 if the agent has no persistent MCP-config module. Carries only an env-var NAME for HTTP auth (bearerTokenEnvVar), never a secret value; on Claude only the mcpServers subtree of the config is ever read.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -7774,7 +8082,7 @@
           "MCP"
         ],
         "summary": "Delete a persistent MCP server",
-        "description": "Removes one MCP server by name at a scope (?scope=, default user). Idempotent — deleting an absent server still succeeds.",
+        "description": "Removes one MCP server by name at a scope (?scope=, default user). Idempotent \u2014 deleting an absent server still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -7827,7 +8135,7 @@
           "Providers"
         ],
         "summary": "List custom LLM providers",
-        "description": "Returns the agent's registered custom LLM providers across every supported scope, keyed scope→id→provider. A missing config file yields an empty object for that scope. 400 if the agent has no custom-provider module. `hasKey` reports whether a secret is stored; the key is never returned.",
+        "description": "Returns the agent's registered custom LLM providers across every supported scope, keyed scope\u2192id\u2192provider. A missing config file yields an empty object for that scope. 400 if the agent has no custom-provider module. `hasKey` reports whether a secret is stored; the key is never returned.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -7915,7 +8223,7 @@
           "Providers"
         ],
         "summary": "Register a custom LLM provider",
-        "description": "Registers one custom provider at a scope (?scope=, default user), writing the harness's native custom-endpoint config and preserving all sibling config. The write-only apiKey (when supplied) is stored in the daemon and referenced only via an env-var placeholder — never written literally. Echoes the stored provider back (hasKey reflects whether a key is stored; the key itself is never returned).",
+        "description": "Registers one custom provider at a scope (?scope=, default user), writing the harness's native custom-endpoint config and preserving all sibling config. The write-only apiKey (when supplied) is stored in the daemon and referenced only via an env-var placeholder \u2014 never written literally. Echoes the stored provider back (hasKey reflects whether a key is stored; the key itself is never returned).",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -7968,7 +8276,7 @@
           "Providers"
         ],
         "summary": "Delete a custom LLM provider",
-        "description": "Removes one custom provider by id at a scope (?scope=, default user) and clears its stored key. Idempotent — deleting an absent provider still succeeds.",
+        "description": "Removes one custom provider by id at a scope (?scope=, default user) and clears its stored key. Idempotent \u2014 deleting an absent provider still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/agent"
@@ -8247,7 +8555,7 @@
           "Turns & runs"
         ],
         "summary": "List a resolve run's child iterations",
-        "description": "Returns the child runs of a global-resolve parent, oldest→newest — the per-iteration turns of a resolve run (each streams onto the parent's topic). An ordinary turn (or a parent with no iterations yet) returns an empty list.",
+        "description": "Returns the child runs of a global-resolve parent, oldest\u2192newest \u2014 the per-iteration turns of a resolve run (each streams onto the parent's topic). An ordinary turn (or a parent with no iterations yet) returns an empty list.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -8461,7 +8769,7 @@
           "Turns & runs"
         ],
         "summary": "Soft-stop a running turn",
-        "description": "Ask the agent to halt its current work WITHOUT the hard context kill `/cancel` does — the turn stays active for a follow-up over `/input`. Requires the agent's `interrupt` capability.",
+        "description": "Ask the agent to halt its current work WITHOUT the hard context kill `/cancel` does \u2014 the turn stays active for a follow-up over `/input`. Requires the agent's `interrupt` capability.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -8941,6 +9249,14 @@
               "default": 1048576
             },
             "description": "Soft byte budget; used only when paged=true."
+          },
+          {
+            "name": "ifRevision",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Check a cached latest page without retransmitting unchanged history. With paged=true and no before cursor, a matching revision returns notModified=true and no messages. Unsupported harnesses or changed revisions return the normal bounded page."
           }
         ],
         "responses": {
@@ -9066,7 +9382,7 @@
           "Notifications"
         ],
         "summary": "List notification channels",
-        "description": "Returns every configured channel, masked. Secrets (URL, token, HMAC secret, header values) are never returned — only their presence and the URL host.",
+        "description": "Returns every configured channel, masked. Secrets (URL, token, HMAC secret, header values) are never returned \u2014 only their presence and the URL host.",
         "responses": {
           "200": {
             "description": "Channels (masked)",
@@ -9183,7 +9499,7 @@
           "Notifications"
         ],
         "summary": "Delete a notification channel",
-        "description": "Removes a channel by id. Idempotent — deleting an absent channel still succeeds.",
+        "description": "Removes a channel by id. Idempotent \u2014 deleting an absent channel still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -9367,7 +9683,7 @@
           "Notifications"
         ],
         "summary": "Delete a routing rule",
-        "description": "Removes a rule by id. Idempotent — deleting an absent rule still succeeds.",
+        "description": "Removes a rule by id. Idempotent \u2014 deleting an absent rule still succeeds.",
         "parameters": [
           {
             "$ref": "#/components/parameters/id"
@@ -15717,7 +16033,7 @@
         "tags": [
           "Workspace"
         ],
-        "summary": "List a checkpoint’s content objects in pages of 512",
+        "summary": "List a checkpoint\u2019s content objects in pages of 512",
         "security": [
           {
             "bearer": []
@@ -17711,6 +18027,188 @@
                       "type": "string"
                     }
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/voice": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Check native harness voice",
+        "description": "On-demand native interface and account check. Does not start a voice session or call the coding model. Native voice is separate from audio-file input modalities. Claude currently reports local-only dictation.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Harness voice status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}/voice": {
+      "post": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Deliver ordered microphone audio or end voice",
+        "description": "For a run started with options.voice. PCM never enters the replayable chat event hub or disk. Only one batch can be in flight. Identical sequence retries do not repeat speech. End voice stops microphone access while already-started coding work continues. A 20-second media lease prevents orphan voice sessions.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Native acknowledgement"
+          },
+          "400": {
+            "description": "Invalid voice request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Voice closed, out-of-order data, or wrong owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{id}/voice/stream": {
+      "get": {
+        "tags": [
+          "Turns & runs"
+        ],
+        "summary": "Stream ephemeral native voice audio and transcripts",
+        "description": "Subscribe before sending microphone audio and wait for ready. No audio replay. Disconnecting or overflowing the bounded stream ends voice; coding work is not cancelled. Renew the media lease with microphone batches or heartbeat controls.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "name": "clientId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Voice events",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceEvent"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Voice ended or another listener owns the stream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/commands": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "List native commands and conversation controls",
+        "description": "On-demand, bounded and shared metadata discovery for the installed harness and project directory. Codex uses skills/list; Claude uses its initialization command catalog. Does not send a model prompt. Terminal-only UI actions are omitted. Route settings and compact entries to their dedicated APIs, and prompt entries to TurnOptions.command.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/agent"
+          },
+          {
+            "name": "dir",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Project directory; defaults to the daemon working directory."
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Refresh a completed metadata cache. Concurrent requests share in-flight work."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Commands and controls",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandCatalog"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Harness does not expose native commands",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Command discovery failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }

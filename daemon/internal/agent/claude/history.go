@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
@@ -13,6 +14,13 @@ import (
 
 // The adapter owns Claude's native transcript, so it can both read and delete it.
 var _ agent.HistoryDeleter = adapter{}
+
+func (adapter) HistoryRevision(q agent.HistoryQuery) (string, error) {
+	if q.SessionID == "" || configBase() == "" {
+		return "missing", nil
+	}
+	return agent.NativeHistoryFileRevision(findTranscript(configBase(), q.CWD, q.SessionID))
+}
 
 // History reads Claude Code's own transcript (the agent owns its data) and maps it
 // to unified messages. Best-effort: returns nil on any miss so the caller can fall
@@ -44,6 +52,7 @@ func (adapter) History(q agent.HistoryQuery) ([]agent.Message, error) {
 
 func parseTranscript(f *os.File, chatID string) ([]agent.Message, error) {
 	var out []agent.Message
+	commandExpansion := false
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 1<<20), 16<<20)
 	for sc.Scan() {
@@ -107,6 +116,21 @@ func parseTranscript(f *os.File, chatID string) ([]agent.Message, error) {
 				attachments = agent.ImagesFromContent(message.Content)
 			}
 		}
+		if rec.Type == "user" && rec.IsMeta && commandExpansion {
+			if n := len(out); n > 0 && out[n-1].Role == "user" && out[n-1].Command != nil {
+				out[n-1].Attachments = agent.MergeInputAttachments(out[n-1].Attachments, attachments)
+			}
+			continue // Claude's expanded command/skill instructions are context, not another user message.
+		}
+		commandExpansion = false
+		var command *agent.CommandInvocation
+		if rec.Type == "user" {
+			if invocation := nativeCommandFromHistory(text); invocation != nil {
+				command, commandExpansion = invocation, true
+				text = invocation.Text()
+				parts = []agent.Part{{Type: "text", Text: text, At: rec.Timestamp}}
+			}
+		}
 		// Claude records tool RESULTS as role "user" with no text — fold them onto the preceding
 		// assistant turn (correlate by tool-use id) instead of emitting a stray empty user bubble.
 		if rec.Type == "user" && text == "" && len(parts) > 0 && allTool(parts) {
@@ -119,7 +143,7 @@ func parseTranscript(f *os.File, chatID string) ([]agent.Message, error) {
 			continue
 		}
 		message := agent.Message{
-			ID: rec.UUID, ChatID: chatID, Role: rec.Type, Text: text, Parts: parts, CreatedAt: rec.Timestamp, Attachments: attachments,
+			ID: rec.UUID, ChatID: chatID, Role: rec.Type, Text: text, Parts: parts, CreatedAt: rec.Timestamp, Attachments: attachments, Command: command,
 		}
 		if rec.Type == "user" && !rec.IsMeta && (text != "" || len(attachments) > 0) && rec.UUID != "" && (rec.ParentUUID != "" || len(out) == 0) {
 			message.ForkPoint = &agent.ForkPoint{BeforeMessageID: rec.UUID, ResumeAt: rec.ParentUUID, Fresh: rec.ParentUUID == ""}
@@ -133,6 +157,16 @@ func parseTranscript(f *os.File, chatID string) ([]agent.Message, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+var nativeCommandEnvelope = regexp.MustCompile(`(?s)^<command-message>.*?</command-message>\s*<command-name>/([^<>\s]+)</command-name>(?:\s*<command-args>(.*)</command-args>)?$`)
+
+func nativeCommandFromHistory(text string) *agent.CommandInvocation {
+	match := nativeCommandEnvelope.FindStringSubmatch(text)
+	if len(match) == 0 || !agent.ValidCommandName(match[1]) {
+		return nil
+	}
+	return &agent.CommandInvocation{Name: match[1], Arguments: strings.TrimSpace(match[2])}
 }
 
 // DeleteHistory removes Claude Code's native transcript for a session — the projects/<slug>/<sid>.jsonl

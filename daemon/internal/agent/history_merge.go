@@ -40,9 +40,9 @@ func MergeRecordedHistory(native, recorded []Message) []Message {
 				continue
 			}
 			matchedRecord, count := record, 1
-			if candidate.Text != record[0].Text && candidate.Text != record[0].Text+AttachmentReferenceText(record[0].Attachments) {
+			if !historyInputMatches(record[0], candidate) {
 				var ok bool
-				matchedRecord, count, ok = queuedHistoryBatch(records, r, candidate.Text)
+				matchedRecord, count, ok = queuedHistoryBatch(records, r, candidate)
 				if !ok {
 					continue
 				}
@@ -92,7 +92,7 @@ func MergeRecordedHistory(native, recorded []Message) []Message {
 // Native streaming input may merge consecutive queued prompts, including image
 // content blocks. Match that batch as one native turn without duplicating either
 // user input or crossing an intervening assistant response.
-func queuedHistoryBatch(records [][]Message, start int, text string) ([]Message, int, bool) {
+func queuedHistoryBatch(records [][]Message, start int, candidate Message) ([]Message, int, bool) {
 	var chunks, display []string
 	var attachments []Attachment
 	for i := start; i < len(records); i++ {
@@ -106,14 +106,14 @@ func queuedHistoryBatch(records [][]Message, start int, text string) ([]Message,
 		if user.Role != "user" || !strings.HasPrefix(user.ID, "input-") {
 			break
 		}
-		chunks = append(chunks, user.Text+AttachmentReferenceText(user.Attachments))
+		chunks = append(chunks, historyInputText(user, candidate.Attachments))
 		display = append(display, user.Text)
 		attachments = append(attachments, user.Attachments...)
 		if i == start {
 			continue
 		}
 		for _, separator := range []string{"", "\n", "\n\n"} {
-			if strings.Join(chunks, separator) == text {
+			if strings.Join(chunks, separator) == candidate.Text {
 				first := records[start][0]
 				first.Text, first.Attachments = strings.Join(display, separator), attachments
 				return append([]Message{first}, records[i][1:]...), i - start + 1, true
@@ -121,6 +121,40 @@ func queuedHistoryBatch(records [][]Message, start int, text string) ([]Message,
 		}
 	}
 	return nil, 0, false
+}
+
+// Native audio is already a content block, so its path is absent from the text
+// suffix. Ordinary audio-file fallbacks retain that path. Match only the form
+// evidenced by the native input, preserving exact user text and attachment order.
+func historyInputText(record Message, native []Attachment) string {
+	for _, attachment := range native {
+		if NativeAudioMime(attachment) == "" {
+			continue
+		}
+		files := make([]Attachment, 0, len(record.Attachments))
+		for _, file := range record.Attachments {
+			if NativeAudioMime(file) == "" {
+				files = append(files, file)
+			}
+		}
+		return record.Text + AttachmentReferenceText(files)
+	}
+	return record.Text + AttachmentReferenceText(record.Attachments)
+}
+
+func historyInputMatches(record, native Message) bool {
+	if native.Text == record.Text || native.Text == historyInputText(record, native.Attachments) {
+		return true
+	}
+	// Explicit command receipts distinguish a selected skill from ordinary prose.
+	// Some harnesses spell skill invocations with '$' while the unified picker uses '/'.
+	// Never rewrite or loosely compare unmarked user messages.
+	if record.Command != nil && record.Text == record.Command.Text() {
+		alternate := record
+		alternate.Text = "$" + strings.TrimPrefix(record.Command.Text(), "/")
+		return native.Text == alternate.Text || native.Text == historyInputText(alternate, native.Attachments)
+	}
+	return false
 }
 
 // Native steering adds a user-message boundary inside one daemon run. Its final
@@ -316,6 +350,10 @@ func mergeTurnParts(native, recorded []Message) []Message {
 	if native[0].Role == "user" {
 		user := native[0]
 		if len(recorded) > 0 && recorded[0].Role == "user" {
+			if recorded[0].Command != nil && historyInputMatches(recorded[0], user) {
+				user.Text, user.Command = recorded[0].Text, recorded[0].Command
+			}
+			inputText := historyInputText(recorded[0], user.Attachments)
 			user.Attachments = MergeInputAttachments(user.Attachments, recorded[0].Attachments)
 			for _, attachment := range recorded[0].Attachments {
 				if attachment.ArtifactID != "" {
@@ -323,7 +361,7 @@ func mergeTurnParts(native, recorded []Message) []Message {
 					break
 				}
 			}
-			if user.Text == recorded[0].Text+AttachmentReferenceText(recorded[0].Attachments) {
+			if user.Text == inputText {
 				user.Text = recorded[0].Text
 			}
 		}

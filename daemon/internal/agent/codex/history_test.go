@@ -74,7 +74,7 @@ func TestCaptured155LocalImageWrappersMergeWithCompletedUserItem(t *testing.T) {
 		if err != nil || len(messages) != 2 || messages[0].Text != prompt || len(messages[0].Attachments) != 1 || len(messages[0].Attachments[0].Data) != 3 {
 			t.Fatalf("Captured image input duplicated or lost: %+v %v", messages, err)
 		}
-		if got := imageInputText([]byte(`[{"type":"text","text":"</image>"}]`)); got != "</image>" {
+		if got := mediaInputText([]byte(`[{"type":"text","text":"</image>"}]`)); got != "</image>" {
 			t.Fatal("Ordinary user text was hidden")
 		}
 	}

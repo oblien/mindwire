@@ -33,10 +33,12 @@ func (st *Store) RestoreChatSessions(refs []ChatSession) error {
 		key := sessionKey(ref.Agent, ref.ChatID)
 		if ref.SID != "" && st.s.Sessions[key] == "" {
 			st.s.Sessions[key] = ref.SID
+			st.touchHistory(ref.ChatID)
 			addedSessions = append(addedSessions, key)
 		}
 		if ref.CWD != "" && st.s.Cwds[ref.ChatID] == "" {
 			st.s.Cwds[ref.ChatID] = ref.CWD
+			st.touchHistory(ref.ChatID)
 			addedCWDs = append(addedCWDs, ref.ChatID)
 		}
 	}

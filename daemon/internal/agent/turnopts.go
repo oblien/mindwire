@@ -9,6 +9,28 @@ package agent
 // This is the single source of truth for the gate, shared by the HTTP surface (api.turn) and the
 // in-process Go SDK (mindwire.Client.Turn) so neither can drift from the other.
 func UnsupportedTurnOption(caps Capabilities, opts TurnOptions) (string, bool) {
+	if opts.Command != nil {
+		if !caps.Commands {
+			return "this harness does not expose native commands", false
+		}
+		if !ValidCommandName(opts.Command.Name) || len(opts.Command.Arguments) > 64*1024 {
+			return "invalid command or arguments", false
+		}
+		if opts.Voice != nil {
+			return "finish voice input before running a command", false
+		}
+	}
+	if opts.Voice != nil {
+		if caps.Voice == nil || caps.Voice.Support != SupportNative || !caps.Voice.Remote || caps.Voice.Mode != "conversation" {
+			return "This harness does not expose native remote voice conversations.", false
+		}
+		if len(opts.Voice.ClientID) < 16 || len(opts.Voice.ClientID) > 80 || len(opts.Voice.Voice) > 80 {
+			return "A voice client identity is required.", false
+		}
+		if opts.ForkOnResume || len(opts.Attachments) > 0 {
+			return "Send attachments or finish creating the conversation branch before starting live voice.", false
+		}
+	}
 	if opts.ForkOnResume && !caps.Fork {
 		return "agent does not support conversation forks", false
 	}

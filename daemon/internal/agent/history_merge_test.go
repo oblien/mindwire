@@ -43,7 +43,7 @@ func TestQueuedHistoryCombinesNativeInputBatchAndRetainsImages(t *testing.T) {
 	// An intervening response makes these separate turns, even if their
 	// concatenation happens to occur in a later native prompt.
 	separate := []Message{recorded[0], recorded[2], recorded[1]}
-	if _, _, matched := queuedHistoryBatch(historyTurns(separate), 0, "FirstSecond"); matched {
+	if _, _, matched := queuedHistoryBatch(historyTurns(separate), 0, Message{Text: "FirstSecond"}); matched {
 		t.Fatal("batch matching crossed an assistant response")
 	}
 }

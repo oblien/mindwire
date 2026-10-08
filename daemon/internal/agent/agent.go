@@ -26,11 +26,13 @@ type TurnInput struct {
 	Env       map[string]string // runtime env from the AuthModule (e.g. ANTHROPIC_API_KEY)
 	Options   TurnOptions       // per-turn structured options (Settings already resolved into Config)
 	Fork      *ForkPoint        // durable, server-prepared native branch boundary
+	Command   *Command          // server-resolved native dispatch; never accepted as a client path
 	// Inbound carries the user's mid-turn ingress — permission answers, follow-up input, interrupts —
 	// for a turn that pauses (user-in-loop). It is receive-only for the adapter and nil for the one-shot
 	// hot path; an adapter that pauses picks a persistent transport and pumps these to the live process.
 	// The supervisor owns the send end (Respond/SendInput/Interrupt); it is closed at turn end.
 	Inbound <-chan Inbound
+	Voice   *VoiceBridge // ephemeral microphone/speaker channel; never persisted
 }
 
 // Inbound is one piece of mid-turn ingress from the user, addressed to a running turn. It is the
@@ -83,6 +85,7 @@ type Inbound struct {
 //	(b) Typed structured unified fields the flat string map can't express — system prompt, session
 //	    controls (and, from Stage 3, output schema / MCP config / attachments).
 type TurnOptions struct {
+	Command *CommandInvocation `json:"command,omitempty"` // explicit native command/skill selected from GET /commands
 	// Settings are per-turn overrides addressed by CANONICAL key. Consumed by the runner (the single
 	// security choke point); cleared before the adapter sees TurnInput. A client says "reasoningEffort"
 	// regardless of which agent runs.
@@ -112,7 +115,8 @@ type TurnOptions struct {
 	Subagents      json.RawMessage `json:"subagents,omitempty"`      // subagent definitions (Claude --agents)
 	ClaudeSettings json.RawMessage `json:"claudeSettings,omitempty"` // settings/hooks bundle (Claude --settings)
 
-	Attachments []Attachment `json:"attachments,omitempty"` // files referenced from the message
+	Attachments []Attachment  `json:"attachments,omitempty"` // files referenced from the message
+	Voice       *VoiceOptions `json:"voice,omitempty"`       // explicit native voice conversation
 }
 
 // Attachment is a file made available to a turn. Native image-capable adapters use
@@ -145,15 +149,16 @@ type TurnResult struct {
 // text / thinking / tool — that the app renders as inline cards; omitempty so it's absent for user
 // and text-only messages and pre-parts clients simply ignore it.
 type Message struct {
-	ID          string       `json:"id"`
-	ChatID      string       `json:"chatId"`
-	Role        string       `json:"role"` // "user" | "assistant"
-	Text        string       `json:"text"`
-	CreatedAt   string       `json:"createdAt"`
-	Parts       []Part       `json:"parts,omitempty"`
-	Attachments []Attachment `json:"attachments,omitempty"`
-	CanFork     bool         `json:"canFork,omitempty"`
-	ForkPoint   *ForkPoint   `json:"-"` // native cursor; clients send only the message ID
+	Command     *CommandInvocation `json:"command,omitempty"` // identifies an explicitly selected command for native-history reconciliation
+	ID          string             `json:"id"`
+	ChatID      string             `json:"chatId"`
+	Role        string             `json:"role"` // "user" | "assistant"
+	Text        string             `json:"text"`
+	CreatedAt   string             `json:"createdAt"`
+	Parts       []Part             `json:"parts,omitempty"`
+	Attachments []Attachment       `json:"attachments,omitempty"`
+	CanFork     bool               `json:"canFork,omitempty"`
+	ForkPoint   *ForkPoint         `json:"-"` // native cursor; clients send only the message ID
 }
 
 // Part is one ordered piece of an assistant turn. A `tool` part pairs the tool_use and its

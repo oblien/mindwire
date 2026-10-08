@@ -173,10 +173,17 @@ func startAuthRPC(ctx context.Context) (*authRPC, error) {
 }
 
 func startMetadataRPC(ctx context.Context, command string) (*authRPC, error) {
+	return startMetadataRPCWithEnv(ctx, command, nil)
+}
+
+func startMetadataRPCWithEnv(ctx context.Context, command string, env map[string]string) (*authRPC, error) {
 	processCtx, cancel := context.WithTimeout(context.Background(), 11*time.Minute)
 	cmd := exec.CommandContext(processCtx, "bash", "-lc", toolchain.Shell(command))
 	proc.Group(cmd)
 	cmd.Env = toolchain.Environment()
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()

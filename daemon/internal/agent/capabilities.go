@@ -57,11 +57,17 @@ type Capabilities struct {
 	Cancel     bool       `json:"cancel"`               // CORE switch (cancel endpoint)
 	Persistent bool       `json:"persistent"`           // client hint: holds a live stdin process (else one-shot per turn)
 	Models     bool       `json:"models"`               // client hint
+	Commands   bool       `json:"commands,omitempty"`   // GET /commands and native command dispatch
 	AuthLogout bool       `json:"authLogout,omitempty"` // workspace-owned sign-out
 	// ImageInput is a client hint: the agent delivers image attachments as TRUE vision content (the
 	// model sees pixels), not just a path the model must open with a Read tool. Attachments themselves
 	// are ungated (any agent may receive them); this only tells a UI whether images are seen natively.
 	ImageInput bool `json:"imageInput"` // client hint: image attachments are sent as real vision input
+	// Native audio is available when the selected model's input modalities include audio.
+	// Other models/adapters retain the recording as an ordinary file.
+	AudioInput bool `json:"audioInput,omitempty"`
+	// Harness-native voice is a separate interface from model audio attachments.
+	Voice *VoiceCapability `json:"voice,omitempty"`
 	// User-in-loop ingress — each a CORE switch gating its route. The supervisor allocates a run's
 	// inbound channel when any of these (or the runtime-control pair below) is set; the adapter must
 	// pick a transport that can pump it.

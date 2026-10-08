@@ -42,8 +42,11 @@ func (adapter) Capabilities() agent.Capabilities {
 		// tools still need replies even when command approvals are disabled.
 		Persistent: true,
 		Models:     true,
+		Commands:   true,
 		// Image attachments use native vision content blocks over stream-json input.
 		ImageInput: true,
+		Voice: &agent.VoiceCapability{Mode: "dictation", Support: agent.SupportNative, Remote: false,
+			Detail: "Claude Code supports dictation with a local microphone. Its Agent SDK does not accept remote voice input."},
 		// User-in-loop: claude answers permission asks (control_response), takes follow-up input, and
 		// interrupts over the stream-json control protocol on the persistent transport.
 		Respond:     true,

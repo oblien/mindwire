@@ -1,15 +1,16 @@
 ---
 title: Attachments
-description: Send files and images through durable uploads, host paths, or inline image data.
+description: Send files, images, and audio through durable uploads or host paths.
 ---
 
-A turn can carry **attachments**: files or images the agent should see alongside your message. You pass
+A turn can carry **attachments**: files, images, or audio sent alongside your message. You pass
 them the same way for every agent; the adapter maps them to whatever that agent's CLI expects.
 
 **Images are true vision input.** When an attachment is an image, the model actually *sees* the pixels —
 it doesn't just receive a file path it has to open with a Read tool. Codex feeds images to
 `localImage` input through Codex app-server (or `-i` in exec mode); Claude delivers them as base64 image content blocks over a stream-json
-turn. Non-image files are referenced by path instead (the model opens them with its own tools). The
+turn. Other files are referenced by path (the model opens them with its own tools), with native audio
+available for supported Codex models as described below. The
 `imageInput` [capability](/docs/guides/agents) flag reports whether an agent sees images natively — both
 Claude and Codex do.
 
@@ -43,6 +44,34 @@ large file bytes into every message page. Deleting the last conversation that us
 removes its saved file; inherited attachments remain available in conversation forks.
 `attachmentUploadVersion: 1` in health advertises this protocol; older services still accept small
 inline images but must be updated for durable file uploads.
+
+## Voice and audio
+
+The composer microphone first shows [native harness voice](/docs/guides/voice). **Record an audio
+file** is a separate option and records mono AAC in an M4A file. Stop to review the waveform, listen back, add
+an optional caption, or record again. **Audio is the default:** stopping does not transcribe or send
+anything. Add it to the composer, then send it through the same attachment upload and turn queue as
+other files. Recordings stop on backgrounding or microphone interruption and remain available for
+review. The recording limit is ten minutes.
+
+Codex's `audioInput` capability means its app-server accepts native audio. Mindwire also checks the
+selected model's `inputModalities` on that same connection, only when an audio input arrives. A model
+that advertises `audio` receives `localAudio`, including mid-turn steering. Other models, Claude, and
+adapters without this capability receive the unchanged recording as a readable file. They need an
+audio tool to interpret it; attaching a file alone does not add audio understanding to a text-only
+model. Mindwire never switches the model or silently transcribes the recording.
+
+Use the same `uploadAttachment` API with a name such as `voice.m4a` and MIME `audio/mp4`. An empty
+`message` is valid when there is an attachment. WAV, MP3, M4A, Ogg/Opus, FLAC, AAC, and WebM audio are
+recognized for Codex's native route; other formats remain ordinary files. Durable audio references
+survive reconnecting, queued turns, history reloads, and conversation forks.
+
+**Add transcription** is a separate, optional action in the recording sheet. It uses on-device iOS
+speech processing, downloading the chosen language's system assets if needed. The original recording
+stays selected, and failure or cancellation leaves it available. Nothing is sent to a transcription
+service. You can edit the text or choose to send only the text before adding it to the composer.
+
+## Attachment fields
 
 An attachment has one source: an uploaded **artifact reference**, a **path** on the daemon host, or
 **inline base64 data**. Ordinary remote files should use uploads so they remain available on resume.

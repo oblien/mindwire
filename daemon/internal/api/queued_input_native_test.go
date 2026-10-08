@@ -2,7 +2,9 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -35,11 +37,17 @@ func TestNativeQueuedInput(t *testing.T) {
 	if os.Getenv("MINDWIRE_NATIVE_INPUT_TEST") != "1" && phoneFixture == "" {
 		t.Skip("set MINDWIRE_NATIVE_INPUT_TEST=1 for isolated native CLI input checks")
 	}
-	for _, harness := range []string{"codex", "claude-code"} {
-		if phoneFixture != "" && harness != "codex" {
+	for _, test := range []struct {
+		name, harness string
+		audio         bool
+	}{
+		{"codex", "codex", true}, {"codex-file-fallback", "codex", false}, {"claude-code", "claude-code", false},
+	} {
+		harness := test.harness
+		if phoneFixture != "" && test.name != "codex" {
 			continue
 		}
-		t.Run(harness, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			binary := harness
 			if harness == "claude-code" {
 				binary = "claude"
@@ -154,7 +162,14 @@ func TestNativeQueuedInput(t *testing.T) {
 			t.Setenv("ANTHROPIC_API_KEY", "local-queued-input-key")
 			t.Setenv("ANTHROPIC_BASE_URL", model.URL)
 			t.Setenv("AZURE_OPENAI_API_KEY", "local-queued-input-key")
-			config := fmt.Sprintf("model = \"gpt-5.5\"\nmodel_provider = \"azure-foundry\"\n[model_providers.azure-foundry]\nname = \"Native queued input fixture\"\nbase_url = %q\nenv_key = \"AZURE_OPENAI_API_KEY\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\n", model.URL)
+			modelName, catalogConfig := "gpt-5.5", ""
+			if harness == "codex" {
+				// This fictional local model accepts media; never change the real user's catalog.
+				modelName = "mindwire-media-fixture"
+				path := nativeMediaFixtureCatalog(t, nativeConfig, modelName, test.audio)
+				catalogConfig = fmt.Sprintf("model_catalog_json = %q\n", path)
+			}
+			config := catalogConfig + fmt.Sprintf("model = %q\nmodel_provider = \"azure-foundry\"\n[model_providers.azure-foundry]\nname = \"Native queued input fixture\"\nbase_url = %q\nenv_key = \"AZURE_OPENAI_API_KEY\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\n", modelName, model.URL)
 			if err := os.WriteFile(filepath.Join(nativeConfig, "config.toml"), []byte(config), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -167,7 +182,7 @@ func TestNativeQueuedInput(t *testing.T) {
 			ag, _ := sup.Resolve(harness)
 			settings := map[string]string{"model": "claude-sonnet-4-6", "permission-mode": "bypassPermissions"}
 			if harness == "codex" {
-				settings = map[string]string{"authMethod": "azureFoundry", "provider:azure-foundry:apiKey": "local-queued-input-key", "provider:azure-foundry:envVar": "AZURE_OPENAI_API_KEY", "provider:azure-foundry:models": "gpt-5.5", "permission-mode": "never", "sandbox": "danger-full-access"}
+				settings = map[string]string{"authMethod": "azureFoundry", "provider:azure-foundry:apiKey": "local-queued-input-key", "provider:azure-foundry:envVar": "AZURE_OPENAI_API_KEY", "provider:azure-foundry:models": modelName, "permission-mode": "never", "sandbox": "danger-full-access"}
 			}
 			for key, value := range settings {
 				if err := ag.Creds.Set(key, value); err != nil {
@@ -228,7 +243,8 @@ func TestNativeQueuedInput(t *testing.T) {
 				}
 				return agent.Attachment{ArtifactID: id, Name: name, Mime: mime}
 			}
-			atts := []agent.Attachment{upload("pixel.png", "image/png", pixel.Bytes()), upload("requirements.txt", "text/plain", []byte(fileContents))}
+			audio, _ := base64.StdEncoding.DecodeString("UklGRkQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")
+			atts := []agent.Attachment{upload("pixel.png", "image/png", pixel.Bytes()), upload("requirements.txt", "text/plain", []byte(fileContents)), upload("voice.wav", "audio/wav", audio)}
 			_, uploadedPath, err := a.surfaces.Artifacts().Reference("chat", atts[1].ArtifactID)
 			if err != nil {
 				t.Fatal(err)
@@ -298,6 +314,12 @@ func TestNativeQueuedInput(t *testing.T) {
 			if !strings.Contains(sent, imageKey) {
 				t.Fatal("image input was dropped")
 			}
+			if test.audio && !strings.Contains(sent, "input_audio") || !test.audio && !strings.Contains(sent, "voice.wav") {
+				t.Fatal("queued recording was dropped instead of being delivered as native audio or an original file")
+			}
+			if !test.audio && strings.Contains(sent, "input_audio") {
+				t.Fatal("native audio was sent to a model that only accepts files")
+			}
 			historyResponse := serve(t, mux, "GET", "/chats/chat/messages", "")
 			var history []agent.Message
 			if historyResponse.Code != 200 || json.Unmarshal(historyResponse.Body.Bytes(), &history) != nil {
@@ -308,7 +330,7 @@ func TestNativeQueuedInput(t *testing.T) {
 					t.Fatal(err)
 				}
 				capture, _ := json.MarshalIndent(map[string]any{"events": all, "messages": history, "run": run, "requests": requests, "recorded": store.Messages("chat")}, "", "  ")
-				if err := os.WriteFile(filepath.Join(dir, harness+"-queued-input.json"), capture, 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(dir, test.name+"-queued-input.json"), capture, 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -346,19 +368,57 @@ func TestNativeQueuedInput(t *testing.T) {
 					t.Fatal("native file plumbing leaked into the fork's message")
 				}
 				for _, attachment := range message.Attachments {
-					if attachment.ArtifactID != atts[1].ArtifactID {
+					if attachment.ArtifactID != atts[1].ArtifactID && attachment.ArtifactID != atts[2].ArtifactID {
 						continue
 					}
 					files++
 					content, err := a.surfaces.Artifacts().Get(attachment.ArtifactID)
-					if err != nil || string(content.Data) != fileContents {
+					want := []byte(fileContents)
+					if attachment.ArtifactID == atts[2].ArtifactID {
+						want = audio
+					}
+					if err != nil || !bytes.Equal(content.Data, want) || len(attachment.Data) > 0 {
 						t.Fatal("source deletion broke the native fork's attachment", err)
 					}
 				}
 			}
-			if files != 1 {
+			if files != 2 {
 				t.Fatalf("fork contains %d copies of the attached file", files)
 			}
 		})
 	}
+}
+
+func nativeMediaFixtureCatalog(t *testing.T, home, name string, audio bool) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	data, err := exec.CommandContext(ctx, "codex", "debug", "models").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog map[string]any
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	models, ok := catalog["models"].([]any)
+	if !ok || len(models) == 0 {
+		t.Fatal("no native model metadata")
+	}
+	model := models[0].(map[string]any)
+	model["slug"], model["display_name"], model["visibility"] = name, name, "list"
+	model["input_modalities"] = []string{"text", "image"}
+	if audio {
+		model["input_modalities"] = []string{"text", "image", "audio"}
+	}
+	catalog["models"] = []any{model}
+	data, err = json.Marshal(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, "media-model.json")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

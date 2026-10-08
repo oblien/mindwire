@@ -13,13 +13,29 @@ const HistoryPageVersion = 1
 
 var errHistoryCursor = errors.New("history cursor is no longer present; reload the latest page")
 
-type messagePage struct {
-	Messages []json.RawMessage `json:"messages"`
-	HasMore  bool              `json:"hasMore"`
-	Before   string            `json:"before,omitempty"`
+func historyPageLimits(r *http.Request) (int, int, error) {
+	limit, budget := 40, 1<<20
+	if value := r.URL.Query().Get("limit"); value != "" {
+		limit, _ = strconv.Atoi(value)
+	}
+	if value := r.URL.Query().Get("maxBytes"); value != "" {
+		budget, _ = strconv.Atoi(value)
+	}
+	if limit < 1 || limit > 200 || budget < 1 || budget > 8<<20 {
+		return 0, 0, errors.New("limit must be 1–200 and maxBytes must be 1–8388608")
+	}
+	return limit, budget, nil
 }
 
-func writeHistory[T any](w http.ResponseWriter, r *http.Request, messages []T, id func(T) string) {
+type messagePage struct {
+	Messages    []json.RawMessage `json:"messages"`
+	HasMore     bool              `json:"hasMore"`
+	Before      string            `json:"before,omitempty"`
+	Revision    string            `json:"revision,omitempty"`
+	NotModified bool              `json:"notModified,omitempty"`
+}
+
+func writeHistory[T any](w http.ResponseWriter, r *http.Request, messages []T, id func(T) string, revision ...string) {
 	query := r.URL.Query()
 	limit, _ := strconv.Atoi(query.Get("limit"))
 	before := query.Get("before")
@@ -27,15 +43,9 @@ func writeHistory[T any](w http.ResponseWriter, r *http.Request, messages []T, i
 		writeJSON(w, http.StatusOK, pageWindow(messages, limit, before, id))
 		return
 	}
-	if query.Get("limit") == "" {
-		limit = 40
-	}
-	budget := 1 << 20
-	if value := query.Get("maxBytes"); value != "" {
-		budget, _ = strconv.Atoi(value)
-	}
-	if limit < 1 || limit > 200 || budget < 1 || budget > 8<<20 {
-		badRequest(w, "limit must be 1–200 and maxBytes must be 1–8388608")
+	limit, budget, err := historyPageLimits(r)
+	if err != nil {
+		badRequest(w, err.Error())
 		return
 	}
 	page, err := boundedHistory(messages, limit, before, budget, id)
@@ -46,6 +56,9 @@ func writeHistory[T any](w http.ResponseWriter, r *http.Request, messages []T, i
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not encode chat history"})
 		return
+	}
+	if len(revision) > 0 {
+		page.Revision = revision[0]
 	}
 	writeJSON(w, http.StatusOK, page)
 }

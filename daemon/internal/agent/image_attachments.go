@@ -12,7 +12,7 @@ import (
 const ImageAttachmentsVersion = 1
 
 // NativeImageMime is the common raster-image input understood by the harnesses.
-// SVGs, PDFs, audio and other files remain ordinary readable attachments.
+// Other media are handled separately by the adapter or kept as readable files.
 func NativeImageMime(at Attachment) string {
 	media := strings.ToLower(strings.TrimSpace(at.Mime))
 	switch media {
@@ -53,6 +53,12 @@ func AttachmentReferenceText(attachments []Attachment) string {
 }
 
 func HasUserInput(message string, options TurnOptions) bool {
+	if options.Command != nil {
+		return true
+	}
+	if options.Voice != nil {
+		return true
+	}
 	if strings.TrimSpace(message) != "" {
 		return true
 	}
@@ -67,6 +73,16 @@ func HasUserInput(message string, options TurnOptions) bool {
 // ImagesFromContent reads user input blocks only. Tool outputs remain artifacts,
 // and remote URLs/local paths are never fetched while rendering history.
 func ImagesFromContent(raw json.RawMessage) []Attachment {
+	return inputAttachmentsFromContent(raw, false)
+}
+
+// InputAttachmentsFromContent also preserves native audio. It only decodes user
+// input; fetching remote media or opening local paths is never part of history.
+func InputAttachmentsFromContent(raw json.RawMessage) []Attachment {
+	return inputAttachmentsFromContent(raw, true)
+}
+
+func inputAttachmentsFromContent(raw json.RawMessage, includeAudio bool) []Attachment {
 	var blocks []json.RawMessage
 	if json.Unmarshal(raw, &blocks) != nil {
 		return nil
@@ -79,6 +95,7 @@ func ImagesFromContent(raw json.RawMessage) []Attachment {
 			Path     string          `json:"path"`
 			URL      string          `json:"url"`
 			ImageURL json.RawMessage `json:"image_url"`
+			AudioURL json.RawMessage `json:"audio_url"`
 			Source   struct {
 				Type string `json:"type"`
 				Mime string `json:"media_type"`
@@ -88,26 +105,36 @@ func ImagesFromContent(raw json.RawMessage) []Attachment {
 		if json.Unmarshal(raw, &block) != nil {
 			continue
 		}
+		mediaPrefix, mediaURL := "image/", block.ImageURL
 		switch block.Type {
 		case "image", "input_image", "inputImage", "localImage", "local_image", "image_url":
+		case "audio", "input_audio", "inputAudio", "localAudio", "local_audio", "audio_url":
+			if !includeAudio {
+				continue
+			}
+			mediaPrefix, mediaURL = "audio/", block.AudioURL
 		default:
 			continue
 		}
 		image := Attachment{Name: block.Name, Path: block.Path}
-		if block.Source.Type == "base64" && strings.HasPrefix(block.Source.Mime, "image/") {
+		if block.Source.Type == "base64" && strings.HasPrefix(block.Source.Mime, mediaPrefix) && len(block.Source.Data) <= 16<<20 {
 			image.Mime, image.Data = block.Source.Mime, block.Source.Data
 		} else {
 			url := block.URL
-			if len(block.ImageURL) > 0 {
-				if json.Unmarshal(block.ImageURL, &url) != nil {
+			if len(mediaURL) > 0 {
+				if json.Unmarshal(mediaURL, &url) != nil {
 					var value struct {
 						URL string `json:"url"`
 					}
-					_ = json.Unmarshal(block.ImageURL, &value)
+					_ = json.Unmarshal(mediaURL, &value)
 					url = value.URL
 				}
 			}
-			if decoded, ok := ImageFromDataURL(url); ok {
+			limit := 12 << 20
+			if mediaPrefix == "audio/" {
+				limit = base64.StdEncoding.EncodedLen(16 << 20)
+			}
+			if decoded, ok := mediaFromDataURL(url, mediaPrefix, limit); ok {
 				image.Mime, image.Data = decoded.Mime, decoded.Data
 			}
 		}
@@ -123,8 +150,12 @@ func ImagesFromContent(raw json.RawMessage) []Attachment {
 }
 
 func ImageFromDataURL(value string) (Attachment, bool) {
+	return mediaFromDataURL(value, "image/", 12<<20)
+}
+
+func mediaFromDataURL(value, mediaPrefix string, encodedLimit int) (Attachment, bool) {
 	header, body, ok := strings.Cut(value, ",")
-	if !ok || !strings.HasPrefix(header, "data:image/") || !strings.HasSuffix(header, ";base64") || len(body) > 12<<20 {
+	if !ok || !strings.HasPrefix(header, "data:"+mediaPrefix) || !strings.HasSuffix(header, ";base64") || len(body) > encodedLimit {
 		return Attachment{}, false
 	}
 	data, err := base64.StdEncoding.DecodeString(body)

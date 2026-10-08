@@ -153,6 +153,9 @@ func (st *Store) importChats(chats []ChatImport, write bool) error {
 			}
 		}
 		if write {
+			for _, chat := range chats {
+				st.touchHistory(chat.ChatID)
+			}
 			return st.save()
 		}
 		return nil

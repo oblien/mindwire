@@ -32,6 +32,28 @@ import (
 // The adapter owns Codex's rollout transcript, so it can both read and delete it.
 var _ agent.HistoryDeleter = adapter{}
 
+func (adapter) HistoryRevision(q agent.HistoryQuery) (string, error) {
+	if q.SessionID == "" || configBase() == "" {
+		return "missing", nil
+	}
+	path := findRollout(configBase(), q.SessionID)
+	if path == "" {
+		return "missing", nil
+	}
+	segments, ancestors, err := rolloutSegments(path)
+	if err != nil {
+		return "", err
+	}
+	for _, segment := range segments {
+		stamp, err := agent.NativeHistoryFileRevision(segment.path)
+		if err != nil {
+			return "", err
+		}
+		ancestors += ":" + stamp
+	}
+	return ancestors, nil
+}
+
 // DeleteHistory removes Codex's native rollout transcript for a session — the rollout-<ts>-<id>.jsonl
 // file findRollout locates under $CODEX_HOME (live or archived). Best-effort and idempotent: a missing
 // session id, unresolvable home, or no rollout on disk (e.g. an --ephemeral run) is not an error, so a
@@ -171,9 +193,14 @@ type toolRef struct{ msg, part int }
 // parseRollout maps the NDJSON transcript to unified messages. Assistant activity (text, reasoning,
 // tool calls) between two user turns accretes into a single assistant message with ordered parts —
 // matching how the app renders a turn; a user turn flushes that accumulation.
+// Uploaded inputs can contain 48 MiB of media, encoded as base64 in one native
+// rollout record. The scanner grows only on demand; the transcript cache retains
+// its independent 64 MiB bound and declines oversized histories.
+const maxRolloutLineBytes = 65 << 20
+
 func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 1<<20), 16<<20)
+	sc.Buffer(make([]byte, 0, 1<<20), maxRolloutLineBytes)
 
 	var out []agent.Message
 	curAsst := -1                   // index of the open assistant message, or -1
@@ -184,6 +211,7 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 	eventTexts, responseTexts := map[string]int{}, map[string]int{}
 	nextID := func() string { return "codex-" + strconv.Itoa(len(out)) }
 	userSources := map[string]bool{}
+	voiceItems := map[string]bool{}
 	var currentTurn, previousTurn string
 	turnUsers, totalUsers := 0, 0
 	beginTurn := func(id string) {
@@ -263,6 +291,35 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 			continue
 		}
 		switch env.Type {
+		case "realtime_item":
+			// Native realtime transcripts are first-class timeline items, not
+			// coding-model output or audio attachments. Keep them separate so a
+			// later completed coding item cannot replace a spoken reply.
+			var item struct {
+				ID, Type, Role, Text string
+			}
+			if json.Unmarshal(env.Payload, &item) != nil || item.ID == "" || voiceItems[item.ID] {
+				continue
+			}
+			if item.Type != "transcript_segment" && item.Type != "transcriptSegment" {
+				continue
+			}
+			voiceItems[item.ID] = true
+			if item.Text == "" {
+				continue
+			}
+			if item.Role == "user" {
+				appendUser("voice", item.Text, env.Timestamp, nil)
+				out[len(out)-1].ID = "voice:" + item.ID
+				// Native fork boundaries are coding turns, not realtime items.
+				out[len(out)-1].CanFork, out[len(out)-1].ForkPoint = false, nil
+			} else if item.Role == "assistant" {
+				curAsst = -1
+				i := ensureAsst(env.Timestamp)
+				appendText(&out[i], item.Text)
+				out[i].ID, out[i].Parts[len(out[i].Parts)-1].ID = "voice:"+item.ID, "voice:"+item.ID
+			}
+			curAsst = -1
 		case "turn_context":
 			var p struct {
 				TurnID string `json:"turn_id"`
@@ -320,7 +377,7 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 						Content json.RawMessage `json:"content"`
 					}
 					_ = json.Unmarshal(p.Item, &item)
-					appendUser("completed", strings.TrimSpace(n.Text), env.Timestamp, agent.ImagesFromContent(item.Content))
+					appendUser("completed", strings.TrimSpace(n.Text), env.Timestamp, agent.InputAttachmentsFromContent(item.Content))
 					modern = true
 					continue
 				}
@@ -394,9 +451,9 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 			}
 			if p.Type == "message" && p.Role == "user" {
 				// Text-only response records include injected environment/developer context;
-				// human text is read from user_message events. Recover image-bearing input here.
-				if images := agent.ImagesFromContent(p.Content); len(images) > 0 {
-					appendUser("response", imageInputText(p.Content), env.Timestamp, images)
+				// human text is read from user_message events. Recover media-bearing input here.
+				if attachments := agent.InputAttachmentsFromContent(p.Content); len(attachments) > 0 {
+					appendUser("response", mediaInputText(p.Content), env.Timestamp, attachments)
 				}
 				continue
 			}
@@ -478,10 +535,10 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 	return out, nil
 }
 
-// Codex 0.155 wraps a local image with separate input_text open/close tags in
+// Codex wraps local images/audio with separate input_text open/close tags in
 // response_item, then emits the original text in UserMessage. Strip only that
 // exact three-block wrapper so both echoes match without hiding user-authored text.
-func imageInputText(raw json.RawMessage) string {
+func mediaInputText(raw json.RawMessage) string {
 	var parts []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
@@ -492,10 +549,13 @@ func imageInputText(raw json.RawMessage) string {
 	var text []string
 	for i := 0; i < len(parts); i++ {
 		part := parts[i]
-		if part.Type == "input_text" && strings.HasPrefix(part.Text, "<image name=[Image #") && strings.HasSuffix(part.Text, ">") && i+2 < len(parts) &&
-			parts[i+1].Type == "input_image" && parts[i+2].Type == "input_text" && parts[i+2].Text == "</image>" {
-			i += 2
-			continue
+		if part.Type == "input_text" && strings.HasSuffix(part.Text, ">") && i+2 < len(parts) && parts[i+2].Type == "input_text" {
+			image := strings.HasPrefix(part.Text, "<image name=[Image #") && parts[i+1].Type == "input_image" && parts[i+2].Text == "</image>"
+			audio := strings.HasPrefix(part.Text, "<audio name=[Audio #") && parts[i+1].Type == "input_audio" && parts[i+2].Text == "</audio>"
+			if image || audio {
+				i += 2
+				continue
+			}
 		}
 		if (part.Type == "input_text" || part.Type == "text") && part.Text != "" {
 			text = append(text, part.Text)

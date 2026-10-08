@@ -1,0 +1,78 @@
+---
+title: Native voice
+description: Use the harness voice interface without turning recordings into file-tool requests.
+---
+
+Voice belongs to the **harness**, independently of the selected coding model's audio attachment
+modalities. Mindwire exposes `capabilities.voice` and the on-demand `GET /voice` check.
+
+| Harness | Voice interface | Remote microphone |
+| --- | --- | --- |
+| Codex | Experimental native realtime conversation | Supported when the installed CLI and its voice backend/account allow it |
+| Claude Code | Local voice dictation | Its current Agent SDK does not expose remote microphone input |
+
+Claude's local `/voice` transcribes microphone speech into its prompt. It requires a Claude.ai
+account and a local microphone; it is not available over SSH or through the current Agent SDK.
+Mindwire reports that limitation instead of claiming an uploaded recording is native voice.
+
+Codex uses its own `thread/realtime/*` interface and voice backend, retaining the chat's selected
+coding model and permissions. A custom coding provider, such as an Azure deployment, does not
+establish access to the native voice backend. Native startup reports account, configuration, and
+rollout errors. Mindwire does not switch the coding model, overwrite native authentication, or
+silently send voice to a separate transcription service.
+
+## Start a voice conversation
+
+In the mobile composer, open **Voice** and choose **Start voice**. The app checks the harness before
+starting the microphone. Start in an idle conversation; any running turn must finish first.
+The sheet provides waveform feedback, the native transcript, speaker output, and **End voice**.
+
+```ts
+const status = await mw.voice.status({ agent: "codex" });
+if (!status.available) throw new Error(status.detail ?? "Voice unavailable");
+
+const voice = await mw.voice.start({
+  agent: "codex",
+  chatId: "my-chat",
+  requestId: crypto.randomUUID(),
+  clientId: crypto.randomUUID(),
+});
+
+for await (const event of voice.stream(abortSignal)) {
+  // Wait for ready, then deliver live microphone batches with await voice.appendAudio(...).
+  // Play event.audio as PCM16 using its sampleRate and channels.
+  // Keep the ordinary coding conversation on voice.run.stream().
+}
+```
+
+Microphone batches contain base64 PCM16 little-endian, mono, 24 kHz, with at most 500 ms per
+batch. Await each native acknowledgement before sending the next batch. The phone uses 200 ms
+batches. Do not replay captured audio after a connection failure. Keep the start request and
+client IDs when recovering an unacknowledged start request.
+
+Go callers use `client.VoiceStatus(ctx)`, start `client.Turn` with `Options.Voice`, and use the
+returned run's `VoiceEvents`, `VoiceAudio`, and `EndVoice` methods. REST clients start an ordinary
+`POST /turns` with an empty message and `options.voice`, then use the run's `/voice` and
+`/voice/stream` endpoints. All routes use the existing authenticated workspace connection.
+
+## Lifecycle and storage
+
+Ending voice, leaving the app, losing the connection, or interrupting the microphone stops media.
+It does **not** interrupt coding work already started by the harness. Normal Stop still cancels
+the coding run. A voice conversation has one media owner; a second listener is rejected.
+
+Audio stays in bounded, ephemeral buffers and never enters the durable chat replay hub or an
+attachment file. A slow connection stops voice instead of replaying stale speech. Native text
+transcripts and normal coding output use the existing conversation stream. No voice processes,
+heartbeat requests, or audio buffers run while voice is idle.
+
+## Recorded audio files
+
+**Record an audio file** remains a separate option. It records an M4A attachment for review and
+manual sending alongside images, files, or text. The model must advertise audio input to receive
+it natively; otherwise it remains a file that needs an audio tool. See [Attachments](/docs/guides/attachments).
+On-device transcription is an explicit, optional action in that recording sheet.
+
+Protocol checks use the installed Codex CLI with a private native home and a loopback voice
+backend, plus adapter lifecycle tests. They do not prove access for a particular paid account or
+voice rollout. Check the native startup result on the intended workspace.

@@ -6,6 +6,7 @@ import { SurfacesApi } from "./surfaces.js";
 import { ServiceApi } from "./service.js";
 import { ExecutionApi } from "./execution.js";
 import { ComputerApi } from "./computer.js";
+import { VoiceApi } from "./voice.js";
 import { executableChecksum } from "./binary-cache.js";
 import { local, type Target, type TargetHandle, type ConnectSpec } from "./target/index.js";
 import type { EnsureEvent } from "./target/host.js";
@@ -18,6 +19,7 @@ import type {
   AuthState,
   AuthStatus,
   Catalog,
+  CommandCatalog,
   ChatSummary,
   ChatForkResult,
   ForkChatOptions,
@@ -86,7 +88,7 @@ export interface MindwireOptions {
 }
 
 // Reaps the destination behind a transport exactly once, keyed by the shared Http so any
-// `withAgent()` clone can `close()` it. `local`/`remote` handles have no-op `stop()`.
+// `withAgent()` clone can `close()` it. Shared local and remote handles have no-op `stop()`.
 const handleByTransport = new WeakMap<Http, Promise<TargetHandle>>();
 
 /** Options accepted by any agent-scoped method to override the client's default agent. */
@@ -126,6 +128,7 @@ export class Mindwire {
   readonly service: ServiceApi;
   readonly execution: ExecutionApi;
   readonly computer: ComputerApi;
+  readonly voice: VoiceApi;
   readonly http: Http;
   /** The default agent type applied to agent-scoped calls, if set. */
   readonly defaultAgent: string | undefined;
@@ -169,6 +172,7 @@ export class Mindwire {
     this.service = new ServiceApi(this);
     this.execution = new ExecutionApi(this);
     this.computer = new ComputerApi(this);
+    this.voice = new VoiceApi(this);
     this.auth = new AuthApi(this);
     this.prompts = new PromptsApi(this);
     this.mcp = new McpApi(this);
@@ -196,6 +200,7 @@ export class Mindwire {
     clone.service = new ServiceApi(clone as Mindwire);
     clone.execution = new ExecutionApi(clone as Mindwire);
     clone.computer = new ComputerApi(clone as Mindwire);
+    clone.voice = new VoiceApi(clone as Mindwire);
     clone.auth = new AuthApi(clone as Mindwire);
     clone.prompts = new PromptsApi(clone as Mindwire);
     clone.mcp = new McpApi(clone as Mindwire);
@@ -214,8 +219,8 @@ export class Mindwire {
    * Release target-owned resources by calling the {@link TargetHandle}'s `stop()` — once, even across
    * {@link withAgent} clones that share the transport. For an `ssh`/`docker`/`oblien` target this reaps
    * the box (tear down the tunnel, stop or delete the container/workspace, per `stopOnExit`); a no-op
-   * for `local`/`remote` (embedded self-cleans on process exit; remote is not ours to stop). Safe to
-   * call before the target has connected (nothing to reap yet).
+   * for shared local and remote targets. With `local({ shared: false })`, closes the owned daemon.
+   * Safe to call before the target has connected (nothing to reap yet).
    */
   async close(): Promise<void> {
     const handle = handleByTransport.get(this.http);
@@ -266,6 +271,13 @@ export class Mindwire {
    */
   models(scoped?: AgentScoped): Promise<ModelInfo[]> {
     return this.http.request<ModelInfo[]>("GET", "/models", { query: this.agentParam(scoped) });
+  }
+
+  /** Discover native commands for a project without starting a model turn. */
+  commands(opts: { directory?: string; refresh?: boolean } & AgentScoped = {}): Promise<CommandCatalog> {
+    return this.http.request<CommandCatalog>("GET", "/commands", {
+      query: { ...this.agentParam(opts), dir: opts.directory, refresh: opts.refresh },
+    });
   }
 
   /** `GET /doctor` — daemon-level health plus the selected agent's own checks. */
@@ -415,13 +427,14 @@ export class Mindwire {
    */
   async messagePage(
     chatId: string,
-    opts: AgentScoped & { limit?: number; before?: string; maxBytes?: number } = {},
+    opts: AgentScoped & { limit?: number; before?: string; maxBytes?: number; ifRevision?: string } = {},
   ): Promise<MessagePage> {
     const limit = opts.limit ?? 12;
     const result = await this.http.request<MessagePage | Message[] | null>(
       "GET", `/chats/${encodeURIComponent(chatId)}/messages`, {
         query: { ...this.agentParam(opts), limit, before: opts.before,
-          paged: "true", maxBytes: opts.maxBytes ?? 1_048_576 },
+          paged: "true", maxBytes: opts.maxBytes ?? 1_048_576,
+          ifRevision: opts.before ? undefined : opts.ifRevision },
       },
     );
     if (result === null) return { messages: [], hasMore: false };
@@ -533,13 +546,13 @@ export class Mindwire {
    * {@link ApiError}: 400 if the agent doesn't support compaction (`capabilities.compactNow`) or the
    * chat has no conversation yet, 409 if a turn is already running for the chat.
    */
-  async compact(chatId: string, opts: { instructions?: string } & AgentScoped = {}): Promise<Run> {
+  async compact(chatId: string, opts: { instructions?: string; requestId?: string } & AgentScoped = {}): Promise<Run> {
     const data = await this.http.request<RunData>(
       "POST",
       `/chats/${encodeURIComponent(chatId)}/compact`,
       {
         query: this.agentParam(opts),
-        body: opts.instructions ? { instructions: opts.instructions } : {},
+        body: { instructions: opts.instructions, requestId: opts.requestId },
       },
     );
     return new Run(this.http, data);

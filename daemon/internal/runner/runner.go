@@ -55,6 +55,7 @@ type Turn struct {
 	// Inbound is the user's mid-turn ingress channel (approval answers, follow-up input, interrupts),
 	// owned by the supervisor. Receive-only for the adapter; nil for a one-shot turn.
 	Inbound <-chan agent.Inbound
+	Voice   *agent.VoiceBridge
 	// Register requests before publishing them, so a fast client can answer immediately.
 	BeforePublish agent.Emit
 	// The supervisor commits completion only after settling follow-up receipts.
@@ -65,7 +66,13 @@ type Turn struct {
 // RunTurn executes one turn, streaming unified events to the hub under t.RunID and persisting the
 // agent's session id. Returns the final result plus the accumulated rich transcript.
 func (r *Runner) RunTurn(ctx context.Context, t Turn) (agent.TurnResult, []agent.Part) {
-	return r.run(ctx, t, r.adapter.RunStream)
+	return r.run(ctx, t, func(ctx context.Context, in agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
+		input, err := agent.PrepareCommand(ctx, r.adapter, in)
+		if err != nil {
+			return agent.TurnResult{Text: err.Error(), IsError: true}, err
+		}
+		return r.adapter.RunStream(ctx, input, emit)
+	})
 }
 
 // RunCompact drives an on-demand compaction through the SAME streaming + transcript-accumulation path
@@ -117,6 +124,11 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 		opts.SessionID, opts.ContinueLatest = "", false
 		opts.ForkOnResume = true
 	}
+	if auth, ok := r.auth.(agent.AuthPrepareModule); ok {
+		if err := auth.PrepareAuth(ctx); err != nil {
+			return r.normalizeResult(ctx, agent.TurnResult{Text: err.Error(), IsError: true}), nil
+		}
+	}
 	in := agent.TurnInput{
 		Message:   message,
 		SessionID: sourceSession,
@@ -125,6 +137,7 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 		Env:       r.auth.EnvForRun(),
 		Options:   opts,
 		Inbound:   t.Inbound,
+		Voice:     t.Voice,
 		Fork:      fork,
 	}
 	if fork != nil && fork.Fresh {

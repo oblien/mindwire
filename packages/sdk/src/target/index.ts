@@ -8,7 +8,7 @@
 // base that may carry a transport-specific `fetch` (used for both unary and SSE), a rotating
 // `getToken`, and per-request `headers` (see http.ts). Nothing in `http.ts` changes to add a backend.
 import type { FetchLike, TokenGetter } from "../http.js";
-import { startEmbedded, type EmbeddedOptions } from "../embedded.js";
+import { startEmbedded, type EmbeddedOptions, type EmbeddedDaemon } from "../embedded.js";
 import type { EnsureEvent } from "./host.js";
 
 /**
@@ -46,6 +46,8 @@ export interface TargetHandle {
   getToken?: TokenGetter;
   /** Release destination-owned resources (per the factory's `stopOnExit`). Idempotent. */
   stop(): Promise<void>;
+  /** Local process liveness when this target owns a daemon; remote targets use health(). */
+  isAlive?(): boolean;
 }
 
 /**
@@ -59,6 +61,11 @@ export interface Target {
   /** Destination id, e.g. `"local"` / `"remote"` / `"ssh"` / `"docker"` / `"oblien"`. */
   readonly name: string;
   connect(spec: ConnectSpec): Promise<TargetHandle>;
+}
+
+export interface LocalTarget extends Target {
+  /** v1 supports a private environment, separate host auth source, and an owned daemon lifetime. */
+  readonly profileVersion: number;
 }
 
 /** Emit one {@link EnsureEvent}, tolerating a throwing logger (see host.ts Risk 8). */
@@ -78,20 +85,27 @@ function emit(spec: ConnectSpec, e: EnsureEvent): void {
  *
  * Embedded daemons are memoized by config (see embedded.ts): two zero-config `local()` clients share
  * one loopback daemon (one environment), while `local({ cwd })` / `local({ statePath })` isolate into
- * their own. `stop()` is a **no-op** — the shared daemon is reaped on process exit (Risk 5).
+ * their own. Shared targets stay alive until host exit. With `shared: false`, close() stops the owned daemon.
  */
-export function local(opts: EmbeddedOptions = {}): Target {
+export function local(opts: EmbeddedOptions = {}): LocalTarget {
+  let daemon: EmbeddedDaemon | undefined;
+  let pending: Promise<EmbeddedDaemon> | undefined;
   return {
     name: "local",
+    profileVersion: 1,
     async connect(spec) {
-      const d = await startEmbedded(opts);
+      if (daemon && !daemon.isAlive()) { daemon = undefined; pending = undefined; }
+      const d = await (pending ??= startEmbedded(opts).then(value => daemon = value).catch(error => {
+        pending = undefined;
+        throw error;
+      }));
       emit(spec, { target: "local", phase: "ready", message: `embedded daemon on ${d.baseUrl}` });
       return {
         id: d.baseUrl,
         baseUrl: d.baseUrl,
         ...(d.token !== undefined ? { token: d.token } : {}),
-        // No-op: the embedded daemon is shared (keyed memoization) and reaped on process exit.
-        stop: async () => {},
+        isAlive: d.isAlive,
+        stop: opts.shared === false ? d.stop : async () => {},
       };
     },
   };

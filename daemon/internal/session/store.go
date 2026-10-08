@@ -87,9 +87,12 @@ type notifyConfig struct {
 }
 
 type Store struct {
-	mu   sync.Mutex
-	path string
-	s    state
+	mu              sync.Mutex
+	path            string
+	s               state
+	historyEpoch    string
+	historyClock    uint64
+	historyVersions map[string]uint64
 }
 
 func Open(path string) (*Store, error) {
@@ -184,6 +187,9 @@ func (st *Store) SetSession(agentType, chatID, sessionID string) error {
 	}
 	st.s.Sessions[key] = sessionID
 	delete(st.s.ForkPending, key)
+	if old != sessionID || pending {
+		st.touchHistory(chatID)
+	}
 	if err := st.save(); err != nil {
 		if exists {
 			st.s.Sessions[key] = old
@@ -213,6 +219,7 @@ func (st *Store) SetChatCWD(chatID, cwd string) error {
 		return nil // unchanged — avoid a needless rewrite
 	}
 	st.s.Cwds[chatID] = cwd
+	st.touchHistory(chatID)
 	return st.save()
 }
 
@@ -279,6 +286,7 @@ func (st *Store) chatExistsLocked(chatID string) bool {
 func (st *Store) DeleteChat(chatID string) ([]SessionRef, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	st.touchHistory(chatID)
 
 	cwd := st.s.Cwds[chatID]
 	suffix := "\x1f" + chatID
@@ -339,6 +347,7 @@ func (st *Store) DeleteChat(chatID string) ([]SessionRef, error) {
 func (st *Store) ForkChat(srcChatID, newChatID string, options ...ForkOptions) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	st.touchHistory(newChatID)
 
 	if newChatID == "" {
 		return errors.New("new chat id is required")
@@ -451,6 +460,7 @@ func (st *Store) AddMessage(m Message) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.s.Messages = append(st.s.Messages, m)
+	st.touchHistory(m.ChatID)
 	return st.save()
 }
 
@@ -468,6 +478,7 @@ func (st *Store) GetRun(id string) (Run, bool) {
 func (st *Store) SaveRun(run Run) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	st.touchHistory(run.ChatID)
 	var previousQuestions map[string]MessageQuestion
 	if run.Status == "cancelled" {
 		previousQuestions = st.closeCancelledQuestions(map[string]bool{run.ID: true})
@@ -542,6 +553,7 @@ func (st *Store) ReconcileRunning(reason string) error {
 	changed := false
 	for i := range st.s.Runs {
 		if st.s.Runs[i].Status == "running" {
+			st.touchHistory(st.s.Runs[i].ChatID)
 			st.s.Runs[i].Status = "error"
 			st.s.Runs[i].Error = reason
 			st.s.Runs[i].EndedAt = time.Now().UTC().Format(time.RFC3339)

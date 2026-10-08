@@ -44,6 +44,10 @@ type Options struct {
 	// StatePath is the JSON state file backing sessions, runs, config, and creds. Empty defaults to
 	// "agent-state.json" — the same default the daemon binary uses.
 	StatePath string
+	// AuthSource reuses a trusted host connection on the first status read or turn.
+	// Reuse "manual" offers Auth.Methods/Begin without automatic first-use import.
+	// The source environment is for credential lookup, never a run environment.
+	AuthSource *AuthSource
 	// WorkspaceDBPath stores authoritative profiles/projects/chat links. Empty uses workspace.db
 	// beside StatePath, matching the standalone daemon.
 	WorkspaceDBPath string
@@ -140,7 +144,7 @@ func New(opts Options) (*Client, error) {
 	}
 	notifier := notify.Fanout(channels)
 
-	sup := orchestrator.New(store, hub, notifier, opts.CWD, opts.Agent)
+	sup := orchestrator.New(store, hub, notifier, opts.CWD, opts.Agent, orchestrator.WithAuthSource(opts.AuthSource))
 	sup.SetNotificationPreferences(workspaceRegistry)
 	sup.SetInteractionContext(workspaceRegistry)
 	projectService, err := projects.New(workspaceRegistry, sup)
@@ -262,6 +266,7 @@ func (c *Client) resolve(opts []ScopedOption) (*orchestrator.Agent, error) {
 // plus the default agent type and the core's version.
 type Health struct {
 	OK                             bool   `json:"ok"`
+	NativeAuthSource               bool   `json:"nativeAuthSource"`
 	Agent                          string `json:"agent"`
 	Version                        string `json:"version"`
 	WorkspaceMetadataVersion       int    `json:"workspaceMetadataVersion"`
@@ -292,7 +297,7 @@ func (c *Client) Health() Health {
 	if runtime.GOOS == "darwin" && os.Geteuid() != 0 {
 		localDesktopVersion = surface.LocalDesktopVersion
 	}
-	return Health{OK: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, AgentDiscoveryVersion: registry.AgentDiscoveryVersion, ProjectLibraryVersion: registry.ProjectLibraryVersion, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, QueuedInputVersion: orchestrator.QueuedInputVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion, AttachmentUploadVersion: artifact.UploadVersion}
+	return Health{OK: true, NativeAuthSource: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, AgentDiscoveryVersion: registry.AgentDiscoveryVersion, ProjectLibraryVersion: registry.ProjectLibraryVersion, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, QueuedInputVersion: orchestrator.QueuedInputVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion, AttachmentUploadVersion: artifact.UploadVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package
@@ -842,6 +847,7 @@ func (c *Client) Turn(ctx context.Context, req TurnRequest) (*Run, error) {
 type CompactRequest struct {
 	ChatID       string `json:"chatId"`
 	Instructions string `json:"instructions,omitempty"`
+	RequestID    string `json:"requestId,omitempty"`
 	Agent        string `json:"agent,omitempty"`
 }
 
@@ -869,7 +875,7 @@ func (c *Client) Compact(ctx context.Context, req CompactRequest) (*Run, error) 
 		return nil, &APIError{Message: "no conversation to compact yet (run a turn first)", Status: http.StatusBadRequest, Op: "Compact"}
 	}
 	run, ok := c.core.sup.StartCompact(ag, orchestrator.StartTurnInput{
-		ChatID: req.ChatID, Message: strings.TrimSpace(req.Instructions), CWD: c.core.store.ChatCWD(req.ChatID),
+		ChatID: req.ChatID, Message: strings.TrimSpace(req.Instructions), CWD: c.core.store.ChatCWD(req.ChatID), RequestID: req.RequestID,
 	})
 	if !ok {
 		return nil, &APIError{Message: c.core.sup.StartConflict(ag), Status: http.StatusConflict, Op: "Compact"}

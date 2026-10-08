@@ -47,6 +47,7 @@ func (st *Store) SaveTurnStart(run Run, message *Message, requestID, digest stri
 	}
 	runs, messages := len(st.s.Runs), len(st.s.Messages)
 	st.s.Runs = append(st.s.Runs, run)
+	st.touchHistory(run.ChatID)
 	if message != nil {
 		st.s.Messages = append(st.s.Messages, *message)
 	}

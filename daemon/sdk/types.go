@@ -21,12 +21,17 @@ type (
 	Event = agent.Event
 	// EventType is the kind discriminator on an Event; see the Event* consts. Additive to the wire — a
 	// consumer that doesn't recognize a value should ignore that event.
-	EventType      = agent.EventType
-	UserInput      = agent.UserInput
-	ToolEvent      = agent.ToolEvent
-	ResultInfo     = agent.ResultInfo
-	RunSnapshot    = orchestrator.RunSnapshot
-	CompactionInfo = agent.CompactionInfo
+	EventType       = agent.EventType
+	UserInput       = agent.UserInput
+	VoiceCapability = agent.VoiceCapability
+	VoiceStatus     = agent.VoiceStatus
+	VoiceOptions    = agent.VoiceOptions
+	VoiceAudio      = agent.VoiceAudio
+	VoiceEvent      = agent.VoiceEvent
+	ToolEvent       = agent.ToolEvent
+	ResultInfo      = agent.ResultInfo
+	RunSnapshot     = orchestrator.RunSnapshot
+	CompactionInfo  = agent.CompactionInfo
 	// ContinuationInfo delimits one iteration of a global-resolve run on the merged parent stream (see
 	// Client.Resolve). Carried on an EventContinuation. Field additions to Event/ResultInfo/RunRecord
 	// (Subtype, ParentID, Kind, StopReason, Iterations) and to Capabilities (Resolve) propagate through
@@ -171,15 +176,17 @@ const (
 
 // Auth, health checks, and notifications.
 type (
-	AuthMethod       = agent.AuthMethod
-	AuthSection      = agent.AuthSection
-	AuthState        = agent.AuthState
-	AuthStatus       = agent.AuthStatus
-	Check            = agent.Check
-	Condition        = agent.Condition
-	ConditionUX      = agent.ConditionUX
-	Notification     = agent.Notification
-	NotificationSpec = agent.NotificationSpec
+	AuthMethod             = agent.AuthMethod
+	ExistingAuthConnection = agent.ExistingAuthConnection
+	AuthSource             = agent.AuthSource
+	AuthSection            = agent.AuthSection
+	AuthState              = agent.AuthState
+	AuthStatus             = agent.AuthStatus
+	Check                  = agent.Check
+	Condition              = agent.Condition
+	ConditionUX            = agent.ConditionUX
+	Notification           = agent.Notification
+	NotificationSpec       = agent.NotificationSpec
 	// Notifier is the delivery interface an extra notification channel implements. Pass one via
 	// Options.Notifier to fan turn notifications out to your own sink alongside the built-in channels.
 	Notifier = notify.Notifier

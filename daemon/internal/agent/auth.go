@@ -25,13 +25,14 @@ type AuthSection struct {
 // cloud providers), declared + typed in the adapter, never open passthrough. Empty scope reads as
 // unified for backward compatibility.
 type AuthMethod struct {
-	ID          string        `json:"id"`
-	Label       string        `json:"label"`
-	Scope       Scope         `json:"scope,omitempty"` // unified | custom (taxonomy; empty = unified)
-	Help        string        `json:"help,omitempty"`
-	Interactive bool          `json:"interactive,omitempty"`
-	Fields      []Field       `json:"fields,omitempty"` // reuses the settings Field shape
-	Sections    []AuthSection `json:"sections,omitempty"`
+	ID          string                  `json:"id"`
+	Label       string                  `json:"label"`
+	Scope       Scope                   `json:"scope,omitempty"` // unified | custom (taxonomy; empty = unified)
+	Help        string                  `json:"help,omitempty"`
+	Interactive bool                    `json:"interactive,omitempty"`
+	Fields      []Field                 `json:"fields,omitempty"` // reuses the settings Field shape
+	Sections    []AuthSection           `json:"sections,omitempty"`
+	Existing    *ExistingAuthConnection `json:"existing,omitempty"`
 }
 
 // AuthState is the current step of an in-progress auth flow.
@@ -71,6 +72,13 @@ type AuthModule interface {
 	Step(ctx context.Context, input map[string]string) (AuthState, error)
 	Status(ctx context.Context) AuthStatus
 	EnvForRun() map[string]string
+}
+
+// AuthPrepareModule initializes a trusted native connection on first use. The
+// runner calls it before reading settings or auth environment, so clients do not
+// need to open settings or poll status before starting their first turn.
+type AuthPrepareModule interface {
+	PrepareAuth(context.Context) error
 }
 
 // NormalizeAuthInput applies the same declared defaults, visibility, and required

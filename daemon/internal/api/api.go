@@ -239,6 +239,9 @@ func (a *API) Routes() []Route {
 		{"POST", "/runs/{id}/set-model", a.setModelRun},
 		{"POST", "/runs/{id}/set-permission-mode", a.setPermissionModeRun},
 		{"GET", "/runs/{id}/stream", a.streamRun},
+		{"GET", "/voice", a.voiceStatus},
+		{"POST", "/runs/{id}/voice", a.voiceInput},
+		{"GET", "/runs/{id}/voice/stream", a.voiceStream},
 		{"GET", "/doctor", a.doctor},
 		{"GET", "/stats", a.stats},
 		{"GET", "/processes/stream", a.processesStreamHandler},
@@ -257,6 +260,7 @@ func (a *API) Routes() []Route {
 		{"GET", "/agent", a.agentInfo},
 		{"GET", "/agent/software", a.agentSoftware},
 		{"GET", "/models", a.models},
+		{"GET", "/commands", a.commands},
 		{"POST", "/setup", a.setup},
 		{"POST", "/update", a.update},
 		{"GET", "/setup", a.setupStatus},
@@ -449,6 +453,10 @@ func (a *API) turn(w http.ResponseWriter, r *http.Request) {
 	// TurnOptions field and the canon-addressed setting.
 	if msg, ok := agent.UnsupportedTurnOption(ag.Adapter.Capabilities(), req.Options); !ok {
 		badRequest(w, msg)
+		return
+	}
+	if req.Options.Voice != nil && (req.Mode == "resolve" || req.QueueIfRunning || strings.TrimSpace(req.Message) != "") {
+		badRequest(w, "Start live voice separately from queued or typed messages.")
 		return
 	}
 	in := orchestrator.StartTurnInput{
@@ -1179,7 +1187,7 @@ func (a *API) compactChat(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	if a.registry != nil {
-		chat, profile, _, err := a.registry.ChatContext(id)
+		chat, profile, _, err := a.registry.NativeChatContext(id, a.store)
 		if err != nil {
 			workspaceError(w, err)
 			return
@@ -1217,6 +1225,7 @@ func (a *API) compactChat(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Instructions string `json:"instructions"`
+		RequestID    string `json:"requestId,omitempty"`
 	}
 	// An empty body is allowed (compact with no focus); only a malformed body is a 400.
 	if r.ContentLength != 0 {
@@ -1226,7 +1235,7 @@ func (a *API) compactChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	run, ok := a.sup.StartCompact(ag, orchestrator.StartTurnInput{
-		ChatID: id, Message: strings.TrimSpace(req.Instructions), CWD: a.store.ChatCWD(id),
+		ChatID: id, Message: strings.TrimSpace(req.Instructions), CWD: a.store.ChatCWD(id), RequestID: req.RequestID,
 	})
 	if !ok {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": a.sup.StartConflict(ag)})
@@ -1262,6 +1271,24 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	revision := ""
+	if r.URL.Query().Get("paged") == "true" {
+		if _, _, err := historyPageLimits(r); err != nil {
+			badRequest(w, err.Error())
+			return
+		}
+		revision = a.historyRevision(ag.Adapter, chatID)
+	}
+	if r.URL.Query().Get("paged") == "true" && r.URL.Query().Get("before") == "" && revision != "" && r.URL.Query().Get("ifRevision") == revision {
+		writeJSON(w, http.StatusOK, messagePage{Messages: []json.RawMessage{}, Revision: revision, NotModified: true})
+		return
+	}
+	stableRevision := func() string {
+		if revision != "" && revision == a.historyRevision(ag.Adapter, chatID) {
+			return revision
+		}
+		return ""
+	}
 	recorded := a.store.Messages(chatID)
 	run, hasRun := a.store.LatestRun(chatID)
 	if ag.Adapter.Capabilities().History == agent.SupportNative {
@@ -1275,6 +1302,11 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 			query.Recorded = append(query.Recorded, agent.Message(message))
 		}
 		msgs, err := ag.Adapter.History(query)
+		if err != nil {
+			// A temporary read failure must not certify the recorded fallback as
+			// an unchanged native transcript on the next request.
+			revision = ""
+		}
 		if err == nil && len(msgs) > 0 {
 			for i := range msgs {
 				msgs[i].Parts = a.store.OverlayInteractions(chatID, msgs[i].Parts)
@@ -1282,7 +1314,7 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 			if hasRun && run.Status == "running" {
 				msgs = session.HistoryBeforeRun(msgs, recorded, run)
 			}
-			writeHistory(w, r, msgs, func(m agent.Message) string { return m.ID })
+			writeHistory(w, r, msgs, func(m agent.Message) string { return m.ID }, stableRevision())
 			return
 		}
 	}
@@ -1292,10 +1324,10 @@ func (a *API) messages(w http.ResponseWriter, r *http.Request) {
 			messages = append(messages, agent.Message(message))
 		}
 		committed := session.HistoryBeforeRun(messages, recorded, run)
-		writeHistory(w, r, committed, func(m agent.Message) string { return m.ID })
+		writeHistory(w, r, committed, func(m agent.Message) string { return m.ID }, stableRevision())
 		return
 	}
-	writeHistory(w, r, recorded, func(m session.Message) string { return m.ID })
+	writeHistory(w, r, recorded, func(m session.Message) string { return m.ID }, stableRevision())
 }
 
 // pageWindow returns the tail window of an oldest→newest message slice: everything strictly BEFORE

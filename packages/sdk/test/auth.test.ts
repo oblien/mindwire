@@ -1,6 +1,21 @@
 import { test, expect } from "bun:test";
 import { Mindwire, remote } from "../src/index.js";
 
+test("saved native connections use the same auth methods and begin protocol", async () => {
+  const method = { id: "existing", label: "Use existing connection", existing: { name: "Work provider", model: "private-deployment" } };
+  const mw = new Mindwire({ target: remote("https://workspace.test"), agent: "codex", fetch: async (url, init) => {
+    const parsed = new URL(url);
+    expect(parsed.searchParams.get("agent")).toBe("codex");
+    if (parsed.pathname === "/auth/methods") return Response.json([method]);
+    expect(parsed.pathname).toBe("/auth/begin");
+    expect(JSON.parse(String(init?.body))).toEqual({ method: method.id });
+    return Response.json({ method: method.id, status: "complete" });
+  } });
+  const [existing] = await mw.auth.methods();
+  expect(existing).toEqual(method);
+  expect((await mw.auth.begin(existing!.id)).status).toBe("complete");
+});
+
 test("logout is authenticated and scoped; model metadata preserves native reasoning choices", async () => {
   const calls: string[] = [];
   const mw = new Mindwire({ target: remote("https://workspace.test", { token: "fixture" }), agent: "claude-code", fetch: async (url, init) => {

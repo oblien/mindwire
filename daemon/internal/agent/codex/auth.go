@@ -33,6 +33,7 @@ const (
 )
 
 type authModule struct {
+	source    *agent.AuthSource
 	store     agent.CredStore
 	mu        sync.Mutex
 	login     *agent.AuthFlow

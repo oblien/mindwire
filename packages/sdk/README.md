@@ -185,6 +185,22 @@ new Mindwire({ target: oblien({ clientId: process.env.OBLIEN_CLIENT_ID, clientSe
 
 Any object implementing `Target` can also be passed as `target` (bring-your-own).
 
+For an application-owned local profile, use `local({ cwd, statePath, environment,
+authSource: "host", shared: false })`. `environment` replaces the inherited process
+environment; the optional `authSource` lets the native adapters automatically reuse
+the host's saved connection on the first agent/status read or turn. Existing account
+choices and explicit sign-out are preserved. No client-side `auth.begin()` is needed
+for first setup. Use `authSource: { home, environment, reuse: "manual" }` if a host
+requires explicit selection instead. Methods with `existing` metadata display the
+discovered account/provider and model without exposing credentials;
+`auth.begin(method.id)` remains available to reconnect after sign-out or retry a
+failed import. Native tools, hooks and unrelated host configuration are not imported.
+`await mw.close()` stops the owned daemon. Shared local targets remain alive until
+the host exits or their embedded handle is explicitly stopped.
+`local().profileVersion` advertises this SDK contract before a process starts;
+applications requiring private profiles should reject targets without it. The
+daemon separately reports `health.nativeAuthSource`, which the SDK checks at startup.
+
 ### Provisioning logs & `ensure()`
 
 `ssh` / `docker` / `oblien` prep the box on connect — upload the daemon binary, launch it, health-poll

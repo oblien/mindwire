@@ -24,6 +24,7 @@ func (st *Store) SaveRunInput(runID string, input agent.UserInput, digest string
 		updated := run
 		updated.Inputs = append(append([]agent.UserInput(nil), run.Inputs...), input)
 		st.s.Runs[i] = updated
+		st.touchHistory(run.ChatID)
 		st.s.TurnRequests[input.ID] = turnReceipt{RunID: runID, Digest: digest}
 		if err := st.save(); err != nil {
 			st.s.Runs[i] = run
@@ -51,6 +52,7 @@ func (st *Store) UpdateRunInput(runID string, input agent.UserInput) error {
 			inputs := append([]agent.UserInput(nil), run.Inputs...)
 			inputs[j] = input
 			st.s.Runs[i].Inputs = inputs
+			st.touchHistory(run.ChatID)
 			n := len(st.s.Messages)
 			if input.Status == "accepted" {
 				st.s.Messages = append(st.s.Messages, Message{ID: "input-" + input.ID, ChatID: run.ChatID,
@@ -75,6 +77,7 @@ func (st *Store) SaveTurnMessages(messages []Message) error {
 	ids := make(map[string]bool, len(messages))
 	for _, message := range messages {
 		ids[message.ID] = true
+		st.touchHistory(message.ChatID)
 	}
 	old := st.s.Messages
 	updated := make([]Message, 0, len(old)+len(messages))

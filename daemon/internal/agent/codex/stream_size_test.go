@@ -39,7 +39,7 @@ func TestOversizedCodexFrameFailsExplicitly(t *testing.T) {
 	if got || !result.IsError || !strings.Contains(result.Text, "stream read error") {
 		t.Fatalf("oversized frame became a silent success: complete=%v error=%v", got, result.IsError)
 	}
-	if _, err := parseRollout(strings.NewReader(line), "chat"); err == nil {
+	if _, err := parseRollout(strings.NewReader(strings.Repeat("x", maxRolloutLineBytes)), "chat"); err == nil {
 		t.Fatal("oversized history must return an error so recorded history remains available")
 	}
 }

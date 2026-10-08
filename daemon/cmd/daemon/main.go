@@ -53,6 +53,10 @@ import (
 )
 
 func main() {
+	authSource, err := agent.ConsumeAuthSource()
+	if err != nil {
+		log.Fatal(err)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--desktop-tool" {
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer cancel()
@@ -160,7 +164,7 @@ func main() {
 	notifier := notify.Fanout(notify.All(store))
 
 	// The orchestrator hosts every adapter and supervises turns; the API is glue over it.
-	sup := orchestrator.New(store, hub, notifier, cwd, defaultAgent, orchestrator.WithTurnTimeout(turnTimeout))
+	sup := orchestrator.New(store, hub, notifier, cwd, defaultAgent, orchestrator.WithTurnTimeout(turnTimeout), orchestrator.WithAuthSource(authSource))
 	workspaceAPI := api.New(store, hub, sup, workspaceRegistry)
 	if err := workspaceAPI.InitError(); err != nil {
 		log.Fatalf("recover project operations: %v", err)
@@ -197,7 +201,7 @@ func main() {
 	}
 	health.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "agent": sup.Default(), "version": agent.Version, "historyPageVersion": api.HistoryPageVersion, "workspaceMetadataVersion": registry.Version, "agentDiscoveryVersion": registry.AgentDiscoveryVersion, "projectLibraryVersion": registry.ProjectLibraryVersion, "projectOperationsVersion": registry.ProjectOperationsVersion, "projectIconsVersion": projecticon.Version, "projectSyncVersion": projectsync.ProtocolVersion(), "conversationBrowserVersion": conversations.BrowserVersion, "surfaceProtocolVersion": surface.Version, "localDesktopVersion": localDesktopVersion, "notificationPreferencesVersion": registry.NotificationPreferencesVersion, "gitAccessVersion": gitaccess.Version, "gitOperationsVersion": gitops.Version, "gitIdentityVersion": gitauthor.Version, "harnessPolicyVersion": toolchain.PolicyVersion, "serviceUpdateVersion": orchestrator.ServiceUpdateVersion, "workspaceIsolationVersion": agent.WorkspaceIsolationVersion, "workspaceIsolation": agent.WorkspaceIsolation(), "workspaceExecutionVersion": workspaceexec.Version, "terminalProtocolVersion": workspaceexec.TerminalVersion, "turnRequestVersion": orchestrator.TurnRequestVersion, "queuedInputVersion": orchestrator.QueuedInputVersion, "chatForkVersion": agent.ChatForkVersion, "imageAttachmentsVersion": agent.ImageAttachmentsVersion, "attachmentUploadVersion": artifact.UploadVersion, "computerConnectionVersion": computerVersion})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "nativeAuthSource": true, "agent": sup.Default(), "version": agent.Version, "historyPageVersion": api.HistoryPageVersion, "workspaceMetadataVersion": registry.Version, "agentDiscoveryVersion": registry.AgentDiscoveryVersion, "projectLibraryVersion": registry.ProjectLibraryVersion, "projectOperationsVersion": registry.ProjectOperationsVersion, "projectIconsVersion": projecticon.Version, "projectSyncVersion": projectsync.ProtocolVersion(), "conversationBrowserVersion": conversations.BrowserVersion, "surfaceProtocolVersion": surface.Version, "localDesktopVersion": localDesktopVersion, "notificationPreferencesVersion": registry.NotificationPreferencesVersion, "gitAccessVersion": gitaccess.Version, "gitOperationsVersion": gitops.Version, "gitIdentityVersion": gitauthor.Version, "harnessPolicyVersion": toolchain.PolicyVersion, "serviceUpdateVersion": orchestrator.ServiceUpdateVersion, "workspaceIsolationVersion": agent.WorkspaceIsolationVersion, "workspaceIsolation": agent.WorkspaceIsolation(), "workspaceExecutionVersion": workspaceexec.Version, "terminalProtocolVersion": workspaceexec.TerminalVersion, "turnRequestVersion": orchestrator.TurnRequestVersion, "queuedInputVersion": orchestrator.QueuedInputVersion, "chatForkVersion": agent.ChatForkVersion, "imageAttachmentsVersion": agent.ImageAttachmentsVersion, "attachmentUploadVersion": artifact.UploadVersion, "computerConnectionVersion": computerVersion})
 	})
 	root.Handle("/healthz", api.Auth(token, health))
 

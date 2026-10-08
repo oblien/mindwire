@@ -56,6 +56,7 @@ func servePhoneAttachmentFixture(t *testing.T, handoff string, a *API, mux *http
 			}
 			captured := requests()
 			writeJSON(w, 200, map[string]any{"started": ready, "image": strings.Contains(captured, "input_image"),
+				"audio":    strings.Contains(captured, "input_audio"),
 				"fileRead": strings.Contains(captured, fileMarker), "blocked": strings.Contains(captured, "MW_INPUT_BLOCK")})
 			return
 		case "/__fixture/release":
@@ -104,8 +105,8 @@ func servePhoneAttachmentFixture(t *testing.T, handoff string, a *API, mux *http
 		t.Fatal("physical phone did not complete the attachment check")
 	}
 	captured := requests()
-	if !strings.Contains(captured, "input_image") || !strings.Contains(captured, fileMarker) {
-		t.Fatal("native CLI did not receive the phone's image and uploaded file")
+	if !strings.Contains(captured, "input_image") || !strings.Contains(captured, "input_audio") || !strings.Contains(captured, fileMarker) {
+		t.Fatal("native CLI did not receive the phone's image, original audio and uploaded file")
 	}
 }
 

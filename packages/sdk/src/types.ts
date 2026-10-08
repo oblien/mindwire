@@ -318,6 +318,60 @@ export type Protocol = "cli" | "http" | "persistent";
 /** How an agent emits a turn's output. */
 export type OutputMode = "structured_json" | "terminal";
 
+/** Voice exposed by the harness itself, independently of model input modalities. */
+export interface VoiceCapability {
+  mode: "conversation" | "dictation" | "none";
+  support: Support;
+  remote: boolean;
+  detail?: string;
+}
+export interface VoiceStatus {
+  capability: VoiceCapability;
+  available: boolean;
+  code?: string;
+  detail?: string;
+  voices?: string[];
+}
+export interface VoiceOptions { clientId: string; voice?: string; }
+export interface VoiceAudio {
+  /** Base64 PCM16 little-endian. Input batches are at most 500 ms. */
+  data: string;
+  sampleRate: number;
+  channels: number;
+}
+export interface VoiceEvent {
+  type: "connecting" | "ready" | "audio" | "transcript" | "listening" | "error" | "closed" | "heartbeat";
+  audio?: VoiceAudio;
+  text?: string;
+  role?: string;
+  itemId?: string;
+  final?: boolean;
+}
+
+/** A native action, settings selector, or command/skill. Route by kind; never send controls as text. */
+export interface HarnessCommand {
+  name: string;
+  label: string;
+  description?: string;
+  kind: "settings" | "compact" | "prompt" | "new_chat" | "history" | "rename";
+  aliases?: string[];
+  argumentHint?: string;
+  acceptsArguments?: boolean;
+  settingCanons?: string[];
+  requiresIdle?: boolean;
+  requiresSession?: boolean;
+}
+
+export interface CommandCatalog {
+  commands: HarnessCommand[];
+  warning?: string;
+}
+
+export interface CommandInvocation {
+  name: string;
+  arguments?: string;
+}
+
 /** Per-agent feature matrix. The core switches on some fields; the client reads the rest as UI hints. */
 export interface Capabilities {
   protocol: Protocol;
@@ -331,12 +385,18 @@ export interface Capabilities {
   cancel: boolean;
   persistent: boolean;
   models: boolean;
+  /** Native commands and settings selectors, discovered on demand. */
+  commands?: boolean;
   authLogout?: boolean;
   /**
    * Client hint: image attachments are delivered as true vision content (the model sees the image),
    * not just a path it must open with a Read tool. Attachments themselves are ungated.
    */
   imageInput: boolean;
+  /** Supports native audio for models whose inputModalities include audio; otherwise sends the original file. */
+  audioInput?: boolean;
+  /** Native voice interface exposed by the harness; unrelated to model audio files. */
+  voice?: VoiceCapability;
   /** User-in-loop ingress — each gates its route: answer an interaction, inject a follow-up, soft-stop. */
   respond: boolean;
   input: boolean;
@@ -676,6 +736,13 @@ export interface AuthMethod {
   /** Reuses the settings `Field` shape. */
   fields?: Field[];
   sections?: AuthSection[];
+  /** A native connection offered for explicit reuse. Contains display metadata, never credentials. */
+  existing?: ExistingAuthConnection;
+}
+
+export interface ExistingAuthConnection {
+  name: string;
+  model?: string;
 }
 
 /** The current step of an in-progress auth flow. */
@@ -782,6 +849,8 @@ export interface UserInput {
 }
 
 export interface Message {
+  /** Explicit command selected by the user, when the native transcript or receipt identifies it. */
+  command?: CommandInvocation;
   id: string;
   chatId: string;
   /** `"system"` marks a non-conversational boundary such as a compaction marker. */
@@ -814,6 +883,10 @@ export interface MessagePage {
   hasMore: boolean;
   /** Pass as `before` to read the preceding page. */
   before?: string;
+  /** Opaque revision covering native files, fork ancestors and daemon history. */
+  revision?: string;
+  /** True when `ifRevision` still matches. Keep the existing messages and cursor. */
+  notModified?: boolean;
 }
 
 /**
@@ -821,6 +894,10 @@ export interface MessagePage {
  * to {@link Mindwire.turn}; every field is optional, so a bare `{ chatId, message }` turn is unchanged.
  */
 export interface TurnOptions {
+  /** Execute a prompt/skill advertised by commands(); controls use compact() or setConfig(). */
+  command?: CommandInvocation;
+  /** Explicit native voice conversation. Prefer the client.voice.start helper. */
+  voice?: VoiceOptions;
   /**
    * Per-turn setting OVERRIDES addressed by canonical key (see {@link Field.canon}). Resolved
    * canon→the selected agent's key and filtered to declared non-secret keys server-side; overrides
@@ -1148,6 +1225,8 @@ export interface NotifyChannelTestResult {
 
 /** `GET /healthz` — the daemon's liveness probe. */
 export interface Health {
+  /** Host connection reuse through the native authentication methods API. */
+  nativeAuthSource?: boolean;
   historyPageVersion?: number;
   surfaceProtocolVersion?: number;
   /** Opt-in Mac Screen Sharing through the existing paired SSH connection. */

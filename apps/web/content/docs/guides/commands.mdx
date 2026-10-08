@@ -1,0 +1,92 @@
+---
+title: Commands and controls
+description: Discover native harness commands, skills and settings without starting a model turn.
+---
+
+Open **Commands** from the chat tools sheet, or type `/` in the mobile composer. The list comes from
+the workspace's installed harness and project. Commands such as `/permissions`, `/model` and
+`/effort` open the existing settings selectors. `/compact` starts a cancellable compaction run.
+Native commands and project skills use the same send, history and Stop flow as other turns.
+
+## Discover what's available
+
+Read `capabilities.commands` from `GET /agent`, then request the catalog in the project's directory:
+
+```ts
+const catalog = await mw.commands({ directory: "/work/my-project" });
+for (const command of catalog.commands) {
+  console.log(command.name, command.kind, command.argumentHint);
+}
+```
+
+The corresponding endpoints are `GET /commands?agent=codex&dir=/work/my-project` and
+`client.Commands(ctx, mindwire.CommandsOptions{Directory: "/work/my-project"}, mindwire.ForAgent("codex"))` in Go.
+
+| `kind` | Client behavior |
+| --- | --- |
+| `settings` | Show the fields named in `settingCanons` from the existing agent settings schema. An absent list opens all settings. Save with `setConfig`. |
+| `compact` | Call `compact` on the current conversation and attach to its run. |
+| `prompt` | Submit `options.command` with its advertised name and optional arguments. |
+| `new_chat` | Create and open a conversation, preserving the previous one in history. |
+| `history` | Show the conversation list. |
+| `rename` | Show the conversation title editor. |
+
+Honor `requiresIdle`, `requiresSession` and `acceptsArguments`. A command with choices opens a
+selector; its slash text is never sent as a question to the model.
+
+Codex discovery uses the native app-server `skills/list` API. When a skill runs, Mindwire passes
+both its native invocation and the exact skill input path to Codex. Claude Code discovery uses
+the CLI's initialization catalog, including available project commands and skills. Discovery sends
+no user prompt. Terminal-only presentation commands are omitted because they cannot control a
+mobile interface; this is not an emulation of every interactive terminal menu.
+
+## Run a native command or skill
+
+Select a `prompt` entry from the returned catalog, then pass its name explicitly:
+
+```ts
+const command = catalog.commands.find(item => item.kind === "prompt" && item.name === "review");
+if (command) {
+  const run = await mw.turn({
+    chatId: "my-conversation",
+    cwd: "/work/my-project",
+    message: "",
+    requestId: crypto.randomUUID(),
+    options: { command: { name: command.name, arguments: "Review the latest changes" } },
+  });
+  for await (const event of run.stream()) console.log(event);
+}
+```
+
+Keep the same `requestId` when retrying an unacknowledged submission. The daemon resolves native
+dispatch details itself and rejects a stale command instead of silently converting it to model
+text. Native commands run when the conversation is idle; they cannot be added to the follow-up
+message queue or an unattended resolve loop. Ordinary queued messages remain supported.
+
+## Compact the current conversation
+
+```ts
+const run = await mw.compact("my-conversation", {
+  requestId: crypto.randomUUID(),
+  instructions: "Preserve the API decisions", // Optional; supported by Claude Code.
+});
+for await (const event of run.stream()) console.log(event);
+```
+
+Compaction resumes the same native conversation and produces the existing compaction history
+marker. It shares the conversation's run lock and Stop action. It cannot start on a new conversation
+or alongside another running turn. See [Compaction](/docs/guides/compaction).
+
+## Refresh and compatibility
+
+Command discovery is cached briefly by directory, account, configuration and CLI executable.
+Concurrent opens share one request; closing a sheet does not start another CLI process. Discovery
+has bounded memory and runtime, with no idle polling. To discover newly installed skills, refresh
+the sheet or call `mw.commands({ directory, refresh: true })`.
+
+If additional native commands cannot be loaded, `warning` explains the failure while the available
+controls remain usable. Older daemons without `capabilities.commands` need a service update.
+
+The managed installation catalog now selects Codex **0.161.0** and Claude Code **2.1.293** for
+compatible daemons starting at **0.1.47**. Install and update still use the shared
+[setup flow](/docs/guides/setup), with exact version verification before activation.

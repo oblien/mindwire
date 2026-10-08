@@ -30,3 +30,18 @@ test("old services reuse their array response and keep count-based pagination", 
   expect(page.hasMore).toBe(true);
   expect(page.before).toBe("older");
 });
+
+test("conditional native history preserves the cache without an extra transcript request", async () => {
+  const calls: URL[] = [];
+  const client = new Mindwire({ target: remote("https://workspace.test"), agent: "codex", fetch: async url => {
+    calls.push(new URL(String(url)));
+    return Response.json({ messages: [], hasMore: false, revision: "native-revision", notModified: true });
+  } });
+  const result = await client.messagePage("chat", { ifRevision: "native-revision" });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]!.searchParams.get("ifRevision")).toBe("native-revision");
+  expect(result.notModified).toBe(true);
+  expect(result.revision).toBe("native-revision");
+  await client.messagePage("chat", { before: "old-message", ifRevision: "native-revision" });
+  expect(calls[1]!.searchParams.has("ifRevision")).toBe(false);
+});

@@ -18,6 +18,7 @@ import (
 // Claude owns native subscription credentials and refresh. The daemon stores
 // only the selected method and credentials entered for field-based connections.
 type authModule struct {
+	source    *agent.AuthSource
 	store     agent.CredStore
 	mu        sync.Mutex
 	login     *agent.AuthFlow

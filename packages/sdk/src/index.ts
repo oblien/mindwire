@@ -10,19 +10,20 @@ export { Mindwire, AuthApi, PromptsApi, McpApi, ProvidersApi, NotifyApi } from "
 export type { MindwireOptions, AgentScoped } from "./client.js";
 
 export { Run } from "./run.js";
+export { VoiceApi, VoiceSession } from "./voice.js";
 export type { StreamOptions, WaitResult } from "./run.js";
 
 export { Http } from "./http.js";
 export type { HttpOptions, FetchLike, RequestInitLike, BaseResolver, TokenGetter } from "./http.js";
 
 export { startEmbedded } from "./embedded.js";
-export type { EmbeddedOptions, EmbeddedDaemon } from "./embedded.js";
+export type { EmbeddedOptions, EmbeddedDaemon, NativeAuthSource } from "./embedded.js";
 
 // Destinations — where the daemon runs and how the SDK reaches it. `local`/`remote` are the
 // dependency-free built-ins; `ssh`/`docker`/`oblien` each ensure a daemon on a box/container/workspace
 // (their provider peers `ssh2`/`dockerode`/`oblien` load lazily, only when you call the factory).
 export { local, remote } from "./target/index.js";
-export type { Target, TargetHandle, ConnectSpec, RemoteOptions } from "./target/index.js";
+export type { Target, LocalTarget, TargetHandle, ConnectSpec, RemoteOptions } from "./target/index.js";
 export { ssh, provisionSsh, provisionSshContainer } from "./target/ssh.js";
 export type { SshOptions, SshProvisionConfig, SshContainerProvisionConfig } from "./target/ssh.js";
 export { docker, provisionDocker } from "./target/docker.js";

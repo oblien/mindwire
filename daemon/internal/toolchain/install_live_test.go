@@ -18,7 +18,7 @@ func TestManagedOfficialPackagesLive(t *testing.T) {
 	}
 	root := t.TempDir()
 	t.Setenv("MINDWIRE_TOOLCHAIN_DIR", root)
-	m := newManager(root, "0.1.16", "off")
+	m := newManager(root, "0.1.47", "off")
 	specs := []Spec{
 		{ID: "codex", Name: "Codex", Binary: "codex", Package: "@openai/codex", VersionArgs: []string{"--version"}},
 		{ID: "claude-code", Name: "Claude", Binary: "claude", Package: "@anthropic-ai/claude-code", VersionArgs: []string{"--version"}, Environment: map[string]string{"DISABLE_AUTOUPDATER": "1"}},

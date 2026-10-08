@@ -11,6 +11,7 @@ import (
 // process environment values; RPC config contains provider metadata and environment references.
 func newAppServer(in agent.TurnInput, files materialized) appServer {
 	a := appServer{
+		skill:   in.Command,
 		command: "codex app-server", env: map[string]string{}, message: in.Message,
 		model:  strings.TrimSpace(agent.FirstNonEmpty(in.Config[keyModel], in.Env[azureModelMarker])),
 		effort: strings.TrimSpace(in.Config[keyEffort]), provider: strings.TrimSpace(in.Env[azureProviderMarker]),
@@ -20,8 +21,18 @@ func newAppServer(in agent.TurnInput, files materialized) appServer {
 		cwd:          strings.TrimSpace(agent.FirstNonEmpty(in.Config[keyWorkdir], in.CWD)),
 		resumeID:     agent.FirstNonEmpty(in.Options.SessionID, in.SessionID),
 		fork:         in.Options.ForkOnResume,
-		instructions: files.systemPrompt, images: files.imagePaths, outputSchema: in.Options.OutputSchema,
+		instructions: files.systemPrompt, images: files.imagePaths, audio: files.audioAttachments,
+		files: files.fileAttachments, outputSchema: in.Options.OutputSchema,
 		config: map[string]any{},
+		voice:  in.Voice, voiceOptions: in.Options.Voice,
+	}
+	if in.Options.Voice != nil {
+		a.command += " -c 'features.realtime_conversation=true'"
+		// Voice handoffs start coding turns inside Codex, so retain the chosen
+		// effort on the thread rather than relying on a later turn/start call.
+		if a.effort != "" {
+			a.config["model_reasoning_effort"] = a.effort
+		}
 	}
 	if in.Fork != nil {
 		a.forkAt = in.Fork.ResumeAt

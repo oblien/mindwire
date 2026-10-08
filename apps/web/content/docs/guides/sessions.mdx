@@ -90,6 +90,37 @@ finding the right transcript even if a later turn runs elsewhere or the original
 explicit per-turn `cwd` still controls where that turn *runs* — only the history anchor is pinned.
 </Callout>
 
+### Keep a cached conversation fresh
+
+Use `messagePage` to fetch a bounded newest window. Retain its optional `revision`
+and send it back as `ifRevision` when reopening the conversation:
+
+```ts
+let page = await mw.messagePage("demo", { limit: 12, maxBytes: 1_048_576 });
+const update = await mw.messagePage("demo", {
+  limit: 12,
+  maxBytes: 1_048_576,
+  ifRevision: page.revision,
+});
+if (!update.notModified) page = update;
+```
+
+An unchanged response contains `notModified: true`, its revision and an empty
+`messages` array. Keep the cached messages **and their older-page cursor** in this
+case. If it changed, the response already includes the new bounded page; no second
+request is needed. Fetch preceding pages with `before` when the reader scrolls up.
+
+For Codex and Claude, the check covers the native transcript's file identity, size
+and modification time, including Codex fork ancestors. Work performed in the native
+CLI therefore invalidates the revision even if MindWire did not start that turn.
+Recorded messages, run status and answered questions also invalidate it. Unchanged
+checks avoid transcript parsing, copying and serialization, and add no idle worker.
+
+The REST equivalent is `GET /chats/demo/messages?paged=true&limit=12&ifRevision=…`.
+`ifRevision` applies only to the latest page, without `before`. The token is optional:
+older daemons and harnesses without a reliable native revision return ordinary
+pages. A daemon restart safely invalidates cached tokens.
+
 ## Reattach to a running turn
 
 Because turns are durable, a fresh client can pick up a chat's latest run and stream it — the stream

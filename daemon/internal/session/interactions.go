@@ -48,6 +48,7 @@ func (st *Store) RecordMessageQuestion(chatID, runID string, it agent.Interactio
 	}
 	old, exists := st.s.Interactions[key]
 	st.s.Interactions[key] = MessageQuestion{ChatID: chatID, RunID: runID, Interaction: it}
+	st.touchHistory(chatID)
 	if err := st.save(); err != nil {
 		if exists {
 			st.s.Interactions[key] = old
@@ -93,6 +94,7 @@ func (st *Store) CommitInteractionReply(ref InteractionReply, responseRunID stri
 	q.Interaction.Response = &ref.Response
 	q.ResponseRunID = responseRunID
 	st.s.Interactions[key] = q
+	st.touchHistory(q.ChatID)
 	nm, nr := len(st.s.Messages), len(st.s.Runs)
 	st.s.Messages = append(st.s.Messages, message)
 	if run != nil {
@@ -181,6 +183,7 @@ func (st *Store) recoverLegacyQuestion(chatID string, it agent.Interaction) {
 		updated := message
 		updated.Parts = agent.UpgradeAsyncQuestionParts(message.Parts, map[string]agent.Interaction{it.ID: it})
 		st.s.Messages[i] = updated
+		st.touchHistory(chatID)
 		if err := st.save(); err != nil {
 			delete(st.s.Interactions, key)
 			st.s.Messages[i] = message

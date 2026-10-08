@@ -32,6 +32,7 @@ test("remote(): a custom per-transport fetch is carried onto the handle", async 
 test("local(): names the destination and is inert until connect() (no daemon spawned by constructing it)", () => {
   // Constructing the factory must not spawn anything — connect() (exercised in integration) does.
   expect(local().name).toBe("local");
+  expect(local().profileVersion).toBe(1);
   expect(local({ statePath: "/tmp/x.json" }).name).toBe("local");
 });
 

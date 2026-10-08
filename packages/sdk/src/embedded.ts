@@ -12,12 +12,29 @@ export interface EmbeddedOptions {
   statePath?: string;
   /** Explicit path to the `mindwired` binary (overrides discovery). */
   bin?: string;
+  /** Complete child environment; omitted inherits the current host environment. */
+  environment?: Record<string, string | undefined>;
+  /** Reuse host authentication on first setup, without inheriting host tools/config. Explicit sign-out is preserved. */
+  authSource?: "host" | NativeAuthSource;
+  /** Set false when the application owns this daemon and wants close() to stop it. Default true. */
+  shared?: boolean;
+  /** Download the SDK's exact daemon version instead of using a newer cached release. */
+  exactVersion?: boolean;
+}
+
+export interface NativeAuthSource {
+  home: string;
+  /** Automatic on first setup by default; manual only offers an auth method. Never overrides an existing choice or sign-out. */
+  reuse?: "automatic" | "manual";
+  /** Used only to resolve native credential references. Never inherited by agent processes. */
+  environment?: Record<string, string | undefined>;
 }
 
 export interface EmbeddedDaemon {
   baseUrl: string;
   token?: string;
-  stop(): void;
+  isAlive(): boolean;
+  stop(): Promise<void>;
 }
 
 // Embedded daemons, memoized by config so distinct environments get distinct daemons while identical
@@ -28,15 +45,19 @@ const shared = new Map<string, Promise<EmbeddedDaemon>>();
 
 /** Distinct config ⇒ distinct daemon. `cwd`/`statePath` are the state-affecting knobs; `bin` too. */
 function configKey(opts: EmbeddedOptions): string {
-  return JSON.stringify([opts.cwd ?? "", opts.statePath ?? "", opts.bin ?? ""]);
+  const entries = (env?: Record<string, string | undefined>) => env && Object.entries(env).sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify([opts.cwd ?? "", opts.statePath ?? "", opts.bin ?? "", opts.exactVersion,
+    entries(opts.environment), opts.authSource === "host" ? ["host", entries(serverRuntime().process?.env)]
+      : opts.authSource && [opts.authSource.home, opts.authSource.reuse ?? "automatic", entries(opts.authSource.environment)]]);
 }
 
 export function startEmbedded(opts: EmbeddedOptions = {}): Promise<EmbeddedDaemon> {
+  if (opts.shared === false) return spawnDaemon(opts);
   const key = configKey(opts);
   let daemon = shared.get(key);
   if (!daemon) {
-    daemon = spawnDaemon(opts).catch((err) => {
-      shared.delete(key); // allow a retry on next call
+    daemon = spawnDaemon(opts, () => { if (shared.get(key) === daemon) shared.delete(key); }).catch((err) => {
+      if (shared.get(key) === daemon) shared.delete(key); // never evict a newer retry
       throw err;
     });
     shared.set(key, daemon);
@@ -57,7 +78,7 @@ function isServerRuntime(): boolean {
   );
 }
 
-async function spawnDaemon(opts: EmbeddedOptions): Promise<EmbeddedDaemon> {
+async function spawnDaemon(opts: EmbeddedOptions, onStop: () => void = () => {}): Promise<EmbeddedDaemon> {
   if (!isServerRuntime()) {
     throw new MindwireError(
       "MindWire embedded mode needs a server runtime (Node/Bun/Deno). In the browser or an edge runtime, pass { baseUrl } to connect to a running daemon.",
@@ -69,42 +90,63 @@ async function spawnDaemon(opts: EmbeddedOptions): Promise<EmbeddedDaemon> {
   const proc = serverRuntime().process;
   const { randomBytes } = await import("node:crypto");
 
-  const resolved = await resolveBinary(opts.bin);
+  const resolved = await resolveBinary(opts.bin, opts.exactVersion);
   const bin = resolved.bin;
   const port = await freePort(net);
   const baseUrl = `http://127.0.0.1:${port}`;
   const token = randomBytes(32).toString("hex");
+  const authSource = opts.authSource === "host"
+    ? { home: (await import("node:os")).homedir(), environment: proc.env }
+    : opts.authSource;
 
   const child = spawn(bin, [], {
     env: {
-      ...proc.env,
+      ...(opts.environment ?? proc.env),
       ADDR: `127.0.0.1:${port}`,
       AGENT_CWD: opts.cwd ?? proc.cwd(),
       STATE_PATH: opts.statePath ?? ".mindwire-state.json",
       DAEMON_TOKEN: token,
+      // The daemon consumes and unsets this before starting any native process.
+      ...(authSource ? { MINDWIRE_AUTH_SOURCE: JSON.stringify(authSource) } : {}),
     },
+    cwd: opts.cwd ?? proc.cwd(),
     stdio: "ignore",
   });
 
   let spawnError: Error | null = null;
+  let exited = false;
+  let stopping: Promise<void> | undefined;
+  const isAlive = () => !exited && !stopping && !spawnError;
+  const killOnExit = () => { try { child.kill(); } catch {} };
+  const cleanup = () => {
+    exited = true;
+    proc.off?.("exit", killOnExit);
+    onStop();
+  };
+  child.once("exit", cleanup);
   child.on("error", (e: Error) => {
     spawnError = e;
+    cleanup();
   });
 
   const stop = () => {
-    try {
-      child.kill();
-    } catch {}
+    return stopping ??= new Promise<void>((resolve) => {
+      if (exited) { resolve(); return; }
+      const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 2000);
+      child.once("exit", () => { clearTimeout(timer); resolve(); });
+      child.once("error", () => { clearTimeout(timer); resolve(); });
+      killOnExit();
+    });
   };
   // Best-effort: don't leave the daemon running after the host exits.
-  proc.once?.("exit", stop);
-  proc.once?.("SIGINT", () => {
-    stop();
-    proc.exit?.(130);
-  });
-
-  await waitHealthy(baseUrl, token, () => spawnError, resolved);
-  return { baseUrl, token, stop };
+  proc.once?.("exit", killOnExit);
+  try {
+    await waitHealthy(baseUrl, token, () => spawnError ?? (exited ? new Error("daemon exited during startup") : null), resolved, 15000, !!authSource);
+    return { baseUrl, token, isAlive, stop };
+  } catch (error) {
+    await stop();
+    throw error;
+  }
 }
 
 interface ResolvedBinary {
@@ -116,7 +158,7 @@ interface ResolvedBinary {
   checked: string[];
 }
 
-async function resolveBinary(explicit?: string): Promise<ResolvedBinary> {
+async function resolveBinary(explicit?: string, exactVersion?: boolean): Promise<ResolvedBinary> {
   const fs = await import("node:fs");
   const path = await import("node:path");
   const proc = serverRuntime().process;
@@ -142,7 +184,7 @@ async function resolveBinary(explicit?: string): Promise<ResolvedBinary> {
       if (fs.existsSync(c)) return { bin: c, found: true, checked: candidates };
     } catch {}
   }
-  const downloaded = await ensureDaemonBinary({ platform: proc.platform, arch: proc.arch });
+  const downloaded = await ensureDaemonBinary({ platform: proc.platform, arch: proc.arch, exactVersion });
   return { bin: downloaded, found: true, checked: [...candidates, downloaded] };
 }
 
@@ -185,6 +227,7 @@ async function waitHealthy(
   getError: () => Error | null,
   resolved: ResolvedBinary,
   timeoutMs = 15000,
+  authSource = false,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -193,9 +236,14 @@ async function waitHealthy(
       throw new MindwireError(daemonStartError(resolved, err), { cause: err });
     }
     try {
-      const res = await fetch(`${baseUrl}/healthz`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) return;
-    } catch {
+      const res = await fetch(`${baseUrl}/healthz`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(1000) });
+      if (res.ok) {
+        if (authSource && (await res.json() as { nativeAuthSource?: boolean }).nativeAuthSource !== true)
+          throw new MindwireError("This daemon does not support native auth sources. Update Mindwire or build the matching daemon before using authSource.");
+        return;
+      }
+    } catch (error) {
+      if (error instanceof MindwireError) throw error;
       // not up yet
     }
     await new Promise((r) => setTimeout(r, 150));
