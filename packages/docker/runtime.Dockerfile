@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build context: repository root. This is the production-ready runtime image, not merely the daemon
 # binary: it carries mindwired plus the supported coding-agent CLIs so first use never installs them.
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.26.9-bookworm AS builder
 WORKDIR /src/daemon
 COPY daemon/go.mod ./
 RUN go mod download

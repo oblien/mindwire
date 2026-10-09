@@ -1,6 +1,6 @@
 module github.com/oblien/mindwire/daemon
 
-go 1.26.8
+go 1.26.9
 
 require (
 	github.com/aymanbagabas/go-pty v0.2.3

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build context: repository root.
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.26.9-bookworm AS builder
 ARG NEXT_PUBLIC_CONSOLE_URL=https://console.mindwire.sh
 ARG NEXT_PUBLIC_IOS_APP_URL=
 ENV NEXT_PUBLIC_CONSOLE_URL=${NEXT_PUBLIC_CONSOLE_URL}

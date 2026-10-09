@@ -17,7 +17,7 @@ By participating you agree to abide by our [Code of Conduct](./CODE_OF_CONDUCT.m
 
 ## Prerequisites
 
-- **Go 1.26+** — matching [`daemon/go.mod`](./daemon/go.mod).
+- **Go 1.26.9+** — matching [`daemon/go.mod`](./daemon/go.mod).
 - **Bun** (or Node 18+) — for the SDK. We use Bun for install/build/test.
 - The **agent CLI** you're working with (e.g. `npm i -g @anthropic-ai/claude-code`).
 
