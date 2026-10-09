@@ -165,6 +165,15 @@ auth/config are per type.
 | `GET /stats` | the daemon process's own whole-runtime snapshot (heap, goroutines, cores, uptime) |
 | **`GET /processes/stream`** | **SSE of live per-turn CPU/memory**, on-demand + refcounted; `?agent=` filters (see below) |
 
+## Git operations
+
+Project Git operations use durable operation IDs and are serialized per repository.
+Staging, unstaging, and committing can run while a terminal is open or an agent is
+working. A commit records the staged snapshot without automatically staging newer
+edits. Git hooks and native index/ref locks still apply, and project synchronization
+reserves the repository against all Git mutations. Other Git actions retain the
+active-work guard for overlapping project paths.
+
 ## Turn lifecycle
 
 `POST /turns` records the user message, creates a `running` Run, returns immediately, and runs the

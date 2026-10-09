@@ -294,12 +294,11 @@ func (a *API) startGitOperation(ctx context.Context, projectID string, req gitOp
 	if a.gitBusyPath(spec.Path) {
 		return registry.GitOperation{}, gitBusyError("Another Git operation is running in this repository. Wait for it to finish and try again.")
 	}
-	// Index-only actions can run while an agent edits files or a terminal is
-	// open. Git's own index lock still excludes competing native Git writes.
-	// Worktree/history mutations retain the active-work guard; every action also
-	// retains the durable Git/project-sync reservation below.
-	indexOnly := spec.Action == "stage" || spec.Action == "unstage"
-	if !indexOnly && a.BusyPath(spec.Path) {
+	// Staging and committing do not replace working files, so an editing agent
+	// or an open terminal is not a reason to reject them. Git's native index/ref
+	// locks and the durable Git/project-sync reservations still apply.
+	preservesWorkingFiles := spec.Action == "stage" || spec.Action == "unstage" || spec.Action == "commit"
+	if !preservesWorkingFiles && a.BusyPath(spec.Path) {
 		return registry.GitOperation{}, gitBusyError("Close active terminals or wait for the agent or command to finish before running this Git operation.")
 	}
 	if err := a.registry.CheckProjectPath(spec.Path); err != nil {

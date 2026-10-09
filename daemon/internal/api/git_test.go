@@ -191,8 +191,11 @@ func TestGitHTTPDurableMutationsAndRecovery(t *testing.T) {
 	if got.Code != 202 || !strings.Contains(got.Body.String(), `"id":"blocked-commit"`) {
 		t.Fatalf("duplicate start: %d %s", got.Code, got.Body.String())
 	}
-	for _, action := range []string{"stage", "unstage", "discard"} {
+	for _, action := range []string{"stage", "unstage", "discard", "commit"} {
 		body := `{"id":"competing","action":"` + action + `","paths":["tracked"]}`
+		if action == "commit" {
+			body = `{"id":"competing","action":"commit","message":"Competing commit"}`
+		}
 		if got := serve(t, h, "POST", "/workspace/projects/project/git/operations", body); got.Code != 409 {
 			t.Fatalf("%s bypassed coordination: %d %s", action, got.Code, got.Body.String())
 		} else if strings.Contains(got.Body.String(), "record changed") || !strings.Contains(got.Body.String(), "Git operation") {
