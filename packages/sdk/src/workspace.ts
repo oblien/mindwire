@@ -82,7 +82,8 @@ export interface GitOperationRequest {
   expectedHead?: string;
   /** restore_commit only: observed local branch name; omit for detached HEAD. */
   expectedBranch?: string;
-  /** Write-only, for network operations only. Never part of an operation snapshot. */
+  /** Write-only, for network operations and commit hooks (gitOperationsVersion >= 6).
+   * Never part of an operation snapshot; ordinary commits require no GitHub login. */
   auth?: ProjectAuth;
 }
 
@@ -93,8 +94,9 @@ export interface GitOperation extends Omit<GitOperationRequest, "auth"> {
   status: "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
   output?: string;
   error?: string;
-  /** git_identity_required asks the client to collect a name/email before a new commit intent. */
-  errorCode?: "git_identity_required" | "git_restore_dirty" | "git_restore_changed"
+  /** git_auth_required asks for GitHub access; refresh status before an explicit retry.
+   * git_identity_required asks for a name/email before a new commit intent. */
+  errorCode?: "git_auth_required" | "git_identity_required" | "git_restore_dirty" | "git_restore_changed"
     | "git_branch_changed" | "git_branch_in_use" | "git_branch_unmerged"
     | "git_restore_in_progress" | "git_restore_commit_unavailable" | "git_restore_local_files" | (string & {});
   createdAt: string;
@@ -414,7 +416,7 @@ export class GitAccessApi {
     return this.mw.http.request("POST", `/workspace/projects/${encodeURIComponent(projectId)}/git/${operation}`, { body: { auth } });
   }
 
-  /** Requires health.gitOperationsVersion >= 1 (>= 2 for switch/create, >= 4 for restore_commit, >= 5 for rename/delete). Acceptance persists before Git runs;
+  /** Requires health.gitOperationsVersion >= 1 (>= 2 for switch/create, >= 4 for restore_commit, >= 5 for rename/delete, >= 6 for commit auth). Acceptance persists before Git runs;
    * disconnecting only detaches the client. The same ID/intent never runs twice.
    */
   start(projectId: string, request: GitOperationRequest): Promise<GitOperation> {

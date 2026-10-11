@@ -57,6 +57,47 @@ func apiGit(t *testing.T, args ...string) string {
 	return strings.TrimSpace(string(data))
 }
 
+func TestGitHTTPCommitCredentialsRemainOptionalAndSupportHooks(t *testing.T) {
+	for _, scenario := range []string{"supplied", "missing", "no-origin"} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+			h, a, dir := gitHTTPFixture(t)
+			apiGit(t, "-C", dir, "config", "user.email", "fixture@example.invalid")
+			connection := `{"connection":{"id":"selected","login":"octocat","mode":"token","lifetime":"run"}}`
+			if got := serve(t, h, "PUT", "/workspace/git", connection); got.Code != http.StatusOK {
+				t.Fatal(got.Body.String())
+			}
+			if scenario == "no-origin" {
+				apiGit(t, "-C", dir, "remote", "remove", "origin")
+			}
+			if err := os.WriteFile(filepath.Join(dir, "file"), []byte("staged content"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			apiGit(t, "-C", dir, "add", "file")
+			request := map[string]any{"id": "local-commit", "action": "commit", "message": "Keep my draft"}
+			if scenario == "supplied" {
+				request["auth"] = gitaccess.Auth{ConnectionID: "selected", Kind: "token", Token: "commit-api-fixture"}
+			}
+			body, _ := json.Marshal(request)
+			response := serve(t, h, "POST", "/workspace/projects/project/git/operations", string(body))
+			if response.Code != http.StatusAccepted {
+				t.Fatalf("%d %s", response.Code, response.Body.String())
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			result, err := a.gitJobs.Wait(ctx, "local-commit")
+			if err != nil || result.Status != "succeeded" || apiGit(t, "-C", dir, "show", "HEAD:file") != "staged content" {
+				t.Fatalf("local commit failed: %+v %v", result, err)
+			}
+			data, _ := json.Marshal(result)
+			if strings.Contains(string(data), "commit-api-fixture") {
+				t.Fatal("receipt retained the credential")
+			}
+		})
+	}
+}
+
 func TestGitHTTPAccountBindingPersistenceInheritanceAndRevocation(t *testing.T) {
 	h, a, dir := gitHTTPFixture(t)
 	personal := &gitaccess.Connection{ID: "personal", Login: "octocat", Mode: "token", Lifetime: "run"}
