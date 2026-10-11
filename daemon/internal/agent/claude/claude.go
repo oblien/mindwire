@@ -40,9 +40,10 @@ func (adapter) Capabilities() agent.Capabilities {
 		Cancel:     true,
 		// Every interactive turn keeps stdin open, including bypass mode: question
 		// tools still need replies even when command approvals are disabled.
-		Persistent: true,
-		Models:     true,
-		Commands:   true,
+		Persistent:    true,
+		Models:        true,
+		Commands:      true,
+		NativeSession: &agent.NativeSessionCapabilities{Status: true, Observe: true},
 		// Image attachments use native vision content blocks over stream-json input.
 		ImageInput: true,
 		Voice: &agent.VoiceCapability{Mode: "dictation", Support: agent.SupportNative, Remote: false,

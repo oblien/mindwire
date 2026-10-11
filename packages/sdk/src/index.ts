@@ -11,6 +11,7 @@ export type { MindwireOptions, AgentScoped } from "./client.js";
 
 export { Run } from "./run.js";
 export { VoiceApi, VoiceSession } from "./voice.js";
+export * from "./native-sessions.js";
 export type { StreamOptions, WaitResult } from "./run.js";
 
 export { Http } from "./http.js";

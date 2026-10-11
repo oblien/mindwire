@@ -20,6 +20,7 @@ import (
 
 	"github.com/oblien/mindwire/daemon/internal/agent"
 	"github.com/oblien/mindwire/daemon/internal/gitaccess"
+	"github.com/oblien/mindwire/daemon/internal/nativesessions"
 	"github.com/oblien/mindwire/daemon/internal/notify"
 	"github.com/oblien/mindwire/daemon/internal/proc"
 	"github.com/oblien/mindwire/daemon/internal/procmon"
@@ -151,15 +152,16 @@ func (v *CredView) All() map[string]string {
 
 // Supervisor hosts all agents and supervises their turns for one sandbox.
 type Supervisor struct {
-	authSource  *agent.AuthSource
-	prepareGit  GitPreparation
-	store       *session.Store
-	hub         *stream.Hub
-	notifier    notify.Notifier
-	notes       *notify.Stream   // local SSE broadcaster (in-app live notifications)
-	mon         *procmon.Monitor // on-demand per-turn CPU/mem sampler (idle until a client subscribes)
-	cwd         string
-	turnTimeout time.Duration // zero: native harness lifetime, independent of connected viewers
+	nativeSessions *nativesessions.Service
+	authSource     *agent.AuthSource
+	prepareGit     GitPreparation
+	store          *session.Store
+	hub            *stream.Hub
+	notifier       notify.Notifier
+	notes          *notify.Stream   // local SSE broadcaster (in-app live notifications)
+	mon            *procmon.Monitor // on-demand per-turn CPU/mem sampler (idle until a client subscribes)
+	cwd            string
+	turnTimeout    time.Duration // zero: native harness lifetime, independent of connected viewers
 
 	agents map[string]*Agent // by agent type
 	def    string            // default agent type when a request omits ?agent=
@@ -202,7 +204,8 @@ type Supervisor struct {
 // isn't registered, the first adapter by ID is used (deterministic).
 func New(store *session.Store, hub *stream.Hub, notifier notify.Notifier, cwd, defaultAgent string, options ...Option) *Supervisor {
 	s := &Supervisor{
-		store: store, hub: hub, notifier: notifier, notes: notify.NewStream(), mon: procmon.NewMonitor(), cwd: cwd,
+		nativeSessions: nativesessions.New(),
+		store:          store, hub: hub, notifier: notifier, notes: notify.NewStream(), mon: procmon.NewMonitor(), cwd: cwd,
 		agents: map[string]*Agent{}, def: defaultAgent,
 		serviceReplies: map[string]map[string]chan agent.InteractionResponse{}, serviceEmit: map[string]agent.Emit{},
 		active: map[string]string{}, cancels: map[string]context.CancelFunc{},
@@ -301,6 +304,9 @@ func (s *Supervisor) StartResolve(a *Agent, req StartTurnInput, ro ResolveOption
 }
 
 func (s *Supervisor) StartResolveChecked(a *Agent, req StartTurnInput, ro ResolveOptions) (session.Run, error) {
+	if _, err := s.checkNativeSession(a, req, true); err != nil {
+		return session.Run{}, err
+	}
 	if req.Options.Command != nil {
 		return session.Run{}, errors.New("Run native commands as an ordinary turn, not a resolve loop.")
 	}
@@ -397,7 +403,7 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 	if req.QueueIfRunning && req.RequestID == "" {
 		return session.Run{}, ErrInvalidTurnRequest
 	}
-	softwareChecked := false
+	softwareChecked, nativeOwner := false, false
 	for {
 		s.mu.Lock()
 		mode := "turn"
@@ -452,18 +458,27 @@ func (s *Supervisor) startChecked(a *Agent, req StartTurnInput, compact bool) (s
 		}
 		if !softwareChecked {
 			s.mu.Unlock()
-			if err := s.checkSoftware(a); err != nil {
+			var err error
+			nativeOwner, err = s.checkNativeSession(a, req, compact)
+			if err != nil {
 				return session.Run{}, err
+			}
+			if !nativeOwner {
+				if err := s.checkSoftware(a); err != nil {
+					return session.Run{}, err
+				}
 			}
 			softwareChecked = true
 			continue // Recheck admission after the unlocked executable probe.
 		}
-		if err := s.authAdmissionLocked(a); err != nil {
-			s.mu.Unlock()
-			return session.Run{}, err
+		if !nativeOwner {
+			if err := s.authAdmissionLocked(a); err != nil {
+				s.mu.Unlock()
+				return session.Run{}, err
+			}
 		}
 		ctx, cancel := s.turnContext(context.Background())
-		if s.prepareGit != nil && !compact {
+		if s.prepareGit != nil && !compact && !nativeOwner {
 			var err error
 			req.gitLease, err = s.prepareGit(ctx, req.ChatID, req.CWD, req.GitAuth)
 			if err != nil {
@@ -849,9 +864,9 @@ func (s *Supervisor) execRun(ctx context.Context, cancel context.CancelFunc, a *
 			res = agent.TurnResult{Text: "agent does not support compaction", IsError: true}
 		}
 	} else {
-		prepared, cleanup, err := s.desktopTurn(ctx, a, turn)
+		prepared, cleanup, err := s.prepareTurn(ctx, a, turn)
 		if err != nil {
-			res = agent.TurnResult{Text: "Could not prepare desktop tools: " + err.Error(), IsError: true}
+			res = agent.TurnResult{Text: err.Error(), IsError: true}
 		} else {
 			defer cleanup()
 			for {
@@ -1002,7 +1017,7 @@ func (s *Supervisor) execResolve(ctx context.Context, cancel context.CancelFunc,
 		}
 
 		childCtx, childCancel := s.turnContext(ctx)
-		turn, cleanup, prepareErr := s.desktopTurn(childCtx, a, runner.Turn{
+		turn, cleanup, prepareErr := s.prepareTurn(childCtx, a, runner.Turn{
 			ChatID: parent.ChatID, Message: msg, RunID: parent.ID, CWD: req.CWD, Options: opts,
 			Environment: req.gitEnvironment(),
 			BeforePublish: func(ev agent.Event) {

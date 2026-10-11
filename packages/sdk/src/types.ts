@@ -374,6 +374,8 @@ export interface CommandInvocation {
 
 /** Per-agent feature matrix. The core switches on some fields; the client reads the rest as UI hints. */
 export interface Capabilities {
+  /** Static harness hint; check nativeSessions.activity() for this session's controls. */
+  nativeSession?: import("./native-sessions.js").NativeSessionCapabilities;
   protocol: Protocol;
   output: OutputMode;
   history: Support;
@@ -849,6 +851,8 @@ export interface UserInput {
 }
 
 export interface Message {
+  /** Native turn identity for reconciling history with a native-session snapshot. */
+  nativeTurnId?: string;
   /** Explicit command selected by the user, when the native transcript or receipt identifies it. */
   command?: CommandInvocation;
   id: string;
@@ -1264,6 +1268,8 @@ export interface Health {
   terminalProtocolVersion?: number;
   turnRequestVersion?: number;
   queuedInputVersion?: number;
+  /** Live attachment to a native CLI owner without a competing harness process. */
+  nativeSessionVersion?: number;
   chatForkVersion?: number;
   /** Image-only input and image attachments retained in message history. */
   imageAttachmentsVersion?: number;

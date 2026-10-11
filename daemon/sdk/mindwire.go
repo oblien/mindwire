@@ -225,6 +225,7 @@ func (c *Client) Close() error {
 		c.core.sup.Cancel(id) // no-op/false for already-finished runs
 	}
 	c.core.sup.Wait() // drain: every cancelled turn's final SaveRun lands before we return
+	c.core.sup.NativeSessions().Close()
 	c.core.projectSync.Close()
 	c.core.projects.Close()
 	c.core.execution.Terminals.Close()
@@ -286,6 +287,7 @@ type Health struct {
 	TerminalProtocolVersion        int    `json:"terminalProtocolVersion"`
 	TurnRequestVersion             int    `json:"turnRequestVersion"`
 	QueuedInputVersion             int    `json:"queuedInputVersion"`
+	NativeSessionVersion           int    `json:"nativeSessionVersion"`
 	AttachmentUploadVersion        int    `json:"attachmentUploadVersion"`
 	ImageAttachmentsVersion        int    `json:"imageAttachmentsVersion"`
 	ChatForkVersion                int    `json:"chatForkVersion"`
@@ -297,7 +299,7 @@ func (c *Client) Health() Health {
 	if runtime.GOOS == "darwin" && os.Geteuid() != 0 {
 		localDesktopVersion = surface.LocalDesktopVersion
 	}
-	return Health{OK: true, NativeAuthSource: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, AgentDiscoveryVersion: registry.AgentDiscoveryVersion, ProjectLibraryVersion: registry.ProjectLibraryVersion, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, QueuedInputVersion: orchestrator.QueuedInputVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion, AttachmentUploadVersion: artifact.UploadVersion}
+	return Health{OK: true, NativeAuthSource: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, AgentDiscoveryVersion: registry.AgentDiscoveryVersion, ProjectLibraryVersion: registry.ProjectLibraryVersion, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, QueuedInputVersion: orchestrator.QueuedInputVersion, NativeSessionVersion: agent.NativeSessionVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion, AttachmentUploadVersion: artifact.UploadVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package
@@ -617,6 +619,9 @@ func (c *Client) DeleteChat(chatID string) (DeleteResult, error) {
 	if c.core.sup.Busy(chatID) {
 		return DeleteResult{}, &APIError{Message: "a turn is running for this chat", Status: http.StatusConflict, Op: "DeleteChat"}
 	}
+	if err := c.checkNativeChatMutation("DeleteChat", chatID); err != nil {
+		return DeleteResult{}, err
+	}
 	if err := c.core.registry.Delete("chats", chatID, nil, true, c.core.store); err != nil {
 		return DeleteResult{}, workspaceError("DeleteChat", err)
 	}
@@ -688,6 +693,9 @@ func (c *Client) ForkChatAt(srcChatID string, opts ForkChatOptions) (ChatSummary
 	}
 	if c.core.sup.Busy(srcChatID) {
 		return ChatSummary{}, &APIError{Message: "a turn is running for this chat", Status: http.StatusConflict, Op: "ForkChat"}
+	}
+	if err := c.checkNativeChatMutation("ForkChat", srcChatID); err != nil {
+		return ChatSummary{}, err
 	}
 	if newID == "" {
 		newID = newChatIDHex()

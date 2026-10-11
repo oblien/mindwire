@@ -44,8 +44,9 @@ func (adapter) Capabilities() agent.Capabilities {
 		Persistent: true,
 		// Native model/list supplies supported models and their reasoning levels.
 		// Private deployments retain explicit names and manual entry (models.go).
-		Models:   true,
-		Commands: true,
+		Models:        true,
+		Commands:      true,
+		NativeSession: &agent.NativeSessionCapabilities{Status: true, Observe: true, Input: true, Interrupt: true, Respond: true},
 		// Codex feeds image attachments to `codex exec -i <file>` natively, so the model sees the image.
 		ImageInput: true,
 		// Verified localAudio input in the supported 0.155.0 and current 0.160.1 schemas.

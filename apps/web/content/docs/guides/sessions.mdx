@@ -171,6 +171,99 @@ curl -N "http://127.0.0.1:8790/runs/$RUN/stream"
 
 ## Resume a session
 
+### Join a conversation already open in a terminal
+
+MindWire can observe a conversation started outside the daemon. Open the project,
+select its existing conversation, and the app discovers its native owner. This uses
+the same paired SSH connection or authenticated workspace API as chat history.
+No additional public port or account is required.
+
+| Native owner | Live activity and output | Send, Stop, and approvals |
+| --- | --- | --- |
+| Codex shared app-server | Recent turn snapshot followed by native events | Uses the existing session and its settings |
+| Claude Code terminal | Native busy/waiting/idle status and new saved messages | Watch only; close that terminal conversation before sending here |
+
+Use a current Codex CLI with its shared app-server enabled. MindWire discovers the
+private control socket in the same account's Codex home. A standalone Codex process
+started with `--no-daemon`, a different Codex home, or an older CLI cannot be joined
+through this protocol. `MINDWIRE_CODEX_SOCKET` can select a custom private Unix
+socket for the daemon; its directory must be accessible only to the host account.
+MindWire never changes an existing owner's model, permissions, tools, or login.
+Session commands and those settings stay in its terminal.
+
+Codex supplies completed items and new deltas. Its initial snapshot does not replay
+earlier deltas from a still-unfinished assistant text block; the full block appears
+when Codex completes that item. Reconnecting to an existing MindWire attachment
+replays its retained events. Claude's supported inventory API does not expose
+cross-client input or token streaming, so its viewer refreshes saved history only
+when the native transcript changes. An idle Claude terminal still owns its session.
+
+The daemon advertises `nativeSessionVersion: 1` in health and per-session
+`capabilities` in the activity response. A generic client must use those capabilities
+to enable controls, rather than assuming all harnesses support shared input:
+
+```ts
+const codex = mw.withAgent("codex");
+const activity = await codex.nativeSessions.activity("demo");
+if (activity.owner === "native" && activity.capabilities.observe) {
+  for await (const frame of codex.nativeSessions.events("demo")) {
+    // snapshot replaces the live projection; resume retains it.
+    // update applies the next sequence, then saves its cursor.
+    renderNativeFrame(frame);
+  }
+}
+```
+
+Keep committed history through `messagePage`. A native stream contains only a
+bounded recent-turn projection, not another transcript database. A `partial` projection
+omits earlier or oversized items; retain its loaded history prefix. `historyChanged`
+asks the client to validate its newest history page. Codex history's `nativeTurnId`
+joins that projection to the saved messages without relying on snapshot item IDs.
+
+To reconnect, retain both the projection and its `connectionId:sequence` cursor,
+then pass `cursor` to `events`. The daemon sends either a `resume` plus the missing
+events or a replacement `snapshot` when that cursor is too old. Never apply the
+current snapshot fields from a `resume` as though they were a new projection.
+
+```ts
+await codex.nativeSessions.action("demo", {
+  connectionId, // from the current attachment
+  requestId: crypto.randomUUID(),
+  kind: "input",
+  text: "Also check the empty state",
+});
+
+await codex.nativeSessions.action("demo", {
+  connectionId,
+  requestId: crypto.randomUUID(),
+  kind: "interrupt",
+  expectedTurnId: activeTurnId,
+});
+```
+
+Input without `expectedTurnId` uses Codex's atomic start-or-steer operation.
+Specifying a turn requires that exact turn to remain active. Stop always requires
+the exact turn ID and never kills the shared server. Responses use `kind: "response"`
+and the normal interaction reply shape; keep questions pending until native
+resolution arrives. A submitted JSON-RPC answer has no separate acknowledgement.
+
+Retain the **same request ID, attachment epoch, and payload** after an uncertain
+command response. The daemon deduplicates it, and rejects an expired epoch instead
+of resending into a different attachment. The SDK never automatically resends
+native commands. Ordinary `turn` requests also join a supported existing Codex
+owner when no startup overrides are supplied; unsupported owners reject input
+before accepting a new daemon run.
+
+Native connections are shared between concurrent viewers of the same session, with a
+maximum of 32 watched sessions. Closing a viewer never stops the agent. After the
+last viewer leaves, the daemon keeps a 30-second reconnect grace period and then
+closes its native connection. Replay is bounded to 512 events and 2 MiB, and the
+live projection to 8 MiB; older output remains in native history. No background
+session scanner runs while no one is watching. Native owners must release their
+conversation before MindWire will delete or fork it.
+
+### Resume after the owner closes
+
 The next turn can continue the agent's most recent session in the working directory instead of
 starting cold — set `continueLatest`. Pin a specific `sessionId`, or `forkOnResume` to branch a new
 session from the resumed one rather than continuing in place.

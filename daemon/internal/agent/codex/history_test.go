@@ -7,6 +7,32 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/agent"
 )
 
+func TestNativeTurnIdentitySurvivesSteeringAndCompaction(t *testing.T) {
+	lines := []string{
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"First"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Before steering"}]}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"Also check this"}}`,
+		`{"type":"compacted","payload":{"message":"Keep the plan"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"After steering"}]}}`,
+		`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-2"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Next turn"}]}}`,
+	}
+	messages, err := parseRollout(strings.NewReader(strings.Join(lines, "\n")), "chat")
+	if err != nil || len(messages) != 6 {
+		t.Fatalf("native history: %+v, %v", messages, err)
+	}
+	for i, message := range messages {
+		expected := "turn-1"
+		if i == len(messages)-1 {
+			expected = "turn-2"
+		}
+		if message.NativeTurnID != expected {
+			t.Fatalf("message %d belongs to %q, want %q", i, message.NativeTurnID, expected)
+		}
+	}
+}
+
 func TestParseCurrentRolloutCompletedItems(t *testing.T) {
 	lines := []string{
 		`{"timestamp":"2026-09-11T10:00:00Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"user","content":[{"type":"text","text":"Fix the test","text_elements":[]}]}}}`,

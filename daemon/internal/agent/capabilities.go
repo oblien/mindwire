@@ -47,18 +47,19 @@ const (
 // Keeping this split explicit avoids the trap of a field that looks like a switch but
 // nothing consults — add core branching when the emulation for that field exists.
 type Capabilities struct {
-	Protocol   Protocol   `json:"protocol"` // how the daemon drives the agent (cli | http | persistent)
-	Output     OutputMode `json:"output"`
-	History    Support    `json:"history"`              // CORE switch (messages endpoint)
-	Sessions   Support    `json:"sessions"`             // client hint
-	Resume     bool       `json:"resume"`               // client hint
-	Fork       bool       `json:"fork,omitempty"`       // native edit-and-resend branching
-	ToolEvents bool       `json:"toolEvents"`           // client hint
-	Cancel     bool       `json:"cancel"`               // CORE switch (cancel endpoint)
-	Persistent bool       `json:"persistent"`           // client hint: holds a live stdin process (else one-shot per turn)
-	Models     bool       `json:"models"`               // client hint
-	Commands   bool       `json:"commands,omitempty"`   // GET /commands and native command dispatch
-	AuthLogout bool       `json:"authLogout,omitempty"` // workspace-owned sign-out
+	Protocol      Protocol                   `json:"protocol"` // how the daemon drives the agent (cli | http | persistent)
+	Output        OutputMode                 `json:"output"`
+	History       Support                    `json:"history"`                 // CORE switch (messages endpoint)
+	Sessions      Support                    `json:"sessions"`                // client hint
+	Resume        bool                       `json:"resume"`                  // client hint
+	Fork          bool                       `json:"fork,omitempty"`          // native edit-and-resend branching
+	ToolEvents    bool                       `json:"toolEvents"`              // client hint
+	Cancel        bool                       `json:"cancel"`                  // CORE switch (cancel endpoint)
+	Persistent    bool                       `json:"persistent"`              // client hint: holds a live stdin process (else one-shot per turn)
+	Models        bool                       `json:"models"`                  // client hint
+	Commands      bool                       `json:"commands,omitempty"`      // GET /commands and native command dispatch
+	NativeSession *NativeSessionCapabilities `json:"nativeSession,omitempty"` // attachment to an already-running native owner; per-session status is authoritative
+	AuthLogout    bool                       `json:"authLogout,omitempty"`    // workspace-owned sign-out
 	// ImageInput is a client hint: the agent delivers image attachments as TRUE vision content (the
 	// model sees pixels), not just a path the model must open with a Read tool. Attachments themselves
 	// are ungated (any agent may receive them); this only tells a UI whether images are seen natively.

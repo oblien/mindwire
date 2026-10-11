@@ -7,6 +7,7 @@ import { ServiceApi } from "./service.js";
 import { ExecutionApi } from "./execution.js";
 import { ComputerApi } from "./computer.js";
 import { VoiceApi } from "./voice.js";
+import { NativeSessionsApi } from "./native-sessions.js";
 import { executableChecksum } from "./binary-cache.js";
 import { local, type Target, type TargetHandle, type ConnectSpec } from "./target/index.js";
 import type { EnsureEvent } from "./target/host.js";
@@ -129,6 +130,7 @@ export class Mindwire {
   readonly execution: ExecutionApi;
   readonly computer: ComputerApi;
   readonly voice: VoiceApi;
+  readonly nativeSessions: NativeSessionsApi;
   readonly http: Http;
   /** The default agent type applied to agent-scoped calls, if set. */
   readonly defaultAgent: string | undefined;
@@ -173,6 +175,7 @@ export class Mindwire {
     this.execution = new ExecutionApi(this);
     this.computer = new ComputerApi(this);
     this.voice = new VoiceApi(this);
+    this.nativeSessions = new NativeSessionsApi(this);
     this.auth = new AuthApi(this);
     this.prompts = new PromptsApi(this);
     this.mcp = new McpApi(this);
@@ -201,6 +204,7 @@ export class Mindwire {
     clone.execution = new ExecutionApi(clone as Mindwire);
     clone.computer = new ComputerApi(clone as Mindwire);
     clone.voice = new VoiceApi(clone as Mindwire);
+    clone.nativeSessions = new NativeSessionsApi(clone as Mindwire);
     clone.auth = new AuthApi(clone as Mindwire);
     clone.prompts = new PromptsApi(clone as Mindwire);
     clone.mcp = new McpApi(clone as Mindwire);
