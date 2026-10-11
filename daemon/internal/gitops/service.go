@@ -15,8 +15,8 @@ import (
 	"github.com/oblien/mindwire/daemon/internal/workspacepath"
 )
 
-// Version 5 adds guarded local branch rename/deletion, including explicit unmerged deletion.
-const Version = 5
+// Version 6 supplies repository-scoped GitHub credentials to commit hooks.
+const Version = 6
 const maxDuration = 15 * time.Minute
 
 type running struct {
@@ -129,6 +129,18 @@ func (s *Service) Start(spec registry.GitSpec, c *gitaccess.Connection, auth *gi
 			c = &copy
 			auth = &resolved
 		}
+	} else if spec.Action == "commit" {
+		if auth != nil {
+			resolved, err := s.access.Resolve(c, auth)
+			if err != nil {
+				return registry.GitOperation{}, err
+			}
+			auth = &resolved
+		}
+		if c != nil {
+			copy := *c
+			c = &copy
+		}
 	} else {
 		c, auth = nil, nil
 	}
@@ -172,6 +184,9 @@ func (s *Service) work(ctx context.Context, cancel context.CancelFunc, o registr
 	operationErrorCode := restoreErrorCode(err)
 	if code := branchErrorCode(err); code != "" {
 		operationErrorCode = code
+	}
+	if gitaccess.AuthenticationRequired(err) {
+		operationErrorCode = "git_auth_required"
 	}
 	if err != nil {
 		err = errors.New(gitaccess.Redact(err.Error(), redact))

@@ -45,6 +45,9 @@ func New(store *session.Store, adapter agent.Adapter, auth agent.AuthModule, cre
 // Turn is one turn's request as assembled by the supervisor and handed to the runner. Bundled so
 // the signature doesn't grow per-field as per-turn options expand.
 type Turn struct {
+	// NativeRun joins an existing owner; its auth, environment and settings stay
+	// with that process. Only ordinary sends use this optional supervisor hook.
+	NativeRun     func(context.Context, agent.TurnInput, agent.Emit) (agent.TurnResult, error)
 	ChatID        string
 	Message       string
 	RunID         string
@@ -124,7 +127,7 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 		opts.SessionID, opts.ContinueLatest = "", false
 		opts.ForkOnResume = true
 	}
-	if auth, ok := r.auth.(agent.AuthPrepareModule); ok {
+	if auth, ok := r.auth.(agent.AuthPrepareModule); ok && t.NativeRun == nil {
 		if err := auth.PrepareAuth(ctx); err != nil {
 			return r.normalizeResult(ctx, agent.TurnResult{Text: err.Error(), IsError: true}), nil
 		}
@@ -210,6 +213,10 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 			it := *ev.Interaction
 			ev.Interaction = &it
 		}
+		if ev.Tool != nil {
+			tool := *ev.Tool
+			ev.Tool = &tool
+		}
 		if t.BeforePublish != nil {
 			t.BeforePublish(ev)
 		}
@@ -223,6 +230,9 @@ func (r *Runner) run(ctx context.Context, t Turn, fn func(context.Context, agent
 	if t.AttachEmitter != nil {
 		detach := t.AttachEmitter(emit)
 		defer detach()
+	}
+	if t.NativeRun != nil {
+		fn = t.NativeRun
 	}
 	res, err := fn(ctx, in, emit)
 	if err != nil {

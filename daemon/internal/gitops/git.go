@@ -165,11 +165,28 @@ func (s *Service) execute(ctx context.Context, spec registry.GitSpec, c *gitacce
 	if spec.Action == "rename_branch" || spec.Action == "delete_branch" {
 		return manageBranch(ctx, spec)
 	}
+	environment := gitEnvironment(spec.Identity)
+	redact := gitaccess.Auth{}
+	if spec.Action == "commit" && c != nil {
+		repo, err := gitaccess.RemoteURL(ctx, spec.Path, false)
+		if err != nil {
+			return gitaccess.Result{}, err
+		}
+		lease, err := s.access.PrepareLocal(ctx, repo, c, auth)
+		if err != nil {
+			return gitaccess.Result{}, err
+		}
+		defer lease.Close()
+		redact = lease.Auth
+		for key, value := range lease.Environment {
+			environment = append(environment, key+"="+value)
+		}
+	}
 	output := &tailOutput{}
 	command := func(input string, args ...string) error {
 		cmd := exec.CommandContext(ctx, "git", append([]string{"--literal-pathspecs", "-C", spec.Path}, args...)...)
 		proc.Group(cmd)
-		cmd.Env = gitEnvironment(spec.Identity)
+		cmd.Env = environment
 		if input != "" {
 			cmd.Stdin = strings.NewReader(input)
 		}
@@ -226,7 +243,7 @@ func (s *Service) execute(ctx context.Context, spec registry.GitSpec, c *gitacce
 		}
 		for _, ident := range []string{"GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"} {
 			probe := exec.CommandContext(ctx, "git", "-C", spec.Path, "var", ident)
-			probe.Env = gitEnvironment(spec.Identity)
+			probe.Env = environment
 			data, check := probe.CombinedOutput()
 			if check != nil {
 				if ctx.Err() != nil {
@@ -235,7 +252,7 @@ func (s *Service) execute(ctx context.Context, spec registry.GitSpec, c *gitacce
 				if missingIdentity(string(data)) {
 					return gitaccess.Result{}, ErrIdentityRequired
 				}
-				return gitaccess.Result{}, fmt.Errorf("could not read Git author: %s", gitaccess.Redact(strings.TrimSpace(string(data)), gitaccess.Auth{}))
+				return gitaccess.Result{}, fmt.Errorf("could not read Git author: %s", gitaccess.Redact(strings.TrimSpace(string(data)), redact))
 			}
 		}
 		err = command(spec.Message, "commit", "--file=-")
@@ -249,7 +266,7 @@ func (s *Service) execute(ctx context.Context, spec registry.GitSpec, c *gitacce
 		// -c creates the ref only if switching succeeds; never reset an existing branch.
 		err = command("", "switch", "-c", spec.Branch)
 	}
-	text := gitaccess.Redact(output.String(), gitaccess.Auth{})
+	text := gitaccess.Redact(output.String(), redact)
 	if err != nil {
 		if text == "" {
 			text = err.Error()

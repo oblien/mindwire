@@ -54,9 +54,25 @@ func (r helperRequest) matches(repository string, ssh bool) bool {
 }
 
 func (s *Service) Prepare(ctx context.Context, repo string, c *Connection, supplied *Auth) (*Lease, error) {
+	return s.prepare(ctx, repo, c, supplied, false)
+}
+
+// PrepareLocal lets a plain commit finish without GitHub access. If a hook needs
+// credentials, it uses the selected account's scoped lease. Missing access denies
+// that lookup rather than falling back to another native account.
+func (s *Service) PrepareLocal(ctx context.Context, repo string, c *Connection, supplied *Auth) (*Lease, error) {
+	return s.prepare(ctx, repo, c, supplied, true)
+}
+
+func (s *Service) prepare(ctx context.Context, repo string, c *Connection, supplied *Auth, local bool) (*Lease, error) {
 	auth, err := s.Resolve(c, supplied)
 	if err != nil {
-		return nil, err
+		if !local || supplied != nil || c == nil || c.Validate() != nil {
+			return nil, err
+		}
+		// No credential is granted. The broker rejects any hook lookup, while a
+		// commit that does not contact GitHub remains an entirely local operation.
+		auth = Auth{}
 	}
 	lease := &Lease{Environment: map[string]string{}, Auth: auth, Close: func() {}}
 	if c == nil || c.Mode == "native" {
@@ -86,7 +102,7 @@ func (s *Service) Prepare(ctx context.Context, repo string, c *Connection, suppl
 	stop := context.AfterFunc(ctx, cleanup)
 	lease.Close = func() { stop(); cleanup() }
 	command := quote(executable) + " --git-credential lease " + quote(s.endpoint) + " " + quote(repository)
-	if auth.Kind == "ssh" {
+	if c.Mode == "sshKey" {
 		lease.Environment["GIT_SSH_COMMAND"] = quote(executable) + " --git-ssh lease " + quote(s.endpoint) + " " + quote(repository)
 		lease.Environment["GIT_SSH_VARIANT"] = "ssh"
 	} else {

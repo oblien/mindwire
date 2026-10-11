@@ -174,6 +174,15 @@ edits. Git hooks and native index/ref locks still apply, and project synchroniza
 reserves the repository against all Git mutations. Other Git actions retain the
 active-work guard for overlapping project paths.
 
+Git operation capability version 6 passes the selected project's credentials to
+commit hooks, using the same repository-scoped lease as push and pull. Ordinary
+commits still work offline and do not require GitHub access. A hook that needs
+missing or expired credentials returns `errorCode: "git_auth_required"`; clients
+should offer the project's GitHub access settings and preserve the commit draft
+and staged files. Refresh repository state before an explicit retry. Failed hooks
+are never retried automatically, and a selected account never falls back to a
+different native login.
+
 ## Turn lifecycle
 
 `POST /turns` records the user message, creates a `running` Run, returns immediately, and runs the

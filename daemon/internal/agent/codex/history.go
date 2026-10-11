@@ -216,6 +216,7 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 	turnUsers, totalUsers := 0, 0
 	beginTurn := func(id string) {
 		if id != "" && id != currentTurn {
+			curAsst = -1
 			previousTurn, currentTurn, turnUsers = currentTurn, id, 0
 		}
 	}
@@ -235,7 +236,7 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 		modern = false
 		eventTexts, responseTexts = map[string]int{}, map[string]int{}
 		userSources = map[string]bool{source: true}
-		message := agent.Message{ID: nextID(), ChatID: chatID, Role: "user", Text: text, CreatedAt: timestamp, Attachments: images}
+		message := agent.Message{ID: nextID(), ChatID: chatID, Role: "user", Text: text, CreatedAt: timestamp, Attachments: images, NativeTurnID: currentTurn}
 		// Native forks cut at turn boundaries. A steered message within the same
 		// turn cannot be cut without losing earlier work from that turn.
 		if totalUsers == 0 || turnUsers == 0 && previousTurn != "" {
@@ -250,7 +251,7 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 	// ensureAsst returns the open assistant message's index, opening one if needed.
 	ensureAsst := func(ts string) int {
 		if curAsst < 0 {
-			out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "assistant", CreatedAt: ts})
+			out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "assistant", CreatedAt: ts, NativeTurnID: currentTurn})
 			curAsst = len(out) - 1
 		}
 		return curAsst
@@ -266,7 +267,7 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 				return // A rollout can record both the completed item and its compacted envelope.
 			}
 		}
-		out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "system", CreatedAt: ts,
+		out = append(out, agent.Message{ID: nextID(), ChatID: chatID, Role: "system", CreatedAt: ts, NativeTurnID: currentTurn,
 			Parts: []agent.Part{{Type: "compaction", At: ts, Compaction: &agent.CompactionInfo{Summary: summary}}}})
 	}
 	appendFeedback := func(ts string, inter *agent.Interaction) {

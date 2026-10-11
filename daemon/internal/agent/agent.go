@@ -149,16 +149,17 @@ type TurnResult struct {
 // text / thinking / tool — that the app renders as inline cards; omitempty so it's absent for user
 // and text-only messages and pre-parts clients simply ignore it.
 type Message struct {
-	Command     *CommandInvocation `json:"command,omitempty"` // identifies an explicitly selected command for native-history reconciliation
-	ID          string             `json:"id"`
-	ChatID      string             `json:"chatId"`
-	Role        string             `json:"role"` // "user" | "assistant"
-	Text        string             `json:"text"`
-	CreatedAt   string             `json:"createdAt"`
-	Parts       []Part             `json:"parts,omitempty"`
-	Attachments []Attachment       `json:"attachments,omitempty"`
-	CanFork     bool               `json:"canFork,omitempty"`
-	ForkPoint   *ForkPoint         `json:"-"` // native cursor; clients send only the message ID
+	Command      *CommandInvocation `json:"command,omitempty"` // identifies an explicitly selected command for native-history reconciliation
+	ID           string             `json:"id"`
+	ChatID       string             `json:"chatId"`
+	Role         string             `json:"role"` // "user" | "assistant"
+	Text         string             `json:"text"`
+	CreatedAt    string             `json:"createdAt"`
+	NativeTurnID string             `json:"nativeTurnId,omitempty"` // correlates native history with a live owner snapshot
+	Parts        []Part             `json:"parts,omitempty"`
+	Attachments  []Attachment       `json:"attachments,omitempty"`
+	CanFork      bool               `json:"canFork,omitempty"`
+	ForkPoint    *ForkPoint         `json:"-"` // native cursor; clients send only the message ID
 }
 
 // Part is one ordered piece of an assistant turn. A `tool` part pairs the tool_use and its

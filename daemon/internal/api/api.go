@@ -110,6 +110,9 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 
 func (a *API) InitError() error { return a.initError }
 func (a *API) Close() {
+	if a.sup != nil {
+		a.sup.NativeSessions().Close()
+	}
 	if a.projectSync != nil {
 		a.projectSync.Close()
 	}
@@ -184,6 +187,9 @@ func (a *API) Routes() []Route {
 		{"GET", "/surfaces/desktop/actions/{id}", a.surfaceReceipt},
 		{"GET", "/artifacts/{id}", a.artifact},
 		{"PUT", "/chats/{id}/attachments/{attachmentID}", a.uploadAttachment},
+		{"GET", "/chats/{id}/native", a.nativeSessionActivity},
+		{"GET", "/chats/{id}/native/events", a.nativeSessionEvents},
+		{"POST", "/chats/{id}/native/actions", a.nativeSessionAction},
 
 		{"GET", "/workspace", a.workspaceSnapshot},
 		{"GET", "/workspace/changes", a.workspaceSnapshot},
@@ -997,6 +1003,9 @@ func (a *API) deleteChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "a turn is running for this chat"})
 		return
 	}
+	if !a.nativeChatMutation(w, r, id) {
+		return
+	}
 	if a.registry != nil {
 		if err := a.registry.Delete("chats", id, nil, true, a.store); err != nil {
 			workspaceError(w, err)
@@ -1090,6 +1099,9 @@ func (a *API) forkChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.sup.Busy(src) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "stop or finish this chat's current turn before forking"})
+		return
+	}
+	if !a.nativeChatMutation(w, r, src) {
 		return
 	}
 	var options []session.ForkOptions

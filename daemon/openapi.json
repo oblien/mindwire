@@ -307,6 +307,10 @@
           "agentDiscoveryVersion": {
             "type": "integer",
             "description": "Installed native-harness discovery and atomic workspace agent setup admission."
+          },
+          "nativeSessionVersion": {
+            "type": "integer",
+            "description": "Native session observation and capability-aware control protocol."
           }
         },
         "required": [
@@ -1129,6 +1133,10 @@
           "command": {
             "$ref": "#/components/schemas/CommandInvocation",
             "description": "Explicit command identified by the native transcript or daemon receipt. Used to reconcile native skill expansion with a single visible user message."
+          },
+          "nativeTurnId": {
+            "type": "string",
+            "description": "Correlates native history with the live owner turn; absent for older transcripts."
           }
         },
         "required": [
@@ -1400,6 +1408,9 @@
           "commands": {
             "type": "boolean",
             "description": "Native commands and settings selectors are available through GET /commands. Resolve each entry by kind; controls are not model prompts."
+          },
+          "nativeSession": {
+            "$ref": "#/components/schemas/NativeSessionCapabilities"
           }
         }
       },
@@ -4414,7 +4425,7 @@
               }
             ],
             "writeOnly": true,
-            "description": "Network operations only; held in memory for this operation and never included in its receipt."
+            "description": "Credentials for network operations or commit hooks (gitOperationsVersion >= 6). Ordinary commits work without credentials. Held only for this operation and never included in its receipt."
           },
           "branch": {
             "type": "string",
@@ -4562,7 +4573,7 @@
           },
           "errorCode": {
             "type": "string",
-            "description": "Machine-readable failure. git_identity_required means the commit has not run and the client should ask for author name/email. Submit a new commit intent with identity after user confirmation. Restoration failures include git_restore_dirty, git_restore_changed, git_restore_in_progress, git_restore_commit_unavailable, and git_restore_local_files."
+            "description": "Machine-readable failure. git_auth_required means GitHub credentials are missing or rejected; offer the project's GitHub access settings and refresh repository status before an explicit retry. Hooks can fail after changing repository state, so never replay automatically. git_identity_required means the commit has not run and the client should ask for author name/email. Submit a new commit intent with identity after user confirmation. Restoration failures include git_restore_dirty, git_restore_changed, git_restore_in_progress, git_restore_commit_unavailable, and git_restore_local_files."
           },
           "commitId": {
             "type": "string",
@@ -6897,6 +6908,263 @@
           "warning": {
             "type": "string",
             "description": "Additional native discovery failed; available controls are still returned. The client can retry or explicitly refresh."
+          }
+        }
+      },
+      "NativeSessionCapabilities": {
+        "type": "object",
+        "required": [
+          "status",
+          "observe",
+          "input",
+          "interrupt",
+          "respond"
+        ],
+        "properties": {
+          "status": {
+            "type": "boolean"
+          },
+          "observe": {
+            "type": "boolean"
+          },
+          "input": {
+            "type": "boolean"
+          },
+          "interrupt": {
+            "type": "boolean"
+          },
+          "respond": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SessionActivity": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "cwd",
+          "owner",
+          "state",
+          "capabilities"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "native",
+              "none",
+              "unknown"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "waiting",
+              "idle",
+              "stopped",
+              "unavailable"
+            ]
+          },
+          "turnId": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/NativeSessionCapabilities"
+          }
+        }
+      },
+      "NativeSessionSnapshot": {
+        "type": "object",
+        "required": [
+          "connectionId",
+          "sequence",
+          "activity",
+          "parts",
+          "inputs"
+        ],
+        "properties": {
+          "connectionId": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "turnId": {
+            "type": "string"
+          },
+          "activity": {
+            "$ref": "#/components/schemas/SessionActivity"
+          },
+          "parts": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            }
+          },
+          "inputs": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "$ref": "#/components/schemas/UserInput"
+            }
+          },
+          "historyRequired": {
+            "type": "boolean"
+          },
+          "replay": {
+            "type": "boolean"
+          },
+          "partial": {
+            "type": "boolean",
+            "description": "The projection omits earlier or oversized items; retain its loaded native history prefix."
+          }
+        }
+      },
+      "NativeSessionEvent": {
+        "type": "object",
+        "required": [
+          "connectionId",
+          "sequence"
+        ],
+        "properties": {
+          "connectionId": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "turnId": {
+            "type": "string"
+          },
+          "activity": {
+            "$ref": "#/components/schemas/SessionActivity"
+          },
+          "event": {
+            "$ref": "#/components/schemas/Event"
+          },
+          "reset": {
+            "type": "boolean"
+          },
+          "historyChanged": {
+            "type": "boolean"
+          },
+          "partial": {
+            "type": "boolean",
+            "description": "The projection omits earlier or oversized items; retain its loaded native history prefix."
+          }
+        }
+      },
+      "NativeSessionFrame": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "snapshot",
+              "resume",
+              "update"
+            ]
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/NativeSessionSnapshot"
+          },
+          "update": {
+            "$ref": "#/components/schemas/NativeSessionEvent"
+          }
+        }
+      },
+      "NativeSessionAction": {
+        "type": "object",
+        "required": [
+          "connectionId",
+          "requestId",
+          "kind"
+        ],
+        "properties": {
+          "connectionId": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "input",
+              "interrupt",
+              "response"
+            ]
+          },
+          "expectedTurnId": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Attachment"
+            }
+          },
+          "response": {
+            "$ref": "#/components/schemas/RespondRequest"
+          }
+        }
+      },
+      "NativeSessionReceipt": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "status"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "submitted"
+            ]
+          },
+          "turnId": {
+            "type": "string"
+          }
+        }
+      },
+      "NativeSessionError": {
+        "type": "object",
+        "required": [
+          "code",
+          "error"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
           }
         }
       }
@@ -13266,7 +13534,7 @@
             }
           }
         },
-        "description": "Requires gitOperationsVersion >= 1, >= 2 for switch_branch/create_branch, or >= 3 for commit with identity. Missing commit attribution returns a failed operation with errorCode git_identity_required; collect the user's name and email before a new commit request. Supplied identity is saved only in this repository. Persists the intent before executing native Git. The same ID and intent returns the existing operation, even after completion or restart; a different intent with that ID returns 409. Network writes use the selected project connection. Local mutations need no GitHub credential. Disconnecting only detaches the observer. Active Git, project, and agent work in overlapping directories conflicts. After a daemon restart, unfinished operations become interrupted and are never replayed automatically. Operations are bounded to 15 minutes. restore_commit requires version 4, commitId, expectedHead, and expectedBranch (omitted for detached HEAD). It requires a clean working tree, checks for in-progress Git work and ignored-file collisions, and stages the selected tree without creating a commit or moving HEAD. Version 5 adds local rename_branch and delete_branch with expectedTip. Rename also requires newName and preserves native branch configuration/reflogs. Deletion uses Git merge checks; git_branch_unmerged requires a separately confirmed force:true request. Checked-out branches cannot be deleted; other worktrees cannot be renamed here."
+        "description": "Requires gitOperationsVersion >= 1, >= 2 for switch_branch/create_branch, or >= 3 for commit with identity. Missing commit attribution returns a failed operation with errorCode git_identity_required; collect the user's name and email before a new commit request. Supplied identity is saved only in this repository. Persists the intent before executing native Git. The same ID and intent returns the existing operation, even after completion or restart; a different intent with that ID returns 409. Network writes use the selected project connection. Version 6 also accepts repository-scoped credentials for commit hooks; ordinary commits need no GitHub credential. GitHub authentication failures return git_auth_required. Preserve the draft and staged files, update project access, and refresh before an explicit retry; failed hooks are never replayed automatically. Disconnecting only detaches the observer. Active Git operations and project synchronization in overlapping directories conflict. Stage, unstage, and commit allow active agents and idle terminals; other mutations retain the active-work guard. After a daemon restart, unfinished operations become interrupted and are never replayed automatically. Operations are bounded to 15 minutes. restore_commit requires version 4, commitId, expectedHead, and expectedBranch (omitted for detached HEAD). It requires a clean working tree, checks for in-progress Git work and ignored-file collisions, and stages the selected tree without creating a commit or moving HEAD. Version 5 adds local rename_branch and delete_branch with expectedTip. Rename also requires newName and preserves native branch configuration/reflogs. Deletion uses Git merge checks; git_branch_unmerged requires a separately confirmed force:true request. Checked-out branches cannot be deleted; other worktrees cannot be renamed here."
       },
       "get": {
         "tags": [
@@ -18209,6 +18477,237 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chats/{id}/native": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "operationId": "nativeSessionActivity",
+        "summary": "Inspect the native CLI owner without resuming it",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agent",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionActivity"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Native owner, capability, epoch or turn conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Native connection unavailable or acknowledgement uncertain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chats/{id}/native/events": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "operationId": "nativeSessionEvents",
+        "summary": "Watch a shared native session without starting a turn",
+        "description": "The first frame replaces the live projection (snapshot) or resumes a retained cursor (resume). Further update frames are ordered by connectionId and sequence. A gap or expired cursor receives a replacement snapshot. Disconnecting only detaches the viewer; history remains native. No commands are automatically resent.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agent",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "connectionId:sequence from retained UI state"
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded snapshot/replay followed by live events",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionFrame"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Native owner, capability, epoch or turn conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Native connection unavailable or acknowledgement uncertain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chats/{id}/native/actions": {
+      "post": {
+        "tags": [
+          "chats"
+        ],
+        "operationId": "nativeSessionAction",
+        "summary": "Send, interrupt an exact native turn, or answer its pending question",
+        "description": "Requires the current attachment connectionId and a stable caller requestId. Identical retries share one receipt. Expired attachment epochs are rejected, including after daemon restart. Interrupt requires expectedTurnId. Submitted question replies await native resolution.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agent",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeSessionAction"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Native owner, capability, epoch or turn conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Native connection unavailable or acknowledgement uncertain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSessionError"
                 }
               }
             }

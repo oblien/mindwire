@@ -305,12 +305,14 @@ func (a *API) startGitOperation(ctx context.Context, projectID string, req gitOp
 		return registry.GitOperation{}, err
 	}
 	var connection *gitaccess.Connection
-	if gitops.Network(req.Action) {
+	if gitops.Network(req.Action) || req.Action == "commit" {
 		repo, err := gitaccess.RemoteURL(ctx, spec.Path, false)
 		if err != nil {
 			return registry.GitOperation{}, err
 		}
-		connection = a.gitConnection(project, repo)
+		if repo != "" || req.Action != "commit" {
+			connection = a.gitConnection(project, repo)
+		}
 	} else if req.Auth != nil && *req.Auth != (gitaccess.Auth{}) {
 		return registry.GitOperation{}, fmt.Errorf("%w: local Git operations do not accept credentials", registry.ErrInvalid)
 	}
