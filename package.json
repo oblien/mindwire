@@ -43,7 +43,7 @@
   "devDependencies": {
     "typedoc": "^0.28.20",
     "typedoc-plugin-markdown": "^4.14.0",
-    "typescript": "6.0.3"
+    "typescript": "7.0.2"
   },
   "overrides": {
     "esbuild@<0.25.0": "^0.25.12"
