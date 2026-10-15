@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build context: repository root.
-FROM node:24-bookworm AS builder
+FROM node:25-bookworm AS builder
 COPY --from=golang:1.26.9-bookworm /usr/local/go /usr/local/go
 COPY --from=oven/bun:1.4.3 /usr/local/bin/bun /usr/local/bin/bun
 # Bun installs dependencies; Node runs the SDK/Next tools, and Go generates SDK docs.
@@ -23,7 +23,7 @@ COPY . .
 RUN bun --filter='mindwire' run build \
  && bun --filter='@mindwire/web' run build
 
-FROM node:24-bookworm-slim AS runner
+FROM node:25-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=4327 \

@@ -8,7 +8,7 @@ COPY packages/daemon/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/mindwired ./cmd/daemon \
  && /out/mindwired --print-toolchains > /out/toolchains.json
 
-FROM node:24-bookworm-slim
+FROM node:25-bookworm-slim
 COPY --from=builder /out/mindwired /usr/local/bin/mindwired
 COPY --from=builder /out/toolchains.json /usr/share/mindwire/toolchains.json
 RUN apt-get update \

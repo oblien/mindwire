@@ -16,7 +16,7 @@
 # ---- builder: install the workspace and build the SDK + console with bun --------------------------------
 # Pinned to the repo's packageManager (bun@1.4.3). Debian-based (glibc), same libc as the runner below,
 # so any prebuilt node_modules we carry across stages stay ABI-compatible.
-FROM node:24-bookworm AS builder
+FROM node:25-bookworm AS builder
 COPY --from=oven/bun:1.4.3 /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
 
@@ -40,7 +40,7 @@ RUN bun --filter='mindwire' run build \
  && bun --filter='@mindwire/console' run build
 
 # ---- runner: a slim Node 24 image carrying only what the console needs at runtime ----------------------
-FROM node:24-bookworm-slim AS runner
+FROM node:25-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8787 \
