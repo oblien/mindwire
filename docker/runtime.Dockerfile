@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build context: repository root. An agent workspace with the runtime and pinned harnesses.
-FROM golang:1.26.9-bookworm AS builder
+FROM golang:1.27.2-bookworm AS builder
 WORKDIR /src/packages/daemon
 COPY packages/daemon/go.mod packages/daemon/go.sum ./
 RUN go mod download
