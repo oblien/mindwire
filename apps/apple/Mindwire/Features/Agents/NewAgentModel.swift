@@ -62,15 +62,16 @@ final class NewAgentModel {
 
     /// The selected computer is authoritative about bot support. The release catalog still
     /// drives normal Developer engine setup and remains a conservative offline fallback.
-    func loadBotCatalog(stores: Stores) async {
-        guard let workspaceId else { return }
+    @discardableResult func loadBotCatalog(stores: Stores) async -> [AgentDescriptor]? {
+        guard let workspaceId else { return nil }
         if botCatalogWorkspaceID != workspaceId {
             botCatalog = nil
             botCatalogWorkspaceID = workspaceId
         }
         guard let response = try? await stores.workspaceData.agentCatalog(workspaceId: workspaceId),
-              !Task.isCancelled, self.workspaceId == workspaceId else { return }
+              !Task.isCancelled, self.workspaceId == workspaceId else { return nil }
         botCatalog = response.agents
+        return response.agents
     }
 
     func botEngines(existingAgents: [Agent], raw: Bool = false) -> [AgentDescriptor] {

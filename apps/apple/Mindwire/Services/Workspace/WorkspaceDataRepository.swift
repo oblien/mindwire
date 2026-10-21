@@ -139,6 +139,15 @@ final class WorkspaceDataRepository {
         try await withConversationRemote(workspaceId) { remote, _ in try await remote.appsHTTP() }
     }
 
+    func chatSchedulesHTTP(workspaceId: String) async throws -> DaemonHTTP {
+        try await withConversationRemote(workspaceId) { remote, _ in
+            guard remote.supportsChatSchedules else {
+                throw BackendError.message("Update Mindwire on this computer to use scheduled chats.")
+            }
+            return try await remote.appsHTTP()
+        }
+    }
+
     func integrationsHTTP(workspaceId: String) async throws -> DaemonHTTP {
         try await withConversationRemote(workspaceId) { remote, _ in
             guard remote.supportsIntegrations else { throw WorkspaceRegistryError.updateRequired }

@@ -66,6 +66,12 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Gellix-Regular.ttf</string>
+		<string>Gellix-Medium.ttf</string>
+		<string>Gellix-SemiBold.ttf</string>
+	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

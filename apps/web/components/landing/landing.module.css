@@ -117,9 +117,9 @@
 .companionRight > span { top: 178px; }
 .companionTrail { position: absolute; inset: 0; height: 100%; width: 100%; stroke: var(--mw-line); stroke-width: 1.5; }
 .companionTrail circle { stroke: none; fill: var(--mw-peach); opacity: .5; }
-.heroCopy h1 { font-size: clamp(54px, 6.5vw, 88px); line-height: .99; letter-spacing: -.065em; font-weight: 500; margin: 0; text-wrap: balance; }
+.heroCopy h1 { font-size: clamp(50px, 6.1vw, 82px); line-height: .99; letter-spacing: -.065em; font-weight: 500; margin: 0; text-wrap: balance; }
 .heroCopy h1 > span { color: var(--mw-peach); }
-.heroCopy > p { max-width: 530px; font-size: 19px; line-height: 1.55; margin: 23px auto 0; color: var(--mw-muted); text-wrap: pretty; }
+.heroCopy > p { max-width: 610px; font-size: 19px; line-height: 1.55; margin: 23px auto 0; color: var(--mw-muted); text-wrap: pretty; }
 .heroActions { display: flex; gap: 13px; align-items: center; justify-content: center; margin: 25px 0 27px; }
 .primaryButton, .secondaryButton { display: inline-flex; align-items: center; justify-content: center; gap: 22px; min-height: 49px; padding: 12px 23px; font-size: 15px; font-weight: 500; border-radius: 28px; transition: transform .2s, background .2s; }
 .primaryButton { color: var(--mw-bg); background: var(--mw-ink); }
@@ -130,7 +130,7 @@
 .agentLine > div { display: flex; align-items: center; gap: 22px; }
 .agentLine a { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--mw-ink); }
 .agentLine a:hover { color: var(--mw-peach); }
-.workspaceScene { position: relative; margin-top: 43px; }
+.workspaceScene { position: relative; margin-top: 43px; scroll-margin-top: 108px; }
 .workspaceScene::before { content: ""; position: absolute; z-index: 0; inset: -50px -30px -30px; background: radial-gradient(ellipse at 25% 65%, #eb925719, transparent 50%), radial-gradient(ellipse at 90% 40%, #78baa91c, transparent 40%); pointer-events: none; }
 .workspaceWires { position: absolute; width: calc(100% + 180px); height: 100%; left: -90px; top: 0; stroke: var(--mw-line); stroke-width: 1.5; pointer-events: none; }
 .workspaceWires circle { fill: var(--mw-peach); stroke: none; }
@@ -468,7 +468,7 @@
   .completedSteps > div:last-child { display: none; }
   .resultLink { padding: 9px 10px; margin-bottom: 2px; }
   .conversationBottom { min-height: 33px; }
-  .inspector { padding: 11px; border-radius: 14px; height: 444px; min-height: 0; }
+  .inspector { padding: 11px; border-radius: 14px; height: 528px; min-height: 0; }
   .inspectorBody { min-height: 0; }
   .inspectorTabs { justify-content: center; padding-bottom: 9px; }
   .inspectorTabs button { padding: 8px 19px; }

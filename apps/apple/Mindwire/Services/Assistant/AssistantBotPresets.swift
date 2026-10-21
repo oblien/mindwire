@@ -22,6 +22,10 @@ enum AssistantBotPresets {
     // Exact fingerprints of shipped defaults. User-edited instructions remain intact.
     private static let legacyAssistant = "b924a63ee87a23ace108c81d28c9013da58439cf626a410bfde2b5de7cded6b5"
     private static let legacyBuilder = "b4f15e3feb8827f70b0f1e282842f8c2481ecaec60457f6f83c7bddeeb7a464a"
+    private static let legacyAutomationFallbacks: Set<String> = [
+        "cbab6c9b381f57621a4f3ebbabcacb7eadda4f0c574dae27a6d31b92c9fb18b6",
+        "feb42ae917bcf41c67d8022c1f3380f0f402152f5083b7bea7b5dbd3a889b3e0",
+    ]
     private static let documents: Result<[String], Error> = Result {
         try ["mindwire-apps", "mindwire-automations"].map { name in
             guard let url = Bundle.main.url(forResource: "SKILL", withExtension: "md", subdirectory: "BotSkills/" + name) else {
@@ -49,7 +53,7 @@ enum AssistantBotPresets {
         let workflows = try documents.get()
         let fallback = instructions(mindset, workflows: workflows, supportsSkills: false)
         let newManager = bot.isMaster && bot.instructions.isEmpty && bot.skills == nil
-        if newManager || hash == legacy || bot.instructions == fallback {
+        if newManager || hash == legacy || legacyAutomationFallbacks.contains(hash) || bot.instructions == fallback {
             let value = instructions(mindset, workflows: workflows, supportsSkills: supportsSkills)
             if bot.instructions != value { edit.instructions = value }
         }
@@ -60,7 +64,9 @@ enum AssistantBotPresets {
             // and explicit removals remain user-owned.
             let updated = assigned.map { source -> String in
                 let digest = SHA256.hash(data: Data(source.utf8)).map { String(format: "%02x", $0) }.joined()
-                return digest == "0e759564d539b6d8eedd8e3bdfcecf898cf9c277e4a98fdd30d4a2aada2b2239" ? workflows[0] : source
+                if digest == "0e759564d539b6d8eedd8e3bdfcecf898cf9c277e4a98fdd30d4a2aada2b2239" { return workflows[0] }
+                if digest == "ad5ea09c7c7da4240c487084dfb352cbc298dc90e08958a8b99bce32532ed47c" { return workflows[1] }
+                return source
             }
             if updated != assigned { edit.skills = updated }
         }

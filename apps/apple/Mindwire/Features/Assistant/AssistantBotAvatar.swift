@@ -47,11 +47,12 @@ struct AssistantBotIcon: Equatable {
 }
 
 /// A single lightweight vector renderer shared by lists, chat headers, the picker and push avatars.
-/// Shapes are cached in unit coordinates; drawing never loads assets or starts animation work.
+/// Shapes are cached in unit coordinates; only a working bot adds the shared activity ring.
 struct AssistantBotAvatar: View {
     let botId: String
     var icon: String? = nil
     var size: CGFloat = 32
+    var isWorking = false
     private var appearance: AssistantBotIcon { .resolve(botId: botId, icon: icon) }
 
     var body: some View {
@@ -62,6 +63,9 @@ struct AssistantBotAvatar: View {
             BotVectors.face(icon.character, context: &context)
         }
         .frame(width: size, height: size)
+        .overlay {
+            if isWorking { ActivityRing(size: size + 8, color: icon.color.fill) }
+        }
         .accessibilityHidden(true)
     }
 }

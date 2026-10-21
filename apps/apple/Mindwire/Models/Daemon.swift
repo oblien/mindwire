@@ -94,6 +94,7 @@ struct DaemonHealth: Codable, Hashable {
     var workspaceMetadataVersion: Int? = nil
     var botsVersion: Int? = nil
     var appsVersion: Int? = nil
+    var chatSchedulesVersion: Int? = nil
     var integrationsVersion: Int? = nil
     var agentDiscoveryVersion: Int? = nil
     var projectOperationsVersion: Int? = nil

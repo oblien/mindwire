@@ -153,7 +153,10 @@ struct ChatHistorySheet: View {
 
     private var sheet: some View {
         NavigationStack {
-            styledContent
+            content
+                .listStyle(.insetGrouped)
+                .listSectionSpacing(.compact)
+                .contentMargins(.top, Spacing.sm, for: .scrollContent)
                 .navigationTitle(botId.flatMap(stores.bots.get)?.name ?? t(experienceMode == .general ? "assistant.history" : globalWorkspaceId != nil ? "chat.all.title" : projectId == nil ? "chat.recent" : "agentDetail.chats"))
                 .navigationBarTitleDisplayMode(.inline)
                 .searchable(text: $search,
@@ -161,10 +164,9 @@ struct ChatHistorySheet: View {
                             prompt: t(botId == nil ? "chat.all.search" : "assistant.sidebar.search"))
                 .refreshable { await refresh() }
                 .toolbar {
-                    AppToolbarItem(placement: .cancellationAction) {
-                        Button { dismiss() } label: { AppIcon(Icon.close) }
+                    AppToolbarItem(placement: .confirmationAction) {
+                        Button(t("common.done")) { dismiss() }
                             .tint(.primary)
-                            .accessibilityLabel(t("common.done"))
                             .accessibilityIdentifier("chat.history.close")
                     }
                     if let onNewChat {
@@ -181,6 +183,12 @@ struct ChatHistorySheet: View {
                     }
                 }
         }
+        // A history sheet uses native controls even when presented from the themed drawer.
+        .font(.body)
+        .foregroundStyle(.primary)
+        .buttonStyle(.automatic)
+        .tint(.primary)
+        .presentationDetents([.large])
     }
 
     private func sidebar(close: @escaping () -> Void) -> some View {
@@ -213,24 +221,10 @@ struct ChatHistorySheet: View {
     }
 
     @ViewBuilder
-    private var styledContent: some View {
-        if experienceMode == .general {
-            content
-                .listStyle(.plain)
-                .listRowSpacing(onCloseSidebar == nil ? 8 : 0)
-                .contentMargins(.top, 0, for: .scrollContent)
-                .environment(\.defaultMinListRowHeight, 46)
-                .scrollContentBackground(.hidden)
-                .background(AssistantStyle.canvas)
-        } else { content }
-    }
-
-    @ViewBuilder
     private var content: some View {
         List {
             historyRows
         }
-        .listRowSeparator(experienceMode == .general ? .hidden : .automatic)
         .accessibilityIdentifier("chat.history.list")
     }
 
@@ -256,7 +250,7 @@ struct ChatHistorySheet: View {
                 conversationRow(conversation)
                     .listRowInsets(sidebarInsets)
                     .listRowBackground(onCloseSidebar == nil ? nil : Color.clear)
-                    .listRowSeparator(experienceMode == .general ? .hidden : .automatic)
+                    .listRowSeparator(onCloseSidebar == nil ? .automatic : .hidden)
             }
             if history.nextCursor != nil {
                 HStack {
@@ -275,7 +269,7 @@ struct ChatHistorySheet: View {
                 row(chat)
                     .listRowInsets(sidebarInsets)
                     .listRowBackground(onCloseSidebar == nil ? nil : Color.clear)
-                    .listRowSeparator(experienceMode == .general ? .hidden : .automatic)
+                    .listRowSeparator(onCloseSidebar == nil ? .automatic : .hidden)
             }
             if filteredChats.isEmpty {
                 if globalWorkspaceId != nil && (history == nil || history?.isLoading == true) {
@@ -300,6 +294,7 @@ struct ChatHistorySheet: View {
         let query = compactSidebar ? "" : search.trimmingCharacters(in: .whitespacesAndNewlines)
         return bots.filter { bot in
             !bot.archived && (query.isEmpty || bot.name.localizedCaseInsensitiveContains(query)
+                || bot.purpose.localizedCaseInsensitiveContains(query)
                 || chats.contains { $0.botId == bot.id && activity.title($0).localizedCaseInsensitiveContains(query) })
         }
     }
@@ -311,17 +306,13 @@ struct ChatHistorySheet: View {
         let selectedID = appsSelected ? nil : app.assistantChatID.flatMap { savedChats[$0]?.botId } ?? app.assistantBotID
         if matchingBots.isEmpty && !compactSidebar { emptyState }
         ForEach(matchingBots) { bot in
-            Button {
+            AssistantBotConversationRow(bot: bot, chat: latest[bot.id], selected: selectedID == bot.id) {
                 if let chat = latest[bot.id] { open(chat) }
                 else { onNewBotChat?(bot) }
-            } label: {
-                AssistantBotConversationRow(bot: bot, chat: latest[bot.id], selected: selectedID == bot.id)
+            } history: {
+                historyBot = bot
             }
-            .buttonStyle(.plain)
             .contextMenu { botMenu(bot) }
-            .help(bot.name)
-            .accessibilityLabel(bot.name)
-            .accessibilityAddTraits(selectedID == bot.id ? .isSelected : [])
             .listRowInsets(EdgeInsets(top: 2, leading: sidebarInset, bottom: 2, trailing: sidebarInset))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)

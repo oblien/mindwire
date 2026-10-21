@@ -6,6 +6,22 @@ export const COMPUTER_PLANS = [
   { id: "max", name: "Max", monthlyCents: 9900, vcpus: 8, memoryMb: 24576, diskGb: 240 },
 ] as const;
 export type ComputerPlan = (typeof COMPUTER_PLANS)[number];
+export interface CloudImage {
+  id: string;
+  label?: string;
+  image: string;
+  preset?: string;
+  base_os?: { family: string; distribution?: string; version?: string } | null;
+  minimum_resources?: { cpus?: number; memory_mb?: number; disk_size_mb?: number };
+}
+
+export function computerPlanFitsImage(plan: ComputerPlan, image: CloudImage): boolean {
+  const minimum = image.minimum_resources;
+  return plan.vcpus >= (minimum?.cpus ?? 0) &&
+    plan.memoryMb >= (minimum?.memory_mb ?? 0) &&
+    plan.diskGb * 1024 >= (minimum?.disk_size_mb ?? 0);
+}
+
 export type ComputerState = "draft" | "checkout_pending" | "payment_pending" | "paid" | "provisioning" | "ready" | "deleting" | "deleted";
 export interface CloudComputer {
   id: string;

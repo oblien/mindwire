@@ -22,7 +22,7 @@ struct ChatToolsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var project: Project?
     @State private var destination: Destination?
-    @State private var showingTerminal = false
+    @State private var fullScreenTool: ProjectTool?
 
     private enum Destination: Identifiable {
         case settings, authentication, tool(ProjectTool)
@@ -67,8 +67,10 @@ struct ChatToolsSheet: View {
                             experienceMode == .developer || $0 == .files || $0 == .desktop
                         }) { tool in
                             ProjectToolButton(tool: tool) {
-                                if tool == .terminal { showingTerminal = true }
-                                else { destination = .tool(tool) }
+                                switch tool {
+                                case .terminal, .desktop: fullScreenTool = tool
+                                case .files, .sourceControl: destination = .tool(tool)
+                                }
                             }
                         }
                     } header: {
@@ -132,8 +134,8 @@ struct ChatToolsSheet: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $showingTerminal) {
-            if let project { ProjectToolDestination(tool: .terminal, project: project) }
+        .fullScreenCover(item: $fullScreenTool) { tool in
+            if let project { ProjectToolDestination(tool: tool, project: project) }
         }
     }
 
@@ -206,7 +208,7 @@ struct ChatToolsSheet: View {
         project = stores.chats.get(chatID).flatMap { stores.projects.get($0.projectId) }
         if project == nil {
             if case .tool = destination { destination = nil }
-            showingTerminal = false
+            fullScreenTool = nil
         }
     }
 }

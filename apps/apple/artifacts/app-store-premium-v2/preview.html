@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mindwire — Premium App Store artwork</title>
+<style>
+@font-face{font-family:Gellix;src:url('../../Mindwire/Resources/Fonts/Gellix-Regular.ttf')}
+@font-face{font-family:Gellix;src:url('../../Mindwire/Resources/Fonts/Gellix-SemiBold.ttf');font-weight:600}
+*{box-sizing:border-box}body{margin:0;padding:32px 40px 28px;background:#eeece7;color:#252622;font-family:Gellix,system-ui,sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:26px}
+.identity{display:flex;align-items:center;gap:14px}.mark{width:34px;height:34px;border:3px solid currentColor;border-radius:9px;flex:none}
+h1{font-size:28px;line-height:1.15;letter-spacing:-.5px;margin:0 0 6px;font-weight:600}p{margin:0;font-size:16px;color:#64675f}
+nav{display:flex;align-items:center;gap:14px}.switch{display:flex;border-radius:99px;padding:4px;background:#dedbd4}
+button{font:inherit;border:0;border-radius:99px;padding:10px 18px;background:transparent;color:#64675f;cursor:pointer}
+button[aria-pressed=true]{background:#fcfbf9;color:#252622;box-shadow:0 2px 6px #2526220d}
+.download{padding:14px 20px;border-radius:99px;background:#252622;color:white;text-decoration:none;font-size:15px;white-space:nowrap}
+main{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:22px}
+.card{display:block;overflow:hidden;border-radius:14px;background:#fcfbf9;color:inherit;text-decoration:none;box-shadow:0 3px 14px #25262208}
+.card img{display:block;width:100%;height:auto;aspect-ratio:1284/2778}.caption{display:flex;gap:10px;align-items:center;padding:13px 14px;font-size:15px;background:#fcfbf9}
+.caption span{color:#9e582f;font-size:13px}.caption strong{font-weight:400}footer{margin-top:22px;font-size:14px;color:#64675f}footer a{color:inherit}
+a:focus-visible,button:focus-visible{outline:3px solid #9e582f;outline-offset:3px}
+@media(max-width:1050px){body{padding:24px}main{grid-template-columns:repeat(2,minmax(0,1fr))}header{align-items:flex-start;flex-direction:column}nav{width:100%;justify-content:space-between}}
+@media(max-width:520px){body{padding:18px}main{grid-template-columns:1fr}nav{flex-wrap:wrap}.caption{font-size:16px}}
+</style></head><body>
+<header><div class="identity"><span class="mark" aria-hidden="true"></span><div><h1>Mindwire</h1><p id="direction">Premium direction · 8 iPhone screens · 1284 × 2778</p></div></div>
+<nav aria-label="Compare artwork"><div class="switch"><button type="button" data-set="original" aria-pressed="false">Original</button><button type="button" data-set="premium" aria-pressed="true">Premium</button></div><a class="download" id="download" href="Mindwire-iPhone-Premium-v2-8.zip">Download this set</a></nav></header>
+<main><a class="card" href="iphone/01-personal-ai-team.png" target="_blank" rel="noopener"><img src="iphone/01-personal-ai-team.png" alt="A little team. A lot done."><div class="caption"><span>01</span><strong>A little team. A lot done.</strong></div></a><a class="card" href="iphone/02-your-bot-team.png" target="_blank" rel="noopener"><img src="iphone/02-your-bot-team.png" alt="A team. Made yours."><div class="caption"><span>02</span><strong>A team. Made yours.</strong></div></a><a class="card" href="iphone/03-from-ask-to-done.png" target="_blank" rel="noopener"><img src="iphone/03-from-ask-to-done.png" alt="Just say the word."><div class="caption"><span>03</span><strong>Just say the word.</strong></div></a><a class="card" href="iphone/04-apps-made-for-you.png" target="_blank" rel="noopener"><img src="iphone/04-apps-made-for-you.png" alt="You imagine it. We build it."><div class="caption"><span>04</span><strong>You imagine it. We build it.</strong></div></a><a class="card" href="iphone/05-everyday-routines.png" target="_blank" rel="noopener"><img src="iphone/05-everyday-routines.png" alt="Make it an everyday thing."><div class="caption"><span>05</span><strong>Make it an everyday thing.</strong></div></a><a class="card" href="iphone/06-your-existing-ai.png" target="_blank" rel="noopener"><img src="iphone/06-your-existing-ai.png" alt="The AI you have. More you can do."><div class="caption"><span>06</span><strong>The AI you have. More you can do.</strong></div></a><a class="card" href="iphone/07-developer-mode.png" target="_blank" rel="noopener"><img src="iphone/07-developer-mode.png" alt="Same Mindwire. More control."><div class="caption"><span>07</span><strong>Same Mindwire. More control.</strong></div></a><a class="card" href="iphone/08-review-every-change.png" target="_blank" rel="noopener"><img src="iphone/08-review-every-change.png" alt="Every change. In your hands."><div class="caption"><span>08</span><strong>Every change. In your hands.</strong></div></a></main>
+<footer>Click a screen to view full size. Original artwork preserved. <a href="manifest.json">Asset details</a> · <a href="design/campaign.json">Saved prompts</a> · Created with built-in image generation using native app references.</footer>
+<script type="application/json" id="sets">{"premium": [{"index": 1, "title": "A little team. A lot done.", "path": "iphone/01-personal-ai-team.png"}, {"index": 2, "title": "A team. Made yours.", "path": "iphone/02-your-bot-team.png"}, {"index": 3, "title": "Just say the word.", "path": "iphone/03-from-ask-to-done.png"}, {"index": 4, "title": "You imagine it. We build it.", "path": "iphone/04-apps-made-for-you.png"}, {"index": 5, "title": "Make it an everyday thing.", "path": "iphone/05-everyday-routines.png"}, {"index": 6, "title": "The AI you have. More you can do.", "path": "iphone/06-your-existing-ai.png"}, {"index": 7, "title": "Same Mindwire. More control.", "path": "iphone/07-developer-mode.png"}, {"index": 8, "title": "Every change. In your hands.", "path": "iphone/08-review-every-change.png"}], "original": [{"index": 1, "title": "A little team. A lot done.", "path": "../app-store/iphone/light/01-your-ai-team.png"}, {"index": 2, "title": "Your bots. Your way.", "path": "../app-store/iphone/light/02-your-bots.png"}, {"index": 3, "title": "You ask. They get to work.", "path": "../app-store/iphone/light/03-just-ask.png"}, {"index": 4, "title": "Dream it. Build it.", "path": "../app-store/iphone/light/04-made-for-you.png"}, {"index": 5, "title": "Set it once. Keep it going.", "path": "../app-store/iphone/light/05-recurring-work.png"}, {"index": 6, "title": "Your computer. Your AI.", "path": "../app-store/iphone/light/06-your-ai-accounts.png"}, {"index": 7, "title": "Go deeper. Build anything.", "path": "../app-store/iphone/light/07-developer-mode.png"}, {"index": 8, "title": "Review it. Ship with care.", "path": "../app-store/iphone/light/08-review-and-ship.png"}]}</script>
+<script>
+const sets = JSON.parse(document.getElementById('sets').textContent);
+const cards = [...document.querySelectorAll('.card')];
+document.querySelectorAll('[data-set]').forEach(button => button.addEventListener('click', () => {
+  const key = button.dataset.set;
+  document.querySelectorAll('[data-set]').forEach(option => option.setAttribute('aria-pressed', String(option === button)));
+  sets[key].forEach((item, index) => {
+    const card = cards[index];
+    card.href = item.path;
+    card.querySelector('img').src = item.path;
+    card.querySelector('img').alt = item.title;
+    card.querySelector('strong').textContent = item.title;
+  });
+  document.getElementById('direction').textContent = (key === 'premium' ? 'Premium direction' : 'Original direction') + ' · 8 iPhone screens · 1284 × 2778';
+  document.getElementById('download').href = key === 'premium' ? 'Mindwire-iPhone-Premium-v2-8.zip' : '../app-store/Mindwire-iPhone-App-Store-8.zip';
+}));
+</script></body></html>

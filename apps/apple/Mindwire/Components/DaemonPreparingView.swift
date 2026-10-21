@@ -67,8 +67,7 @@ struct DaemonPreparingView: View {
             AssistantPage {
                 AssistantSetupProgress(step: 1)
                 AssistantServiceMark(service: service, size: 40).padding(.top, 12)
-                AssistantHeading(eyebrow: service.name, title: t("assistant.ai.preparing"),
-                                 detail: t(activity.isWorking ? "assistant.ai.preparing.body" : "assistant.ai.checking.body"))
+                AssistantHeading(eyebrow: service.name, title: t("assistant.ai.preparing"))
                 assistantProgress
             }
         }
@@ -86,7 +85,7 @@ struct DaemonPreparingView: View {
                 .padding(.top, Spacing.md)
             }
             .font(.subheadline).tint(.secondary)
-        } else { connectionIndicator }
+        } else { AssistantSetupStatus(title: t("assistant.ai.checking.body")) }
     }
 
     private var connectionIndicator: some View {

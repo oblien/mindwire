@@ -1,0 +1,241 @@
+{
+  "status": "complete_iphone_set",
+  "direction": "Premium editorial \u2014 varied compositions",
+  "tool": "built-in image_gen",
+  "size": [
+    1284,
+    2778
+  ],
+  "original_set": "../app-store",
+  "original_set_preserved": true,
+  "preservation_check": "SHA-256 matches for all eight original PNGs and their ZIP.",
+  "screenshots": [
+    {
+      "index": 1,
+      "title": "A little team. A lot done.",
+      "subtitle": "Personal bots. Real things done.",
+      "theme": "ivory",
+      "path": "iphone/01-personal-ai-team.png",
+      "width": 1284,
+      "height": 2778,
+      "mode": "RGB",
+      "profile": "sRGB",
+      "sha256": "85358ab2cae273e00bf9a4112e510db775b0dbb2afd981c9a284d446a666bfc5",
+      "native_reference": "native/iphone/01-onboarding-light.png",
+      "native_reference_info": {
+        "width": 1320,
+        "height": 2868,
+        "bit_depth": 8,
+        "color_type": 6
+      },
+      "generated_original": "design/01-generated-original.png",
+      "generated_original_info": {
+        "width": 850,
+        "height": 1850,
+        "bit_depth": 8,
+        "color_type": 2
+      },
+      "prompt": "design/01-personal-ai-team-prompt.txt",
+      "export": "sips resampling and conversion to opaque sRGB PNG at the original App Store canvas size."
+    },
+    {
+      "index": 2,
+      "title": "A team. Made yours.",
+      "subtitle": "Different roles. One place to work.",
+      "theme": "ivory",
+      "path": "iphone/02-your-bot-team.png",
+      "width": 1284,
+      "height": 2778,
+      "mode": "RGB",
+      "profile": "sRGB",
+      "sha256": "373b01c3ad8ba3ac0af25a9ddd36fe8bebb506fca4a451c759f5d26f4d01417d",
+      "native_reference": "native/iphone/02-bots-light.png",
+      "native_reference_info": {
+        "width": 1320,
+        "height": 2868,
+        "bit_depth": 8,
+        "color_type": 6
+      },
+      "generated_original": "design/02-generated-original.png",
+      "generated_original_info": {
+        "width": 853,
+        "height": 1844,
+        "bit_depth": 8,
+        "color_type": 2
+      },
+      "prompt": "design/02-your-bot-team-prompt.txt",
+      "export": "sips resampling and conversion to opaque sRGB PNG at the original App Store canvas size."
+    },
+    {
+      "index": 3,
+      "title": "Just say the word.",
+      "subtitle": "A plan. A draft. A little more done.",
+      "theme": "lilac",
+      "path": "iphone/03-from-ask-to-done.png",
+      "width": 1284,
+      "height": 2778,
+      "mode": "RGB",
+      "profile": "sRGB",
+      "sha256": "fcf0ec5fa95d3987291b0c130166bd03f4bff56eb04a6a3c3206e4fa7226d4c1",
+      "native_reference": "native/iphone/03-task-light.png",
+      "native_reference_info": {
+        "width": 1320,
+        "height": 2868,
+        "bit_depth": 8,
+        "color_type": 6
+      },
+      "generated_original": "design/03-generated-original.png",
+      "generated_original_info": {
+        "width": 853,
+        "height": 1844,
+        "bit_depth": 8,
+        "color_type": 2
+      },
+      "prompt": "design/03-from-ask-to-done-prompt.txt",
+      "export": "sips resampling and conversion to opaque sRGB PNG at the original App Store canvas size."
+    },
+    {
+      "index": 4,
+      "title": "You imagine it. We build it.",
+      "subtitle": "Personal apps, made just for you.",
+      "theme": "peach",
+      "path": "iphone/04-apps-made-for-you.png",
+      "width": 1284,
+      "height": 2778,
+      "mode": "RGB",
+      "profile": "sRGB",
+      "sha256": "7b692e5ce707561600cfc90c242935aa79f07760f8a6bbf7673d169d8aabe61f",
+      "native_reference": "native/iphone/04-app-builder-light.png",
+      "native_reference_info": {
+        "width": 1320,
+        "height": 2868,
+        "bit_depth": 8,
+        "color_type": 6
+      },
+      "generated_original": "design/04-generated-original.png",
+      "generated_original_info": {
+        "width": 850,
+        "height": 1850,
+        "bit_depth": 8,
+        "color_type": 2
+      },
+      "prompt": "design/04-apps-made-for-you-prompt.txt",
+      "export": "sips resampling and conversion to opaque sRGB PNG at the original App Store canvas size."
+    },
+    {
+      "index": 5,
+      "title": "Make it an everyday thing.",
+      "subtitle": "Reports and routines, on your schedule.",
+      "theme": "ivory",
+      "path": "iphone/05-everyday-routines.png",
+      "width": 1284,
+      "height": 2778,
+      "mode": "RGB",
+      "profile": "sRGB",
+      "sha256": "aa9a1269956c1dc4eba4886b2470fba6b6193e5c5987a1eaa30eb33276cbf04d",
+      "native_reference": "native/iphone/05-schedules-light.png",
+      "native_reference_info": {
+        "width": 1320,
+        "height": 2868,
+        "bit_depth": 8,
+        "color_type": 6
+      },
+      "generated_original": "design/05-generated-original.png",
+      "generated_original_info": {
+        "width": 850,
+        "height": 1850,
+        "bit_depth": 8,
+        "color_type": 2
+      },
+      "prompt": "design/05-everyday-routines-prompt.txt",
+      "export": "sips resampling and conversion to opaque sRGB PNG at the original App Store canvas size."
+    },
+    {
+      "index": 6,
+      "title": "The AI you have. More you can do.",
+      "subtitle": "Your computer. Your subscriptions.",
+      "theme": "mint",
+      "path": "iphone/06-your-existing-ai.png",
+      "width": 1284,
+      "height": 2778,
+      "mode": "RGB",
+      "profile": "sRGB",
+      "sha256": "306b9b8428279407d2cf346f262fa4074f34525d408aab129ab01b8c4507dbd6",
+      "native_reference": "native/iphone/06-accounts-alternative-light.png",
+      "native_reference_info": {
+        "width": 1320,
+        "height": 2868,
+        "bit_depth": 8,
+        "color_type": 6
+      },
+      "generated_original": "design/06-generated-original.png",
+      "generated_original_info": {
+        "width": 853,
+        "height": 1844,
+        "bit_depth": 8,
+        "color_type": 2
+      },
+      "prompt": "design/06-your-existing-ai-prompt.txt",
+      "export": "sips resampling and conversion to opaque sRGB PNG at the original App Store canvas size."
+    },
+    {
+      "index": 7,
+      "title": "Same Mindwire. More control.",
+      "subtitle": "Developer mode.",
+      "theme": "dark",
+      "path": "iphone/07-developer-mode.png",
+      "width": 1284,
+      "height": 2778,
+      "mode": "RGB",
+      "profile": "sRGB",
+      "sha256": "c7bab35d4df343fb55ecf4fb738503f1b0d3c143a56ae36ea30381bbc1b2d4b1",
+      "native_reference": "native/iphone/07-developer-dark.png",
+      "native_reference_info": {
+        "width": 1320,
+        "height": 2868,
+        "bit_depth": 8,
+        "color_type": 6
+      },
+      "generated_original": "design/07-generated-original.png",
+      "generated_original_info": {
+        "width": 853,
+        "height": 1844,
+        "bit_depth": 8,
+        "color_type": 2
+      },
+      "prompt": "design/07-developer-mode-prompt.txt",
+      "export": "sips resampling and conversion to opaque sRGB PNG at the original App Store canvas size."
+    },
+    {
+      "index": 8,
+      "title": "Every change. In your hands.",
+      "subtitle": "Review code. Stage changes. Keep moving.",
+      "theme": "dark",
+      "path": "iphone/08-review-every-change.png",
+      "width": 1284,
+      "height": 2778,
+      "mode": "RGB",
+      "profile": "sRGB",
+      "sha256": "766f0fab74411d7f6da34436251a1e33a472e842d6bd66553d3bf8458740191a",
+      "native_reference": "native/iphone/08-review-dark.png",
+      "native_reference_info": {
+        "width": 1320,
+        "height": 2868,
+        "bit_depth": 8,
+        "color_type": 6
+      },
+      "generated_original": "design/08-generated-original.png",
+      "generated_original_info": {
+        "width": 852,
+        "height": 1847,
+        "bit_depth": 8,
+        "color_type": 2
+      },
+      "prompt": "design/08-review-every-change-prompt.txt",
+      "export": "sips resampling and conversion to opaque sRGB PNG at the original App Store canvas size."
+    }
+  ],
+  "demo_content": "Fictional conversations and offline native app previews supplied as image-generation references.",
+  "feature_note": "Scheduled chats require a compatible Mindwire computer runtime. The app screenshot states that its computer must be awake and Mindwire running.",
+  "publication": "Local artwork only; no App Store Connect assets changed."
+}

@@ -41,6 +41,7 @@ type Service struct {
 	deliveryHTTP        *http.Client
 	budgets             map[string]notificationBudget
 	admission           func() (func(), error)
+	chatRuntime         ChatScheduleRuntime
 	integrationChannels interface {
 		Channels() []Channel
 		Send(context.Context, string, string) error

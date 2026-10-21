@@ -144,15 +144,10 @@ struct MindwireLoginSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: Spacing.lg) {
-                    Text(t("login.body"))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    CloudSignIn { onSignedIn(); dismiss() }
-                }
-                .padding(Spacing.lg)
+            AssistantPage {
+                AssistantBrandMark(size: 36).padding(.top, 20)
+                AssistantHeading(title: "Your Mindwire account.", detail: t("login.body"))
+                CloudSignIn(onboarding: true) { onSignedIn(); dismiss() }
             }
             .navigationTitle(t("login.navTitle"))
             .navigationBarTitleDisplayMode(.inline)
@@ -162,7 +157,7 @@ struct MindwireLoginSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
 }

@@ -72,7 +72,10 @@ struct AppNotificationChannel: Decodable, Identifiable { let id: String; let nam
 
 struct AppSchedule: Codable, Identifiable {
     let id: String
-    let appId: String
+    let appId: String?
+    var chatId: String?
+    var prompt: String?
+    var lastRunId: String?
     var name: String
     var runAt: String?
     var intervalSeconds: Int?
@@ -100,6 +103,9 @@ struct AppSchedule: Codable, Identifiable {
         if let command { result["command"] = command }
         if let title { result["title"] = title }
         if let body { result["body"] = body }
+        if let prompt { result["prompt"] = prompt }
         return result
     }
 }
+
+typealias SavedSchedule = AppSchedule

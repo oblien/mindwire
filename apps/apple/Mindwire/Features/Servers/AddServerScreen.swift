@@ -60,9 +60,11 @@ struct AddServerScreen: View {
     var body: some View {
         SetupNavigation(embedded: embedded) {
             Group {
-                if assistantSetup && !isRemote {
+                if !isRemote && editing == nil {
                     AssistantComputerSetup(code: $draft.pairCode, pairing: pairing, status: pairingStatus,
+                                           error: pairingError, showsProgress: assistantSetup,
                                            scan: { scanner.present() }, connect: pairComputer)
+                        .environment(\.assistantTheme, assistantSetup ? .website : .native)
                 } else {
                     developerForm
                 }
@@ -76,7 +78,7 @@ struct AddServerScreen: View {
                         Button(t("common.cancel")) { cancelTasks(); dismiss() }.tint(.primary)
                     }
                 }
-                if !assistantSetup {
+                if isRemote || editing != nil {
                     AppToolbarItem(placement: .confirmationAction) {
                         Button(editing != nil ? "Save" : isRemote ? t("addServer.add") : "Connect", action: save)
                             .disabled(!canAdd || setupStage != nil || pairing)
@@ -87,7 +89,7 @@ struct AddServerScreen: View {
                     Button(t("common.done")) { dismissKeyboard() }
                 }
             }
-            .alert(editing == nil ? "Couldn't connect" : "Couldn't save connection", isPresented: Binding(get: { pairingError != nil }, set: { if !$0 { pairingError = nil } })) {
+            .alert(editing == nil ? "Couldn't connect" : "Couldn't save connection", isPresented: Binding(get: { (isRemote || editing != nil) && pairingError != nil }, set: { if !$0 { pairingError = nil } })) {
                 Button(t("common.ok"), role: .cancel) {}
             } message: { Text(pairingError ?? "") }
         }

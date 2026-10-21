@@ -5,7 +5,8 @@ final class Stores {
     let defaults: UserDefaults
     @MainActor lazy var experience = AppExperience(defaults: defaults,
         hasExistingData: !connections.list().isEmpty || !workspaces.list().isEmpty
-            || !agents.list().isEmpty || !projects.list().isEmpty || !chats.list().isEmpty)
+            || !agents.list().isEmpty || !projects.list().isEmpty || !chats.list().isEmpty,
+        hasExistingConversation: !chats.list().isEmpty)
     @MainActor lazy var workspaceData = WorkspaceDataRepository(stores: self)
     @MainActor lazy var projectSync = ProjectSyncCoordinator(stores: self)
     @MainActor lazy var preparation = PreparationQueue(stores: self)

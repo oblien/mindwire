@@ -277,6 +277,7 @@ type StartTurnInput struct {
 	Options        agent.TurnOptions
 	GitAuth        *gitaccess.Auth // write-only; never session or transcript state
 	botID          string          // set only by native bot delegation, never HTTP turn input
+	scheduled      bool            // automatic prompts wait for an external terminal owner
 	gitLease       *gitaccess.Lease
 	reply          *session.InteractionReply // internal: atomically commit a resumed async answer with the turn
 }
@@ -634,6 +635,21 @@ func (s *Supervisor) Wait() {
 // is currently running for that run id.
 func (s *Supervisor) Cancel(runID string) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cancelLocked(runID)
+}
+
+// CancelAll includes turns started by schedules and native bot tools, which
+// do not have to originate in an embedded SDK client's foreground run list.
+func (s *Supervisor) CancelAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id := range s.cancels {
+		s.cancelLocked(id)
+	}
+}
+
+func (s *Supervisor) cancelLocked(runID string) bool {
 	cancel := s.cancels[runID]
 	if cancel != nil {
 		if q := s.inputQueues[runID]; q != nil {
@@ -641,11 +657,7 @@ func (s *Supervisor) Cancel(runID string) bool {
 		}
 		cancel()
 	}
-	s.mu.Unlock()
-	if cancel == nil {
-		return false
-	}
-	return true
+	return cancel != nil
 }
 
 // Respond delivers the user's answer to a mid-turn interaction (a permission approval, or an

@@ -6,6 +6,7 @@ import (
 
 	"github.com/oblien/mindwire/packages/daemon/internal/agent"
 	"github.com/oblien/mindwire/packages/daemon/internal/nativesessions"
+	"github.com/oblien/mindwire/packages/daemon/internal/registry"
 	"github.com/oblien/mindwire/packages/daemon/internal/runner"
 )
 
@@ -47,6 +48,9 @@ func (s *Supervisor) checkNativeSession(a *Agent, req StartTurnInput, control bo
 	activity, err := s.nativeSessions.Activity(ctx, a.Adapter, agent.NativeSessionQuery{SessionID: sid, CWD: agent.FirstNonEmpty(req.CWD, s.store.ChatCWD(req.ChatID), s.cwd)})
 	if err != nil || activity.Owner != "native" {
 		return false, err
+	}
+	if req.scheduled {
+		return true, registry.ErrScheduleDeferred
 	}
 	if !activity.Capabilities.Input {
 		return true, agent.NativeActionUnsupported("sending")

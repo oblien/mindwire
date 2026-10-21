@@ -91,6 +91,7 @@ func New(store *session.Store, hub *stream.Hub, sup *orchestrator.Supervisor, re
 			botService := bots.New(a.registry, store, &a.registryMu)
 			botService.SetApps(a.apps)
 			sup.SetBots(botService)
+			a.apps.SetChatRuntime(sup)
 			a.conversations = conversations.New(a.registry, store, agent.All(), &a.registryMu, sup.Busy)
 			a.agents = inventory.NewAgents(a.registry, agent.All(), &a.registryMu)
 			a.gitAuthors = gitauthor.New(a.registry)
@@ -236,6 +237,9 @@ func (a *API) Routes() []Route {
 		{"GET", "/artifacts/{id}", a.artifact},
 		{"PUT", "/chats/{id}/attachments/{attachmentID}", a.uploadAttachment},
 		{"GET", "/chats/{id}/native", a.nativeSessionActivity},
+		{"GET", "/chats/{id}/schedules", a.chatSchedules},
+		{"POST", "/chats/{id}/schedules", a.chatScheduleSave},
+		{"DELETE", "/chats/{id}/schedules/{jobId}", a.chatScheduleDelete},
 		{"GET", "/chats/{id}/native/events", a.nativeSessionEvents},
 		{"POST", "/chats/{id}/native/actions", a.nativeSessionAction},
 

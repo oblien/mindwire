@@ -1252,6 +1252,7 @@ export interface Health {
   workspaceMetadataVersion?: number;
   botsVersion?: number;
   appsVersion?: number;
+  chatSchedulesVersion?: number;
   integrationsVersion?: number;
   /** Native installed-harness discovery and atomic workspace.ensureAgent(). */
   agentDiscoveryVersion?: number;

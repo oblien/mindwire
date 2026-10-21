@@ -20,6 +20,7 @@ struct AssistantSidebar<Content: View, Sidebar: View>: View {
     @ViewBuilder let sidebar: () -> Sidebar
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.assistantChatTheme) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @Environment(AppModel.self) private var app
     @State private var dragOffset: CGFloat = 0
@@ -40,6 +41,7 @@ struct AssistantSidebar<Content: View, Sidebar: View>: View {
                     // a sibling NavigationStack can otherwise reset the selected workspace path.
                     sidebar()
                         .environment(\.desktopSidebarCompact, app.desktopBotRailVisible)
+                        .environment(\.activityAnimationsEnabled, visible)
                         .frame(width: visible ? width : expandedWidth)
                         .frame(maxHeight: .infinity)
                         .background(AssistantDesktopStyle.sidebar)
@@ -95,9 +97,10 @@ struct AssistantSidebar<Content: View, Sidebar: View>: View {
                 }
 
                 sidebar()
+                    .environment(\.activityAnimationsEnabled, visible)
                     .frame(width: width, height: geometry.size.height)
                     .clipped()
-                    .background { AssistantStyle.canvas.ignoresSafeArea(.container, edges: .vertical) }
+                    .background { theme.canvas.ignoresSafeArea(.container, edges: .vertical) }
                     .contentShape(.rect)
                     .offset(x: (reveal - width) * direction)
                     .allowsHitTesting(isPresented)
@@ -132,7 +135,7 @@ struct AssistantSidebar<Content: View, Sidebar: View>: View {
             })
             .animation(animation, value: isPresented)
             .mask { Rectangle().ignoresSafeArea(.container, edges: .vertical) }
-            .background { AssistantStyle.canvas.ignoresSafeArea(.container) }
+            .background { theme.canvas.ignoresSafeArea(.container) }
         }
         .onChange(of: isPresented) { _, _ in
             dragOffset = 0

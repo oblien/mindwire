@@ -8,6 +8,28 @@ struct MainScene: View {
 
     var body: some View {
         Group {
+            #if !targetEnvironment(macCatalyst)
+            if stores.experience.needsInitialSetup {
+                AssistantSetupScreen(repository: repository, required: true, showsWelcome: true, onReady: {})
+            } else {
+                application
+            }
+            #else
+            application
+            #endif
+        }
+        .environment(\.appExperienceMode, stores.experience.mode ?? .general)
+        .sheet(item: Binding(get: { stores.experience.needsInitialSetup && !ApplePlatform.isDesktop ? nil : app.presentedAppShortcut }, set: { app.presentedAppShortcut = $0 })) {
+            AppShortcutDestination(shortcut: $0)
+        }
+        .onChange(of: stores.apps.revision) { app.resolvePendingAppShortcut() }
+        #if targetEnvironment(macCatalyst)
+        .task { await LocalComputer.shared.prepare(stores: stores, repository: repository) }
+        #endif
+    }
+
+    private var application: some View {
+        Group {
             switch stores.experience.mode {
             case .none: ExperienceOnboardingScreen()
             case .general: AssistantScene(repository: repository)
@@ -19,14 +41,6 @@ struct MainScene: View {
                 #endif
             }
         }
-        .environment(\.appExperienceMode, stores.experience.mode ?? .general)
-        .sheet(item: Binding(get: { app.presentedAppShortcut }, set: { app.presentedAppShortcut = $0 })) {
-            AppShortcutDestination(shortcut: $0)
-        }
-        .onChange(of: stores.apps.revision) { app.resolvePendingAppShortcut() }
-        #if targetEnvironment(macCatalyst)
-        .task { await LocalComputer.shared.prepare(stores: stores, repository: repository) }
-        #endif
     }
 }
 

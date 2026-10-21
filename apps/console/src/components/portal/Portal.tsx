@@ -116,7 +116,7 @@ function PortalShell({
           {cloud.error && (
             <ErrorNotice
               message={cloud.error}
-              retry={() => void cloud.reload().catch(() => {})}
+              retry={() => void cloud.retryRecovery().catch(() => {})}
             />
           )}
           <Routes>

@@ -149,24 +149,42 @@ struct ChatNavigationTitle: View {
     let title: String
     let subtitle: String
     let refreshing: Bool
+    var bot: AssistantBot?
+    var working = false
+    @Environment(\.assistantChatTheme) private var theme
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var showsProgress = false
 
     var body: some View {
-        VStack(spacing: 1) {
-            HStack(spacing: 6) {
-                Text(title).font(.headline).lineLimit(1).truncationMode(.tail)
-                    .accessibilityIdentifier("chat-title")
-                if showsProgress {
-                    ProgressView().controlSize(.mini)
-                        .chatActivityTint()
-                        .frame(width: 12, height: 12)
-                        .accessibilityLabel("Updating conversation")
-                        .accessibilityIdentifier("chat-history-refreshing")
+        HStack(spacing: theme.isWebsite ? 8 : 0) {
+            if theme.isWebsite {
+                if let bot {
+                    AssistantBotAvatar(botId: bot.id, icon: bot.icon, size: 28)
+                } else {
+                    AssistantBrandMark(size: 24).frame(width: 28, height: 28)
                 }
             }
-            if !subtitle.isEmpty {
-                Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            VStack(alignment: theme.isWebsite ? .leading : .center, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(theme.isWebsite ? theme.font(17, weight: .medium, relativeTo: .headline) : .headline)
+                        .foregroundStyle(theme.ink).lineLimit(1).truncationMode(.tail)
+                        .accessibilityIdentifier("chat-title")
+                    if showsProgress {
+                        ProgressView().controlSize(.mini)
+                            .chatActivityTint()
+                            .frame(width: 12, height: 12)
+                            .accessibilityLabel("Updating conversation")
+                            .accessibilityIdentifier("chat-history-refreshing")
+                    }
+                }
+                if theme.isWebsite {
+                    if working {
+                        Text(t("chat.running")).font(.caption2).foregroundStyle(theme.muted).lineLimit(1)
+                    }
+                } else if !subtitle.isEmpty {
+                    Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
         }
         .frame(maxWidth: sizeClass == .regular ? 420 : 245)
@@ -177,6 +195,41 @@ struct ChatNavigationTitle: View {
             guard !Task.isCancelled else { return }
             showsProgress = true
         }
+    }
+}
+
+/// General's first message uses the same bot identity and palette as onboarding.
+/// This is only a placeholder; loading, retry and transcript behavior stay in ChatScreen.
+struct AssistantChatEmptyState: View {
+    let bot: AssistantBot?
+    @Environment(\.assistantChatTheme) private var theme
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Group {
+                if let bot {
+                    AssistantBotAvatar(botId: bot.id, icon: bot.icon, size: 72)
+                } else {
+                    AssistantBrandMark(size: 58)
+                }
+            }
+            .frame(width: 112, height: 112)
+            .background(theme.peachSoft, in: .circle)
+            VStack(spacing: 10) {
+                Text(t("assistant.welcome"))
+                    .font(theme.font(30, weight: .medium, relativeTo: .title))
+                    .tracking(-0.6).foregroundStyle(theme.ink)
+                Text(bot.flatMap { !$0.isMaster && !$0.purpose.isEmpty ? $0.purpose : nil }
+                     ?? t("assistant.welcome.body"))
+                    .font(theme.font(16, relativeTo: .callout)).foregroundStyle(theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 320)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("chat.empty")
     }
 }
 
@@ -224,12 +277,12 @@ struct ChatUserBubble: View {
                 }
                 if !text.isEmpty {
                     if desktop {
-                        MessageContentView(text: text, onAccent: true).equatable()
+                        ChatUserMessageText(text: text)
                             .padding(.horizontal, 16).padding(.vertical, 10)
                             .background(AssistantDesktopStyle.outgoing,
                                         in: .rect(cornerRadius: AssistantDesktopStyle.messageRadius, style: .continuous))
                     } else {
-                        MessageContentView(text: text, onAccent: true).equatable()
+                        ChatUserMessageText(text: text)
                             .padding(.horizontal, Spacing.md + 2)
                             .padding(.vertical, Spacing.sm + 2)
                             .padding(.trailing, 6)
@@ -241,6 +294,52 @@ struct ChatUserBubble: View {
                 desktop ? min(560, max(0, width - AssistantDesktopStyle.gutter * 2) * 0.72)
                     : (width - Spacing.lg * 2) * 0.78
             }
+        }
+    }
+}
+
+/// Bound collapsed rendering even for a large pasted document. The existing full-text
+/// reader opens on demand, so reading more never resizes or repositions the chat.
+private struct ChatUserMessageText: View {
+    let text: String
+    @AppStorage(StorageKey.chatTextSize) private var textSizeRaw = ChatTextSize.medium.rawValue
+    @Environment(\.chatTextActions) private var textActions
+    @State private var showingFullMessage = false
+
+    private var base: CGFloat { (ChatTextSize(rawValue: textSizeRaw) ?? .medium).points }
+    private var preview: (text: String, hasMore: Bool) {
+        let prefix = text.prefix(1201)
+        let hasMore = prefix.count > 1200
+        return (hasMore ? String(prefix.prefix(1200)) + "…" : String(prefix), hasMore)
+    }
+
+    var body: some View {
+        let snippet = preview
+        ViewThatFits(in: .vertical) {
+            if !snippet.hasMore {
+                MessageContentView(text: snippet.text, onAccent: true).equatable()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                Text(snippet.text)
+                    .font(.system(size: base)).lineSpacing(3).lineLimit(4)
+                    .naturalChatDirection(snippet.text)
+                Button(t("chat.message.viewMore")) {
+                    // The transcript's existing reader survives cell reuse and live output.
+                    if let select = textActions.selectRaw { select() }
+                    else { showingFullMessage = true }
+                }
+                    .font(.system(size: max(12, base - 2), weight: .semibold))
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(t("chat.message.viewFull"))
+                    .accessibilityIdentifier("chat.message.viewMore")
+            }
+            .foregroundStyle(BotColor.ink)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxHeight: UIFont.systemFont(ofSize: base).lineHeight * 6 + 15, alignment: .top)
+        .sheet(isPresented: $showingFullMessage) {
+            MessageTextSheet(text: text, title: t("chat.message.title"))
         }
     }
 }

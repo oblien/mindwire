@@ -1,0 +1,78 @@
+--- AppStorePreviewScene-before.swift
++++ AppStorePreviewScene.swift
+@@ -44,6 +44,13 @@
+             } else if let error { Text(error).accessibilityIdentifier("store.error") }
+             else { ProgressView() }
+         }
++        #if targetEnvironment(macCatalyst)
++        // Preview fixtures bypass MainScene, so give their geometry readers a
++        // real desktop canvas before the offline content finishes loading.
++        .frame(minWidth: 1280, minHeight: 820)
++        .modifier(AssistantDesktopWindow())
++        .environment(\.desktopMessenger, true)
++        #endif
+         .preferredColorScheme(theme == "dark" ? .dark : .light)
+         .onAppear {
+             // Real-device captures must survive iOS waiting for a menu animation to settle.
+@@ -66,6 +73,7 @@
+                     usesDefaultProjectIcon: scenario == "library", preloadChat: scenario != "chat-loading",
+                     chatAgentType: ProcessInfo.processInfo.environment["MINDWIRE_CHAT_AGENT"] == "claude-code" ? .claudeCode : .codex)
+                 if scenario == "chat" || scenario == "chat-loading" {
++                    data.stores.experience.mode = .developer
+                     data.app.projectsPath = NavigationPath([AppRoute.projectDetail(id: data.projects[0].id), .chat(chatId: data.chatID)])
+                 } else if (scenario == "projects" && UIDevice.current.userInterfaceIdiom == .pad) || scenario == "switch" {
+                     data.app.openProject(data.projects[0].id)
+@@ -125,11 +133,22 @@
+ 
+     @ViewBuilder private func content(_ data: AppStoreFixture, git: GitModel) -> some View {
+         switch scenario {
++        case "chat", "chat-loading":
++            #if targetEnvironment(macCatalyst)
++            assistantConversation(data)
++            #else
++            MainScene(repository: data.repository)
++            #endif
+         case "assistant":
+             AssistantScene(repository: data.repository)
+         case "assistant-task", "assistant-build", "assistant-schedules":
++            #if targetEnvironment(macCatalyst)
++            assistantConversation(data)
++                .sheet(isPresented: $showSchedules) { ChatSchedulesSheet(chatID: data.chatID) }
++            #else
+             NavigationStack { ChatScreen(chatId: data.chatID) }
+                 .sheet(isPresented: $showSchedules) { ChatSchedulesSheet(chatID: data.chatID) }
++            #endif
+         case "bot-integrations":
+             if let previewBot { BotIntegrationsScreen(bot: previewBot) }
+         case "bot-detail":
+@@ -137,13 +156,7 @@
+                 NavigationStack { BotDetailScreen(botId: previewBot.id, repository: data.repository) }
+             }
+         case "assistant-sidebar", "assistant-history":
+-            AssistantSidebar(isPresented: $showAssistantSidebar) { _ in
+-                NavigationStack { ChatScreen(chatId: data.chatID) }
+-            } sidebar: {
+-                ChatHistorySheet(onNewChat: {}, onSettings: {}, onAccount: {},
+-                                 onCloseSidebar: { showAssistantSidebar = false },
+-                                 onNewBot: {}, onApps: {})
+-            }
++            assistantConversation(data)
+             .sheet(isPresented: $showHistory) {
+                 if let previewBot { ChatHistorySheet(botId: previewBot.id) }
+             }
+@@ -216,5 +229,15 @@
+             MainScene(repository: data.repository)
+         }
+     }
++
++    private func assistantConversation(_ data: AppStoreFixture) -> some View {
++        AssistantSidebar(isPresented: $showAssistantSidebar) { _ in
++            NavigationStack { ChatScreen(chatId: data.chatID) }
++        } sidebar: {
++            ChatHistorySheet(onNewChat: {}, onSettings: {}, onAccount: {},
++                             onCloseSidebar: { showAssistantSidebar = false },
++                             onNewBot: {}, onApps: {})
++        }
++    }
+ }
+ #endif

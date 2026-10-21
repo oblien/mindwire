@@ -5,6 +5,7 @@ export class OperationError extends Error {
     public status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 502 | 503,
     public code: string,
     message: string,
+    public details?: { reference: string; retryable: boolean },
   ) {
     super(message);
   }
@@ -12,7 +13,7 @@ export class OperationError extends Error {
 
 export const operationError: ErrorHandler = (error, c) => {
   if (error instanceof OperationError)
-    return c.json({ error: error.message, code: error.code }, error.status);
+    return c.json({ error: error.message, code: error.code, ...(error.details ? { details: error.details } : {}) }, error.status);
   console.error("[console] operation failed", error.name);
   return c.json(
     {

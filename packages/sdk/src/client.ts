@@ -4,6 +4,7 @@ import { Run } from "./run.js";
 import { WorkspaceApi, type ProjectAuth } from "./workspace.js";
 import { BotsApi } from "./bots.js";
 import { AppsApi } from "./apps.js";
+import { ChatSchedulesApi } from "./schedules.js";
 import { IntegrationsApi } from "./integrations.js";
 import { SurfacesApi } from "./surfaces.js";
 import { ServiceApi } from "./service.js";
@@ -130,6 +131,7 @@ export class Mindwire {
   readonly workspace: WorkspaceApi;
   readonly bots: BotsApi;
   readonly apps: AppsApi;
+  readonly schedules: ChatSchedulesApi;
   readonly integrations: IntegrationsApi;
   readonly surfaces: SurfacesApi;
   readonly service: ServiceApi;
@@ -178,6 +180,7 @@ export class Mindwire {
     this.workspace = new WorkspaceApi(this);
     this.bots = new BotsApi(this);
     this.apps = new AppsApi(this);
+    this.schedules = new ChatSchedulesApi(this);
     this.integrations = new IntegrationsApi(this);
     this.surfaces = new SurfacesApi(this);
     this.service = new ServiceApi(this);
@@ -210,6 +213,7 @@ export class Mindwire {
     clone.workspace = new WorkspaceApi(clone as Mindwire);
     clone.bots = new BotsApi(clone as Mindwire);
     clone.apps = new AppsApi(clone as Mindwire);
+    clone.schedules = new ChatSchedulesApi(clone as Mindwire);
     clone.integrations = new IntegrationsApi(clone as Mindwire);
     clone.surfaces = new SurfacesApi(clone as Mindwire);
     clone.service = new ServiceApi(clone as Mindwire);

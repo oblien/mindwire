@@ -123,9 +123,11 @@ struct SettingsScreen: View {
 /// Shared preference bindings. Each platform supplies its own settings layout.
 struct SettingsModePicker: View {
     @State private var desktopEditing = DesktopFileEditing.shared
+    @State private var showingModeChoice = false
     @Environment(\.stores) private var stores
 
     var body: some View {
+        #if targetEnvironment(macCatalyst)
         Picker(t("experience.mode"), selection: Binding(
             get: { stores.experience.mode ?? .general },
             set: { stores.experience.mode = $0 }
@@ -134,6 +136,29 @@ struct SettingsModePicker: View {
         }
         .disabled(ApplePlatform.isDesktop && desktopEditing.hasUnsavedChanges)
         .help(desktopEditing.hasUnsavedChanges ? "Save or discard your file edits before changing modes." : "")
+        #else
+        Button { showingModeChoice = true } label: {
+            LabeledContent(t("experience.mode"), value: (stores.experience.mode ?? .general).title)
+        }
+        .tint(.primary)
+        .accessibilityIdentifier("settings.appMode")
+        .sheet(isPresented: $showingModeChoice) {
+            NavigationStack {
+                ExperienceOnboardingScreen(initialSelection: stores.experience.mode ?? .general) { mode in
+                    showingModeChoice = false
+                    stores.experience.mode = mode
+                }
+                .toolbar {
+                    AppToolbarItem(placement: .cancellationAction) {
+                        Button { showingModeChoice = false } label: { AppIcon(.close) }
+                            .tint(.primary).accessibilityLabel(t("common.cancel"))
+                            .accessibilityIdentifier("experience.cancel")
+                    }
+                }
+                .navigationBarTitleDisplayMode(.inline)
+            }
+        }
+        #endif
     }
 }
 

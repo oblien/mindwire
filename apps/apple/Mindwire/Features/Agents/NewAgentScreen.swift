@@ -14,11 +14,16 @@ struct NewAgentScreen: View {
     @Environment(\.stores) private var stores
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.assistantTheme) private var assistantTheme
 
     @State private var model: NewAgentModel
     @State private var activeSheet: AgentCreationSheet?
     @State private var actions = WorkspaceActions()
     @State private var existingAgent: Agent?
+    @State private var showingOtherServices = false
+    @State private var discovery = AssistantConnectionDiscovery()
+    @State private var checkedWorkspaceID: String?
+    @State private var discoveryAttempt = 0
 
     private enum AgentCreationSheet: Int, Identifiable {
         case workspaces, newWorkspace
@@ -69,8 +74,14 @@ struct NewAgentScreen: View {
         }
         .task { await reloadWorkspaces() }
         .task { await model.loadCatalog() }
-        .task(id: model.workspaceId) {
-            if assistantSetup && requiresBotSupport { await model.loadBotCatalog(stores: stores) }
+        .task(id: "\(model.workspaceId ?? ""):\(discoveryAttempt)") {
+            guard assistantSetup, let workspace = connectionWorkspace else { return }
+            let catalog = requiresBotSupport ? await model.loadBotCatalog(stores: stores) : []
+            guard !Task.isCancelled, model.workspaceId == workspace.id else { return }
+            await discovery.load(workspace: workspace, stores: stores, force: discoveryAttempt > 0,
+                                 catalog: catalog, requiresBotSupport: requiresBotSupport)
+            guard !Task.isCancelled, model.workspaceId == workspace.id else { return }
+            checkedWorkspaceID = workspace.id
         }
         .onChange(of: repository.revision) { reconcileWorkspace() }
         .workspaceActionAlerts(actions)
@@ -154,8 +165,34 @@ struct NewAgentScreen: View {
     }
 
     private var availableServices: [AssistantAIService] {
-        let available = Set((requiresBotSupport ? model.botEngines(existingAgents: existingAgents) : model.catalog).map(\.id))
+        let available = Set((requiresBotSupport ? model.botEngines(existingAgents: workspaceAgents) : model.catalog).map(\.id))
         return AssistantAIService.allCases.filter { available.contains($0.agentType) }
+    }
+
+    private var connectionWorkspace: Workspace? {
+        guard let id = model.workspaceId else { return nil }
+        return assistantWorkspace?.id == id ? assistantWorkspace : repository.get(id)
+    }
+
+    private var workspaceAgents: [Agent] {
+        guard let id = model.workspaceId else { return existingAgents }
+        let saved = stores.agents(forWorkspaceId: id)
+        return saved.isEmpty ? existingAgents.filter { $0.workspaceId == id } : saved
+    }
+
+    private var readyConnections: [AssistantConnection] {
+        discovery.connections.filter { connection in
+            connection.status == .ready && availableServices.contains { $0.agentType == connection.agent.agentType }
+        }
+    }
+
+    private var connectableServices: [AssistantAIService] {
+        let readyTypes = Set(readyConnections.map { $0.agent.agentType })
+        return availableServices.filter { !readyTypes.contains($0.agentType) }
+    }
+
+    private var checkingConnections: Bool {
+        connectionWorkspace != nil && (checkedWorkspaceID != model.workspaceId || discovery.loading)
     }
 
     private var assistantStep: some View {
@@ -173,13 +210,10 @@ struct NewAgentScreen: View {
                 AssistantPage {
                     AssistantSetupProgress(step: 1)
                     AssistantHeading(title: t("assistant.setup.ai"), detail: t("assistant.setup.ai.body"))
-                    if let workspace = assistantWorkspace {
+                    if let workspace = connectionWorkspace {
                         AssistantConnectionSummary(name: workspace.name, isCloud: workspace.isCloud)
                     }
                     assistantChoices
-                } footer: {
-                    Text(t("assistant.setup.ai.cost")).font(.footnote).foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
                 }
             }
         }
@@ -197,30 +231,79 @@ struct NewAgentScreen: View {
     }
 
     @ViewBuilder private var assistantChoices: some View {
-        VStack(spacing: 14) {
-            ForEach(availableServices) { service in
-                AssistantServiceButton(service: service,
-                                       busy: actions.running && model.agentType == service.agentType) {
-                    connect(service)
+        if !readyConnections.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                connectionHeading(t("onboarding.ai.ready"))
+                ForEach(readyConnections) { connection in
+                    if let service = AssistantAIService(agentType: connection.agent.agentType) {
+                        AssistantServiceButton(service: service,
+                            title: t("onboarding.ai.use", ["name": service.name]),
+                            detail: t("onboarding.ai.connected"),
+                            busy: actions.running && model.agentType == service.agentType) {
+                            connect(service)
+                        }
+                    }
                 }
             }
         }
-        if model.loadingCatalog && availableServices.isEmpty { ProgressView(t("assistant.setup.checking")) }
-        if let error = model.catalogError {
-            Text(error).font(.subheadline).foregroundStyle(.secondary)
-            Button(t("common.retry")) { Task { await model.loadCatalog() } }.tint(.primary)
+        if checkingConnections || (model.loadingCatalog && availableServices.isEmpty) {
+            AssistantSetupStatus(title: t("assistant.setup.checking"))
+        } else {
+            if discovery.error != nil || discovery.connections.contains(where: { $0.status == .unavailable }) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(t("onboarding.ai.checkFailed"))
+                        .font(assistantTheme.font(15, relativeTo: .subheadline)).foregroundStyle(assistantTheme.muted)
+                    Button(t("onboarding.ai.checkAgain")) { discoveryAttempt += 1 }
+                        .buttonStyle(.plain).font(assistantTheme.font(15, weight: .medium, relativeTo: .subheadline))
+                }
+            }
+            if !connectableServices.isEmpty {
+                VStack(alignment: .leading, spacing: 14) {
+                    if !readyConnections.isEmpty { connectionHeading(t("onboarding.ai.connectAnother")) }
+                    ForEach(connectableServices.filter(\.isPrimary)) { service in
+                        AssistantServiceButton(service: service,
+                                               busy: actions.running && model.agentType == service.agentType) {
+                            connect(service)
+                        }
+                    }
+                    if connectableServices.contains(where: { !$0.isPrimary }) {
+                        DisclosureGroup(t("assistant.ai.other"), isExpanded: $showingOtherServices) {
+                            VStack(spacing: 12) {
+                                ForEach(connectableServices.filter { !$0.isPrimary }) { service in
+                                    AssistantServiceButton(service: service,
+                                                           busy: actions.running && model.agentType == service.agentType) {
+                                        connect(service)
+                                    }
+                                }
+                            }.padding(.top, 16)
+                        }
+                        .font(assistantTheme.font(15, weight: .medium, relativeTo: .subheadline))
+                        .tint(.primary).padding(.vertical, 8)
+                    }
+                }
+            }
+            if availableServices.isEmpty {
+                AssistantSetupIssue(message: model.catalogError ?? t("assistant.ai.unavailable")) {
+                    discoveryAttempt += 1
+                    Task { await model.loadCatalog() }
+                }
+            }
         }
-        if !model.loadingCatalog && availableServices.isEmpty && model.catalogError == nil {
-            Text(t("assistant.ai.unavailable")).font(.subheadline).foregroundStyle(.secondary)
-            Button(t("common.retry")) { Task { await model.loadCatalog() } }.tint(.primary)
-        }
+    }
+
+    private func connectionHeading(_ title: String) -> some View {
+        Text(title).font(assistantTheme.font(14, weight: .medium, relativeTo: .subheadline))
+            .foregroundStyle(assistantTheme.muted)
     }
 
     private func connect(_ service: AssistantAIService) {
         guard !actions.running, model.workspaceId != nil, availableServices.contains(service) else { return }
         model.agentType = service.agentType
         // Reuse the workspace's profile, then let the same readiness gate verify its live auth.
-        if let saved = existingAgents.first(where: { $0.agentType == service.agentType }),
+        let saved = readyConnections.first { $0.agent.agentType == service.agentType }?.agent
+            ?? discovery.connections.first { $0.agent.agentType == service.agentType }?.agent
+            ?? workspaceAgents.first { $0.agentType == service.agentType }
+        if let saved,
            let agent = stores.agents.get(saved.id), agent.workspaceId == model.workspaceId {
             if let onSelected { onSelected(agent) }
             else {

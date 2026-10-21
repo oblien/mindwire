@@ -6,6 +6,7 @@ struct AssistantScene: View {
     var repository: WorkspaceRepository = .shared
     @Environment(AppModel.self) private var app
     @Environment(\.stores) private var stores
+    @Environment(\.assistantChatTheme) private var chatTheme
     @State private var showingSidebar = false
     @State private var startingApp = false
     @State private var showingSettings = false
@@ -20,7 +21,6 @@ struct AssistantScene: View {
     @State private var started = false
     @State private var creating = false
     @State private var createTask: Task<Void, Never>?
-    @State private var createAfterDismiss = false
     @State private var error: String?
     @State private var selectedChatWasPresent = false
     #if targetEnvironment(macCatalyst)
@@ -117,11 +117,8 @@ struct AssistantScene: View {
                     }
             }
         }
-        .fullScreenCover(isPresented: $showingSetup, onDismiss: {
-            if createAfterDismiss { createAfterDismiss = false; newChat() }
-        }) {
-            AssistantSetupScreen(repository: repository) {
-                createAfterDismiss = true
+        .fullScreenCover(isPresented: $showingSetup) {
+            AssistantSetupScreen(repository: repository, startsConversation: true) {
                 showingSetup = false
             }
         }
@@ -373,6 +370,7 @@ struct AssistantScene: View {
             AssistantPrimaryButton(title: t(stores.experience.assistantAgentID == nil ? "assistant.setup" : "assistant.start"),
                                    busy: creating, action: newChat)
         }
+        .environment(\.assistantTheme, chatTheme)
         .navigationTitle(selectedBot?.name ?? "Mindwire")
         .navigationBarTitleDisplayMode(.inline)
     }

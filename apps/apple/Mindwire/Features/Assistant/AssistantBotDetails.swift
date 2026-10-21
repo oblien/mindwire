@@ -9,7 +9,6 @@ struct AssistantBotDetails: View {
     @State private var changingIcon = false
     @State private var editing = false
     @State private var showingEngineSettings = false
-    @State private var showingIntegrations = false
 
     init(bot: AssistantBot, edit: @escaping () -> Void) {
         _bot = State(initialValue: bot)
@@ -28,7 +27,14 @@ struct AssistantBotDetails: View {
                     .frame(maxWidth: .infinity).multilineTextAlignment(.center).padding(.vertical, 16)
                 }
                 .listRowBackground(Color.clear)
-                Section { Button { showingIntegrations = true } label: { Label("Integrations", systemImage: "bubble.left.and.bubble.right") }.tint(.primary) }
+                Section {
+                    NavigationLink {
+                        BotIntegrationsScreen(bot: bot, embedded: true)
+                    } label: {
+                        Label("Integrations", icon: .plug)
+                    }
+                    .tint(.primary).accessibilityIdentifier("bot.integrations")
+                }
                 if !bot.instructions.isEmpty {
                     Section(t("assistant.bots.instructions")) { Text(bot.instructions).textSelection(.enabled) }
                 }
@@ -74,7 +80,6 @@ struct AssistantBotDetails: View {
             .sheet(isPresented: $changingIcon) { AssistantBotIconPicker(bot: bot) }
             .sheet(isPresented: $editing) { BotEditorScreen(bot: bot) }
             .sheet(isPresented: $showingEngineSettings) { AgentSettingsScreen(agentId: bot.agentId) }
-            .sheet(isPresented: $showingIntegrations) { BotIntegrationsScreen(bot: bot) }
         }
         .frame(width: ApplePlatform.isDesktop ? 580 : nil, height: ApplePlatform.isDesktop ? 640 : nil)
     }

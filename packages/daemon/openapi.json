@@ -340,6 +340,10 @@
           "integrationsVersion": {
             "type": "integer",
             "description": "Messaging integration protocol version; 1 supports the integrations API."
+          },
+          "chatSchedulesVersion": {
+            "type": "integer",
+            "description": "Automatic prompts in saved conversations; version 1."
           }
         },
         "required": [
@@ -8633,6 +8637,166 @@
             "format": "date-time"
           }
         }
+      },
+      "ChatScheduleSpec": {
+        "type": "object",
+        "required": [
+          "name",
+          "prompt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "expectedRevision": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "runAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "First/one-time run with explicit UTC or time-zone offset."
+          },
+          "intervalSeconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 31536000
+          },
+          "localTime": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "IANA time zone for localTime, for example Africa/Cairo."
+          },
+          "weekdays": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
+            },
+            "description": "Sunday=0, Saturday=6. Omit to run daily."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536,
+            "description": "Work for the agent to perform at each occurrence, without instructions to create another schedule."
+          }
+        },
+        "description": "An automatic prompt in a saved conversation. Uses normal agent execution, approvals, native context and completion notifications. The owning host must run the scheduler. A busy chat waits; missed recurring occurrences coalesce into one catch-up. Update with id and expectedRevision."
+      },
+      "ChatSchedule": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "revision",
+          "active",
+          "state",
+          "attempts",
+          "chatId",
+          "prompt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "runAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "First/one-time run with explicit UTC or time-zone offset."
+          },
+          "intervalSeconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 31536000
+          },
+          "localTime": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "IANA time zone for localTime, for example Africa/Cairo."
+          },
+          "weekdays": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
+            },
+            "description": "Sunday=0, Saturday=6. Omit to run daily."
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "nextRunAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastRunAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "retryAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "type": "string"
+          },
+          "lastError": {
+            "type": "string"
+          },
+          "occurrence": {
+            "type": "string"
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "commandDone": {
+            "type": "boolean"
+          },
+          "leaseUntil": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "chatId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "lastRunId": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536,
+            "description": "Work for the agent to perform at each occurrence, without instructions to create another schedule."
+          }
+        },
+        "description": "One persisted conversation schedule. Last run uses the ordinary run/chat APIs; pause/delete do not cancel a turn already running."
       }
     }
   },
@@ -22127,6 +22291,163 @@
             "description": "Queue full; provider should retry"
           }
         }
+      }
+    },
+    "/chats/{id}/schedules": {
+      "get": {
+        "tags": [
+          "Chats"
+        ],
+        "operationId": "listChatSchedules",
+        "summary": "Read this conversation\u2019s automatic prompts and last outcomes",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChatSchedule"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid credential"
+          },
+          "404": {
+            "description": "Chat, bot or workspace missing"
+          },
+          "409": {
+            "description": "Revision conflict or work currently running"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Chats"
+        ],
+        "operationId": "saveChatSchedule",
+        "summary": "Create or update an automatic prompt in this conversation",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSchedule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid credential"
+          },
+          "404": {
+            "description": "Chat, bot or workspace missing"
+          },
+          "409": {
+            "description": "Revision conflict or work currently running"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatScheduleSpec"
+              }
+            }
+          }
+        },
+        "description": "Scheduled turns retain this conversation\u2019s native context and normal permissions. Requires chatSchedulesVersion >= 1. No shell command or fixed notification payload is accepted."
+      }
+    },
+    "/chats/{id}/schedules/{jobId}": {
+      "delete": {
+        "tags": [
+          "Chats"
+        ],
+        "operationId": "deleteChatSchedule",
+        "summary": "Delete future occurrences without cancelling a running turn",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "removed"
+                  ],
+                  "properties": {
+                    "removed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing or invalid credential"
+          },
+          "404": {
+            "description": "Chat, bot or workspace missing"
+          },
+          "409": {
+            "description": "Revision conflict or work currently running"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     }
   }

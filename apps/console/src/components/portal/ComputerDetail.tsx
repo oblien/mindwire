@@ -23,9 +23,14 @@ export function ComputerDetail() {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const workspace = computer?.workspaceId;
+  const cloudAction = cloud.action;
   const refresh = useCallback(async () => {
-    if (!workspace) return;
     try {
+      setError("");
+      if (!workspace) {
+        if (id) await cloudAction(id, "reconcile");
+        return;
+      }
       const data = await request<{
         workspace?: {
           status?: string;
@@ -46,10 +51,10 @@ export function ComputerDetail() {
     } catch (error) {
       setError((error as Error).message);
     }
-  }, [workspace]);
+  }, [workspace, id, cloudAction]);
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (workspace) void refresh();
+  }, [refresh, workspace]);
   async function power(operation: "start" | "stop" | "restart") {
     if (!workspace || busy) return;
     setBusy(true);
@@ -100,8 +105,8 @@ export function ComputerDetail() {
           </Button>
         }
       />
-      {error && <ErrorNotice message={error} retry={() => void refresh()} />}
-      {computer.error && <ErrorNotice message={computer.error} />}
+      {error && error !== cloud.error && <ErrorNotice message={error} retry={() => void refresh()} />}
+      {computer.error && computer.error !== cloud.error && computer.error !== error && <ErrorNotice message={computer.error} />}
       <div className="grid gap-4 sm:grid-cols-3">
         {[
           {
@@ -197,14 +202,20 @@ export function ComputerDetail() {
             </p>
             {pending ? (
               <Button
+                disabled={busy}
                 onClick={async () => {
+                  setBusy(true);
+                  setError("");
                   try {
                     await cloud.action(computer.id, "checkout");
                   } catch (error) {
                     setError((error as Error).message);
+                  } finally {
+                    setBusy(false);
                   }
                 }}
               >
+                {busy && <Loader2 className="size-4 animate-spin" />}
                 Continue checkout
               </Button>
             ) : (

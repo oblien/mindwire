@@ -6,7 +6,7 @@ import SwiftUI
 /// a fast handshake failure. The scanner's delegate delivers through the same state.
 @MainActor
 final class ComputerScanFlowTests: XCTestCase {
-    func testReconnectCodeWithoutSavedPairingKeepsTheFormAndShowsItsNativeError() async throws {
+    func testReconnectCodeWithoutSavedPairingKeepsTheFormAndShowsInlineRecovery() async throws {
         let fixture = try await presentScanner()
         defer { fixture.window.isHidden = true }
         let code = ComputerReconnectCode(version: 1, mode: "reconnect", computerId: UUID().uuidString,
@@ -15,12 +15,9 @@ final class ComputerScanFlowTests: XCTestCase {
         fixture.state.scanner.receive(String(decoding: try JSONEncoder().encode(code), as: UTF8.self))
         fixture.state.scanner.receive("A duplicate camera callback must be ignored")
 
-        try await waitUntil {
-            (fixture.form.presentedViewController as? UIAlertController)?.isBeingPresented == false
-        }
-        let alert = try XCTUnwrap(fixture.form.presentedViewController as? UIAlertController)
-        XCTAssertEqual(alert.title, "Couldn't connect")
-        XCTAssertTrue(alert.message?.contains("mindwire connect") == true)
+        try await waitUntil { fixture.form.presentedViewController == nil }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertNil(fixture.form.presentedViewController, "Recovery belongs inline after the scanner closes")
         XCTAssertTrue(fixture.host.presentedViewController === fixture.form, "Scanning must not dismiss the Add computer form")
         XCTAssertTrue(fixture.state.adding)
         XCTAssertEqual(fixture.state.saved.count, 0)

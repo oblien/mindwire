@@ -310,6 +310,50 @@ final class AgentAuthenticationTests: XCTestCase {
         XCTAssertTrue(inputs.contains(["_flowId": "attempt-1", "authorizationCode": "fixture-code"]))
     }
 
+    func testOnboardingSignInKeepsBrowserAndProviderFieldsAvailableUntilVerified() async throws {
+        for service in [AssistantAIService.claude, .chatGPT] {
+            let stores = try stores()
+            let id = UUID().uuidString
+            let channel = AuthenticationChannel(harness: service.agentType.rawValue)
+            let session = DaemonSession(agentId: id,
+                transport: ExecDaemonTransport(channel: channel, agentType: service.agentType.rawValue))
+            defer { session.cancelInteractive(); DaemonWorkCoordinator.shared.forget(workspaceId: id) }
+            await session.load()
+            let method = try XCTUnwrap(session.methods.first)
+            let (view, window) = try host(AgentAuthMethodSheet(model: session, method: method)
+                .environment(\.assistantAIService, service), stores: stores)
+            defer { window.isHidden = true }
+            window.frame = CGRect(x: 0, y: 0, width: 375, height: 812)
+            try await eventually { session.loginURL != nil }
+            for (name, appearance) in [("light", UIUserInterfaceStyle.light), ("dark", .dark)] {
+                window.overrideUserInterfaceStyle = appearance
+                try await Task.sleep(for: .milliseconds(250))
+                let image = ChatFeedSnapshot.image(view)
+                let text = try ChatFeedSnapshot.visibleText(in: image)
+                XCTAssertTrue(text.contains(t("agentAuth.openUrl")), text)
+                XCTAssertFalse(session.isConfigured, "Opening sign-in must not finish setup")
+                if service == .claude {
+                    XCTAssertTrue(text.contains("Authorization code"), text)
+                    XCTAssertTrue(text.contains("Continue"), text)
+                } else { XCTAssertTrue(text.contains("ABCD-12345"), text) }
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "onboarding-\(service.rawValue)-\(name)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+            if service == .claude {
+                let accepted = await session.submitInteractive(values: ["authorizationCode": "fixture-code"])
+                XCTAssertTrue(accepted)
+            } else {
+                await channel.completeLogin()
+                try await eventually { session.completedAuthMethod == "login" }
+            }
+            XCTAssertTrue(session.isConfigured)
+            let logouts = await channel.logoutRequests
+            XCTAssertEqual(logouts, 0)
+        }
+    }
+
     func testCancelDuringSlowBeginCancelsNativeAttemptWhenResponseArrives() async throws {
         let id = UUID().uuidString
         let channel = AuthenticationChannel(holdBegin: true)

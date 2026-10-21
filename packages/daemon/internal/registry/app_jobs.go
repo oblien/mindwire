@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ type AppScheduleSpec struct {
 	TimeZone         string `json:"timeZone,omitempty"`
 	Weekdays         []int  `json:"weekdays,omitempty"`
 	Command          string `json:"command,omitempty"`
+	Prompt           string `json:"prompt,omitempty"`
 	Title            string `json:"title,omitempty"`
 	Body             string `json:"body,omitempty"`
 	Enabled          *bool  `json:"enabled,omitempty"`
@@ -30,7 +32,10 @@ type AppScheduleSpec struct {
 
 type AppSchedule struct {
 	AppScheduleSpec
-	AppID       string `json:"appId"`
+	AppID       string `json:"appId,omitempty"`
+	ChatID      string `json:"chatId,omitempty"`
+	RunID       string `json:"runId,omitempty"`
+	LastRunID   string `json:"lastRunId,omitempty"`
 	Revision    int64  `json:"revision"`
 	Active      bool   `json:"active"`
 	NextRunAt   string `json:"nextRunAt,omitempty"`
@@ -42,6 +47,22 @@ type AppSchedule struct {
 	Attempts    int    `json:"attempts"`
 	CommandDone bool   `json:"commandDone,omitempty"`
 	LeaseUntil  string `json:"leaseUntil,omitempty"`
+}
+
+// Both targets share the same calendar, durable claims and worker lifecycle.
+// Neutral names preserve the existing App SDK types and embedded field names.
+type ScheduleSpec = AppScheduleSpec
+type Schedule = AppSchedule
+
+const ChatSchedulesVersion = 1
+
+var ErrScheduleDeferred = errors.New("waiting for this conversation to become available")
+
+func (job AppSchedule) owner() string {
+	if job.ChatID != "" {
+		return "chat:" + job.ChatID
+	}
+	return job.AppID
 }
 
 func (job AppSchedule) Next(after time.Time) (time.Time, error) {
@@ -88,7 +109,22 @@ func (job AppSchedule) Next(after time.Time) (time.Time, error) {
 }
 
 func (st *Store) AppSchedules(appID string) ([]AppSchedule, error) {
-	rows, err := st.db.Query("SELECT data FROM app_jobs WHERE app_id=? ORDER BY id", appID)
+	return st.schedules(appID)
+}
+
+func (st *Store) ChatSchedules(chatID string) ([]Schedule, error) {
+	chat, _, _, err := st.ChatContext(chatID)
+	if err != nil {
+		return nil, err
+	}
+	if chat == nil {
+		return nil, ErrNotFound
+	}
+	return st.schedules("chat:" + chatID)
+}
+
+func (st *Store) schedules(owner string) ([]AppSchedule, error) {
+	rows, err := st.db.Query("SELECT data FROM app_jobs WHERE app_id=? ORDER BY id", owner)
 	if err != nil {
 		return nil, err
 	}
@@ -127,21 +163,41 @@ func saveAppJob(tx *sql.Tx, job AppSchedule) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec("INSERT INTO app_jobs VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", job.ID, job.AppID, raw)
+	_, err = tx.Exec("INSERT INTO app_jobs VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", job.ID, job.owner(), raw)
 	return err
 }
 
 func (st *Store) SaveAppSchedule(appID string, spec AppScheduleSpec) (AppSchedule, error) {
+	return st.saveSchedule(appID, "", spec)
+}
+
+func (st *Store) SaveChatSchedule(chatID string, spec ScheduleSpec) (Schedule, error) {
+	if !validID(chatID) {
+		return Schedule{}, invalid("invalid conversation id")
+	}
+	return st.saveSchedule("", chatID, spec)
+}
+
+func (st *Store) saveSchedule(appID, chatID string, spec ScheduleSpec) (Schedule, error) {
 	var job AppSchedule
+	job.AppID, job.ChatID = appID, chatID
 	spec.Name = strings.TrimSpace(spec.Name)
 	spec.Command = strings.TrimSpace(spec.Command)
+	spec.Prompt = strings.TrimSpace(spec.Prompt)
 	spec.TimeZone = strings.TrimSpace(spec.TimeZone)
 	if len(spec.Weekdays) > 7 {
 		return job, invalid("choose up to seven weekdays")
 	}
 	spec.Weekdays = slices.Compact(slices.Sorted(slices.Values(spec.Weekdays)))
-	if spec.Name == "" || len(spec.Name) > 120 || len(spec.Command) > 8192 || strings.ContainsRune(spec.Command, 0) || len(spec.Title) > 256 || len(spec.Body) > 2048 || (spec.Command == "" && spec.Title == "" && spec.Body == "") {
+	if spec.Name == "" || len(spec.Name) > 120 || len(spec.Command) > 8192 || strings.ContainsRune(spec.Command, 0) || len(spec.Title) > 256 || len(spec.Body) > 2048 || (chatID == "" && spec.Command == "" && spec.Title == "" && spec.Body == "") {
 		return job, invalid("a schedule needs a name and a command or notification message")
+	}
+	if chatID != "" {
+		if spec.Prompt == "" || len(spec.Prompt) > 65536 || strings.ContainsRune(spec.Prompt, 0) || spec.Command != "" || spec.Title != "" || spec.Body != "" {
+			return job, invalid("a conversation schedule needs a prompt of up to 64 KiB, without a shell command or fixed notification")
+		}
+	} else if spec.Prompt != "" {
+		return job, invalid("use a conversation schedule for an agent prompt")
 	}
 	if spec.IntervalSeconds < 0 || spec.IntervalSeconds > 31536000 || (spec.IntervalSeconds > 0 && spec.IntervalSeconds < 60) {
 		return job, invalid("intervalSeconds must be between 60 and 31536000")
@@ -158,7 +214,7 @@ func (st *Store) SaveAppSchedule(appID string, spec AppScheduleSpec) (AppSchedul
 		}
 	}
 	if spec.ID == "" {
-		sum := sha256.Sum256([]byte(appID + "\x00" + spec.Name))
+		sum := sha256.Sum256([]byte(job.owner() + "\x00" + spec.Name))
 		spec.ID = "job-" + hex.EncodeToString(sum[:16])
 	}
 	if !validID(spec.ID) {
@@ -169,29 +225,26 @@ func (st *Store) SaveAppSchedule(appID string, spec AppScheduleSpec) (AppSchedul
 		return job, err
 	}
 	defer tx.Rollback()
-	app, err := readApp(tx, appID)
-	if err != nil {
-		return job, err
-	}
-	if app.Archived {
-		return job, ErrDeleted
-	}
-	project, _, err := record(tx, "projects", app.ProjectID)
-	if err != nil {
-		return job, err
-	}
-	if project == nil {
-		return job, ErrNotFound
-	}
-	if err = checkChatProject(tx, project); err != nil {
+	if err = scheduleTarget(tx, job, true); err != nil {
 		return job, err
 	}
 	old, err := readAppJob(tx, spec.ID)
 	if err == nil {
-		if old.AppID != appID || spec.ExpectedRevision == nil || *spec.ExpectedRevision != old.Revision {
+		if old.owner() != job.owner() || spec.ExpectedRevision == nil || *spec.ExpectedRevision != old.Revision {
 			return old, ErrConflict
 		}
 		if old.State == "running" {
+			before, after := old.AppScheduleSpec, spec
+			before.Enabled, after.Enabled = nil, nil
+			before.ExpectedRevision, after.ExpectedRevision = nil, nil
+			if chatID != "" && spec.Enabled != nil && reflect.DeepEqual(before, after) {
+				old.Active = *spec.Enabled
+				old.Revision++
+				if err = saveAppJob(tx, old); err != nil {
+					return old, err
+				}
+				return old, tx.Commit()
+			}
 			return old, invalid("this schedule is running; retry the edit after it finishes")
 		}
 		job = old
@@ -209,7 +262,8 @@ func (st *Store) SaveAppSchedule(appID string, spec AppScheduleSpec) (AppSchedul
 	job.AppScheduleSpec = spec
 	job.ExpectedRevision = nil
 	job.Enabled = nil
-	job.AppID = appID
+	job.AppID, job.ChatID = appID, chatID
+	job.RunID = ""
 	job.Revision++
 	job.State = "scheduled"
 	job.LastError = ""
@@ -280,6 +334,62 @@ func (st *Store) AllAppSchedules() ([]AppSchedule, error) {
 	return out, rows.Err()
 }
 
+// The legacy app_jobs table also stores conversation-owned jobs. Its app_id
+// column is an opaque owner key; existing app records require no migration.
+func scheduleTarget(tx *sql.Tx, job Schedule, checkWork bool) error {
+	projectID := ""
+	if job.ChatID != "" {
+		data, _, err := record(tx, "chats", job.ChatID)
+		if err != nil {
+			return err
+		}
+		if data == nil {
+			return ErrDeleted
+		}
+		var chat Chat
+		if err = json.Unmarshal(data, &chat); err != nil {
+			return err
+		}
+		projectID = chat.ProjectID
+		if chat.BotID != "" {
+			bot, err := readBot(tx, chat.BotID)
+			if err != nil {
+				return err
+			}
+			if bot.Archived {
+				return ErrDeleted
+			}
+		}
+		profile, _, err := record(tx, "agents", chat.AgentID)
+		if err != nil {
+			return err
+		}
+		if profile == nil {
+			return ErrDeleted
+		}
+	} else {
+		app, err := readApp(tx, job.AppID)
+		if err != nil {
+			return err
+		}
+		if app.Archived {
+			return ErrDeleted
+		}
+		projectID = app.ProjectID
+	}
+	project, _, err := record(tx, "projects", projectID)
+	if err != nil {
+		return err
+	}
+	if project == nil {
+		return ErrDeleted
+	}
+	if checkWork {
+		return checkChatProject(tx, project)
+	}
+	return nil
+}
+
 func (st *Store) ClaimAppSchedule(id, occurrence string) (AppSchedule, error) {
 	tx, err := st.db.Begin()
 	if err != nil {
@@ -290,10 +400,16 @@ func (st *Store) ClaimAppSchedule(id, occurrence string) (AppSchedule, error) {
 	if err != nil {
 		return job, err
 	}
-	if !job.Active || job.State == "running" || job.NextRunAt != occurrence {
+	recovering := false
+	if job.ChatID != "" && job.State == "running" && job.RunID == "" {
+		expires, err := time.Parse(time.RFC3339Nano, job.LeaseUntil)
+		recovering = err != nil || !expires.After(time.Now())
+	}
+	if !job.Active || job.State == "running" && !recovering || job.NextRunAt != occurrence {
 		return job, ErrConflict
 	}
 	job.State = "running"
+	job.RunID = ""
 	job.Occurrence = occurrence
 	job.LeaseUntil = time.Now().UTC().Add(2 * time.Minute).Format(time.RFC3339Nano)
 	job.Revision++
@@ -322,7 +438,10 @@ func (st *Store) FinishAppSchedule(id, occurrence string, runErr error, recoveri
 		}
 	}
 	now := time.Now().UTC()
-	job.LastRunAt = now.Format(time.RFC3339Nano)
+	if job.ChatID == "" || job.RunID != "" {
+		job.LastRunAt = now.Format(time.RFC3339Nano)
+	}
+	job.RunID = ""
 	job.State = "completed"
 	job.LastError = ""
 	job.Revision++
@@ -331,26 +450,23 @@ func (st *Store) FinishAppSchedule(id, occurrence string, runErr error, recoveri
 		job.State = "failed"
 		job.LastError = runErr.Error()
 	}
-	app, appErr := readApp(tx, job.AppID)
-	if appErr != nil && !errors.Is(appErr, ErrNotFound) {
-		return appErr
+	targetErr := scheduleTarget(tx, job, false)
+	if targetErr != nil && !errors.Is(targetErr, ErrNotFound) && !errors.Is(targetErr, ErrDeleted) {
+		return targetErr
 	}
-	projectExists := true
-	if appErr == nil {
-		project, _, err := record(tx, "projects", app.ProjectID)
-		if err != nil {
-			return err
-		}
-		projectExists = project != nil
-	}
-	if appErr != nil || app.Archived || !projectExists {
+	if targetErr != nil {
 		job.Active = false
 		job.State = "cancelled"
 		job.NextRunAt = ""
-	} else if recovering && (job.Command == "" || job.CommandDone) {
+	} else if job.ChatID != "" && errors.Is(runErr, ErrScheduleDeferred) && job.Active {
+		// Admission failed before a turn was accepted. Preserve the occurrence
+		// and its receipt; a busy chat is never steered or given a duplicate prompt.
+		job.State = "retrying"
+		job.RetryAt = now.Add(30 * time.Second).Format(time.RFC3339Nano)
+	} else if job.ChatID == "" && recovering && (job.Command == "" || job.CommandDone) {
 		job.State = "scheduled"
 		job.RetryAt = ""
-	} else if runErr != nil && (job.Command == "" || job.CommandDone) && job.Attempts < 8 {
+	} else if job.ChatID == "" && runErr != nil && (job.Command == "" || job.CommandDone) && job.Attempts < 8 {
 		job.Attempts++
 		job.State = "retrying"
 		job.RetryAt = now.Add(min(time.Duration(1<<min(job.Attempts-1, 4)), 15) * time.Minute).Format(time.RFC3339Nano)
@@ -371,6 +487,29 @@ func (st *Store) FinishAppSchedule(id, occurrence string, runErr error, recoveri
 			job.NextRunAt = next.Format(time.RFC3339Nano)
 		}
 	}
+	if err = saveAppJob(tx, job); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// A crash between starting a turn and attaching its run is safe: the occurrence
+// receipt is committed by the ordinary turn path and is reused on recovery.
+func (st *Store) AttachScheduleRun(id, occurrence, runID string) error {
+	tx, err := st.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	job, err := readAppJob(tx, id)
+	if err != nil {
+		return err
+	}
+	if job.ChatID == "" || job.State != "running" || job.Occurrence != occurrence {
+		return ErrConflict
+	}
+	job.RunID, job.LastRunID = runID, runID
+	job.Revision++
 	if err = saveAppJob(tx, job); err != nil {
 		return err
 	}
@@ -398,6 +537,14 @@ func (st *Store) AppScheduleCommandDone(id, occurrence string) error {
 }
 
 func (st *Store) DeleteAppSchedule(appID, id string) error {
+	return st.deleteSchedule(appID, id)
+}
+
+func (st *Store) DeleteChatSchedule(chatID, id string) error {
+	return st.deleteSchedule("chat:"+chatID, id)
+}
+
+func (st *Store) deleteSchedule(owner, id string) error {
 	tx, err := st.db.Begin()
 	if err != nil {
 		return err
@@ -410,13 +557,13 @@ func (st *Store) DeleteAppSchedule(appID, id string) error {
 	if err != nil {
 		return err
 	}
-	if job.AppID != appID {
+	if job.owner() != owner {
 		return ErrNotFound
 	}
-	if job.State == "running" {
+	if job.State == "running" && job.ChatID == "" {
 		return invalid("this schedule is running; delete it after it finishes")
 	}
-	if _, err = tx.Exec("DELETE FROM app_jobs WHERE id=? AND app_id=?", id, appID); err != nil {
+	if _, err = tx.Exec("DELETE FROM app_jobs WHERE id=? AND app_id=?", id, owner); err != nil {
 		return err
 	}
 	return tx.Commit()

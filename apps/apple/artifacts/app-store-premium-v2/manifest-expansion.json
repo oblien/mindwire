@@ -1,0 +1,525 @@
+{
+  "status": "complete",
+  "tool": "built-in image_gen",
+  "date": "2026-10-21",
+  "screenshots": {
+    "ipad": [
+      {
+        "index": 1,
+        "title": "A little team. A lot done.",
+        "subtitle": "Personal bots. Real things done.",
+        "theme": "ivory",
+        "path": "ipad/01-personal-ai-team.png",
+        "width": 2752,
+        "height": 2064,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "da525042e8d506a1f35b4842f079e9a2e363bed5632e137b2ec19d9117549702",
+        "native_reference": "native/ipad/01-onboarding-light.png",
+        "native_reference_info": {
+          "width": 2752,
+          "height": 2064,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/ipad-01-generated-original.png",
+        "generated_original_info": {
+          "width": 1448,
+          "height": 1086,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/ipad-01-prompt.txt"
+      },
+      {
+        "index": 2,
+        "title": "A team. Made yours.",
+        "subtitle": "Different roles. One place to work.",
+        "theme": "ivory",
+        "path": "ipad/02-your-bot-team.png",
+        "width": 2752,
+        "height": 2064,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "18ca5b2ebf2629d586561b13bb0072d3601fab0f7cdf4b4ef236bc51d6f8b730",
+        "native_reference": "native/ipad/02-bots-light.png",
+        "native_reference_info": {
+          "width": 2752,
+          "height": 2064,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/ipad-02-generated-original.png",
+        "generated_original_info": {
+          "width": 1448,
+          "height": 1086,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/ipad-02-prompt.txt"
+      },
+      {
+        "index": 3,
+        "title": "Just say the word.",
+        "subtitle": "A plan. A draft. A little more done.",
+        "theme": "lilac",
+        "path": "ipad/03-from-ask-to-done.png",
+        "width": 2752,
+        "height": 2064,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "89d3ddee163505317e778797510ee5bbdbdec8a8b64b4bbe320be0e2922bf9ae",
+        "native_reference": "native/ipad/03-task-light.png",
+        "native_reference_info": {
+          "width": 2752,
+          "height": 2064,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/ipad-03-generated-original.png",
+        "generated_original_info": {
+          "width": 1448,
+          "height": 1086,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/ipad-03-prompt.txt"
+      },
+      {
+        "index": 4,
+        "title": "You imagine it. We build it.",
+        "subtitle": "Personal apps, made just for you.",
+        "theme": "peach",
+        "path": "ipad/04-apps-made-for-you.png",
+        "width": 2752,
+        "height": 2064,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "6ea3f8450026643c6f5c06e6fc51f69e0df244369762b841a9bad619debb19f9",
+        "native_reference": "native/ipad/04-app-builder-light.png",
+        "native_reference_info": {
+          "width": 2752,
+          "height": 2064,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/ipad-04-generated-original.png",
+        "generated_original_info": {
+          "width": 1448,
+          "height": 1086,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/ipad-04-prompt.txt"
+      },
+      {
+        "index": 5,
+        "title": "Make it an everyday thing.",
+        "subtitle": "Reports and routines, on your schedule.",
+        "theme": "ivory",
+        "path": "ipad/05-everyday-routines.png",
+        "width": 2752,
+        "height": 2064,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "e84857e8e1477b9ea139ae47e059b3720f775d98b431ec6fc7591b897acd4968",
+        "native_reference": "native/ipad/05-schedules-light.png",
+        "native_reference_info": {
+          "width": 2752,
+          "height": 2064,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/ipad-05-generated-original.png",
+        "generated_original_info": {
+          "width": 1448,
+          "height": 1086,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/ipad-05-prompt.txt"
+      },
+      {
+        "index": 6,
+        "title": "The AI you have. More you can do.",
+        "subtitle": "Your computer. Your subscriptions.",
+        "theme": "mint",
+        "path": "ipad/06-your-existing-ai.png",
+        "width": 2752,
+        "height": 2064,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "7aa264e43437750e648ad19bd582ae37a6e50f5a3b005b3bafc03a838ea7787b",
+        "native_reference": "native/ipad/06-accounts-light.png",
+        "native_reference_info": {
+          "width": 2752,
+          "height": 2064,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/ipad-06-generated-original.png",
+        "generated_original_info": {
+          "width": 1448,
+          "height": 1086,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/ipad-06-prompt.txt"
+      },
+      {
+        "index": 7,
+        "title": "Same Mindwire. More control.",
+        "subtitle": "Developer mode.",
+        "theme": "dark",
+        "path": "ipad/07-developer-mode.png",
+        "width": 2752,
+        "height": 2064,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "54275b2086a66834faf08aaac1a01129fdb789095c352f847f904ef3ba76fbd1",
+        "native_reference": "native/ipad/07-developer-dark.png",
+        "native_reference_info": {
+          "width": 2752,
+          "height": 2064,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/ipad-07-generated-original.png",
+        "generated_original_info": {
+          "width": 1448,
+          "height": 1086,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/ipad-07-prompt.txt"
+      },
+      {
+        "index": 8,
+        "title": "Every change. In your hands.",
+        "subtitle": "Review code. Stage changes. Keep moving.",
+        "theme": "dark",
+        "path": "ipad/08-review-every-change.png",
+        "width": 2752,
+        "height": 2064,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "3e8301e57da8d201e37c0e88c736862638a11f825dae6693f2d2ab43721ea7b1",
+        "native_reference": "native/ipad/08-review-dark.png",
+        "native_reference_info": {
+          "width": 2752,
+          "height": 2064,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/ipad-08-generated-original.png",
+        "generated_original_info": {
+          "width": 1448,
+          "height": 1086,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/ipad-08-prompt.txt"
+      }
+    ],
+    "mac": [
+      {
+        "index": 1,
+        "title": "A little team. A lot done.",
+        "subtitle": "Personal bots. Real things done.",
+        "theme": "ivory",
+        "path": "mac/01-personal-ai-team.png",
+        "width": 2880,
+        "height": 1800,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "dca69896ccace2708981d54705dd2f6fdabb49c30302f8a013c748cac266d955",
+        "native_reference": "native/mac/02-bots-light.png",
+        "native_reference_info": {
+          "width": 2560,
+          "height": 1704,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/mac-01-generated-original.png",
+        "generated_original_info": {
+          "width": 1586,
+          "height": 992,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/mac-01-prompt.txt"
+      },
+      {
+        "index": 2,
+        "title": "A team. Made yours.",
+        "subtitle": "Different roles. One place to work.",
+        "theme": "ivory",
+        "path": "mac/02-your-bot-team.png",
+        "width": 2880,
+        "height": 1800,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "a2678a158d103dfbe3054eb6ef94a7aa0eb65d5d907dc1d7fc009845764ecefd",
+        "native_reference": "native/mac/02-bots-light.png",
+        "native_reference_info": {
+          "width": 2560,
+          "height": 1704,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/mac-02-generated-original.png",
+        "generated_original_info": {
+          "width": 1586,
+          "height": 992,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/mac-02-prompt.txt"
+      },
+      {
+        "index": 3,
+        "title": "Just say the word.",
+        "subtitle": "A plan. A draft. A little more done.",
+        "theme": "lilac",
+        "path": "mac/03-from-ask-to-done.png",
+        "width": 2880,
+        "height": 1800,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "dd702eddd85b7ca585dcec402564e710b4c5954a95c26efc0793afb94bdc1f28",
+        "native_reference": "native/mac/03-task-light.png",
+        "native_reference_info": {
+          "width": 2560,
+          "height": 1704,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/mac-03-generated-original.png",
+        "generated_original_info": {
+          "width": 1586,
+          "height": 992,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/mac-03-prompt.txt"
+      },
+      {
+        "index": 4,
+        "title": "You imagine it. We build it.",
+        "subtitle": "Personal apps, made just for you.",
+        "theme": "peach",
+        "path": "mac/04-apps-made-for-you.png",
+        "width": 2880,
+        "height": 1800,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "ffb503c39d706ee74b998b184c9779cbb4fb3b9014cb1f0eb287d941d7ca2d56",
+        "native_reference": "native/mac/04-app-builder-light.png",
+        "native_reference_info": {
+          "width": 2560,
+          "height": 1704,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/mac-04-generated-original.png",
+        "generated_original_info": {
+          "width": 1586,
+          "height": 992,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/mac-04-prompt.txt"
+      },
+      {
+        "index": 5,
+        "title": "Make it an everyday thing.",
+        "subtitle": "Reports and routines, on your schedule.",
+        "theme": "ivory",
+        "path": "mac/05-everyday-routines.png",
+        "width": 2880,
+        "height": 1800,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "1144e33352ecae51eefd77698e604cc4d60302c03ea5ed462cd752dcb66e9333",
+        "native_reference": "native/mac/05-schedules-light.png",
+        "native_reference_info": {
+          "width": 2560,
+          "height": 1704,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/mac-05-generated-original.png",
+        "generated_original_info": {
+          "width": 1586,
+          "height": 992,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/mac-05-prompt.txt"
+      },
+      {
+        "index": 6,
+        "title": "The AI you have. More you can do.",
+        "subtitle": "Your Mac. Your subscriptions.",
+        "theme": "mint",
+        "path": "mac/06-your-existing-ai.png",
+        "width": 2880,
+        "height": 1800,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "05efcd90077922c9c85ffd1ef9269778b8f535e8c2f95570fced1b4569757f78",
+        "native_reference": "native/mac/06-accounts-light.png",
+        "native_reference_info": {
+          "width": 2560,
+          "height": 1704,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/mac-06-generated-original.png",
+        "generated_original_info": {
+          "width": 1586,
+          "height": 992,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/mac-06-prompt.txt"
+      },
+      {
+        "index": 7,
+        "title": "Same Mindwire. More control.",
+        "subtitle": "Developer mode.",
+        "theme": "dark",
+        "path": "mac/07-developer-mode.png",
+        "width": 2880,
+        "height": 1800,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "8295d44e295122c1862b5fa83a0691dcd78e99a2cb1dad79c8a04aaa1294a6bb",
+        "native_reference": "native/mac/07-developer-dark.png",
+        "native_reference_info": {
+          "width": 2560,
+          "height": 1704,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/mac-07-generated-original.png",
+        "generated_original_info": {
+          "width": 1586,
+          "height": 992,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/mac-07-prompt.txt"
+      },
+      {
+        "index": 8,
+        "title": "Every change. In your hands.",
+        "subtitle": "Review code. Stage changes. Keep moving.",
+        "theme": "dark",
+        "path": "mac/08-review-every-change.png",
+        "width": 2880,
+        "height": 1800,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "c92b0b2d0bd6ce62169cf23f0eb5e153115cc1756cce0de52bb62f7a9532278b",
+        "native_reference": "native/mac/08-review-dark.png",
+        "native_reference_info": {
+          "width": 2560,
+          "height": 1704,
+          "bit_depth": 8,
+          "color_type": 6
+        },
+        "generated_original": "design/expansion/mac-08-generated-original.png",
+        "generated_original_info": {
+          "width": 1586,
+          "height": 992,
+          "bit_depth": 8,
+          "color_type": 2
+        },
+        "prompt": "design/expansion/mac-08-prompt.txt"
+      }
+    ],
+    "store": [
+      {
+        "title": "Header",
+        "path": "product-page/Mindwire-Header-3840x1646.png",
+        "width": 3840,
+        "height": 1646,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "5580b459d5fcd89fc09fb5dce83c804b85a68b81d844e464fff8aada7a927ad7",
+        "prompt": "design/expansion/header-prompt.txt",
+        "generated_original": "design/expansion/header-generated-original.png",
+        "generated_original_info": {
+          "width": 1915,
+          "height": 821,
+          "bit_depth": 8,
+          "color_type": 2
+        }
+      },
+      {
+        "title": "Search Results",
+        "path": "product-page/Mindwire-Search-3840x2560.png",
+        "width": 3840,
+        "height": 2560,
+        "bit_depth": 8,
+        "color_type": 2,
+        "profile": "sRGB",
+        "alpha": false,
+        "sha256": "3692453b9ed0ebbadaecd160717fb599613726e8a817313246245d1ff6e52e89",
+        "prompt": "design/expansion/search-prompt.txt",
+        "generated_original": "design/expansion/search-generated-original.png",
+        "generated_original_info": {
+          "width": 1536,
+          "height": 1024,
+          "bit_depth": 8,
+          "color_type": 2
+        }
+      }
+    ]
+  },
+  "existing_iphone_manifest": "manifest.json",
+  "existing_iphone_preserved": true,
+  "previous_original_set_preserved": true,
+  "export": "Generated originals resampled with sips to the exact target canvas, opaque 8-bit RGB PNG with sRGB profile.",
+  "demo_content": "Creative marketing treatments based on isolated native offline fixtures. Conversations and projects are fictional.",
+  "publication": "Local files only. Nothing uploaded to App Store Connect.",
+  "specification_sources": [
+    "https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications",
+    "https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications"
+  ]
+}

@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, Check, Cpu, Loader2, Monitor, Plus } from "lucide-react";
-import type { CloudComputer, ComputerPlan } from "@shared/cloud";
+import { computerPlanFitsImage, type CloudComputer, type CloudImage } from "@shared/cloud";
 import { useCloud, computerState } from "@/lib/cloud";
+import { primaryComputerImages } from "@/lib/computer-images";
+import { ComputerSystemPicker } from "./ComputerSystemPicker";
 import { AccountArtwork } from "./AccountArtwork";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -113,9 +115,13 @@ export function CloudComputers() {
 export function PlanCards({
   selected,
   onSelect,
+  image,
+  disabled,
 }: {
   selected?: string;
   onSelect?: (id: string) => void;
+  image?: CloudImage;
+  disabled?: boolean;
 }) {
   const { catalog } = useCloud();
   return (
@@ -152,9 +158,10 @@ export function PlanCards({
                 variant={selected === plan.id ? "default" : "outline"}
                 className="w-full"
                 aria-pressed={selected === plan.id}
+                disabled={disabled || (!!image && !computerPlanFitsImage(plan, image))}
                 onClick={() => onSelect(plan.id)}
               >
-                {selected === plan.id ? "Selected" : `Choose ${plan.name}`}
+                {image && !computerPlanFitsImage(plan, image) ? "Too small for this system" : selected === plan.id ? "Selected" : `Choose ${plan.name}`}
               </Button>
             ) : (
               <Button asChild variant="outline" className="w-full">
@@ -195,7 +202,7 @@ export function NewComputer() {
           setImage((current) =>
             images.some((i) => i.id === current)
               ? current
-              : (images[0]?.id ?? ""),
+              : (primaryComputerImages(images).linux?.id ?? ""),
           );
           setError("");
         }
@@ -212,20 +219,28 @@ export function NewComputer() {
   }, [cloud.catalog?.available, cloud.loaded, cloud.loadImages, retry]);
   const selectedImage = cloud.images.find((i) => i.id === image),
     selectedPlan = cloud.catalog?.plans.find((p) => p.id === plan);
-  const fits = (p: ComputerPlan) =>
-    p.vcpus >= (selectedImage?.minimum_resources?.cpus ?? 0) &&
-    p.memoryMb >= (selectedImage?.minimum_resources?.memory_mb ?? 0) &&
-    p.diskGb * 1024 >= (selectedImage?.minimum_resources?.disk_size_mb ?? 0);
+  function selectImage(id: string) {
+    setImage(id);
+    setKey(crypto.randomUUID());
+    const next = cloud.images.find((image) => image.id === id);
+    if (next && selectedPlan && !computerPlanFitsImage(selectedPlan, next)) {
+      const compatible = cloud.catalog?.plans.find((plan) => computerPlanFitsImage(plan, next));
+      if (compatible) setPlan(compatible.id);
+    }
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError("");
+    let createdId: string | undefined;
     try {
-      const result = await cloud.purchase(name.trim(), image, plan, key);
-      if (result.computer && !result.computer.checkout)
-        navigate(`/computers/${result.computer.id}`);
+      const created = await cloud.createComputer(name.trim(), image, plan, key);
+      createdId = created.computer.id;
+      const result = await cloud.action(createdId, "checkout");
+      if (!result.computer?.checkout) navigate(`/computers/${createdId}`);
     } catch (error) {
-      setError((error as Error).message);
+      if (createdId) navigate(`/computers/${createdId}`);
+      else setError((error as Error).message);
     } finally {
       setBusy(false);
     }
@@ -256,8 +271,8 @@ export function NewComputer() {
           <div className="grid gap-6 min-[1500px]:grid-cols-[minmax(0,1fr)_19rem]">
             <div className="space-y-7">
               <Card>
-                <CardContent className="grid gap-5 p-6 sm:grid-cols-2">
-                  <label className="space-y-2 text-sm">
+                <CardContent className="space-y-6 p-6">
+                  <label className="block space-y-2 text-sm">
                     <span>Name</span>
                     <Input
                       value={name}
@@ -267,40 +282,27 @@ export function NewComputer() {
                         setKey(crypto.randomUUID());
                       }}
                       required
+                      disabled={busy}
                     />
                   </label>
-                  <label className="space-y-2 text-sm">
-                    <span>Operating system</span>
-                    <select
-                      className="h-11 w-full rounded-xl border border-transparent bg-secondary px-3"
-                      aria-label="Operating system"
-                      value={image}
-                      onChange={(e) => {
-                        setImage(e.target.value);
-                        setKey(crypto.randomUUID());
-                      }}
-                    >
-                      {cloud.images.map((i) => (
-                        <option key={i.id} value={i.id}>
-                          {i.label || i.id}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <ComputerSystemPicker images={cloud.images} plans={cloud.catalog?.plans ?? []}
+                    value={image} onChange={selectImage} disabled={busy} />
                 </CardContent>
               </Card>
               <div>
                 <h2 className="mb-4 text-sm font-medium">Monthly capacity</h2>
                 <PlanCards
                   selected={plan}
+                  image={selectedImage}
+                  disabled={busy || !selectedImage}
                   onSelect={(id) => {
                     setPlan(id);
                     setKey(crypto.randomUUID());
                   }}
                 />
               </div>
-              {selectedPlan && !fits(selectedPlan) && (
-                <ErrorNotice message="Choose a larger plan for this system. Mac + Xcode needs the Max plan." />
+              {selectedPlan && selectedImage && !computerPlanFitsImage(selectedPlan, selectedImage) && (
+                <ErrorNotice message="Choose a larger plan for this system." />
               )}
             </div>
             <aside>
@@ -335,9 +337,9 @@ export function NewComputer() {
                     disabled={
                       busy ||
                       !name.trim() ||
-                      !image ||
+                      !selectedImage ||
                       !selectedPlan ||
-                      !fits(selectedPlan)
+                      !computerPlanFitsImage(selectedPlan, selectedImage)
                     }
                   >
                     {busy ? <Loader2 className="animate-spin" /> : null}Continue

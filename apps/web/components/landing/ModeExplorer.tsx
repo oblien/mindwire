@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Check, Code2, FileCode2, GitBranch, Laptop, MessageCircle, Smartphone, Terminal } from "lucide-react";
 import AgentLogo from "../marketing/AgentLogo";
+import ServiceLogo from "../marketing/ServiceLogo";
 import BotAvatar from "./BotAvatar";
 import { ReadingCorner } from "./HeroWorkspace";
 import { navigateTabs } from "./tabs";
@@ -47,7 +48,7 @@ export default function ModeExplorer() {
       <div className={styles.modePreview} data-mode={mode} aria-label={`${current.label} example`}>
         <div className={styles.modeWindowHeader}><div className={styles.windowDots} aria-hidden="true"><i /><i /><i /></div><span>Mindwire <ArrowRight size={12} /> {current.label}</span><span className={styles.previewComputer}><Laptop size={14} /> This Mac</span></div>
         <div className={styles.modeWindowBody}>
-          <div className={styles.modeChatHeader}><BotAvatar character="robot" size={39} /><span>Kit<small>Your app builder</small></span><AgentLogo agent="codex" size={21} /></div>
+          <div className={styles.modeChatHeader}><BotAvatar character="robot" size={39} /><span>Kit<small>Your app builder</small></span>{mode === "developer" ? <AgentLogo agent="codex" size={21} /> : <ServiceLogo service="chatgpt" size={21} />}</div>
           <div className={styles.modePrompt}>Add a weekly reading goal. Keep it simple.</div>
           <div className={styles.generalResult} hidden={mode !== "general"}><p>Done. A little encouragement for your next chapter.</p><ReadingCorner compact /></div>
           <div hidden={mode !== "developer"}><DeveloperPreview /></div>

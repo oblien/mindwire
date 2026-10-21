@@ -19,6 +19,7 @@ struct AssistantHistorySidebar<Content: View>: View {
     @FocusState private var searching: Bool
     @State private var auth = MindwireAuth.shared
     @Environment(\.desktopSidebarCompact) private var compact
+    @Environment(\.assistantChatTheme) private var theme
 
     var body: some View {
         if ApplePlatform.isDesktop { desktopSidebar }
@@ -31,16 +32,12 @@ struct AssistantHistorySidebar<Content: View>: View {
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-            if apps != nil {
-                appsButton.padding(.horizontal, 12)
-                    .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
-            }
             Section {
                 content()
             } header: {
                 Text(t(groupedByBots ? "assistant.bots.title" : "assistant.sidebar.chats"))
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .font(theme.font(13, weight: .medium, relativeTo: .caption))
+                    .foregroundStyle(theme.muted)
                     .textCase(nil)
                     .accessibilityIdentifier("assistant.sidebar.chats")
             }
@@ -53,8 +50,23 @@ struct AssistantHistorySidebar<Content: View>: View {
         .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.interactively)
         .accessibilityIdentifier("chat.history.list")
-        .buttonStyle(.plain).tint(.primary).foregroundStyle(.primary)
-        .background(AssistantStyle.canvas)
+        .buttonStyle(.plain).tint(.primary).foregroundStyle(theme.ink)
+        .background(theme.canvas)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if apps != nil {
+                HStack(spacing: 12) {
+                    appsButton
+                    Spacer(minLength: 0)
+                    settingsButton
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .buttonStyle(.plain).tint(.primary)
+                .background(theme.canvas)
+                .overlay(alignment: .top) {
+                    if theme.isWebsite { Rectangle().fill(theme.line).frame(height: 0.5).padding(.horizontal, 20) }
+                }
+            }
+        }
         .accessibilityAction(.escape, close)
     }
 
@@ -88,9 +100,6 @@ struct AssistantHistorySidebar<Content: View>: View {
                 .padding(.horizontal, AssistantDesktopStyle.sidebarInset).padding(.bottom, 10)
             }
 
-            if apps != nil {
-                appsButton.padding(.horizontal, compact ? 14 : AssistantDesktopStyle.sidebarInset).padding(.bottom, 8)
-            }
             List { content() }
                 .listStyle(.plain).listRowSpacing(compact ? 6 : 4)
                 .contentMargins(.top, 0, for: .scrollContent)
@@ -102,7 +111,10 @@ struct AssistantHistorySidebar<Content: View>: View {
 
             let footerLayout = compact ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 10))
             footerLayout {
-                if let account {
+                if apps != nil {
+                    appsButton
+                    if !compact { Spacer(minLength: 0) }
+                } else if let account {
                     Button(action: account) {
                         HStack(spacing: 10) {
                             Text(accountInitials).font(.caption.weight(.medium))
@@ -132,13 +144,7 @@ struct AssistantHistorySidebar<Content: View>: View {
                     .help(t("assistant.bots.archived"))
                     .accessibilityLabel(t("assistant.bots.archived"))
                 }
-                if let settings {
-                    Button(action: settings) { AppIcon(.settings, size: 18).frame(width: 34, height: 34) }
-                        .buttonStyle(AssistantDesktopButtonStyle())
-                        .help(t("tabs.settings"))
-                        .accessibilityLabel(t("tabs.settings"))
-                        .accessibilityIdentifier("assistant.sidebar.settings")
-                }
+                settingsButton.buttonStyle(AssistantDesktopButtonStyle())
             }
             .foregroundStyle(.secondary)
             .frame(height: compact ? nil : 54)
@@ -156,17 +162,30 @@ struct AssistantHistorySidebar<Content: View>: View {
                 Image(systemName: "square.grid.2x2").font(.system(size: 18))
                     .frame(width: compact ? 44 : 30, height: 44)
                 if !compact {
-                    Text("Apps").font(.subheadline.weight(.medium))
-                    Spacer(minLength: 0)
+                    Text("Apps").font(theme.font(16, weight: .medium, relativeTo: .subheadline))
                 }
             }
             .padding(.horizontal, compact ? 0 : 8)
-            .background(appsSelected ? AssistantStyle.surface : .clear, in: .rect(cornerRadius: 14))
+            .background(appsSelected ? theme.subtle : .clear, in: .rect(cornerRadius: 14))
             .contentShape(.rect(cornerRadius: 14))
         }
-        .buttonStyle(.plain).foregroundStyle(appsSelected ? .primary : .secondary)
+        .buttonStyle(.plain).foregroundStyle(appsSelected ? theme.ink : theme.muted)
         .accessibilityLabel("Apps").accessibilityIdentifier("assistant.apps")
         .accessibilityAddTraits(appsSelected ? .isSelected : [])
+    }
+
+    @ViewBuilder private var settingsButton: some View {
+        if let settings {
+            Button(action: settings) {
+                AppIcon(.settings, size: 18)
+                    .frame(width: ApplePlatform.isDesktop ? 34 : 44, height: ApplePlatform.isDesktop ? 34 : 44)
+                    .contentShape(.rect)
+            }
+            .foregroundStyle(theme.muted)
+            .help(t("tabs.settings"))
+            .accessibilityLabel(t("tabs.settings"))
+            .accessibilityIdentifier("assistant.sidebar.settings")
+        }
     }
 
     @ViewBuilder private var desktopHeader: some View {
@@ -235,9 +254,11 @@ struct AssistantHistorySidebar<Content: View>: View {
             HStack(spacing: 12) {
                 AssistantBrandMark(size: 28)
                     .frame(width: 32, height: 40)
-                Text("Mindwire").font(.title3.weight(.light)).tracking(-0.3).lineLimit(1)
+                Text("Mindwire")
+                    .font(theme.isWebsite ? theme.font(23, weight: .medium, relativeTo: .title3) : .title3.weight(.light))
+                    .tracking(-0.4).lineLimit(1)
                 Spacer(minLength: 0)
-                if settings != nil || account != nil || newBot != nil {
+                if (apps == nil && settings != nil) || account != nil || newBot != nil || archivedBots != nil {
                     Menu {
                         if let newBot {
                             Button(action: newBot) { Label(t("assistant.bots.create"), systemImage: "plus") }
@@ -247,7 +268,7 @@ struct AssistantHistorySidebar<Content: View>: View {
                             Button(action: archivedBots) { Label(t("assistant.bots.archived"), systemImage: "archivebox") }
                         }
                         if newBot != nil || archivedBots != nil { Divider() }
-                        if let settings {
+                        if let settings, apps == nil {
                             Button(action: settings) {
                                 Label(t("tabs.settings"), systemImage: "gearshape")
                             }
@@ -274,9 +295,11 @@ struct AssistantHistorySidebar<Content: View>: View {
 
             HStack(spacing: 8) {
                 HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").font(.subheadline).foregroundStyle(.secondary)
-                    TextField(t("assistant.sidebar.search"), text: $search)
-                        .font(.subheadline).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Image(systemName: "magnifyingglass").font(.subheadline).foregroundStyle(theme.muted)
+                    TextField(t("assistant.sidebar.search"), text: $search,
+                              prompt: theme.isWebsite ? Text(t("assistant.sidebar.search")).foregroundStyle(theme.muted) : nil)
+                        .font(theme.font(16, relativeTo: .subheadline)).textFieldStyle(.plain)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .submitLabel(.search).focused($searching)
                         .accessibilityIdentifier("assistant.sidebar.search")
                     if !search.isEmpty {
@@ -290,16 +313,16 @@ struct AssistantHistorySidebar<Content: View>: View {
                 }
                 .padding(.leading, 12).padding(.trailing, search.isEmpty ? 12 : 2)
                 .frame(minHeight: 44)
-                .background(AssistantStyle.surface, in: .capsule)
+                .background(theme.subtle, in: .rect(cornerRadius: theme.isWebsite ? 16 : 22))
 
                 if let create = groupedByBots ? newBot : newChat {
                     Button(action: create) {
                         Image(systemName: "plus")
                             .font(.body.weight(.medium))
-                            .foregroundStyle(.black)
+                            .foregroundStyle(theme.isWebsite ? theme.canvas : .black)
                             .frame(width: 40, height: 40)
-                            .background(.white, in: .circle)
-                            .overlay { Circle().strokeBorder(.black.opacity(0.08), lineWidth: 0.5) }
+                            .background(theme.isWebsite ? theme.ink : .white, in: .circle)
+                            .overlay { Circle().strokeBorder(theme.line, lineWidth: theme.isWebsite ? 0 : 0.5) }
                             .frame(width: 44, height: 44)
                             .contentShape(.rect)
                     }
@@ -329,10 +352,11 @@ struct AssistantConversationLabel: View {
     var status: RunStatus?
     var busy = false
     var muted = false
+    @Environment(\.assistantChatTheme) private var theme
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(title).font(.body).lineLimit(1)
+            Text(title).font(theme.font(17)).foregroundStyle(theme.ink).lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if busy || status == .running {
                 ProgressView().chatActivityTint().controlSize(.mini)
@@ -348,84 +372,121 @@ struct AssistantConversationLabel: View {
         }
         .padding(.horizontal, 8).padding(.vertical, 12)
         .frame(minHeight: 46)
-        .background(selected ? AssistantStyle.surface : .clear, in: .rect(cornerRadius: 18))
+        .background(selected ? theme.subtle : .clear, in: .rect(cornerRadius: 18))
         .contentShape(.rect(cornerRadius: 18))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
-/// A bot is the destination; its latest conversation supplies live status and a real preview.
-/// Reading the bounded session cache never starts history work or persists transcript copies.
+/// Bot identity and live status, with separate destinations for chatting and conversation history.
 struct AssistantBotConversationRow: View {
     let bot: AssistantBot
     let chat: Chat?
     var selected = false
+    let open: () -> Void
+    let history: () -> Void
     @Environment(\.stores) private var stores
+    @Environment(\.appExperienceMode) private var experienceMode
     @State private var activity = ChatActivityStore.shared
     @State private var hovered = false
     @Environment(\.desktopSidebarCompact) private var compact
+    @Environment(\.assistantChatTheme) private var theme
     private var botColor: BotColor { AssistantBotIcon.resolve(botId: bot.id, icon: bot.icon).color }
+    private var isWorking: Bool { chat.map { activity.status($0.id) == .running } ?? false }
 
     var body: some View {
         Group {
             if compact {
-                avatar.frame(width: 44, height: 44)
-                    .background(rowBackground, in: .rect(cornerRadius: 13))
-                    .contentShape(.rect(cornerRadius: 13))
-                    .help(bot.name).accessibilityLabel(bot.name)
+                Button(action: open) {
+                    avatar.frame(width: 44, height: 44)
+                        .background(rowBackground, in: .rect(cornerRadius: 13))
+                        .contentShape(.rect(cornerRadius: 13))
+                }
+                .help(bot.name).accessibilityLabel(bot.name)
+                .accessibilityValue(isWorking ? t("chat.running") : "")
+                .accessibilityAddTraits(selected ? .isSelected : [])
             } else { expandedRow }
         }
+        .buttonStyle(.plain)
         .onHover { hovered = $0 }
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityElement(children: .contain)
         .environment(\.chatBotColor, botColor)
     }
 
     private var avatar: some View {
-        AssistantBotAvatar(botId: bot.id, icon: bot.icon, size: compact ? 30 : ApplePlatform.isDesktop ? 34 : 40)
+        AssistantBotAvatar(botId: bot.id, icon: bot.icon,
+                           size: compact ? 30 : ApplePlatform.isDesktop ? 34 : 40, isWorking: isWorking)
             .overlay(alignment: .topTrailing) {
-                if let chat {
-                    if activity.status(chat.id) == .error {
-                        Circle().fill(.red).frame(width: 9, height: 9)
-                            .accessibilityLabel(t("chat.error.title"))
-                    } else if compact, activity.status(chat.id) == .running {
-                        Circle().fill(botColor.fill).frame(width: 7, height: 7)
-                    }
+                if let chat, activity.status(chat.id) == .error {
+                    Circle().fill(.red).frame(width: 9, height: 9)
+                        .accessibilityLabel(t("chat.error.title"))
                 }
             }
     }
 
     private var expandedRow: some View {
+        HStack(spacing: 2) {
+            Button(action: open) {
+                identity
+                    .padding(.vertical, ApplePlatform.isDesktop ? 10 : 12)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel(bot.name)
+            .accessibilityValue(isWorking ? t("chat.running") : "")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            if experienceMode == .general {
+                Button(action: history) {
+                    AppIcon(Icon.history, size: ApplePlatform.isDesktop ? 16 : 18)
+                        .foregroundStyle(theme.muted)
+                        .frame(width: ApplePlatform.isDesktop ? 32 : 44, height: 44)
+                        .contentShape(.rect)
+                }
+                .help("\(bot.name) · \(t("assistant.history"))")
+                .accessibilityLabel("\(t("assistant.history")): \(bot.name)")
+                .accessibilityIdentifier("assistant.bot.history.\(bot.id)")
+            }
+        }
+        .padding(.leading, 10).padding(.trailing, experienceMode == .general ? 2 : 10)
+        .background(rowBackground, in: .rect(cornerRadius: rowRadius, style: .continuous))
+        .contentShape(.rect(cornerRadius: rowRadius, style: .continuous))
+    }
+
+    private var identity: some View {
         HStack(spacing: 12) {
             avatar
             VStack(alignment: .leading, spacing: ApplePlatform.isDesktop ? 4 : 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(bot.name).font(ApplePlatform.isDesktop ? .system(size: 15) : .body).lineLimit(1)
+                    Text(bot.name)
+                        .font(ApplePlatform.isDesktop ? .system(size: 15) : theme.isWebsite ? theme.font(17, weight: .medium) : .body)
+                        .foregroundStyle(theme.ink).lineLimit(1)
                         .accessibilityIdentifier("assistant.bot.name.\(bot.id)")
                     Spacer(minLength: 0)
-                    if let chat, let date = activity.lastActivity(chat) {
+                    if experienceMode != .general, let chat, let date = activity.lastActivity(chat) {
                         RelativeTimestamp(date: date).font(ApplePlatform.isDesktop ? .system(size: 11) : .caption2)
                     }
                 }
-                HStack(spacing: 6) {
-                    if let chat, activity.status(chat.id) == .running { ProgressView().chatActivityTint().controlSize(.mini) }
-                    Text(preview).font(ApplePlatform.isDesktop ? .system(size: 13) : .subheadline)
-                        .foregroundStyle(.secondary).lineLimit(1)
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(ApplePlatform.isDesktop ? .system(size: 13) : theme.font(15, relativeTo: .subheadline))
+                        .foregroundStyle(theme.muted).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, ApplePlatform.isDesktop ? 10 : 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackground, in: .rect(cornerRadius: ApplePlatform.isDesktop ? AssistantDesktopStyle.rowRadius : 14, style: .continuous))
-        .contentShape(.rect(cornerRadius: ApplePlatform.isDesktop ? AssistantDesktopStyle.rowRadius : 14, style: .continuous))
     }
 
+    private var rowRadius: CGFloat { ApplePlatform.isDesktop ? AssistantDesktopStyle.rowRadius : theme.isWebsite ? 20 : 14 }
+
     private var rowBackground: Color {
-        if selected { return ApplePlatform.isDesktop ? AssistantDesktopStyle.selection : AssistantStyle.surface }
+        if selected { return ApplePlatform.isDesktop ? AssistantDesktopStyle.selection : theme.subtle }
         return ApplePlatform.isDesktop && hovered ? AssistantDesktopStyle.selection.opacity(0.55) : .clear
     }
 
-    private var preview: String {
+    private var subtitle: String {
+        if experienceMode == .general {
+            return bot.purpose.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if let chat {
             if let text = stores.chatSessions.cached(chat.id)?.messages.last(where: { !$0.text.isEmpty })?.text {
                 return String(text.prefix(180)).replacingOccurrences(of: "\n", with: " ")

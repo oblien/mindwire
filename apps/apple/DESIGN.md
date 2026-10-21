@@ -1,65 +1,110 @@
 # Mindwire — iOS 26 Design Language (v2, from scratch)
 
-General onboarding and setup have their own presentation, updated October 17, 2026:
-use `AssistantPage`, `AssistantHeading`, `AssistantOption`, and `AssistantPrimaryButton`.
-These are designed pages with generous typography, quiet monochrome surfaces, rounded choices,
-and a fixed primary action. They deliberately do not use settings-style Forms or grouped Lists.
-Keep semantic light/dark colors, Dynamic Type, scrollable content, and bundled PNG icons.
-General setup pushes the existing computer, cloud, and AI screens through one navigation stack;
-the same pairing, authentication, provisioning, and billing code owns every operation.
-Chat, its composer, message rendering, attachments, tools, and caches are shared and unchanged.
-Keep shared chat behavior intact. Mac uses the desktop presentation described below.
+Mobile first-run setup uses one full-screen navigation stack, updated October 20, 2026.
+Use the website theme for onboarding: bundled Gellix Regular/Medium/SemiBold, the warm
+light/dark palette from `packages/theme/tokens.css`, peach headings, and the shared vector bots.
+`AssistantTheme.website` is used for setup and the General mobile chat presentation. Developer
+and desktop screens retain their existing theme. Reuse `AssistantPage`, `AssistantHeading`, and shared primary/secondary actions.
+Content choices have quiet surfaces, thin borders and 22–24-point corners. Reserve native
+Liquid Glass for actual action buttons, with one `.glassProminent` action in the bottom safe area.
+Small in-content links stay plain. These pages are an intentional exception to the grouped
+Form/List rules below. Content scrolls naturally above the action footer and supports Dynamic Type.
+The welcome is centered with the website's bot characters and fine trails. Illustrations are static,
+reuse the existing vectors, and never load remote assets or show an imitation pairing QR code.
+Lead with the work a bot can produce and the user's ChatGPT or Claude subscription. Keep engine
+names in Developer mode. Required instructions use primary text; secondary styling is for metadata.
+Each computer option has one description. Omit repeated captions and explanatory notes.
 
-Use short action titles and only instructions needed for the current step; avoid marketing copy.
-Start by asking which computer to use, with two compact, outlined choices: Your computer and
-Cloud computer. Use simple bundled icons, useful descriptions, and no decorative gradient or device collage.
-Explain that a personal computer must stay on, while a cloud computer is billed separately. Show saved
-computers only inside their matching destination. Cloud sign-in and inventory belong inside
-Cloud computer; pricing is loaded only after choosing Create. Keep Back within the chosen branch.
-General history opens in a leading-edge drawer. Put the logo and search
-in the conversation list's scrolling header. New chat is one plus icon beside the search field.
-Use plain conversation rows with a subtle active highlight. Settings and Account are actions in the
-header's trailing ellipsis menu; there is no New chat row or bottom Settings/account control.
+The welcome has only Get started. Existing-connection access belongs on the following computer
+choice page, within its content. Start with Computer → AI account → Ready. The computer choice explains
+My computer and Mindwire Cloud. Saved inventory stays inside its own destination.
+Personal pairing illustrates the desktop's Connect your phone action and uses two short steps: open Mindwire
+and choose Connect your phone. Scan QR code is the only bottom action. Get Mindwire stays
+visible with the instructions and opens the configured desktop download URL or installation
+guide. Sharing, Terminal setup and manual links live in the native toolbar's Connection options
+menu; the same menu switches back to QR setup. Errors stay inline. Terminal instructions
+provide the actual install-and-connect commands.
+Sign-in keeps copy-link actions in content, with only Open sign-in / Continue at the bottom.
+Cloud sign-in appears in its own branch, followed by existing computers or live monthly plans.
+Use the shared Cloud session, checkout and provisioner throughout.
+
+Check the chosen computer before showing AI choices. Check existing native AI authentication
+before requesting a login, using `AssistantConnectionDiscovery`. Show ready accounts as **Use [provider]**
+before new connection choices. The computer name is a plain context line, never a selectable card.
+Use one inline `AssistantSetupStatus` while checking; don't scatter spinners around the page.
+Primary providers are direct actions; other services are disclosed.
+Keep provider-declared fields, device codes and help intact while using the same setup surfaces.
+Cancellation never reopens sign-in automatically. Setup has no logout or agent-management menu.
+
+General is the default. An optional Developer mode disclosure is available after the computer,
+AI account, and bot workspace are ready. Persist completion separately from the chosen mode: saved connections,
+profile creation and Cloud login alone never unlock the app. Unfinished setup resumes its saved
+computer/profile and cannot be dismissed into chat. Existing conversations migrate without
+requiring setup again; transient offline state never wipes completion, credentials or history.
+Keep **Your bot is ready** visible while Start chatting creates the conversation through the shared
+registry. Select that chat before completing setup or dismissing its cover, so there is no second start screen.
+Settings → App mode reuses the compact mode choice with Cancel and the current selection.
+Chat, its composer, message rendering, attachments, tools, caches and Mac startup stay shared.
+The General mobile visual trial extends the onboarding palette to the chat canvas, compact bot
+header, empty state and unified composer. The sidebar uses Gellix labels and quiet rounded
+surfaces, with Apps at bottom left and Settings at bottom right. `assistantChatTheme` derives
+this presentation from the existing app mode; it adds no chat state, history copies or gesture
+handling. Transcript rendering and its scroll lifecycle are unchanged.
+General's bot list opens in a leading-edge drawer. Each bot's history opens in a native
+sheet with an inset-grouped list, system typography, search, separators and a neutral Done button.
+Keep the drawer's custom colors, row spacing and button styles out of this sheet; reuse the
+same chat rows, history data and actions. Put the logo and search
+in the conversation list's scrolling header. The plus beside search creates a bot when bots are
+available, or starts a chat in an ungrouped history. Use plain rows with a subtle active highlight.
+Apps and Settings are direct footer actions; Account and additional bot actions use the header menu.
 Omit per-row dates, elapsed time and project metadata. Reuse the shared history data and context actions,
 and keep ChatScreen mounted at its full width. Opening the drawer slides the chat body aside;
 dragging it closed moves both surfaces together using fixed screen coordinates and stable view bounds.
 A dim, viewport-anchored overlay covers the exposed chat edge. Tapping it or using VoiceOver escape
 also dismisses the drawer; there is no visible close button.
 Keep keyboard dismissal, VoiceOver escape, Reduce Motion, and chat drafts intact.
+Mobile remote desktops open full screen from computers, projects, chat tools and desktop
+tool calls, with explicit Done navigation. Never put the interactive viewer in a draggable
+sheet: its dismissal pan competes with remote pointer input. Desktop setup forms remain sheets.
 General sidebar chrome uses native SF Symbols and buttons. Hide the chat's menu control while the
 drawer is visible and keep New chat out of the chat's top toolbar.
 Use native horizontal pans to open it from the chat body and close it from the drawer. Preserve text
 editing, selection and horizontal code scrolling. The exposed chat has a
 charcoal (#222) tint that stays distinct from the dark background. Keep the logo/wordmark clear,
-use a quiet native Chats section header and native icon-only header actions. There is no pinned
-account avatar, name, material bar, or footer.
-The sidebar logo is the plain monochrome mark without a tile or background; the wordmark uses light weight.
-Search has a capsule surface. New chat uses a dark plus on a white circle beside Search.
-Selected conversations use a quiet surface with 18-point corners.
+use a quiet section header and native icon-only header actions. There is no pinned account avatar
+or name. The sidebar logo is the plain monochrome mark without a tile or background; General mobile
+uses the website wordmark typography. Search has a quiet rounded surface. The plus beside it uses
+inverse theme colors. Selected bot rows use 20-point corners; conversation titles use 18-point corners.
 Confirmed deletion of the active chat clears the thread immediately and returns to the start view,
 while leaving the drawer available to choose another chat. Deleting another chat preserves the active draft.
-Fit the bundled logo's actual artwork bounds; the General empty state uses a modest 36-point mark.
+Fit the bundled logo's actual artwork bounds; the General mobile empty state leads with the bot avatar.
 
-General groups conversations under native collapsible bot rows, with Mindwire as the default bot.
+General lists bots as flat destinations, with Mindwire as the default bot.
 Give each bot a compact colored vector character beside its name: a soft asymmetric shape and two
 dark eyes. Choose from 24 characters in ten colors (240 combinations). Save the selected
 `icon` with the daemon profile; the automatic default derives from its ID and retains its identity.
 Reuse it in saved-bot tool cards and the bot's empty state. Settings → Bot icons lists bots with
 a dots menu for Change icon; the same picker is available from each bot's context menu. User message
-bubbles and Send use the bot's pastel color with charcoal text. Every palette pair meets 4.5:1 contrast. Avatars are decorative and static; keep
-the sidebar's Mindwire brand mark plain. Chat children retain their quieter indented text rows.
-Show at most five recent matching chats per bot. View more opens that bot's complete history in the
-shared searchable chat-list modal, including the existing chat actions. Closing it returns to the
-drawer; opening a conversation dismisses both surfaces. Sidebar search also finds older hidden chats.
-Search matches bot names and chat titles and temporarily reveals matching chats. Preserve collapse
-state and separate drafts. The header + starts a chat in the current bot; Create a bot in the menu
-opens a fresh Mindwire conversation with a creation draft. Bot context menus offer New chat, About,
+bubbles and Send use the bot's pastel color with charcoal text. Every palette pair meets 4.5:1 contrast.
+Avatars stay static; working bots add the shared activity ring, colored to the bot and paused for
+Reduce Motion, backgrounding, and hidden drawers. Keep the sidebar's Mindwire brand mark plain.
+General rows show the saved bot description, with a separate trailing history button.
+The bot's Conversations action opens its complete history in the shared
+searchable chat-list modal. Closing it returns to the drawer; opening a conversation dismisses
+both surfaces. Search matches bot names, descriptions and chat titles. Preserve separate drafts.
+Developer's mobile Agents library uses compact adaptive cards with the bot's name, purpose,
+base-agent mark and computer. Use the shared entity-card surfaces and switch to one column at
+accessibility text sizes. Sidebar navigation on iPad and Mac keeps its native rows.
+Integrations uses the connection/plug icon and pushes from bot details with a native Back action.
+Reuse one integrations screen and editor for both modes; show loading, retry and Add integration
+states explicitly. Editing credentials remains an explicit user action.
+Bot context menus offer New chat, Conversations, About,
 Edit with Mindwire, and Archive. Archive retains history and can be restored from the header menu.
 About shows the real saved purpose, instructions, memory and knowledge. Tool acknowledgements link
 to real synced bot/chat IDs. Creating or editing through conversation updates the daemon's registry;
 no bot state is inferred from assistant prose. Both modes list user-created bots; base connections belong in developer configuration.
 
-General AI setup presents **Continue with Claude** and **Continue with ChatGPT** as direct actions.
+General AI setup presents **Connect Claude** and **Connect ChatGPT** as direct actions.
 Use `AssistantAIService` for consumer names throughout selection, preparation and authentication;
 never rename persisted harness IDs or duplicate the daemon's authentication. Other providers and
 xAI API keys live under **Other ways to connect**. Reuse an existing profile when available, verify
@@ -360,7 +405,7 @@ orange; bot avatars and conversation accents retain each bot’s chosen identity
   Selecting code exposes the shared
   Send to Agent flow used by Files: pick a workspace agent, then add a comment in the chat draft.
   Diff selections retain addition/deletion markers when handed to the chat.
-- **Mobile modes**: fresh installs choose General or Developer; upgrades keep Developer. Settings
+- **Mobile modes**: fresh installs default to General, with an optional Developer choice after connecting; upgrades keep Developer. Settings
   can switch at any time. General opens the shared chat directly with searchable bot groups.
   Developer owns the existing four tabs. Keep one chat, composer, draft store, history component,
   pairing flow, authentication flow and cloud provisioner. General hides coding configuration,

@@ -7,6 +7,7 @@ struct AgentSetupScreen: View {
     private let onRemoved: (() -> Void)?
     @Environment(\.stores) private var stores
     @Environment(\.appExperienceMode) private var experienceMode
+    @Environment(\.assistantTheme) private var theme
     @Environment(\.dismiss) private var dismiss
     @State private var agent: Agent
     @State private var session: DaemonSession?
@@ -27,7 +28,15 @@ struct AgentSetupScreen: View {
 
     var body: some View {
         AgentReadinessView(agent: agent, session: session, preferredAuthMethodID: assistantService?.preferredMethodID) {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            if theme.isWebsite {
+                AssistantPage {
+                    AssistantSetupProgress(step: 1)
+                    AssistantHeading(title: t("assistant.setup.preparing"))
+                    AssistantSetupStatus(title: t("assistant.ai.checking.body"))
+                }
+            } else {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .navigationTitle(experienceMode == .general ? t("assistant.setup.connectAI") : agent.displayName)
         .navigationBarTitleDisplayMode(.inline)

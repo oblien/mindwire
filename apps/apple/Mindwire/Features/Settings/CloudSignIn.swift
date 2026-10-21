@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct CloudSignIn: View {
+    var onboarding = false
     let onDone: () -> Void
 
     @State private var authSession: IdentifiedURL?
@@ -13,7 +14,11 @@ struct CloudSignIn: View {
 
     var body: some View {
         VStack(spacing: Spacing.lg) {
-            Button(action: start) {
+            if onboarding {
+                AssistantPrimaryButton(title: t("assistant.cloud.signIn"), icon: .login, busy: starting, action: start)
+                    .accessibilityIdentifier("onboarding.cloud.signIn")
+            } else {
+              Button(action: start) {
                 HStack {
                     Spacer()
                     if starting {
@@ -28,6 +33,7 @@ struct CloudSignIn: View {
             .controlSize(.large)
             .tint(Palette.accent)
             .disabled(starting)
+            }
 
             if let error {
                 Text(error).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)

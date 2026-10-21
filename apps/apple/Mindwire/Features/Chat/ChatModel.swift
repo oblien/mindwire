@@ -187,7 +187,7 @@ final class ChatModel {
     var live: LiveTurn?                        // the one in-flight turn (nil = idle)
     var reconnecting = false
     private(set) var autoExpandedToolIDs: Set<String> = []
-    /// Reset disclosure state when revisiting, including when the same screen survives backgrounding.
+    /// A new chat visit resets disclosures; background reconnects retain the mounted presentation.
     private(set) var presentationID = UUID()
     private(set) var restorationRevision = 0
     /// A navigation intent, independent of cached history and disclosure/view identity.
@@ -220,7 +220,8 @@ final class ChatModel {
     var isLoadingConversation: Bool { loadTask != nil || loadingHistory || loadingOlder }
     var hasNewerHistory: Bool { pendingLatestHistory != nil }
     var isRetainedForWork: Bool {
-        !viewers.isEmpty || loadTask != nil || loadingOlder || sending || cancelling || !respondingInteractions.isEmpty
+        !viewers.isEmpty || !backgroundViewers.isEmpty || loadTask != nil || loadingOlder
+            || sending || cancelling || !respondingInteractions.isEmpty
     }
     @ObservationIgnored var cacheDidChange: (() -> Void)?
     /// Liveness of the current turn's event transport: nil = idle/unknown, true = events are arriving
@@ -274,6 +275,7 @@ final class ChatModel {
     private var validatedReturnRevision = 0
     private var hiddenAt: Date?
     private var viewers: Set<UUID> = []
+    private var backgroundViewers: Set<UUID> = []
     private var managedVisibility = false
     private var sending = false
     @ObservationIgnored private var forkDrafts: [String: ChatForkDraft] = [:]
@@ -448,11 +450,16 @@ final class ChatModel {
 
     func viewDidAppear(_ id: UUID) {
         managedVisibility = true
+        let resuming = backgroundViewers.remove(id) != nil
         let first = viewers.isEmpty
         viewers.insert(id)
         if first {
-            revealLatestHistory()
-            latestRequestRevision += 1
+            if !resuming {
+                revealLatestHistory()
+                latestRequestRevision += 1
+                presentationID = UUID()
+                autoExpandedToolIDs = []
+            }
             // A native CLI can advance without a daemon run or a push notification.
             // Revalidate once per return, sharing any pending read between openers.
             // A read that finished while hidden can still serve an immediate return.
@@ -460,8 +467,6 @@ final class ChatModel {
                validatedAt.map({ $0 < hiddenAt || Date().timeIntervalSince($0) >= 30 }) != false {
                 returnRevision += 1
             }
-            presentationID = UUID()
-            autoExpandedToolIDs = []
             restoringRun = currentRunId != nil
             replayFinished = false
         }
@@ -470,9 +475,22 @@ final class ChatModel {
     /// Stop observing, but retain the transcript and let an initial read finish into the cache.
     /// This is independent of dispose(), which invalidates work after deletion/eviction.
     func viewDidDisappear(_ id: UUID) {
-        let wasVisible = !viewers.isEmpty
-        viewers.remove(id)
+        let wasVisible = viewers.remove(id) != nil
+        let wasBackgrounded = backgroundViewers.remove(id) != nil
+        guard wasVisible || wasBackgrounded else { return }
         guard viewers.isEmpty else { return }
+        pauseLiveUpdates(wasVisible: wasVisible)
+    }
+
+    /// Keep the mounted screen's cache and presentation, while suspending its transport work.
+    func viewDidEnterBackground(_ id: UUID) {
+        guard viewers.remove(id) != nil else { return }
+        backgroundViewers.insert(id)
+        guard viewers.isEmpty else { return }
+        pauseLiveUpdates(wasVisible: true)
+    }
+
+    private func pauseLiveUpdates(wasVisible: Bool) {
         if wasVisible { hiddenAt = .now }
         observerID = UUID()
         streamTask?.cancel()
@@ -480,7 +498,7 @@ final class ChatModel {
         stopNativeObservation()
         replayTurn = nil
         replaySequence = nil
-        autoExpandedToolIDs = []
+        if backgroundViewers.isEmpty { autoExpandedToolIDs = [] }
         restoringRun = currentRunId != nil
         reconnecting = false
         cacheDidChange?()
@@ -993,6 +1011,7 @@ final class ChatModel {
         validatedReturnRevision = 0
         hiddenAt = nil
         viewers.removeAll()
+        backgroundViewers.removeAll()
         visitID = UUID()
         presentationID = visitID
         observerID = UUID()

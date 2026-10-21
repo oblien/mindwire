@@ -7,19 +7,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { CloudComputer, ComputerPlan } from "@shared/cloud";
-import { request } from "./api";
+import type { CloudComputer, ComputerPlan, CloudImage } from "@shared/cloud";
+import { HttpError, request } from "./api";
 
-export interface CloudImage {
-  id: string;
-  label?: string;
-  image: string;
-  minimum_resources?: {
-    cpus?: number;
-    memory_mb?: number;
-    disk_size_mb?: number;
-  };
-}
+export type { CloudImage } from "@shared/cloud";
 interface CloudCatalog {
   available: boolean;
   plans: ComputerPlan[];
@@ -35,6 +26,25 @@ function useCloudState() {
     [error, setError] = useState("");
   const refreshing = useRef<Promise<void> | null>(null),
     reconciling = useRef(false);
+  const recovery = useRef(new Map<string, { failures: number; nextAt: number }>()),
+    manualOperations = useRef(new Set<string>());
+  const updateComputer = useCallback((computer: CloudComputer) => {
+    setComputers((current) => {
+      if (computer.state === "deleted") return current.filter((item) => item.id !== computer.id);
+      const previous = current.find((item) => item.id === computer.id);
+      if (!previous) return [computer, ...current];
+      if (JSON.stringify(previous) === JSON.stringify(computer)) return current;
+      return current.map((item) => item.id === computer.id ? computer : item);
+    });
+  }, []);
+  const deferRecovery = useCallback((id: string, error: unknown) => {
+    const failures = (recovery.current.get(id)?.failures ?? 0) + 1;
+    // Setup/permission/contract failures need an explicit retry after correction.
+    // Transport failures back off instead of hammering billing every five seconds.
+    const delay = error instanceof HttpError && error.retryable === false
+      ? Infinity : Math.min(120000, 15000 * 2 ** Math.min(failures - 1, 3));
+    recovery.current.set(id, { failures, nextAt: Date.now() + delay });
+  }, []);
   const reload = useCallback(() => {
     if (refreshing.current) return refreshing.current;
     const work = (async () => {
@@ -76,7 +86,6 @@ function useCloudState() {
       if (reconciling.current || document.hidden) return;
       reconciling.current = true;
       try {
-        let failure: string | undefined;
         for (const computer of computers.filter((c) =>
           [
             "checkout_pending",
@@ -85,14 +94,16 @@ function useCloudState() {
             "provisioning",
           ].includes(c.state),
         )) {
+          if (manualOperations.current.has(computer.id) || (recovery.current.get(computer.id)?.nextAt ?? 0) > Date.now()) continue;
           try {
-            await cloudRequest(`/computers/${computer.id}/reconcile`, "POST");
+            const result = await cloudRequest<{ computer: CloudComputer }>(`/computers/${computer.id}/reconcile`, "POST");
+            recovery.current.delete(computer.id);
+            updateComputer(result.computer);
           } catch (error) {
-            failure ??= (error as Error).message;
+            deferRecovery(computer.id, error);
+            setError((error as Error).message);
           }
         }
-        await reload();
-        if (failure) setError(failure);
       } catch (error) {
         setError((error as Error).message);
       } finally {
@@ -100,7 +111,7 @@ function useCloudState() {
       }
     }, 5000);
     return () => clearInterval(timer);
-  }, [computers, reload]);
+  }, [computers, deferRecovery, updateComputer]);
   const loadImages = useCallback(async () => {
     const result = await cloudRequest<{ images: CloudImage[] }>(
       "/provider/workspace/images?monthly=true",
@@ -108,24 +119,38 @@ function useCloudState() {
     setImages(result.images);
     return result.images;
   }, []);
-  async function action(id: string, operation: string) {
-    const result = await cloudRequest<{
-      computer?: CloudComputer;
-      url?: string;
-    }>(`/computers/${encodeURIComponent(id)}/${operation}`, "POST");
-    if (result.computer)
-      setComputers((current) =>
-        result.computer!.state === "deleted"
-          ? current.filter((c) => c.id !== id)
-          : current.map((c) => (c.id === id ? result.computer! : c)),
+  const action = useCallback(async (id: string, operation: string) => {
+    manualOperations.current.add(id);
+    setError("");
+    try {
+      const result = await cloudRequest<{ computer?: CloudComputer; url?: string }>(
+        `/computers/${encodeURIComponent(id)}/${operation}`, "POST",
       );
-    if (result.url) window.location.assign(result.url);
-    else if (operation === "checkout" && result.computer?.checkout)
-      window.location.assign(result.computer.checkout.url);
+      recovery.current.delete(id);
+      if (result.computer) updateComputer(result.computer);
+      if (result.url) window.location.assign(result.url);
+      else if (operation === "checkout" && result.computer?.checkout)
+        window.location.assign(result.computer.checkout.url);
+      return result;
+    } catch (error) {
+      deferRecovery(id, error);
+      // A failed checkout may already be persisted. Read it; never create another
+      // purchase or change its idempotency key to recover an uncertain payment.
+      try {
+        const saved = await cloudRequest<{ computer: CloudComputer }>(`/computers/${encodeURIComponent(id)}`);
+        updateComputer(saved.computer);
+      } catch { /* Keep the known purchase and the original operation error. */ }
+      setError((error as Error).message);
+      throw error;
+    } finally {
+      manualOperations.current.delete(id);
+    }
+  }, [deferRecovery, updateComputer]);
+  const retryRecovery = useCallback(async () => {
+    recovery.current.clear();
     await reload();
-    return result;
-  }
-  async function purchase(
+  }, [reload]);
+  async function createComputer(
     name: string,
     imageId: string,
     planId: string,
@@ -136,8 +161,8 @@ function useCloudState() {
       "POST",
       { name, imageId, planId, idempotencyKey: key },
     );
-    await reload();
-    return action(result.computer.id, "checkout");
+    updateComputer(result.computer);
+    return result;
   }
   return {
     computers,
@@ -148,7 +173,8 @@ function useCloudState() {
     reload,
     loadImages,
     action,
-    purchase,
+    createComputer,
+    retryRecovery,
   };
 }
 const CloudContext = createContext<ReturnType<typeof useCloudState> | null>(

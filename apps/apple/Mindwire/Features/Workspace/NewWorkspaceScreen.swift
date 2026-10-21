@@ -9,6 +9,7 @@ import SwiftUI
 struct NewWorkspaceScreen: View {
     @Environment(\.stores) private var stores
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.assistantTheme) private var assistantTheme
 
     let onCreated: (Workspace) -> Void
     private let embedded: Bool
@@ -68,7 +69,7 @@ struct NewWorkspaceScreen: View {
                 }
             }
             .alert(t("newAgent.setup.error"), isPresented: Binding(
-                get: { model.errorMessage != nil },
+                get: { !assistantCloud && model.errorMessage != nil },
                 set: { if !$0 { model.errorMessage = nil } }
             )) {
                 Button(t("common.ok"), role: .cancel) { model.errorMessage = nil }
@@ -346,6 +347,7 @@ struct NewWorkspaceScreen: View {
         AssistantPage {
             AssistantSetupProgress(step: 0)
             AssistantHeading(title: t("assistant.cloud.title"), detail: t("assistant.setup.cloud.review"))
+            if let error = model.errorMessage { AssistantSetupIssue(message: error) }
             if model.cloudAuthRequired {
                 AssistantOption(title: t("assistant.cloud.signIn"), detail: t("assistant.cloud.account"), icon: .cloud) {
                     loginForImages = true; showLogin = true
@@ -354,29 +356,51 @@ struct NewWorkspaceScreen: View {
                 ProgressView(t("assistant.setup.checking"))
             } else if let error = model.imagesError {
                 Text(error).foregroundStyle(.secondary)
-                Button(t("common.retry")) { Task { await loadAssistantCloud() } }.tint(.primary)
+                Button(t("common.retry")) { Task { await loadAssistantCloud() } }
+                    .buttonStyle(.glass).controlSize(.large).tint(.primary)
             } else if model.selectedImage != nil {
-                VStack(alignment: .leading, spacing: 20) {
-                    cloudPlanDetails
-                    if let denial = model.creationDenial {
-                        Label(denial, systemImage: "exclamationmark.circle")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                        if model.cloudCatalogError != nil {
-                            Button(t("common.retry")) { Task { await model.loadAccountOverview() } }.tint(.primary)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Computer name").font(assistantTheme.font(15, weight: .medium, relativeTo: .subheadline))
+                    TextField("My cloud computer", text: $model.name)
+                        .textInputAutocapitalization(.words)
+                        .padding(18).background(assistantTheme.surface, in: .rect(cornerRadius: 20))
+                }
+                VStack(spacing: 12) {
+                    if model.loadingAccount && model.cloudPlans.isEmpty { ProgressView() }
+                    ForEach(model.cloudPlans) { plan in
+                        Button { model.selectedPlanId = plan.id } label: {
+                            VStack(alignment: .leading, spacing: 14) {
+                                HStack {
+                                    Text(plan.name).font(assistantTheme.font(18, weight: .medium, relativeTo: .headline))
+                                    Spacer(minLength: 12)
+                                    AppIcon(model.selectedPlanId == plan.id ? .checkCircleFilled : .circle, size: 21, decorative: true)
+                                }
+                                Text(plan.monthlyPrice).font(assistantTheme.font(21, weight: .medium, relativeTo: .title3))
+                                Text("\(plan.vcpus) vCPU · \(plan.memoryMb / 1024) GB memory · \(plan.diskGb) GB storage")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                            .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+                            .multilineTextAlignment(.leading)
                         }
+                        .buttonStyle(AssistantChoiceStyle())
+                        .tint(.primary).foregroundStyle(.primary)
+                        .accessibilityAddTraits(model.selectedPlanId == plan.id ? .isSelected : [])
+                    }
+                    if let denial = model.creationDenial {
+                        AssistantSetupIssue(message: denial, retry: model.cloudCatalogError == nil ? nil : { Task { await model.loadAccountOverview() } })
                     }
                 }
-                .padding(22).background(AssistantStyle.surface, in: .rect(cornerRadius: 24))
                 Text("One monthly subscription per computer. Your own computers remain free.")
                     .font(.footnote).foregroundStyle(.secondary)
             } else {
                 Text(t("assistant.setup.cloud.unavailable")).foregroundStyle(.secondary)
-                Button(t("common.retry")) { Task { await loadAssistantCloud() } }.tint(.primary)
+                Button(t("common.retry")) { Task { await loadAssistantCloud() } }
+                    .buttonStyle(.glass).controlSize(.large).tint(.primary)
             }
         } footer: {
             if !model.cloudAuthRequired {
-                AssistantPrimaryButton(title: t("assistant.setup.createCloud"), icon: .cloud, action: advance)
-                    .disabled(!stepIsValid)
+                AssistantPrimaryButton(title: "Continue to payment", icon: .chevronRight, action: advance)
+                    .disabled(!stepIsValid || model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .task { await loadAssistantCloud() }
@@ -492,7 +516,20 @@ struct NewWorkspaceScreen: View {
 
     // MARK: Setup overlay
 
-    private var setupOverlay: some View {
+    @ViewBuilder private var setupOverlay: some View {
+        if assistantCloud {
+            AssistantPage {
+                AssistantSetupProgress(step: 0)
+                AssistantDeviceArtwork(destination: .cloud).frame(maxWidth: .infinity).padding(.vertical, 16)
+                AssistantHeading(title: "Making room\nfor your bots.", detail: "We’re preparing your Cloud computer. Your AI account is next.")
+                HStack(spacing: 12) {
+                    ProgressView()
+                    Text(t("newAgent.setup.\(model.stage.rawValue)")).font(.subheadline).foregroundStyle(.secondary)
+                }
+                .padding(22).frame(maxWidth: .infinity, alignment: .leading)
+                .background(assistantTheme.surface, in: .rect(cornerRadius: 24))
+            }
+        } else {
         VStack(spacing: Spacing.lg) {
             ProgressView().controlSize(.large)
             Text(t("newWorkspace.setup.title")).font(.title2).multilineTextAlignment(.center)
@@ -510,6 +547,7 @@ struct NewWorkspaceScreen: View {
         }
         .padding(.horizontal, Spacing.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     // MARK: Actions

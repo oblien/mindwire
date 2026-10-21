@@ -126,6 +126,8 @@ struct DesktopScreen: View {
                 if retained != true { keyboard = false; modifiers.removeAll() }
             }
         }
+        // Pointer drags belong to the remote desktop; leaving the viewer is explicit.
+        .interactiveDismissDisabled()
     }
 
     private var streamPreferences: DesktopStreamSettings { .init(quality: streamQuality, framesPerSecond: streamFPS) }

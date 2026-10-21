@@ -26,7 +26,7 @@ struct ProjectDetailScreen: View {
     @State private var renaming = false
     @State private var renameText = ""
     @State private var removal = ProjectRemovalActions()
-    @State private var showTerminal = false
+    @State private var fullScreenTool: ProjectTool?
     @State private var activeSheet: ProjectSheet?
     @State private var switchedProjectId: String?
     @State private var loaded = false
@@ -39,7 +39,7 @@ struct ProjectDetailScreen: View {
 
 
     /// One sheet driver — multiple `.sheet(isPresented:)` on one view don't reliably coexist.
-    private enum ProjectSheet: Int, Identifiable { case newChat, chats, files, sourceControl, icon, transfer, desktop; var id: Int { rawValue } }
+    private enum ProjectSheet: Int, Identifiable { case newChat, chats, files, sourceControl, icon, transfer; var id: Int { rawValue } }
 
     private var gitChangeCount: Int { project.flatMap { stores.projectPresentation.git(for: $0)?.changedFiles } ?? 0 }
     private var gitCountLoading: Bool {
@@ -163,8 +163,6 @@ struct ProjectDetailScreen: View {
                 }
             case .chats:
                 ChatHistorySheet(projectId: projectId)
-            case .desktop:
-                if let project { ProjectToolDestination(tool: .desktop, project: project, repository: repository) }
             case .sourceControl:
                 if let project {
                     ProjectToolDestination(tool: .sourceControl, project: project, repository: repository)
@@ -176,9 +174,9 @@ struct ProjectDetailScreen: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $showTerminal) {
+        .fullScreenCover(item: $fullScreenTool) { tool in
             if let project {
-                ProjectToolDestination(tool: .terminal, project: project, repository: repository)
+                ProjectToolDestination(tool: tool, project: project, repository: repository)
             }
         }
     }
@@ -404,8 +402,7 @@ struct ProjectDetailScreen: View {
                     switch tool {
                     case .sourceControl: activeSheet = .sourceControl
                     case .files: activeSheet = .files
-                    case .terminal: showTerminal = true
-                    case .desktop: activeSheet = .desktop
+                    case .terminal, .desktop: fullScreenTool = tool
                     }
                 }
             }
@@ -471,7 +468,7 @@ struct ProjectDetailScreen: View {
             agents = []
             chats = []
             activeSheet = nil
-            showTerminal = false
+            fullScreenTool = nil
             return
         }
         agents = stores.agents(forProjectId: projectId)

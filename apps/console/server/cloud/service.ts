@@ -1,5 +1,5 @@
 import type { BillingOffer } from "./provider";
-import { COMPUTER_PLANS } from "../../shared/cloud";
+import { COMPUTER_PLANS, computerPlanFitsImage } from "../../shared/cloud";
 import { env } from "../env";
 import { CloudProvider } from "./provider";
 import { ComputerStore } from "./store";
@@ -19,7 +19,7 @@ export class ComputerService {
     const image = images.images.find(entry => entry.id === input.imageId);
     if (!image || !monthlyComputerImage(image))
       throw new CloudError(400, "unsupported_image", "Choose a supported Cloud Computer image.");
-    if ((image.minimum_resources?.cpus ?? 0) > plan.vcpus || (image.minimum_resources?.memory_mb ?? 0) > plan.memoryMb || (image.minimum_resources?.disk_size_mb ?? 0) > plan.diskGb * 1024)
+    if (!computerPlanFitsImage(plan, image))
       throw new CloudError(400, "computer_too_small", "Choose a larger monthly computer for this image.");
     const request = { image: image.image, ...(image.preset ? { preset: image.preset } : {}), mode: "permanent", cpus: plan.vcpus, memory_mb: plan.memoryMb,
       disk_size_mb: plan.diskGb * 1024, config: { ...image.vm_defaults } };
@@ -67,8 +67,8 @@ export class ComputerService {
       if (!offer) throw new CloudError(409, "contract_missing", "This computer needs support to recover its saved subscription.");
       const confirmed = await this.provider.paid(row.namespace, offer);
       if (confirmed.subscription) { saved.subscription = confirmed.subscription; row.contract = JSON.stringify(saved); await save(row); }
-      if (!confirmed.paid) return row;
       if (row.error) { row.error = null; await save(row); }
+      if (!confirmed.paid) return row;
       if (row.workspace_id) {
         if (row.state === "provisioning") {
           const workspace = await (await this.provider.scoped(row.namespace)).workspaces.get(row.workspace_id);

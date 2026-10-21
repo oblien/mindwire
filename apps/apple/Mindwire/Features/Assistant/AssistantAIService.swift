@@ -23,7 +23,7 @@ enum AssistantAIService: String, CaseIterable, Identifiable {
         switch self {
         case .claude: return "Claude"
         case .chatGPT: return "ChatGPT"
-        case .providers: return "OpenCode"
+        case .providers: return t("assistant.ai.providers")
         case .xai: return "Grok"
         }
     }
@@ -81,8 +81,11 @@ struct AssistantServiceMark: View {
 /// Direct actions, not radio choices followed by a second Continue button.
 struct AssistantServiceButton: View {
     let service: AssistantAIService
+    var title: String?
+    var detail: String?
     var busy = false
     let action: () -> Void
+    @Environment(\.assistantTheme) private var theme
 
     var body: some View {
         Button(action: action) {
@@ -90,22 +93,21 @@ struct AssistantServiceButton: View {
                 AssistantServiceMark(service: service)
                     .frame(width: 30)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(service.title).font(.headline)
-                    if !service.isPrimary {
-                        Text(service.detail).font(.subheadline).foregroundStyle(.secondary)
+                    Text(title ?? service.title).font(theme.font(18, weight: .medium, relativeTo: .headline))
+                    if let detail = detail ?? (service.isPrimary ? nil : service.detail), !detail.isEmpty {
+                        Text(detail).font(theme.font(15, relativeTo: .subheadline)).foregroundStyle(theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if busy { ProgressView().controlSize(.small) }
                 else { AppIcon(.chevronRight, size: 18, decorative: true).foregroundStyle(.secondary) }
             }
-            .padding(.horizontal, 22).padding(.vertical, ApplePlatform.isDesktop ? 18 : 23)
-            .background(ApplePlatform.isDesktop ? AssistantDesktopStyle.surface : AssistantStyle.surface,
-                        in: .rect(cornerRadius: 24))
-            .overlay { RoundedRectangle(cornerRadius: 24).strokeBorder(Color.primary.opacity(0.05)) }
-            .contentShape(.rect(cornerRadius: 24))
+            .padding(.horizontal, 16).padding(.vertical, 18)
+            .multilineTextAlignment(.leading)
         }
-        .foregroundStyle(.primary).buttonStyle(AssistantPressStyle())
+        .buttonStyle(AssistantChoiceStyle())
+        .tint(.primary).foregroundStyle(.primary)
         .accessibilityIdentifier("assistant.connect.\(service.rawValue)")
     }
 }
@@ -113,15 +115,15 @@ struct AssistantServiceButton: View {
 struct AssistantConnectionSummary: View {
     let name: String
     let isCloud: Bool
+    @Environment(\.assistantTheme) private var theme
 
     var body: some View {
         HStack(spacing: 10) {
             AppIcon(isCloud ? .cloud : .laptop, size: 18, decorative: true)
-            Text(name).lineLimit(1)
+            Text(t("onboarding.ai.computer", ["name": name])).lineLimit(2)
             Spacer(minLength: 0)
         }
-        .font(.subheadline).foregroundStyle(.secondary)
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .background(AssistantStyle.surface.opacity(0.7), in: .capsule)
+        .font(theme.font(15, relativeTo: .subheadline)).foregroundStyle(theme.muted)
+        .accessibilityElement(children: .combine)
     }
 }

@@ -6,6 +6,7 @@ struct AgentsListScreen: View {
     var repository: WorkspaceRepository = .shared
     @Environment(\.stores) private var stores
     @Environment(\.appExperienceMode) private var experienceMode
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(AppModel.self) private var app
     @Environment(\.sidebarNavigation) private var sidebar
     @State private var entries: [Entry] = []
@@ -24,6 +25,7 @@ struct AgentsListScreen: View {
         let bot: AssistantBot
         let computer: String
         let latest: Chat?
+        let chatIDs: [String]
         var id: String { bot.id }
     }
 
@@ -36,21 +38,29 @@ struct AgentsListScreen: View {
     }
 
     var body: some View {
-        List {
-            ForEach(visible) { entry in
-                let selected = sidebar?.selected == .app(.botDetail(botId: entry.id))
-                RootNavigationLink(value: AppRoute.botDetail(botId: entry.id), usesDefaultRowBackground: false) {
-                    label(entry)
-                        .padding(.horizontal, 14).padding(.vertical, 14)
-                        .background(selected ? Palette.accentSoft : Color.clear, in: .rect(cornerRadius: 22))
+        Group {
+            if usesCards {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 280 : 150),
+                                                 spacing: EntityCardStyle.spacing)],
+                              spacing: EntityCardStyle.spacing) {
+                        ForEach(visible) { entry in destination(entry) }
+                    }
+                    .padding(EntityCardStyle.padding)
                 }
-                .buttonStyle(.plain)
-                .listRowInsets(.init(top: 3, leading: 14, bottom: 3, trailing: 14))
-                .listRowSeparator(.hidden).listRowBackground(Color.clear)
-                .accessibilityIdentifier("bots.bot.\(entry.id)")
+                .accessibilityIdentifier("bots.grid")
+            } else {
+                List {
+                    ForEach(visible) { entry in
+                        destination(entry)
+                            .listRowInsets(.init(top: 3, leading: 14, bottom: 3, trailing: 14))
+                            .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                    }
+                }
+                .listStyle(.plain).scrollContentBackground(.hidden)
             }
         }
-        .listStyle(.plain).scrollContentBackground(.hidden).background(Palette.bg)
+        .background(Palette.bg)
         .overlay {
             if visible.isEmpty {
                 ContentUnavailableView {
@@ -85,6 +95,7 @@ struct AgentsListScreen: View {
         .onAppear(perform: reload)
         .observeWorkspaceCache(reload)
         .onChange(of: stores.bots.revision) { reload() }
+        .onChange(of: stores.chats.revision) { reload() }
         .onChange(of: repository.revision) { reload() }
         .task { await repository.refreshIfNeeded(); await stores.workspaceData.refreshAll(repository.all); reload() }
         .refreshable { await repository.refreshChecks(); await stores.workspaceData.refreshAll(repository.all, force: true); reload() }
@@ -103,9 +114,62 @@ struct AgentsListScreen: View {
         } message: { Text(error ?? "") }
     }
 
+    private var usesCards: Bool { experienceMode == .developer && !ApplePlatform.isDesktop && sidebar == nil }
+
+    private func isWorking(_ entry: Entry) -> Bool {
+        entry.chatIDs.contains { activity.status($0) == .running }
+    }
+
+    private func destination(_ entry: Entry) -> some View {
+        let selected = sidebar?.selected == .app(.botDetail(botId: entry.id))
+        return RootNavigationLink(value: AppRoute.botDetail(botId: entry.id), usesDefaultRowBackground: false) {
+            if usesCards { card(entry) }
+            else {
+                label(entry)
+                    .padding(14)
+                    .background(selected ? Palette.accentSoft : Color.clear, in: .rect(cornerRadius: 22))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("bots.bot.\(entry.id)")
+        .accessibilityValue(isWorking(entry) ? t("chat.running") : "")
+    }
+
+    private func card(_ entry: Entry) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            AssistantBotAvatar(botId: entry.id, icon: entry.bot.icon,
+                               size: EntityCardStyle.iconSize, isWorking: isWorking(entry))
+                .padding(.vertical, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.bot.name).font(.body.weight(.semibold)).foregroundStyle(.primary)
+                    .lineLimit(2, reservesSpace: true)
+                Text(entry.bot.purpose).font(.subheadline).foregroundStyle(.secondary)
+                    .lineLimit(2, reservesSpace: true)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                if let agent = stores.agents.get(entry.bot.agentId) {
+                    HStack(spacing: 6) {
+                        AgentLogo(id: agent.agentType, size: 14).accessibilityHidden(true)
+                        Text(agent.typeDisplayName).lineLimit(1)
+                    }
+                }
+                Label { Text(entry.computer).lineLimit(1) } icon: {
+                    AppIcon(Icon.computer, size: 14, decorative: true)
+                }
+                .labelIconToTitleSpacing(6)
+            }
+            .font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(EntityCardStyle.padding)
+        .background(EntityCardBackground())
+        .contentShape(.rect(cornerRadius: EntityCardStyle.cornerRadius))
+        .accessibilityElement(children: .combine)
+    }
+
     private func label(_ entry: Entry) -> some View {
         HStack(spacing: 14) {
-            AssistantBotAvatar(botId: entry.id, icon: entry.bot.icon, size: 46)
+            AssistantBotAvatar(botId: entry.id, icon: entry.bot.icon, size: 46, isWorking: isWorking(entry))
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(entry.bot.name).font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
@@ -136,15 +200,19 @@ struct AgentsListScreen: View {
     private func reload() {
         let workspaces = Dictionary(repository.all.map { ($0.id, $0.name) }, uniquingKeysWith: { _, last in last })
         var latest: [String: Chat] = [:]
+        var chatIDs: [String: [String]] = [:]
         for chat in stores.chatsByRecency() {
-            if let id = chat.botId, latest[id] == nil { latest[id] = chat }
+            if let id = chat.botId {
+                if latest[id] == nil { latest[id] = chat }
+                chatIDs[id, default: []].append(chat.id)
+            }
         }
         let connected = stores.bots.list().filter { workspaces[$0.workspaceId] != nil }
         let bots = BotPresentation.visibleBots(connected, preferredAgentId: stores.experience.assistantAgentID,
                                               projectIDs: stores.experience.projectIDs)
         entries = bots.compactMap { bot in
             guard let computer = workspaces[bot.workspaceId] else { return nil }
-            return Entry(bot: bot, computer: computer, latest: latest[bot.id])
+            return Entry(bot: bot, computer: computer, latest: latest[bot.id], chatIDs: chatIDs[bot.id] ?? [])
         }.sorted {
             if $0.bot.isMaster != $1.bot.isMaster { return $0.bot.isMaster }
             let left = $0.latest?.lastActivityAt ?? $0.latest?.createdAt ?? $0.bot.createdAt

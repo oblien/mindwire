@@ -400,6 +400,7 @@ struct AgentAuthMethodSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.assistantAIService) private var assistantService
+    @Environment(\.assistantTheme) private var assistantTheme
 
     @State private var values: [String: String] = [:]
     @State private var attemptedSubmit = false
@@ -408,7 +409,9 @@ struct AgentAuthMethodSheet: View {
     var body: some View {
         NavigationStack {
             Group {
-                if method.interactive {
+                if method.interactive, let service = assistantService, !ApplePlatform.isDesktop {
+                    assistantInteractive(service)
+                } else if method.interactive {
                     Form {
                         if let service = assistantService {
                             Section {
@@ -469,6 +472,96 @@ struct AgentAuthMethodSheet: View {
     }
 
     // MARK: Interactive method
+
+    private func assistantInteractive(_ service: AssistantAIService) -> some View {
+        AssistantPage {
+            AssistantServiceMark(service: service, size: 42).padding(.top, 8)
+            AssistantHeading(title: service.title, detail: service.signInHelp(for: method))
+            if let code = model.loginCode, !code.isEmpty {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(t("agentAuth.code")).font(assistantTheme.font(15, relativeTo: .subheadline)).foregroundStyle(assistantTheme.muted)
+                    Text(code).font(.title.monospaced().weight(.medium)).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 18) {
+                        Button { UIPasteboard.general.string = code } label: { Label(t("agentAuth.copyCode"), icon: .copy) }
+                            .buttonStyle(.glass).controlSize(.large)
+                            .accessibilityIdentifier("auth-copy-code")
+                        Spacer(minLength: 0)
+                        Button {
+                            values.removeAll()
+                            Task { await model.startInteractive(method) }
+                        } label: { AppIcon(.refresh, size: 20) }
+                            .buttonStyle(.glass).controlSize(.large).buttonBorderShape(.circle)
+                            .accessibilityLabel(t("agentAuth.newCode")).accessibilityIdentifier("auth-new-code")
+                    }
+                    .font(.subheadline.weight(.medium)).tint(.primary)
+                }
+                .padding(24).frame(maxWidth: .infinity, alignment: .leading)
+                .background(assistantTheme.surface, in: .rect(cornerRadius: 28))
+            }
+            HStack(alignment: .top, spacing: 12) {
+                if model.working && model.loginFields.isEmpty { ProgressView().controlSize(.small) }
+                Text(model.loginMessage ?? t("agentAuth.signInWait"))
+                    .font(assistantTheme.font(15, relativeTo: .subheadline)).foregroundStyle(assistantTheme.ink).fixedSize(horizontal: false, vertical: true)
+            }
+            if !model.loginFields.isEmpty, let url = model.loginURL.flatMap(URL.init(string:)) {
+                AssistantSecondaryButton(title: t("agentAuth.openUrl"), icon: .externalLink) { openURL(url) }
+                    .accessibilityIdentifier("auth-open-sign-in")
+            }
+            if let url = model.loginURL.flatMap(URL.init(string:)) {
+                Button { UIPasteboard.general.string = url.absoluteString } label: {
+                    Label(t("agentAuth.copyUrl"), icon: .copy)
+                }
+                .buttonStyle(.glass).controlSize(.large).tint(.primary)
+            }
+            ForEach(model.loginForm.visibleSections(values)) { section in
+                VStack(alignment: .leading, spacing: 14) {
+                    if !section.title.isEmpty && !(section.fields.count == 1 && section.fields.first?.label == section.title) {
+                        Text(section.title).font(.headline)
+                    }
+                    ForEach(section.fields) { field in
+                        VStack(alignment: .leading, spacing: 9) {
+                            Text(field.label).font(.subheadline.weight(.medium))
+                            AgentAuthFieldInput(field: field, value: Binding(get: { values[field.key] ?? field.default ?? "" },
+                                set: { values[field.key] = $0 }), focusedField: $focusedField)
+                                .padding(16).background(assistantTheme.surface, in: .rect(cornerRadius: 18))
+                                .accessibilityLabel(field.label).accessibilityIdentifier("auth-field-\(field.key)")
+                        }
+                    }
+                    if !section.help.isEmpty { Text(section.help).font(.subheadline).foregroundStyle(AssistantStyle.instruction) }
+                }
+                .disabled(model.loginSubmitting)
+            }
+            if attemptedSubmit, let field = model.loginForm.firstInvalidField(values) {
+                Text(t("agentAuth.requiredField", ["field": field.label])).font(.footnote).foregroundStyle(Palette.danger)
+            }
+            if let error = model.connectError, !error.isEmpty {
+                AssistantSetupIssue(message: error, retry: model.working ? nil : {
+                    values.removeAll()
+                    Task { await model.startInteractive(method) }
+                })
+            }
+            if let help = method.help, !help.isEmpty {
+                DisclosureGroup(t("assistant.ai.signInHelp")) {
+                    Text(help).font(.subheadline).foregroundStyle(AssistantStyle.instruction).padding(.top, 12)
+                }
+                .font(.subheadline).tint(.primary)
+            }
+        } footer: {
+            if !model.loginFields.isEmpty {
+                AssistantPrimaryButton(title: t("common.continue"), icon: .chevronRight, busy: model.loginSubmitting) {
+                    attemptedSubmit = true
+                    if let field = model.loginForm.firstInvalidField(values) { focusedField = field.key; return }
+                    focusedField = nil
+                    Task { if await model.submitInteractive(values: values) { values.removeAll() } }
+                }
+                .accessibilityIdentifier("auth-submit-code")
+            } else if let url = model.loginURL.flatMap(URL.init(string:)) {
+                AssistantPrimaryButton(title: t("agentAuth.openUrl"), icon: .externalLink) { openURL(url) }
+                    .accessibilityIdentifier("auth-open-sign-in")
+            }
+        }
+    }
 
     @ViewBuilder
     private var interactiveBody: some View {
@@ -579,6 +672,7 @@ struct AgentAuthForm: View {
 
     @FocusState private var focusedField: String?
     @State private var attemptedSubmit = false
+    @Environment(\.assistantAIService) private var assistantService
 
     private var sections: [DaemonAuthFormSection] { method.form.visibleSections(values) }
     private var textFields: [DaemonField] {
@@ -586,6 +680,9 @@ struct AgentAuthForm: View {
     }
 
     var body: some View {
+        if let service = assistantService, !ApplePlatform.isDesktop {
+            assistantForm(service)
+        } else {
         ScrollViewReader { scroll in
             Form {
                 AuthMethodDescription(method: method)
@@ -646,6 +743,56 @@ struct AgentAuthForm: View {
             }
             .disabled(working)
             .scrollDismissesKeyboard(.interactively)
+        }
+        }
+    }
+
+    private func assistantForm(_ service: AssistantAIService) -> some View {
+        ScrollViewReader { scroll in
+            AssistantPage {
+                AssistantServiceMark(service: service, size: 40)
+                AssistantHeading(title: service.title(for: method), detail: service.signInHelp(for: method))
+                ForEach(sections) { section in
+                    VStack(alignment: .leading, spacing: 16) {
+                        if !section.title.isEmpty && !(section.fields.count == 1 && section.fields.first?.label == section.title) {
+                            Text(section.title).font(.headline)
+                        }
+                        ForEach(section.fields) { field in
+                            VStack(alignment: .leading, spacing: 9) {
+                                Text(field.label).font(.subheadline.weight(.medium))
+                                fieldInput(field)
+                                    .padding(16).background(AssistantStyle.surface, in: .rect(cornerRadius: 18))
+                                    .accessibilityLabel(field.label).accessibilityHint(field.help ?? "")
+                                    .accessibilityIdentifier("auth-field-\(field.key)")
+                                if let help = field.help, !help.isEmpty { Text(help).font(.subheadline).foregroundStyle(AssistantStyle.instruction) }
+                            }
+                            .id(field.key)
+                        }
+                        if !section.help.isEmpty { Text(section.help).font(.subheadline).foregroundStyle(AssistantStyle.instruction) }
+                    }
+                }
+                if attemptedSubmit, let field = method.form.firstInvalidField(values) {
+                    Text(t("agentAuth.requiredField", ["field": field.label])).font(.footnote).foregroundStyle(Palette.danger)
+                }
+                if let error, !error.isEmpty { AssistantSetupIssue(message: error) }
+                if let help = method.help, !help.isEmpty, help != service.signInHelp(for: method) {
+                    DisclosureGroup(t("assistant.ai.signInHelp")) { Text(help).font(.subheadline).padding(.top, 12) }
+                        .font(.subheadline).tint(.primary)
+                }
+            } footer: {
+                AssistantPrimaryButton(title: t("agentAuth.connect"), icon: .link, busy: working) {
+                    attemptedSubmit = true
+                    if let field = method.form.firstInvalidField(values) {
+                        scroll.scrollTo(field.key, anchor: .center)
+                        focusedField = field.key
+                        return
+                    }
+                    focusedField = nil
+                    onSubmit()
+                }
+                .accessibilityIdentifier("auth-connect")
+            }
+            .disabled(working)
         }
     }
 

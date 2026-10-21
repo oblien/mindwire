@@ -50,6 +50,7 @@ struct AgentRowStatus: View {
                 } icon: {
                     AppIcon(.userKey, size: statusIconSize, decorative: true)
                 }
+                    .labelStyle(.titleAndIcon)
                     .font(.caption).foregroundStyle(.secondary)
             }
             if activity.isRunning(agentId: agent.id, stores: stores, projectId: projectId) {

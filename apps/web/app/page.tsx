@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowDown, ArrowUpRight } from "lucide-react";
-import AgentLogo from "@/components/marketing/AgentLogo";
+import ServiceLogo from "@/components/marketing/ServiceLogo";
 import HeroWorkspace from "@/components/landing/HeroWorkspace";
 import ModeExplorer from "@/components/landing/ModeExplorer";
 import PersonalSection from "@/components/landing/PersonalSection";
@@ -14,9 +14,9 @@ import styles from "@/components/landing/landing.module.css";
 import product from "@/components/landing/product.module.css";
 
 export const metadata: Metadata = {
-  title: "Mindwire — Powerful agents. Personal by design.",
+  title: "Mindwire — Your AI subscription. Put to work.",
   description:
-    "Turn Codex, Claude Code and OpenCode into your own personal bots. Bring your AI accounts, give each bot a purpose, and work your way in General or Developer mode.",
+    "Turn your ChatGPT or Claude subscription into personal bots that build apps, organize files, and carry out tasks on a computer.",
 };
 
 export default function Home() {
@@ -27,33 +27,32 @@ export default function Home() {
           <div className={`${styles.heroCompanion} ${styles.companionLeft}`} aria-hidden="true">
             <svg className={styles.companionTrail} viewBox="0 0 180 210" fill="none"><path d="M20 14c100-10 136 22 107 60S18 92 39 142s70 33 109 50" /><circle cx="20" cy="14" r="3" /><circle cx="148" cy="192" r="3" /></svg>
             <BotAvatar size={92} />
-            <span>A little less on your mind.</span>
+            <span>Your files. Your tools.</span>
           </div>
           <div className={`${styles.heroCompanion} ${styles.companionRight}`} aria-hidden="true">
             <BotAvatar character="robot" size={94} />
             <BotAvatar character="sprout" size={57} />
-            <span>A little more possible.</span>
+            <span>Your ideas, made real.</span>
             <svg className={styles.companionTrail} viewBox="0 0 180 210" fill="none"><path d="M20 14c90 0 127 25 127 78s-87 27-87 73 58 19 93 30" /><circle cx="20" cy="14" r="3" /><circle cx="153" cy="195" r="3" /></svg>
           </div>
-          <h1 id="hero-title">Powerful agents.<br /><span>Personal by design.</span></h1>
-          <p>Make a little team for your big ideas. Personal bots that know your work,
-            use your computer, and turn “what if” into done.</p>
+          <h1 id="hero-title">Your AI subscription.<br /><span>Put to work.</span></h1>
+          <p>Turn your ChatGPT or Claude subscription into personal bots that
+            build apps, organize files, and carry out tasks on a computer.</p>
           <div className={styles.heroActions}>
-            <Link href="/get-started" className={styles.primaryButton}>Make it yours <ArrowUpRight size={19} /></Link>
-            <Link href="#modes" className={styles.secondaryButton}>Find your mode <ArrowDown size={17} /></Link>
+            <Link href="/get-started" className={styles.primaryButton}>Get started <ArrowUpRight size={19} /></Link>
+            <Link href="#demo" className={styles.secondaryButton}>See it work <ArrowDown size={17} /></Link>
           </div>
           <div className={styles.agentLine}>
-            <span>The agents you love. The accounts you already have.</span>
+            <span>Bring the subscription you already have.</span>
             <div>
-              <Link href="/docs/reference/agents/codex"><AgentLogo agent="codex" size={19} />Codex</Link>
-              <Link href="/docs/reference/agents/claude"><AgentLogo agent="claude" size={21} />Claude Code</Link>
-              <Link href="/docs/reference/agents/opencode"><AgentLogo agent="opencode" size={18} />OpenCode</Link>
+              <Link href="/get-started#account"><ServiceLogo service="chatgpt" size={19} />ChatGPT</Link>
+              <Link href="/get-started#account"><ServiceLogo service="claude" size={21} />Claude</Link>
             </div>
           </div>
         </div>
         <HeroWorkspace />
         <div className={styles.heroCaption}>
-          <span>One for your ideas. One for your projects. All yours.</span>
+          <span>Give it a task. Open what it made.</span>
           <span>Interactive examples · No account needed</span>
         </div>
       </section>

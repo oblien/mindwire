@@ -33,55 +33,31 @@ private func messagingProviderName(_ provider: String) -> String {
 
 struct BotIntegrationsScreen: View {
     let bot: AssistantBot
+    var embedded = false
     @Environment(\.stores) private var stores
     @Environment(\.dismiss) private var dismiss
     @State private var connections: [MessagingIntegration] = []
     @State private var loading = true
     @State private var error: String?
-    @State private var editing: MessagingIntegration?
-    @State private var showingEditor = false
+    @State private var editor: EditorDestination?
     @State private var activity: MessagingIntegration?
     @State private var removing: MessagingIntegration?
     @State private var notice: String?
 
+    private struct EditorDestination: Identifiable {
+        let id = UUID()
+        var connection: MessagingIntegration?
+    }
+
     var body: some View {
-        NavigationStack {
-            List {
-                Section { Text("Connect \(bot.name) to Slack, Microsoft Teams, Discord, or Telegram.").foregroundStyle(.secondary) }
-                if loading { ProgressView().frame(maxWidth: .infinity) }
-                if !loading && connections.isEmpty && error == nil {
-                    ContentUnavailableView("Connect a messaging app", systemImage: "bubble.left.and.bubble.right", description: Text("Chat with your bot, run commands, or receive updates."))
-                }
-                ForEach(connections) { connection in
-                    Section {
-                        Button { editing = connection; showingEditor = true } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "bubble.left.and.bubble.right").font(.title3)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(connection.name).font(.headline)
-                                    Text("\(messagingProviderName(connection.provider)) · \(connection.mode.capitalized)").font(.subheadline).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if !connection.enabled { Text("Paused").font(.caption).foregroundStyle(.secondary) }
-                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                            }.padding(.vertical, 5)
-                        }.tint(.primary)
-                        Button("Send test message") { Task { await test(connection) } }.disabled(!connection.enabled)
-                        Button("Delivery activity") { activity = connection }
-                        Button("Disconnect", role: .destructive) { removing = connection }
-                    }
-                }
-                if let error { Section { Text(error).foregroundStyle(.secondary); Button("Retry") { Task { await load() } } } }
-            }
-            .navigationTitle("Integrations").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                AppToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() }.tint(.primary) }
-                AppToolbarItem(placement: .primaryAction) { Button { editing = nil; showingEditor = true } label: { Image(systemName: "plus") }.accessibilityLabel("Add integration").tint(.primary) }
-            }
-            .refreshable { await load() }
+        Group {
+            if embedded { content }
+            else { NavigationStack { content } }
         }
         .task { await load() }
-        .sheet(isPresented: $showingEditor, onDismiss: { Task { await load() } }) { MessagingIntegrationEditor(bot: bot, connection: editing) }
+        .sheet(item: $editor, onDismiss: { Task { await load() } }) {
+            MessagingIntegrationEditor(bot: bot, connection: $0.connection)
+        }
         .sheet(item: $activity) { MessagingIntegrationActivity(bot: bot, connection: $0) }
         .confirmationDialog("Disconnect this integration?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
             Button("Disconnect", role: .destructive) { if let connection = removing { Task { await disconnect(connection) } } }
@@ -89,8 +65,76 @@ struct BotIntegrationsScreen: View {
         .alert("Message sent", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) { Button("OK") {} } message: { Text(notice ?? "") }
         .frame(minWidth: ApplePlatform.isDesktop ? 500 : nil, minHeight: ApplePlatform.isDesktop ? 500 : nil)
     }
+
+    private var content: some View {
+        List {
+            if loading && connections.isEmpty {
+                HStack(spacing: 12) {
+                    ProgressView().chatActivityTint()
+                    Text("Loading integrations…").foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
+                .listRowBackground(Color.clear)
+                .accessibilityIdentifier("bot.integrations.loading")
+            } else if connections.isEmpty && error == nil {
+                ContentUnavailableView {
+                    Label("Connect your bot", icon: .plug)
+                } description: {
+                    Text("Use \(bot.name) in Slack, Microsoft Teams, Discord, or Telegram.")
+                } actions: {
+                    Button("Add integration") { editor = EditorDestination() }
+                        .buttonStyle(.glass).tint(.primary).controlSize(.large)
+                        .accessibilityIdentifier("bot.integrations.add")
+                }
+                .listRowBackground(Color.clear)
+            }
+            ForEach(connections) { connection in
+                Section {
+                    Button { editor = EditorDestination(connection: connection) } label: {
+                        HStack(spacing: 12) {
+                            AppIcon(.plug, size: 22)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(connection.name).font(.headline)
+                                Text("\(messagingProviderName(connection.provider)) · \(connection.mode.capitalized)")
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if !connection.enabled { Text("Paused").font(.caption).foregroundStyle(.secondary) }
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        }.padding(.vertical, 5)
+                    }.tint(.primary)
+                    Button("Send test message") { Task { await test(connection) } }.disabled(!connection.enabled)
+                    Button("Delivery activity") { activity = connection }
+                    Button("Disconnect", role: .destructive) { removing = connection }
+                }
+            }
+            if let error {
+                Section {
+                    Label("Integration unavailable", icon: .warning).font(.headline)
+                    Text(error).font(.subheadline).foregroundStyle(.secondary)
+                    Button("Retry") { Task { await load() } }.disabled(loading).tint(.primary)
+                }
+                .accessibilityIdentifier("bot.integrations.error")
+            }
+        }
+        .navigationTitle("Integrations").navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("bot.integrations.screen")
+        .toolbar {
+            if !embedded {
+                AppToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() }.tint(.primary) }
+            }
+            AppToolbarItem(placement: .topBarTrailing) {
+                Button { editor = EditorDestination() } label: { AppIcon(Icon.plus) }
+                    .accessibilityLabel("Add integration").tint(.primary)
+            }
+        }
+        .refreshable { await load() }
+    }
+
     @MainActor private func http() async throws -> DaemonHTTP { try await stores.workspaceData.integrationsHTTP(workspaceId: bot.workspaceId) }
     @MainActor private func load() async {
+        loading = true
+        error = nil
         defer { loading = false }
         do {
             let all: [MessagingIntegration] = try await http().decode("GET", "/integrations")

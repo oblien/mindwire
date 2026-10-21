@@ -173,6 +173,8 @@ private final class StoreRegistryRemote: WorkspaceRegistryRemote {
     let channel: StoreDaemonChannel
     let supportsProjectOperations = true
     let supportsBots = true
+    let supportsIntegrations = true
+    let supportsChatSchedules = true
     var current = WorkspaceMetadata(version: 1, workspaceId: "store", revision: 1, full: true,
                                     agents: [], projects: [], chats: [], deleted: [])
     init(channel: StoreDaemonChannel) { self.channel = channel }
@@ -192,6 +194,7 @@ private final class StoreRegistryRemote: WorkspaceRegistryRemote {
     func delete(kind: String, id: String, revision: Int64?) async throws -> WorkspaceMetadata { throw URLError(.unsupportedURL) }
     func projectSyncHTTP() async throws -> DaemonHTTP { .init(channel: channel, agentType: "") }
     func desktopHTTP() async throws -> DaemonHTTP { .init(channel: channel, agentType: "") }
+    func appsHTTP() async throws -> DaemonHTTP { .init(channel: channel, agentType: "") }
     func projectOperations() async throws -> [ProjectOperation] { [] }
     func dispose() async { }
 
@@ -200,6 +203,7 @@ private final class StoreRegistryRemote: WorkspaceRegistryRemote {
             revision: current.revision + 1, full: true, agents: current.agents, projects: current.projects,
             chats: current.chats, deleted: current.deleted)
         snapshot.bots = current.bots
+        snapshot.apps = current.apps
         return snapshot
     }
 
@@ -213,8 +217,26 @@ private final class StoreRegistryRemote: WorkspaceRegistryRemote {
             instructions: "Help the user and manage their bots.", memory: "", knowledge: [], isMaster: true,
             archived: false, createdAt: "2026-10-01T09:00:00Z", revision: current.revision)
         current.bots = (current.bots ?? []) + [master]
+        if ProcessInfo.processInfo.environment["MINDWIRE_STORE_STORY"] == "1" {
+            for (id, name, purpose, icon) in [
+                (AssistantBotPresets.appBuilderID(projectId: projectId), "App builder", "Turn your ideas into apps", "blue-robot"),
+                ("store-research", "Research", "Find the useful answers", "mint-sprout"),
+                ("store-writing", "Writing partner", "Find the right words", "peach-bean"),
+                ("store-planner", "Daily planner", "Make room for what matters", "lilac-robot")
+            ] {
+                let bot = AssistantBot(id: id, workspaceId: current.workspaceId,
+                    agentId: agentId, projectId: projectId, name: name, purpose: purpose,
+                    instructions: "", memory: "", knowledge: [], isMaster: false, archived: false,
+                    createdAt: "2026-10-01T08:00:00Z", revision: current.revision, icon: icon)
+                current.bots?.append(bot)
+            }
+        }
         for index in current.chats.indices where current.chats[index].projectId == projectId && current.chats[index].botId == nil {
             current.chats[index].botId = master.id
+            if ProcessInfo.processInfo.environment["MINDWIRE_STORE_SCENE"] == "assistant-build" {
+                current.chats[index].botId = AssistantBotPresets.appBuilderID(projectId: projectId)
+                current.chats[index].title = "My reading tracker"
+            }
             current.chats[index].revision = current.revision
         }
         for index in 0..<10 {
@@ -235,6 +257,19 @@ private final class StoreRegistryRemote: WorkspaceRegistryRemote {
                     current.chats.append(Chat(id: "store-writing-earlier-\(index)", agentId: agentId, projectId: projectId,
                         title: "Earlier article \(index + 1)", createdAt: String(format: "2026-09-%02dT09:00:00Z", 20 - index),
                         revision: current.revision, botId: bot.id))
+                }
+            }
+            if ProcessInfo.processInfo.environment["MINDWIRE_CHAT_TEST_CONTENT"] == "bots-grid" {
+                for (id, name, purpose, icon) in [
+                    ("review", "Code Review", "A second look at your changes", "lilac-robot"),
+                    ("research", "Research", "Find sources and connect ideas", "peach-sprout")
+                ] {
+                    let agent = current.agents.first { $0.agentType == .claudeCode }?.id ?? agentId
+                    let extraBot = AssistantBot(id: "store-bot-\(id)", workspaceId: current.workspaceId,
+                        agentId: agent, projectId: projectId, name: name, purpose: purpose,
+                        instructions: "", memory: "", knowledge: [], isMaster: false,
+                        archived: false, createdAt: "2026-10-01T08:00:00Z", revision: current.revision, icon: icon)
+                    current.bots?.append(extraBot)
                 }
             }
         }
@@ -289,6 +324,15 @@ actor StoreDaemonChannel: StreamingDaemonChannel {
 
     func perform(method: String, path: String, jsonBody: Data?) async throws -> (status: Int, body: String) {
         let endpoint = path.split(separator: "?")[0]
+        if ProcessInfo.processInfo.environment["MINDWIRE_STORE_STORY"] == "1", endpoint.hasSuffix("/schedules") {
+            return (200, #"[{"id":"morning","chatId":"store-project-0-chat-0","name":"Morning briefing","prompt":"Summarize the latest design news and share the useful links.","localTime":"08:00","timeZone":"Europe/London","revision":1,"active":true,"state":"idle"},{"id":"weekly","chatId":"store-project-0-chat-0","name":"Weekly plan","prompt":"Review my notes and suggest three priorities for the week.","localTime":"09:00","timeZone":"Europe/London","weekdays":[1],"revision":1,"active":true,"state":"idle"},{"id":"ideas","chatId":"store-project-0-chat-0","name":"Friday inspiration","prompt":"Find three interesting ideas for my next side project.","localTime":"16:00","timeZone":"Europe/London","weekdays":[5],"revision":1,"active":true,"state":"idle"}]"#)
+        }
+        if endpoint == "/integrations", method == "GET" {
+            if ProcessInfo.processInfo.environment["MINDWIRE_CHAT_TEST_CONTENT"] == "integrations-error" {
+                return (503, #"{"error":"This computer is unavailable. Reconnect it, then try again."}"#)
+            }
+            return (200, "[]")
+        }
         if endpoint == "/voice" {
             let claude = ProcessInfo.processInfo.environment["MINDWIRE_CHAT_AGENT"] == "claude-code"
             let capability = HarnessVoiceCapability(mode: claude ? "dictation" : "conversation", support: "native", remote: !claude,
@@ -410,6 +454,32 @@ actor StoreDaemonChannel: StreamingDaemonChannel {
             historyReads += 1
             let chat = endpoint.split(separator: "/").dropFirst().first.map(String.init) ?? "chat"
             let environment = ProcessInfo.processInfo.environment
+            if environment["MINDWIRE_STORE_STORY"] == "1", environment["MINDWIRE_STORE_SCENE"] != "chat" {
+                let building = environment["MINDWIRE_STORE_SCENE"] == "assistant-build"
+                let prompt = building
+                    ? "Make me a simple reading tracker. Books, notes, and a goal for the year."
+                    : "Plan a relaxed weekend in Lisbon. I love good coffee, bookshops, and quiet places."
+                let intro = building ? "I'll make something you can use right away." : "A little exploring, with plenty of time to slow down."
+                let result = building
+                    ? "**Your reading tracker is ready.**\n\nAdd your books, save a few notes, and watch your yearly goal fill up. You'll find it in Apps whenever you need it."
+                    : "**Your weekend, sorted.**\n\n**Saturday**\nCoffee in Príncipe Real, a browse through the bookshops, then sunset by the river.\n\n**Sunday**\nA slow breakfast, a garden walk, and one last pastel de nata.\n\nI've saved the plan and places to your files."
+                var parts: [DaemonMessagePart] = [.init(kind: .text, id: "intro", text: intro)]
+                if building {
+                    parts.append(.init(kind: .tool, id: "build", tool: .init(id: "build", name: "Bash", input: .object(["command": .string("npm run build")]), output: "Build complete")))
+                    parts.append(.init(kind: .tool, id: "check", tool: .init(id: "check", name: "Bash", input: .object(["command": .string("npm run check")]), output: "Ready")))
+                } else {
+                    parts.append(.init(kind: .tool, id: "search", tool: .init(id: "search", name: "web_search", input: .object(["query": .string("Lisbon coffee bookshops gardens")]), output: "Places found")))
+                    parts.append(.init(kind: .tool, id: "write", tool: .init(id: "write", name: "Write", input: .object(["file_path": .string("lisbon-weekend.md")]), output: "Saved")))
+                }
+                parts.append(.init(kind: .text, id: "result", text: result))
+                if building {
+                    let shortcut = AppShortcut(id: "store-reading", workspaceId: "store-mac", projectId: "store-project-0", name: "Reading room", icon: "books.vertical.fill", url: "http://127.0.0.1:3000", archived: false, createdAt: "2026-10-01T09:41:00Z", revision: 1)
+                    let output = String(decoding: try JSONEncoder().encode(["mindwireApp": shortcut]), as: UTF8.self)
+                    parts.append(.init(kind: .tool, id: "app", tool: .init(id: "app", name: "mcp__mindwire_bots__apps_register", output: output)))
+                }
+                let messages = [DaemonMessage(id: "story-user", chatId: chat, role: .user, text: prompt, createdAt: "2026-10-01T09:41:00Z"), DaemonMessage(id: "story-answer", chatId: chat, role: .assistant, text: "", createdAt: "2026-10-01T09:42:00Z", parts: parts)]
+                return (200, "{\"messages\":\(String(decoding: try JSONEncoder().encode(messages), as: UTF8.self)),\"hasMore\":false}")
+            }
             let query = URLComponents(string: path)?.queryItems ?? []
             let before = query.first { $0.name == "before" }?.value
             let delayValue = before == nil ? environment["MINDWIRE_CHAT_HISTORY_DELAY"]

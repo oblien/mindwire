@@ -94,26 +94,10 @@ struct AgentActivityGlyph: View {
     var size: CGFloat = 58
     var isAnimating = true
     var color: Color = .secondary
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-
-    private var paused: Bool { reduceMotion || !isAnimating || scenePhase == .background }
-    private var lineWidth: CGFloat { max(1.5, min(2, size / 29)) }
 
     var body: some View {
         ZStack {
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: paused)) { timeline in
-                Canvas { context, canvasSize in
-                    let rect = CGRect(origin: .zero, size: canvasSize).insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
-                    context.stroke(Path(ellipseIn: rect), with: .color(Color(uiColor: .quaternaryLabel)), lineWidth: lineWidth)
-                    let phase = paused ? 0 : timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.2) / 1.2
-                    let start = Angle.degrees(phase * 360 - 90)
-                    var arc = Path()
-                    arc.addArc(center: CGPoint(x: rect.midX, y: rect.midY), radius: rect.width / 2,
-                               startAngle: start, endAngle: start + .degrees(100), clockwise: false)
-                    context.stroke(arc, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                }
-            }
+            ActivityRing(size: size, isAnimating: isAnimating, color: color)
             if let agentType { AgentLogo(id: agentType, size: size * 30 / 58) }
             else { AppLogo(size: size * 30 / 58) }
         }

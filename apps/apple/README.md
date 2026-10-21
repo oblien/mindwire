@@ -58,10 +58,20 @@ Connection rows use provider marks; bot conversations keep their own avatars. Op
 management only reads status. Sign-in changes and model saves require user actions, and Developer
 authentication continues through the same adapter, session, and credential store.
 
-General uses designed onboarding pages and a single setup navigation stack, then opens the shared
-chat. Developer retains the existing workspace interface. Pairing, AI authentication, cloud creation,
-and billing checks are shared by both presentations. Setup asks which computer to use: Your computer
-or Cloud computer. Each destination contains only its own saved computers. History opens from the
+First launch is a full-screen **Welcome → Computer → AI account → Ready** flow. General is the default;
+Developer mode is an optional choice at the end, after the computer and AI connection have been
+verified and the bot workspace prepared. **Settings → App mode** reuses that choice with Cancel, preserving existing accounts and chats.
+Completion is persisted independently of mode: selecting Developer, pairing a computer, creating a
+profile, or signing into Cloud cannot expose an unfinished chat. Interrupted setup resumes its saved
+computer and profile; existing conversations migrate without forcing another onboarding.
+
+Personal pairing starts with opening Mindwire on the computer and scanning its QR code. Install or
+connect another way reveals installation and manual links in separate states with inline recovery.
+Cloud sign-in, saved computers, live plans and checkout belong to their own
+branch. Both use the existing pairing, provisioning, account and billing services. AI setup reuses native
+authentication before requesting sign-in. Auth forms retain the daemon's declared fields and help.
+Both modes share the setup presentation; the existing chat and Developer tools open only at the end.
+History opens from the
 left with a scrolling logo/search header, plain conversation titles, and an active-chat highlight.
 New chat is a plus icon beside Search; Settings and Account live in the trailing ellipsis menu.
 There is no New chat row or bottom Settings/account button. The drawer slides the full-width chat aside with a
@@ -78,8 +88,9 @@ are daemon-owned; both modes show the same flat bot list. Bot actions and
 knowledge limits are documented in [BOTS.md](../../packages/daemon/BOTS.md).
 
 Set `MINDWIRE_DESKTOP_DOWNLOAD_URL` to the real HTTPS desktop-app installer or download page when
-it is published. General then offers Open and Share actions before QR pairing. The phone directs users
-to **Connect your phone** in the desktop app; `mindwire connect pair` is available under Use Terminal instead.
+it is published. Setup then offers a download action before QR pairing. The phone directs users
+to **Connect your phone** in the desktop app. The Terminal tab provides `npm install -g mindwire`
+and `mindwire connect pair`, with QR scanning and pasting a connection link as separate choices.
 Do not point this setting at the daemon binary or the command-line installation guide.
 
 ### Mac runtime
@@ -139,7 +150,7 @@ Mindwire/
 
 ### State & data
 
-Fresh mobile installs choose General or Developer; upgrades preserve the existing Developer interface.
+Fresh mobile installs finish connection setup before choosing General or Developer; returning users keep their saved mode and conversations.
 Mac defaults to General and local execution. Oblien sign-in is available from account settings and
 cloud features; it is not a launch requirement.
 

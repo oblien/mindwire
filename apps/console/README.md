@@ -16,6 +16,21 @@ The root `docker-compose.yml` builds the website and Console from source and sta
 
 See [Cloud Computers](../web/content/docs/guides/cloud-computers.mdx) and [source deployment](../../docker/README.md). Firebase credentials remain outside the repository and build context; mount them read-only using the push Compose overlay.
 
+The reseller credentials must belong to an Enterprise provider account with the
+permissions needed for namespaces, billing and computers. The provider must also
+allow the host of `BASE_URL` (normally `console.mindwire.sh`) in its own
+`REDIRECT_ALLOWED_HOSTS`. Setting that variable on Console does not update the
+provider's allowlist.
+
+Cloud failures return a stable code and diagnostic reference. Find the matching
+`[cloud] provider request failed` line in the Console server log for the upstream
+operation, status and provider request reference. Credentials and response bodies
+are excluded. For example, `billing_redirect_not_allowed` requires the provider's
+return-host configuration; `reseller_enterprise_required` requires enabling the
+provider account for resale. These are not fixed by resetting the Console database.
+After correcting the configuration, use **Continue checkout** on the saved
+computer. Its original purchase and idempotency key are reused.
+
 ## API boundaries
 
 - `/api/account`: Better Auth sessions, profile, password and native device authorization.

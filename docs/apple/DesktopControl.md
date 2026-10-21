@@ -195,6 +195,11 @@ because task IDs can be reused. Foreground resume does not repeat sign-in.
 Desktop sign-in offers a retry and manual credentials. Unicode and multiline
 clipboard text require an active graphical session.
 
+Mobile entry points from computers, projects, chat controls and desktop tool cards present
+the same full-screen viewer. Done closes it explicitly; interactive modal dismissal is disabled
+so its swipe gesture cannot compete with the canvas or touchpad. Desktop setup and settings
+remain native sheets. This presentation choice does not change input queues or connection ownership.
+
 ## Shared components
 
 - `WorkspaceRepository` caches desktop models by workspace, saved desktop ID and connection context.

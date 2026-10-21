@@ -4,6 +4,7 @@ export type CheckoutParams = Parameters<Oblien["billing"]["checkout"]>[0];
 export type BillingOffer = NonNullable<CheckoutParams["offer"]>;
 import { env } from "../env";
 import { CloudError } from "./types";
+import { providerFailure } from "./provider-errors";
 
 export function providerBase(value = process.env.OBLIEN_BASE_URL ?? "https://api.oblien.com"): string {
   const url = new URL(value);
@@ -28,14 +29,12 @@ export function providerClient(auth: { token: string | (() => Promise<string>) }
     try {
       response = await fetch(url, { method: input.method, headers, body: input.body === undefined ? undefined : JSON.stringify(input.body),
         signal: AbortSignal.timeout(20000), redirect: "error" });
-    } catch { throw new CloudError(503, "cloud_unavailable", "Cloud Computers are temporarily unavailable. Your changes are saved; retry shortly."); }
+    } catch { throw providerFailure(input.method, input.path, 0); }
     const payload = await response.json().catch(() => null);
     if (!response.ok || (payload as { success?: unknown } | null)?.success === false) {
-      // Never echo upstream bodies: those can contain reseller credentials or payment details.
-      throw new CloudError(response.status === 404 ? 404 : response.status === 409 ? 409 : 503,
-        response.status === 404 ? "computer_not_found" : "cloud_unavailable",
-        "The Cloud Computer operation could not finish. Retry shortly; existing data is preserved.");
+      throw providerFailure(input.method, input.path, response.status, payload);
     }
+    if (payload === null && response.status !== 204) throw providerFailure(input.method, input.path, 502);
     return payload as T;
   };
   return client;

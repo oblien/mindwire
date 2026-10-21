@@ -17,6 +17,12 @@ final class AppExperience {
     var mode: AppExperienceMode? {
         didSet { defaults.set(mode?.rawValue, forKey: Self.modeKey) }
     }
+    /// A mode preference or a Cloud login is not a completed computer/AI connection.
+    /// This survives relaunches, so unfinished setup cannot fall through into an empty chat.
+    var setupCompleted: Bool {
+        didSet { defaults.set(setupCompleted, forKey: Self.setupKey) }
+    }
+    var needsInitialSetup: Bool { !setupCompleted || mode == nil }
     var assistantAgentID: String? {
         didSet { defaults.set(assistantAgentID, forKey: "mindwire.assistant.agent") }
     }
@@ -31,9 +37,16 @@ final class AppExperience {
         didSet { defaults.set(Array(collapsedBotIDs).sorted(), forKey: "mindwire.assistant.collapsedBots") }
     }
     private static let modeKey = "mindwire.experience.mode"
+    private static let setupKey = "mindwire.onboarding.completed"
 
-    init(defaults: UserDefaults, hasExistingData: Bool) {
+    init(defaults: UserDefaults, hasExistingData: Bool, hasExistingConversation: Bool = false) {
         self.defaults = defaults
+        // Existing conversations are proof of previous use. A saved computer or an
+        // unfinished agent profile alone must still finish setup. Never probe or reset auth here.
+        setupCompleted = defaults.object(forKey: Self.setupKey) != nil
+            ? defaults.bool(forKey: Self.setupKey)
+            : hasExistingConversation || (defaults.string(forKey: "mindwire.assistant.agent") != nil
+                && !(defaults.dictionary(forKey: "mindwire.assistant.projects") ?? [:]).isEmpty)
         let savedMode = defaults.string(forKey: Self.modeKey).flatMap(AppExperienceMode.init(rawValue:))
         #if targetEnvironment(macCatalyst)
         // Desktop begins with the local personal assistant. Keep an existing explicit
@@ -51,6 +64,7 @@ final class AppExperience {
         pendingAgentID = defaults.string(forKey: "mindwire.assistant.setup.agent")
         projectIDs = defaults.dictionary(forKey: "mindwire.assistant.projects") as? [String: String] ?? [:]
         collapsedBotIDs = Set(defaults.stringArray(forKey: "mindwire.assistant.collapsedBots") ?? [])
+        defaults.set(setupCompleted, forKey: Self.setupKey)
     }
 
     func use(agent: Agent, project: Project) {
@@ -60,6 +74,7 @@ final class AppExperience {
         assistantAgentID = agent.id
         pendingWorkspaceID = nil
         pendingAgentID = nil
+        setupCompleted = true
     }
 }
 

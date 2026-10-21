@@ -58,7 +58,7 @@ type Options struct {
 	// (a webhook, notify/file, notify/exec). nil = just the built-ins.
 	Notifier Notifier
 	// RunScheduledJobs explicitly makes this embedded runtime the owner of saved
-	// background jobs. Default false: reading/configuring Apps never starts jobs.
+	// app and conversation jobs. Default false: reading/configuring jobs never starts them.
 	// Use one scheduler owner for a state directory. The standalone daemon owns its scheduler.
 	RunScheduledJobs bool
 	// RunIntegrations opts this host into resuming and executing incoming messaging events.
@@ -193,6 +193,7 @@ func New(opts Options) (*Client, error) {
 	c := &Client{core: co, defaultAgent: opts.Agent}
 	co.apps = shortcuts.New(workspaceRegistry, co.execution)
 	co.apps.SetAdmission(sup.BeginServiceOperation)
+	co.apps.SetChatRuntime(sup)
 	co.apps.ConfigureNotifications(store)
 	sup.BotService().SetApps(co.apps)
 	co.integrations = integrations.New(workspaceRegistry, sup.BotService(), hub)
@@ -264,9 +265,10 @@ func (c *Client) Close() error {
 		service.Close()
 	}
 	for _, id := range ids {
-		c.core.sup.Cancel(id) // no-op/false for already-finished runs
+		c.core.sup.Cancel(id)
 	}
-	c.core.sup.Wait() // drain: every cancelled turn's final SaveRun lands before we return
+	c.core.sup.CancelAll() // includes scheduled turns and bot-tool work owned by this runtime
+	c.core.sup.Wait()      // drain: every cancelled turn's final SaveRun lands before we return
 	c.core.sup.NativeSessions().Close()
 	c.core.projectSync.Close()
 	c.core.projects.Close()
@@ -315,6 +317,7 @@ type Health struct {
 	WorkspaceMetadataVersion       int    `json:"workspaceMetadataVersion"`
 	BotsVersion                    int    `json:"botsVersion"`
 	AppsVersion                    int    `json:"appsVersion"`
+	ChatSchedulesVersion           int    `json:"chatSchedulesVersion"`
 	IntegrationsVersion            int    `json:"integrationsVersion"`
 	AgentDiscoveryVersion          int    `json:"agentDiscoveryVersion"`
 	ProjectLibraryVersion          int    `json:"projectLibraryVersion"`
@@ -344,7 +347,7 @@ func (c *Client) Health() Health {
 	if runtime.GOOS == "darwin" && os.Geteuid() != 0 {
 		localDesktopVersion = surface.LocalDesktopVersion
 	}
-	return Health{OK: true, NativeAuthSource: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, BotsVersion: registry.BotsVersion, AppsVersion: registry.AppsVersion, IntegrationsVersion: integrations.Version, AgentDiscoveryVersion: registry.AgentDiscoveryVersion, ProjectLibraryVersion: registry.ProjectLibraryVersion, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, QueuedInputVersion: orchestrator.QueuedInputVersion, NativeSessionVersion: agent.NativeSessionVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion, AttachmentUploadVersion: artifact.UploadVersion}
+	return Health{OK: true, NativeAuthSource: true, Agent: c.core.sup.Default(), Version: agent.Version, WorkspaceMetadataVersion: registry.Version, BotsVersion: registry.BotsVersion, AppsVersion: registry.AppsVersion, ChatSchedulesVersion: registry.ChatSchedulesVersion, IntegrationsVersion: integrations.Version, AgentDiscoveryVersion: registry.AgentDiscoveryVersion, ProjectLibraryVersion: registry.ProjectLibraryVersion, ProjectOperationsVersion: registry.ProjectOperationsVersion, ProjectIconsVersion: projecticon.Version, ProjectSyncVersion: projectsync.ProtocolVersion(), ConversationBrowserVersion: conversations.BrowserVersion, SurfaceProtocolVersion: surface.Version, LocalDesktopVersion: localDesktopVersion, NotificationPreferencesVersion: registry.NotificationPreferencesVersion, HarnessPolicyVersion: toolchain.PolicyVersion, WorkspaceIsolationVersion: agent.WorkspaceIsolationVersion, WorkspaceIsolation: agent.WorkspaceIsolation(), WorkspaceExecutionVersion: workspaceexec.Version, TerminalProtocolVersion: workspaceexec.TerminalVersion, TurnRequestVersion: orchestrator.TurnRequestVersion, QueuedInputVersion: orchestrator.QueuedInputVersion, NativeSessionVersion: agent.NativeSessionVersion, ChatForkVersion: agent.ChatForkVersion, ImageAttachmentsVersion: agent.ImageAttachmentsVersion, AttachmentUploadVersion: artifact.UploadVersion}
 }
 
 // processStarted anchors the daemon-process uptime the /stats snapshot reports; set once at package

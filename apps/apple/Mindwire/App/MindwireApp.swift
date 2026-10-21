@@ -115,9 +115,9 @@ private struct MindwireWindow: View {
             .sheet(item: $sheet, onDismiss: rootSheetDismissed) { item in
                 switch item {
                 case .computerPairing(let code):
-                    AddServerScreen(presetType: .local, pairingCode: code, assistantSetup: app.usesAssistant) { connection in
+                    AddServerScreen(presetType: .local, pairingCode: code, assistantSetup: app.usesAssistant || stores.experience.needsInitialSetup) { connection in
                         if let workspace = stores.workspaces(forServerId: connection.id).first {
-                            if app.usesAssistant { stores.experience.pendingWorkspaceID = workspace.id }
+                            if app.usesAssistant || stores.experience.needsInitialSetup { stores.experience.pendingWorkspaceID = workspace.id }
                             else { app.openWorkspace(workspace.id) }
                         }
                     }
@@ -172,7 +172,7 @@ private struct MindwireWindow: View {
         // Notification setup remains available in Settings on Mac.
         return
         #else
-        guard stores.experience.mode == .developer else { return }
+        guard stores.experience.mode == .developer, !stores.experience.needsInitialSetup else { return }
         // Never interrupt a chat, a pairing scan, or a sheet the user already opened.
         let atRoot = app.projectsPath.isEmpty && app.agentsPath.isEmpty
             && app.workspacesPath.isEmpty && app.settingsPath.isEmpty

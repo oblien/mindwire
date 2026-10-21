@@ -12,7 +12,6 @@ struct BotDetailScreen: View {
     @State private var editing = false
     @State private var iconPicker = false
     @State private var showingConnections = false
-    @State private var showingIntegrations = false
     @State private var showingHistory = false
     @State private var showingEngineSettings = false
     @State private var showingNewChat = false
@@ -39,7 +38,6 @@ struct BotDetailScreen: View {
         .sheet(isPresented: $editing, onDismiss: reload) { if let bot { BotEditorScreen(bot: bot) } }
         .sheet(isPresented: $iconPicker, onDismiss: reload) { if let bot { AssistantBotIconPicker(bot: bot) } }
         .sheet(isPresented: $showingConnections) { BotConnectionsScreen(repository: repository) }
-        .sheet(isPresented: $showingIntegrations) { if let bot { BotIntegrationsScreen(bot: bot) } }
         .sheet(isPresented: $showingHistory, onDismiss: reload) {
             if let bot { ChatHistorySheet(botId: bot.id) }
         }
@@ -128,7 +126,12 @@ struct BotDetailScreen: View {
                 if bot.isMaster {
                     Button { showingConnections = true } label: { Label(t("bots.connections.title"), systemImage: "network") }
                 }
-                Button { showingIntegrations = true } label: { Label("Integrations", systemImage: "bubble.left.and.bubble.right") }
+                NavigationLink {
+                    BotIntegrationsScreen(bot: bot, embedded: true)
+                } label: {
+                    Label("Integrations", icon: .plug)
+                }
+                .accessibilityIdentifier("bot.integrations")
                 if experienceMode == .developer {
                     if let agent = stores.agents.get(bot.agentId) {
                         Button { showingEngineSettings = true } label: {

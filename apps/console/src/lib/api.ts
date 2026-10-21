@@ -26,6 +26,9 @@ export class HttpError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    public readonly code?: string,
+    public readonly retryable?: boolean,
+    public readonly reference?: string,
   ) {
     super(message);
   }
@@ -54,12 +57,15 @@ export async function request<T>(
     );
   }
   if (!response.ok) {
-    const error = data as { message?: string; error?: string } | null;
+    const error = data as { message?: string; error?: string; code?: string; details?: { retryable?: boolean; reference?: string } } | null;
     throw new HttpError(
       response.status,
       error?.message ??
         error?.error ??
         "This request could not finish. Please retry.",
+      error?.code,
+      error?.details?.retryable,
+      error?.details?.reference,
     );
   }
   return data as T;

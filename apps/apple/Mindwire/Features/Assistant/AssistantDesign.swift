@@ -5,6 +5,8 @@ import SwiftUI
 enum AssistantStyle {
     static let canvas = Color(uiColor: .systemBackground)
     static let surface = Color(uiColor: .secondarySystemBackground)
+    // Instructions must remain readable on both setup surfaces; reserve .secondary for metadata.
+    static let instruction = Color.primary
 }
 
 /// The bundled mark has generous artwork padding. Fit the actual mark to its requested size.
@@ -22,28 +24,33 @@ struct AssistantBrandMark: View {
 
 struct AssistantPage<Content: View, Footer: View>: View {
     var reservesFooter = true
+    var fillsHeight = false
     @ViewBuilder let content: () -> Content
     @ViewBuilder let footer: () -> Footer
+    @Environment(\.assistantTheme) private var theme
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28, content: content)
-                .frame(maxWidth: 520, alignment: .leading)
-                .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 28)
-                .frame(maxWidth: .infinity)
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24, content: content)
+                    .frame(maxWidth: 520, alignment: .leading)
+                    .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 28)
+                    .frame(minHeight: fillsHeight ? geometry.size.height : nil, alignment: .top)
+                    .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .scrollDismissesKeyboard(.interactively)
-        .background {
-            AssistantStyle.canvas.ignoresSafeArea()
-        }
+        .font(theme.font(17))
+        .foregroundStyle(theme.ink)
+        .background { theme.canvas.ignoresSafeArea() }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if reservesFooter {
                 VStack(spacing: 12, content: footer)
                     .frame(maxWidth: 520)
-                    .padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 16)
+                    .padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 12)
                     .frame(maxWidth: .infinity)
-                    .background(AssistantStyle.canvas)
+                    .background(theme.canvas)
             }
         }
     }
@@ -61,18 +68,43 @@ struct AssistantHeading: View {
     var eyebrow: String = ""
     let title: String
     var detail: String = ""
+    @Environment(\.assistantTheme) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if !eyebrow.isEmpty {
-                Text(eyebrow).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                Text(eyebrow).font(theme.font(14, weight: .medium, relativeTo: .subheadline)).foregroundStyle(theme.muted)
             }
-            Text(title).font(.largeTitle.weight(.semibold)).tracking(-0.7).fixedSize(horizontal: false, vertical: true)
+            Text(title).font(theme.font(38, weight: theme.isWebsite ? .medium : .semibold, relativeTo: .largeTitle))
+                .tracking(theme.isWebsite ? -1.4 : -0.7).foregroundStyle(theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
             if !detail.isEmpty {
-                Text(detail).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(theme.font(17)).foregroundStyle(theme.isWebsite ? theme.muted : AssistantStyle.instruction)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// One quiet, aligned progress row for setup; real installation progress remains separate.
+struct AssistantSetupStatus: View {
+    let title: String
+    @Environment(\.assistantTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ProgressView().controlSize(.small).tint(theme.peach)
+                .frame(width: 24, height: 24)
+            Text(title).font(theme.font(15, relativeTo: .subheadline))
+                .foregroundStyle(theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(theme.subtle, in: .rect(cornerRadius: 20))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
     }
 }
 
@@ -82,32 +114,27 @@ struct AssistantOption: View {
     let icon: AppIconName
     var selected: Bool? = nil
     let action: () -> Void
+    @Environment(\.assistantTheme) private var theme
 
     var body: some View {
         Button(action: action) {
             HStack(alignment: .center, spacing: 16) {
                 AppIcon(icon, size: 25, decorative: true)
-                    .frame(width: 48, height: 48)
-                    .background(AssistantStyle.canvas, in: .rect(cornerRadius: 16))
+                    .frame(width: 36, height: 40)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(title).font(.headline)
-                    if !detail.isEmpty { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
+                    Text(title).font(theme.font(17, weight: .medium, relativeTo: .headline))
+                    if !detail.isEmpty { Text(detail).font(theme.font(15, relativeTo: .subheadline)).foregroundStyle(theme.muted) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 AppIcon(selected == true ? .checkCircleFilled : selected == false ? .circle : .chevronRight,
                         size: 20, decorative: true)
                     .foregroundStyle(selected == true ? Palette.accent : Color.secondary)
             }
-            .padding(18)
-            .background(selected == true ? Palette.accent.opacity(0.07) : AssistantStyle.surface,
-                        in: .rect(cornerRadius: 24))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24)
-                    .strokeBorder(selected == true ? Palette.accent.opacity(0.7) : .clear, lineWidth: 1.5)
-            }
-            .contentShape(.rect(cornerRadius: 24))
+            .padding(14)
+            .multilineTextAlignment(.leading)
         }
-        .buttonStyle(AssistantPressStyle()).foregroundStyle(.primary)
+        .buttonStyle(AssistantChoiceStyle())
+        .tint(.primary).foregroundStyle(.primary)
         .accessibilityAddTraits(selected == true ? .isSelected : [])
     }
 }
@@ -117,72 +144,87 @@ struct AssistantPrimaryButton: View {
     var icon: AppIconName = .arrowUpRight
     var busy = false
     let action: () -> Void
-    @Environment(\.isEnabled) private var isEnabled
-
+    @Environment(\.assistantTheme) private var theme
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                Text(title).font(.headline)
-                Spacer(minLength: 12)
-                if busy { ProgressView().tint(AssistantStyle.canvas) }
-                else { AppIcon(icon, size: 22, decorative: true) }
+            HStack(spacing: 10) {
+                if busy { ProgressView().tint(theme.canvas) }
+                Text(title)
+                if !busy { AppIcon(icon, size: 19, decorative: true) }
             }
-            .padding(.horizontal, 22).padding(.vertical, 19)
-            .frame(maxWidth: .infinity)
-            .foregroundStyle(AssistantStyle.canvas)
-            .background(Color.primary.opacity(isEnabled ? 1 : 0.25), in: .capsule)
+            .font(theme.font(18, weight: .medium, relativeTo: .headline)).frame(maxWidth: .infinity, minHeight: 24)
+            .foregroundStyle(theme.canvas)
         }
-        .buttonStyle(AssistantPressStyle()).disabled(busy)
+        .buttonStyle(.glassProminent).controlSize(.large).buttonBorderShape(.capsule)
+        .tint(theme.ink).disabled(busy)
     }
 }
 
-/// Static bundled artwork: no perpetual animation, network assets or imitation QR code.
-struct AssistantArtwork: View {
-    var computer = false
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+struct AssistantSecondaryButton: View {
+    let title: String
+    var icon: AppIconName? = nil
+    let action: () -> Void
+    @Environment(\.assistantTheme) private var theme
 
     var body: some View {
-        ZStack {
-            Circle().fill(Palette.accent.opacity(0.06)).frame(width: 150, height: 150)
-            Circle().strokeBorder(Palette.accent.opacity(0.12), lineWidth: 1).frame(width: 126, height: 126)
-            RoundedRectangle(cornerRadius: 30)
-                .fill(AssistantStyle.canvas).frame(width: 88, height: 88)
-                .rotationEffect(.degrees(-9))
-                .shadow(color: .black.opacity(reduceTransparency ? 0 : 0.06), radius: 20, y: 10)
-            if computer { AppIcon(.laptop, size: 46).foregroundStyle(Palette.accent) }
-            else { AppLogo(size: 44) }
-            tile(computer ? .scan : .fileText).offset(x: -85, y: 22).rotationEffect(.degrees(-8))
-            tile(computer ? .link : .sparkles).offset(x: 84, y: -22).rotationEffect(.degrees(9))
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if let icon { AppIcon(icon, size: 19, decorative: true) }
+                Text(title)
+            }
+            .font(theme.font(16, weight: .medium, relativeTo: .subheadline)).frame(maxWidth: .infinity, minHeight: 22)
         }
-        .frame(maxWidth: .infinity).frame(height: 160)
-        .accessibilityHidden(true)
+        .buttonStyle(.glass).controlSize(.large).buttonBorderShape(.capsule)
+        .tint(.primary).foregroundStyle(.primary)
     }
+}
 
-    private func tile(_ icon: AppIconName) -> some View {
-        AppIcon(icon, size: 25).foregroundStyle(.secondary)
-            .frame(width: 46, height: 46)
-            .background(AssistantStyle.canvas, in: .rect(cornerRadius: 18))
-            .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(Color.primary.opacity(0.05)) }
+/// Quiet connection illustration, using the actual bot character rather than a status badge.
+struct AssistantArtwork: View {
+    var computer = false
+    @Environment(\.assistantTheme) private var theme
+    var body: some View {
+        HStack(spacing: 0) {
+            AppIcon(.laptop, size: 28, decorative: true)
+                .frame(width: 62, height: 62)
+                .background(theme.surface, in: .rect(cornerRadius: 20))
+            Capsule().fill(Color.primary.opacity(0.12)).frame(width: 40, height: 1)
+            Circle().fill(Palette.accent).frame(width: 5, height: 5)
+            Capsule().fill(Color.primary.opacity(0.12)).frame(width: 26, height: 1)
+            AssistantBotAvatar(botId: "setup", icon: "peach-pebble", size: 76)
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 8).accessibilityHidden(true)
     }
 }
 
 struct AssistantSetupProgress: View {
     let step: Int
     private let labels = ["assistant.progress.computer", "assistant.progress.account", "assistant.progress.ready"]
+    @Environment(\.assistantTheme) private var theme
 
     var body: some View {
         HStack(spacing: 10) {
             ForEach(0..<3) { index in
-                VStack(alignment: .leading, spacing: 8) {
-                    Capsule().fill(index <= step ? Color.primary : Color.primary.opacity(0.08)).frame(height: 3)
-                    Text(t(labels[index])).font(.caption.weight(index == step ? .semibold : .regular))
-                        .foregroundStyle(index == step ? Color.primary : .secondary)
+                HStack(spacing: 6) {
+                    if index < step {
+                        AppIcon(.check, size: 12, decorative: true)
+                    } else {
+                        Text(String(index + 1)).font(theme.font(11, weight: .medium, relativeTo: .caption2))
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: 22, height: 22)
+                .background(index <= step ? theme.peachSoft : theme.subtle, in: .circle)
+                .foregroundStyle(index <= step ? theme.peach : theme.muted)
+                if index == min(max(step, 0), 2) {
+                    Text(t(labels[index])).font(theme.font(13, weight: .medium, relativeTo: .footnote))
+                        .foregroundStyle(theme.muted)
+                }
+                if index < 2 { Rectangle().fill(theme.line).frame(maxWidth: 32).frame(height: 1) }
             }
+            Spacer(minLength: 0)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(t("assistant.step", ["step": String(step + 1)]) + ": " + t(labels[step]))
+        .accessibilityLabel(t("assistant.step", ["step": String(step + 1)]) + ": " + t(labels[min(max(step, 0), 2)]))
     }
 }
 

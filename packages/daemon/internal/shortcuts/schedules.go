@@ -8,8 +8,37 @@ import (
 	"time"
 
 	"github.com/oblien/mindwire/packages/daemon/internal/registry"
+	"github.com/oblien/mindwire/packages/daemon/internal/session"
 	"github.com/oblien/mindwire/packages/daemon/internal/workspaceexec"
 )
+
+// Chat jobs use the host's normal turn runner and transcript, never a shell CLI
+// invocation, another worker process, or another notification pipeline.
+type ChatScheduleRuntime interface {
+	StartScheduledTurn(chatID, prompt, requestID string) (session.Run, error)
+	ScheduledRun(runID string) (session.Run, bool)
+}
+
+func (s *Service) SetChatRuntime(runtime ChatScheduleRuntime) { s.chatRuntime = runtime }
+
+func (s *Service) SaveChatSchedule(chatID string, spec registry.ScheduleSpec) (registry.Schedule, error) {
+	if s.chatRuntime == nil {
+		return registry.Schedule{}, errors.New("scheduled conversations are unavailable")
+	}
+	job, err := s.db.SaveChatSchedule(chatID, spec)
+	if err == nil {
+		s.Wake()
+	}
+	return job, err
+}
+
+func (s *Service) DeleteChatSchedule(chatID, id string) error {
+	if err := s.db.DeleteChatSchedule(chatID, id); err != nil {
+		return err
+	}
+	s.Wake()
+	return nil
+}
 
 // StartScheduler opts this runtime into owning persisted background jobs. Merely
 // constructing a service or connecting its notification store executes no work.
@@ -72,17 +101,40 @@ func (s *Service) scheduleLoop() {
 			delay = time.Minute
 		}
 		now := time.Now().UTC()
+		chatRuns := 0
+		for _, job := range jobs {
+			if job.ChatID != "" && job.State == "running" {
+				chatRuns++
+			}
+		}
 		for _, job := range jobs {
 			if job.State == "running" {
+				if job.ChatID != "" && job.RunID != "" {
+					delay = min(delay, 15*time.Second)
+					s.reconcileChatSchedule(job)
+					continue
+				}
 				delay = min(delay, time.Minute)
 				if expiry, err := time.Parse(time.RFC3339Nano, job.LeaseUntil); err != nil || !expiry.After(now) {
-					if err = s.db.FinishAppSchedule(job.ID, job.Occurrence, errors.New("the computer restarted during this run"), true); err == nil {
-						delay = min(delay, time.Second)
+					if job.ChatID == "" || !job.Active {
+						if err = s.db.FinishAppSchedule(job.ID, job.Occurrence, errors.New("the computer restarted during this run"), true); err == nil {
+							delay = min(delay, time.Second)
+						}
+						continue
 					}
+					// Conversation starts have durable receipts. An expired claim
+					// with no attached run can safely retry that same occurrence.
+				} else {
+					continue
 				}
-				continue
 			}
 			if !job.Active {
+				continue
+			}
+			// A report releases its admission worker after starting, but still
+			// counts toward the host's bounded scheduled-turn concurrency.
+			if job.ChatID != "" && job.State != "running" && chatRuns >= cap(s.workers) {
+				delay = min(delay, 15*time.Second)
 				continue
 			}
 			delay = min(delay, time.Minute)
@@ -116,6 +168,9 @@ func (s *Service) scheduleLoop() {
 				<-s.workers
 				continue
 			}
+			if job.ChatID != "" && job.State != "running" {
+				chatRuns++
+			}
 			s.background.Add(1)
 			go func() { defer done(); s.runSchedule(claimed) }()
 		}
@@ -136,7 +191,49 @@ func (s *Service) runSchedule(job registry.AppSchedule) {
 	defer func() { <-s.workers; s.Wake() }()
 	ctx, cancel := context.WithTimeout(s.ctx, 45*time.Second)
 	defer cancel()
+	if job.ChatID != "" {
+		if s.chatRuntime == nil {
+			s.finishSchedule(job, errors.New("scheduled conversations are unavailable"))
+			return
+		}
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		run, err := s.chatRuntime.StartScheduledTurn(job.ChatID, job.Prompt, registry.ScheduleEventID(job))
+		if err != nil {
+			s.finishSchedule(job, err)
+			return
+		}
+		if err := s.db.AttachScheduleRun(job.ID, job.Occurrence, run.ID); err != nil && !errors.Is(err, registry.ErrNotFound) {
+			log.Printf("schedules: could not attach run %s to %s: %v", run.ID, job.ID, err)
+		}
+		return
+	}
 	err := s.executeSchedule(ctx, job)
+	s.finishSchedule(job, err)
+}
+
+func (s *Service) reconcileChatSchedule(job registry.Schedule) {
+	if s.chatRuntime == nil {
+		return
+	}
+	run, ok := s.chatRuntime.ScheduledRun(job.RunID)
+	if ok && run.Status == "running" {
+		return
+	}
+	var err error
+	if !ok {
+		err = errors.New("the scheduled run is no longer available")
+	} else if run.Status != "done" {
+		err = fmt.Errorf("scheduled run %s", run.Status)
+		if run.Error != "" {
+			err = errors.New(run.Error)
+		}
+	}
+	s.finishSchedule(job, err)
+}
+
+func (s *Service) finishSchedule(job registry.Schedule, err error) {
 	for attempt := 0; attempt < 3; attempt++ {
 		finishErr := s.db.FinishAppSchedule(job.ID, job.Occurrence, err, false)
 		if finishErr == nil || errors.Is(finishErr, registry.ErrNotFound) || errors.Is(finishErr, registry.ErrConflict) {

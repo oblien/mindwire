@@ -13,12 +13,14 @@ struct ChatScreen: View {
     @Environment(\.stores) private var stores
     @Environment(\.appExperienceMode) private var experienceMode
     @Environment(\.desktopMessenger) private var desktopMessenger
+    @Environment(\.assistantChatTheme) private var chatTheme
     #if targetEnvironment(macCatalyst)
     @Environment(\.openWindow) private var openWindow
     #endif
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var model: ChatModel
     @State private var viewerID = UUID()
@@ -64,6 +66,7 @@ struct ChatScreen: View {
     @State private var showingDisplay = false             // presents the chat display (text size) sheet
     @State private var showingComputer = false
     @State private var showingNotifications = false
+    @State private var showingSchedules = false
     @State private var showingInteractions = false
     @State private var showingNativeInfo = false
     @State private var selectedInteractionID: ChatInteractionRequest.ID?
@@ -101,9 +104,11 @@ struct ChatScreen: View {
                                           workspace: model.session?.workspace))
             }
         }
-            .background(desktopMessenger ? AssistantDesktopStyle.canvas : Color.clear)
+            .background(desktopMessenger ? AssistantDesktopStyle.canvas : chatTheme.isWebsite ? chatTheme.canvas : Color.clear)
             .safeAreaInset(edge: .top, spacing: 0) { if desktopMessenger { desktopHeader } }
-            .safeAreaBar(edge: .bottom, spacing: 0) { if !chatRemoved { bottomBar } }
+            .safeAreaBar(edge: .bottom, spacing: 0) {
+                if !chatRemoved { bottomBar.environment(\.colorScheme, colorScheme) }
+            }
             .ignoresSafeArea(.container, edges: desktopMessenger ? .top : [])
             .sensoryFeedback(.impact(weight: .medium), trigger: sendCount)
         .environment(\.desktopWorkspaceID, agent?.workspaceId)
@@ -117,7 +122,8 @@ struct ChatScreen: View {
                 ChatNavigationTitle(title: experienceMode == .general ? generalBotName : chat?.title ?? "",
                                     subtitle: experienceMode == .general ? computerName ?? "" : "Mindwire",
                                     refreshing: model.hasLoadedHistory && (model.preparing || model.loadingHistory
-                                        || model.restoringRun || model.reconnecting || model.checkingOwnership))
+                                        || model.restoringRun || model.reconnecting || model.checkingOwnership),
+                                    bot: chat?.botId.flatMap(stores.bots.get), working: model.thinking)
             }
             AppToolbarItem(placement: .topBarTrailing) {
                 chatMenu
@@ -235,14 +241,16 @@ struct ChatScreen: View {
         .sheet(isPresented: $showingDisplay) {
             ChatDisplaySettingsSheet(textSize: $chatTextSize)
         }
-        .sheet(isPresented: $showingComputer) {
+        .fullScreenCover(isPresented: $showingComputer) {
             if let project = chat.flatMap({ stores.projects.get($0.projectId) }) {
                 ProjectToolDestination(tool: .desktop, project: project, files: model.session?.workspace)
-                    .workspaceToolPresentation()
             }
         }
         .sheet(isPresented: $showingNotifications) {
             ChatNotificationSettingsSheet(chatID: chatId)
+        }
+        .sheet(isPresented: $showingSchedules) {
+            ChatSchedulesSheet(chatID: chatId)
         }
         .sheet(isPresented: $showingInteractions) {
             ChatInteractionSheet(model: model, selectedID: $selectedInteractionID)
@@ -273,7 +281,7 @@ struct ChatScreen: View {
             if phase != .active { stores.chatDrafts.persist(chatId) }
             // Notification Center and system gestures briefly make a visible scene inactive.
             // Keep its transcript and stream intact until it actually leaves the foreground.
-            if phase == .background { model.viewDidDisappear(viewerID) }
+            if phase == .background { model.viewDidEnterBackground(viewerID) }
         }
         .task(id: scenePhase == .background) {
             guard scenePhase != .background, !chatRemoved else { return }
@@ -357,6 +365,7 @@ struct ChatScreen: View {
             showingNotifications = true
             #endif
         } label: { Label(t("notifications.title"), icon: .bell) }
+        Button { showingSchedules = true } label: { Label("Schedules", systemImage: "calendar.badge.clock") }
         DestructiveButton(t("common.delete"), icon: Icon.trash) { confirmingDelete = true }
     }
 
@@ -415,7 +424,9 @@ struct ChatScreen: View {
     }
 
     @ViewBuilder private var emptyState: some View {
-        if desktopMessenger, model.loadError == nil {
+        if chatTheme.isWebsite, model.loadError == nil {
+            AssistantChatEmptyState(bot: chat?.botId.flatMap(stores.bots.get))
+        } else if desktopMessenger, model.loadError == nil {
             VStack(spacing: 18) {
                 if let bot = chat?.botId.flatMap(stores.bots.get) {
                     AssistantBotAvatar(botId: bot.id, icon: bot.icon, size: 54)
@@ -521,6 +532,18 @@ struct ChatScreen: View {
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .strokeBorder(composerFocused ? Color.primary.opacity(0.2) : AssistantDesktopStyle.separator, lineWidth: 1)
                 }
+            } else if chatTheme.isWebsite {
+                HStack(alignment: .bottom, spacing: 4) {
+                    composerToolsButton
+                    composerTextField.padding(.vertical, 11)
+                    trailingButton
+                }
+                .padding(6).frame(minHeight: 56)
+                .background(chatTheme.surface, in: .rect(cornerRadius: 28, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .strokeBorder(composerFocused ? chatTheme.muted.opacity(0.5) : chatTheme.line, lineWidth: 1)
+                }
             } else {
                 GlassEffectContainer(spacing: Spacing.sm) {
                     HStack(alignment: .bottom, spacing: Spacing.sm) {
@@ -540,7 +563,7 @@ struct ChatScreen: View {
         .frame(maxWidth: desktopMessenger ? AssistantDesktopStyle.conversationWidth + 2 * AssistantDesktopStyle.gutter
                : AdaptiveLayout.readableWidth + 2 * Spacing.lg)
         .frame(maxWidth: .infinity)
-        .background(desktopMessenger ? AssistantDesktopStyle.canvas : Color.clear)
+        .background(desktopMessenger ? AssistantDesktopStyle.canvas : chatTheme.isWebsite ? chatTheme.canvas : Color.clear)
     }
 
     private var composerError: String? {
@@ -568,6 +591,10 @@ struct ChatScreen: View {
                 AppIcon(.plus, size: 20).foregroundStyle(.secondary)
                     .frame(width: 36, height: 36)
                     .background(AssistantDesktopStyle.surface, in: .circle)
+            } else if chatTheme.isWebsite {
+                AppIcon(.plus, size: 21).foregroundStyle(chatTheme.muted)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.circle)
             } else {
                 AppIcon(experienceMode == .general ? .plus : .sliders)
                     .font(.body.weight(.semibold))
@@ -600,9 +627,16 @@ struct ChatScreen: View {
         .glassEffect(.regular, in: .rect(cornerRadius: Radius.xl, style: .continuous))
     }
 
-    @ViewBuilder private var composerTextField: some View {
-        let field = TextField(desktopMessenger ? t("assistant.messageBot", ["name": generalBotName]) : t("chat.placeholder"),
-                  text: Binding(get: { input }, set: { input = $0 }), axis: .vertical)
+    private var composerPlaceholder: String {
+        desktopMessenger || chatTheme.isWebsite ? t("assistant.messageBot", ["name": generalBotName]) : t("chat.placeholder")
+    }
+
+    private var composerTextField: some View {
+        TextField(composerPlaceholder, text: Binding(get: { input }, set: { input = $0 }),
+                  prompt: chatTheme.isWebsite ? Text(composerPlaceholder).foregroundStyle(chatTheme.muted) : nil,
+                  axis: .vertical)
+            .textFieldStyle(.plain)
+            .foregroundStyle(chatTheme.ink)
             .font(ApplePlatform.isDesktop ? .system(size: (ChatTextSize(rawValue: chatTextSize) ?? .medium).points) : .body)
             .focused($composerFocused)
             .textInputAutocapitalization(.sentences)
@@ -610,8 +644,6 @@ struct ChatScreen: View {
             .lineLimit(1...5)
             .disabled(model.submitting)
             .accessibilityIdentifier("chat.composer")
-        if desktopMessenger { field.textFieldStyle(.plain) }
-        else { field }
     }
 
     /// Voice stays at the trailing edge; Send and Stop appear before it as needed.
@@ -651,7 +683,7 @@ struct ChatScreen: View {
 
             Button { composerFocused = false; showingVoice = true } label: {
                 AppIcon(.microphone, size: 22)
-                    .foregroundStyle(desktopMessenger ? BotColor.ink : .secondary)
+                    .foregroundStyle(desktopMessenger ? BotColor.ink : chatTheme.muted)
                     .frame(width: composerControlSize, height: composerControlSize)
                     .background(desktopMessenger ? AssistantDesktopStyle.outgoing : Color.clear, in: .circle)
             }
@@ -669,7 +701,7 @@ struct ChatScreen: View {
         desktopMessenger ? AssistantDesktopStyle.outgoing : (botColor ?? .brand).fill
     }
 
-    private var composerControlSize: CGFloat { desktopMessenger ? 36 : 30 }
+    private var composerControlSize: CGFloat { desktopMessenger ? 36 : chatTheme.isWebsite ? 44 : 30 }
 
     private func presentAttachmentPicker() {
         guard let source = pendingAttachmentSource else { return }
@@ -934,8 +966,9 @@ struct ChatScreen: View {
 
 /// Raw Markdown for the pressed part, separate from selecting the rendered words in place.
 /// Native selection and copy-all retain the original formatting characters.
-private struct MessageTextSheet: View {
+struct MessageTextSheet: View {
     let text: String
+    var title: String? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -946,7 +979,7 @@ private struct MessageTextSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Spacing.lg)
             }
-            .navigationTitle(t("chat.select"))
+            .navigationTitle(title ?? t("chat.select"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 AppToolbarItem(placement: .topBarLeading) {

@@ -46,6 +46,7 @@ enum WorkspaceRegistryError: LocalizedError {
 @MainActor
 protocol WorkspaceRegistryRemote: AnyObject {
     var supportsApps: Bool { get }
+    var supportsChatSchedules: Bool { get }
     var supportsIntegrations: Bool { get }
     var supportsAppPublishing: Bool { get }
     var supportsBotRebinding: Bool { get }
@@ -108,6 +109,7 @@ protocol WorkspaceRegistryRemote: AnyObject {
 
 extension WorkspaceRegistryRemote {
     var supportsApps: Bool { false }
+    var supportsChatSchedules: Bool { false }
     var supportsIntegrations: Bool { false }
     var supportsAppPublishing: Bool { false }
     var supportsBotRebinding: Bool { false }
@@ -177,6 +179,7 @@ extension WorkspaceRegistryRemote {
 final class WorkspaceRegistryClient: WorkspaceRegistryRemote {
     private(set) var supportsBots = false
     var supportsApps: Bool { appsVersion >= 1 }
+    private(set) var supportsChatSchedules = false
     var supportsIntegrations: Bool { integrationsVersion >= 1 }
     var supportsAppPublishing: Bool { appsVersion >= 2 }
     var supportsBotRebinding: Bool { botProfilesVersion >= 5 }
@@ -296,6 +299,7 @@ final class WorkspaceRegistryClient: WorkspaceRegistryRemote {
             supportsAgentDiscovery = (health.agentDiscoveryVersion ?? 0) >= 1
             supportsBots = (health.botsVersion ?? 0) >= 1
             appsVersion = health.appsVersion ?? 0
+            supportsChatSchedules = (health.chatSchedulesVersion ?? 0) >= 1
             integrationsVersion = health.integrationsVersion ?? 0
             botCreationSupported = (health.botsVersion ?? 0) >= 3
             botIconsSupported = (health.botsVersion ?? 0) >= 2

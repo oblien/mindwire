@@ -9,6 +9,11 @@ struct AppStorePreviewScene: View {
     @State private var showTransfer = false
     @State private var showSource = false
     @State private var showNotificationIntro = false
+    @State private var showAssistantSidebar = true
+    @State private var showHistory = false
+    @State private var showDesktop = false
+    @State private var showSchedules = false
+    @State private var previewBot: AssistantBot?
     @State private var notificationReminderOwner = UUID()
     @State private var error: String?
     @State private var previousIdleTimerDisabled: Bool?
@@ -39,6 +44,13 @@ struct AppStorePreviewScene: View {
             } else if let error { Text(error).accessibilityIdentifier("store.error") }
             else { ProgressView() }
         }
+        #if targetEnvironment(macCatalyst)
+        // Preview fixtures bypass MainScene, so give their geometry readers a
+        // real desktop canvas before the offline content finishes loading.
+        .frame(minWidth: 1280, minHeight: 820)
+        .modifier(AssistantDesktopWindow())
+        .environment(\.desktopMessenger, true)
+        #endif
         .preferredColorScheme(theme == "dark" ? .dark : .light)
         .onAppear {
             // Real-device captures must survive iOS waiting for a menu animation to settle.
@@ -61,21 +73,34 @@ struct AppStorePreviewScene: View {
                     usesDefaultProjectIcon: scenario == "library", preloadChat: scenario != "chat-loading",
                     chatAgentType: ProcessInfo.processInfo.environment["MINDWIRE_CHAT_AGENT"] == "claude-code" ? .claudeCode : .codex)
                 if scenario == "chat" || scenario == "chat-loading" {
+                    data.stores.experience.mode = .developer
                     data.app.projectsPath = NavigationPath([AppRoute.projectDetail(id: data.projects[0].id), .chat(chatId: data.chatID)])
                 } else if (scenario == "projects" && UIDevice.current.userInterfaceIdiom == .pad) || scenario == "switch" {
                     data.app.openProject(data.projects[0].id)
                 } else if scenario == "workspaces" { data.app.selectedTab = .workspaces }
                 else if scenario == "agents" { data.app.selectedTab = .agents }
-                else if scenario.hasPrefix("assistant") {
-                    data.stores.experience.mode = .general
-                    if let agent = data.stores.agents.get("store-mac-codex") {
+                else if scenario.hasPrefix("assistant") || scenario == "onboarding" || scenario == "mode-settings" {
+                    data.stores.experience.mode = scenario == "onboarding" ? nil : scenario == "mode-settings" ? .developer : .general
+                    if scenario != "onboarding", let agent = data.stores.agents.get("store-mac-codex") {
                         data.stores.experience.use(agent: agent, project: data.projects[0])
                     }
+                    if scenario == "onboarding" { data.stores.experience.setupCompleted = false }
                     data.app.assistantChatID = data.chatID
+                    if scenario == "assistant-sidebar" || scenario == "assistant-history" || ["assistant-task", "assistant-build", "assistant-schedules"].contains(scenario) {
+                        let bot = try await data.stores.workspaceData.ensureGeneralBots(
+                            agentId: "store-mac-codex", projectId: data.projects[0].id)
+                        data.app.assistantBotID = bot.id
+                        previewBot = bot
+                    }
+                    if scenario == "mode-settings" { data.app.selectedTab = .settings }
                 }
                 else if scenario == "backup" {
                     data.app.selectedTab = .settings
                     data.app.settingsPath = NavigationPath([SettingsRoute.backupSync])
+                }
+                if scenario == "agents" || scenario.hasPrefix("bot-") {
+                    previewBot = try await data.stores.workspaceData.ensureGeneralBots(
+                        agentId: "store-mac-codex", projectId: data.projects[0].id)
                 }
                 if scenario == "desktop" {
                     #if targetEnvironment(simulator)
@@ -92,6 +117,9 @@ struct AppStorePreviewScene: View {
                 }
                 git = await data.gitModel()
                 fixture = data
+                showHistory = scenario == "assistant-history"
+                showSchedules = scenario == "assistant-schedules"
+                showDesktop = scenario == "desktop"
                 showTransfer = scenario == "switch"
                 showSource = scenario == "source" && ProcessInfo.processInfo.environment["MINDWIRE_GIT_MODAL_FIXTURE"] == "1"
                 if scenario == "notification-intro" {
@@ -105,10 +133,42 @@ struct AppStorePreviewScene: View {
 
     @ViewBuilder private func content(_ data: AppStoreFixture, git: GitModel) -> some View {
         switch scenario {
+        case "chat", "chat-loading":
+            #if targetEnvironment(macCatalyst)
+            assistantConversation(data)
+            #else
+            MainScene(repository: data.repository)
+            #endif
         case "assistant":
             AssistantScene(repository: data.repository)
+        case "assistant-task", "assistant-build", "assistant-schedules":
+            #if targetEnvironment(macCatalyst)
+            assistantConversation(data)
+                .sheet(isPresented: $showSchedules) { ChatSchedulesSheet(chatID: data.chatID) }
+            #else
+            NavigationStack { ChatScreen(chatId: data.chatID) }
+                .sheet(isPresented: $showSchedules) { ChatSchedulesSheet(chatID: data.chatID) }
+            #endif
+        case "bot-integrations":
+            if let previewBot { BotIntegrationsScreen(bot: previewBot) }
+        case "bot-detail":
+            if let previewBot {
+                NavigationStack { BotDetailScreen(botId: previewBot.id, repository: data.repository) }
+            }
+        case "assistant-sidebar", "assistant-history":
+            assistantConversation(data)
+            .sheet(isPresented: $showHistory) {
+                if let previewBot { ChatHistorySheet(botId: previewBot.id) }
+            }
         case "assistant-setup":
             AssistantSetupScreen(repository: data.repository, onReady: {})
+        case "assistant-pair":
+            AddServerScreen(presetType: .local, assistantSetup: true)
+        case "assistant-account":
+            NewAgentScreen(workspaceId: data.workspaces[0].id, repository: data.repository,
+                           assistantSetup: true, assistantWorkspace: data.workspaces[0],
+                           existingAgents: data.stores.agents(forWorkspaceId: data.workspaces[0].id))
+                .environment(\.assistantTheme, .website)
         case "notification-intro":
             MainScene(repository: data.repository)
                 .sheet(isPresented: $showNotificationIntro, onDismiss: {
@@ -152,8 +212,14 @@ struct AppStorePreviewScene: View {
         case "server-files":
             FilesSheet(workspace: data.files, basePath: "/", startPath: "~")
         case "desktop":
-            DesktopScreen(workspaceId: data.workspaces[1].id, desktopName: "Orbit · Desktop",
-                          repository: data.repository, initialModel: desktop)
+            NavigationStack {
+                Button("Open desktop") { showDesktop = true }
+                    .navigationTitle("Orbit")
+            }
+            .fullScreenCover(isPresented: $showDesktop) {
+                DesktopScreen(workspaceId: data.workspaces[1].id, desktopName: "Orbit · Desktop",
+                              repository: data.repository, initialModel: desktop)
+            }
         case "switch":
             MainScene(repository: data.repository)
                 .sheet(isPresented: $showTransfer) {
@@ -161,6 +227,16 @@ struct AppStorePreviewScene: View {
                 }
         default:
             MainScene(repository: data.repository)
+        }
+    }
+
+    private func assistantConversation(_ data: AppStoreFixture) -> some View {
+        AssistantSidebar(isPresented: $showAssistantSidebar) { _ in
+            NavigationStack { ChatScreen(chatId: data.chatID) }
+        } sidebar: {
+            ChatHistorySheet(onNewChat: {}, onSettings: {}, onAccount: {},
+                             onCloseSidebar: { showAssistantSidebar = false },
+                             onNewBot: {}, onApps: {})
         }
     }
 }

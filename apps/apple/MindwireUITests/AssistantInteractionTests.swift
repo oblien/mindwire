@@ -5,6 +5,92 @@ import XCTest
 final class AssistantInteractionTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
+    func testFirstRunKeepsConnectionAlternativesSeparateAndErrorsInline() {
+        for theme in ["light", "dark"] {
+            let app = launch("onboarding", theme: theme)
+            let start = app.buttons["onboarding.start"]
+            XCTAssertTrue(start.waitForExistence(timeout: 15), app.debugDescription)
+            XCTAssertTrue(start.isHittable)
+            XCTAssertFalse(app.tabBars.firstMatch.exists)
+            XCTAssertFalse(app.buttons["assistant.sidebar.open"].exists)
+            XCTAssertFalse(app.descendants(matching: .any)["chat.composer"].firstMatch.exists)
+            capture("New welcome — \(theme)")
+            start.tap()
+            let own = app.buttons["assistant.choose.computer"]
+            let cloud = app.buttons["assistant.choose.cloud"]
+            XCTAssertTrue(own.waitForExistence(timeout: 5), app.debugDescription)
+            XCTAssertTrue(cloud.isHittable)
+            XCTAssertFalse(app.buttons["Cancel"].exists, "First setup cannot be dismissed into an unconnected app")
+            capture("Choose where your bot works — \(theme)")
+            own.tap()
+            XCTAssertTrue(app.buttons["Add a computer"].waitForExistence(timeout: 5))
+            app.buttons["Add a computer"].tap()
+            XCTAssertTrue(app.buttons["computer-add-scan"].waitForExistence(timeout: 5))
+            capture("Pairing instructions — \(theme)")
+            XCTAssertFalse(app.buttons["onboarding.pair.copy"].exists, "Installation should not compete with the default pairing instruction")
+            XCTAssertFalse(app.buttons["onboarding.pair.paste"].exists, "Manual links are disclosed only when needed")
+            app.buttons["Install or connect another way"].tap()
+            app.buttons["onboarding.pair.install"].tap()
+            XCTAssertTrue(app.buttons["onboarding.pair.copy"].waitForExistence(timeout: 5))
+            capture("Install and pair — \(theme)")
+            app.buttons["Back to QR setup"].tap()
+            XCTAssertTrue(app.buttons["computer-add-scan"].waitForExistence(timeout: 5))
+            app.buttons["onboarding.pair.paste"].tap()
+            let field = app.textFields["onboarding.pair.link"]
+            XCTAssertTrue(field.waitForExistence(timeout: 5), app.debugDescription)
+            field.tap()
+            field.typeText("not-a-connection")
+            app.buttons["onboarding.pair.connect"].tap()
+            let error = app.staticTexts["This isn't a valid Mindwire connection code. Scan a new code from your computer."]
+            XCTAssertTrue(error.waitForExistence(timeout: 10), app.debugDescription)
+            XCTAssertFalse(app.alerts.firstMatch.exists, "Pairing errors stay in context")
+            XCTAssertFalse(app.descendants(matching: .any)["chat.composer"].firstMatch.exists)
+            capture("Recover from an invalid pairing link — \(theme)")
+            app.buttons["Back to QR setup"].tap()
+            XCTAssertTrue(app.buttons["computer-add-scan"].waitForExistence(timeout: 5))
+            app.terminate()
+        }
+    }
+
+    func testOnboardingSupportsAccessibilityTextWithoutHidingContinue() {
+        let app = launch("onboarding", theme: "dark", largeText: true)
+        let next = app.buttons["onboarding.start"]
+        XCTAssertTrue(next.waitForExistence(timeout: 15))
+        XCTAssertTrue(next.isHittable)
+        capture("Welcome — accessibility text")
+        next.tap()
+        let cloud = app.buttons["assistant.choose.cloud"]
+        for _ in 0..<6 where !cloud.isHittable { app.swipeUp() }
+        XCTAssertTrue(cloud.isHittable)
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        capture("Setup choices — accessibility text")
+        cloud.tap()
+        XCTAssertTrue(app.navigationBars["Mindwire Cloud"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["assistant.sidebar.open"].exists)
+        app.terminate()
+    }
+
+    func testModeSettingsCanPreviewCancelAndThenSwitch() {
+        let app = launch("mode-settings", theme: "light")
+        let mode = app.buttons["settings.appMode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(mode.label.contains("Developer"))
+        mode.tap()
+        let picker = app.segmentedControls["experience.mode"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        picker.buttons["General"].tap()
+        app.buttons["experience.cancel"].tap()
+        XCTAssertTrue(mode.waitForExistence(timeout: 5))
+        XCTAssertTrue(mode.label.contains("Developer"), "Cancel must leave the current mode intact")
+        mode.tap()
+        picker.buttons["General"].tap()
+        app.buttons["experience.continue"].tap()
+        XCTAssertTrue(app.buttons["assistant.sidebar.open"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.descendants(matching: .any)["chat.composer"].firstMatch.exists,
+                      "Switching modes must preserve the existing connection and conversation")
+        app.terminate()
+    }
+
     func testSidebarSearchAndClosingPreserveTheCurrentDraft() {
         for theme in ["light", "dark"] {
             let app = launch("assistant", theme: theme, content: "bots-history")
@@ -190,13 +276,13 @@ final class AssistantInteractionTests: XCTestCase {
         XCTAssertTrue(cloud.isHittable)
         capture("Choose your computer or a cloud computer — light")
         own.tap()
-        XCTAssertTrue(app.navigationBars["Your computer"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["My computer"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "MacBook Pro")).firstMatch.exists)
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Cloud Studio")).firstMatch.exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(cloud.waitForExistence(timeout: 5))
         cloud.tap()
-        XCTAssertTrue(app.navigationBars["Cloud computer"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Mindwire Cloud"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "MacBook Pro")).firstMatch.exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(own.waitForExistence(timeout: 5))
@@ -400,7 +486,7 @@ final class AssistantInteractionTests: XCTestCase {
         XCTAssertTrue(cloud.isHittable)
         capture("Computer choices — dark with accessibility text")
         cloud.tap()
-        XCTAssertTrue(app.navigationBars["Cloud computer"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Mindwire Cloud"].waitForExistence(timeout: 5))
         app.terminate()
     }
 
@@ -410,6 +496,14 @@ final class AssistantInteractionTests: XCTestCase {
         XCTAssertTrue(app.buttons["assistant.sidebar.backdrop"].waitForNonExistence(timeout: 5), file: file, line: line)
         XCTAssertTrue(app.buttons["assistant.sidebar.open"].isHittable, file: file, line: line)
         XCTAssertFalse(app.textFields["assistant.sidebar.search"].isHittable, file: file, line: line)
+    }
+
+    private func scrollOnboarding(_ app: XCUIApplication, above footer: XCUIElement) {
+        // Scroll inside the visible content rather than swiping across its fixed action.
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: app.frame.midX, dy: footer.frame.minY - 40))
+        let end = origin.withOffset(CGVector(dx: app.frame.midX, dy: 120))
+        start.press(forDuration: 0.05, thenDragTo: end)
     }
 
     private func launch(_ scene: String, theme: String, largeText: Bool = false, content: String = "controls") -> XCUIApplication {

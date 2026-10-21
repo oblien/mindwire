@@ -47,7 +47,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "8"
+    CURRENT_PROJECT_VERSION: "10"
     DEVELOPMENT_LANGUAGE: en
     MINDWIRE_DESKTOP_DOWNLOAD_URL: "" # Set to the published desktop installer/landing URL when available.
     CODE_SIGN_STYLE: Automatic
@@ -189,6 +189,7 @@ targets:
       - path: Mindwire/Resources/Assets.xcassets
       - path: Mindwire/Models/AgentBrand.swift
       - path: Mindwire/DesignSystem/BotPalette.swift
+      - path: Mindwire/DesignSystem/ActivityRing.swift
       - path: Mindwire/DesignSystem/SavedAppIcon.swift
       - path: Mindwire/Features/Assistant/AssistantBotAvatar.swift
       - path: Mindwire/Localization/Strings.swift
