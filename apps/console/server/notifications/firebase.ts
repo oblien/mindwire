@@ -16,12 +16,18 @@ export class FirebasePush implements PushTransport {
 
   private client(): Messaging {
     if (this.messaging) return this.messaging;
+    const json = process.env.FCM_SERVICE_ACCOUNT_JSON;
     const file = process.env.FCM_SERVICE_ACCOUNT_PATH;
-    if (!file) throw new PushError(503, "push_not_configured");
+    if (!json && !file) throw new PushError(503, "push_not_configured");
     const name = "mindwire-push";
-    const app = getApps().find(app => app.name === name)
-      ?? initializeApp({ credential: cert(JSON.parse(readFileSync(file, "utf8"))) }, name);
-    return this.messaging = getMessaging(app);
+    try {
+      const app = getApps().find(app => app.name === name)
+        ?? initializeApp({ credential: cert(JSON.parse(json || readFileSync(file!, "utf8"))) }, name);
+      return this.messaging = getMessaging(app);
+    } catch {
+      // JSON parse/SDK errors can include private credential material.
+      throw new PushError(503, "push_credentials_invalid");
+    }
   }
 
   async validate(token: string): Promise<{ valid: boolean; reason?: string }> {

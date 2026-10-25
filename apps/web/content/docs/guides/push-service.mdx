@@ -23,8 +23,15 @@ send token cannot manage devices. Send tokens resolve locally and can deliver on
 to their owner's devices; workspace/channel values are delivery labels, not VM
 permissions. Namespace/API-key credentials are not accepted as native login sessions.
 
-Set `FCM_SERVICE_ACCOUNT_PATH` to a read-only service-account file. For Compose,
-set `MINDWIRE_FIREBASE_CREDENTIALS_FILE` and add `docker/docker-compose.push.yml`.
+Set the Console's server-side secret `FCM_SERVICE_ACCOUNT_JSON` to the complete
+Firebase service-account JSON. In OpenShip, add it to the **console service's**
+environment as a secret and apply the environment or redeploy that service.
+It must never use a `VITE_` or `NEXT_PUBLIC_` prefix or be passed as a build argument.
+
+Alternatively, set `FCM_SERVICE_ACCOUNT_PATH` to a read-only service-account file.
+JSON takes precedence when both settings are present; invalid JSON fails delivery
+without falling back to another credential. For Compose, set
+`MINDWIRE_FIREBASE_CREDENTIALS_FILE` and add `docker/docker-compose.push.yml`.
 The file must be readable by container uid 1000. Local credentials and exports
 belong under `.secrets/`, excluded from Git and Docker. Never paste them into PRs,
 logs or images. Device tokens use the existing Console vault encryption key;
