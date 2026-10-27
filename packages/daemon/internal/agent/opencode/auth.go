@@ -3,20 +3,16 @@ package opencode
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/oblien/mindwire/packages/daemon/internal/agent"
 )
 
-// auth.go is opencode's AuthModule. opencode reads provider API keys straight from the process
-// environment (ANTHROPIC_API_KEY, OPENAI_API_KEY, …) — the same key its own `opencode auth login`
-// ultimately relies on for the "Environment" providers — so mindwire authenticates a run env-only,
-// never writing opencode's auth.json. Secrets enter a run ONLY through EnvForRun, matching codex's
-// posture. (opencode's `PUT /auth/{provider}` route is a documented, deferred secondary path.)
-//
-// One field-based method, "apiKey": a provider id + its key. The provider determines which env var the
-// key is exported as (provider→var table below); an explicit override field wins when a provider isn't
-// in the table or uses a non-standard var name.
+// API keys are exported through EnvForRun. Native OAuth methods are discovered
+// from the installed OpenCode provider plugins; those plugins own their tokens
+// in OpenCode's auth store. The daemon records only the selected provider/method.
 
 // Cred-store keys.
 const (
@@ -25,12 +21,20 @@ const (
 	ckEnvVar   = "envVar"
 )
 
-type authModule struct{ store agent.CredStore }
+type authModule struct {
+	store         agent.CredStore
+	mu            sync.Mutex
+	nativeMethods map[string]nativeLoginMethod
+	login         *agent.AuthFlow
+	loginDone     chan struct{}
+	loginInputs   chan map[string]string
+	loginFields   []agent.Field
+}
 
 func newAuth(store agent.CredStore) *authModule { return &authModule{store: store} }
 
 func (m *authModule) Methods() []agent.AuthMethod {
-	return []agent.AuthMethod{{
+	out := []agent.AuthMethod{{
 		ID: "apiKey", Label: "API key", Scope: agent.ScopeUnified,
 		Help: "A provider API key opencode uses for the model you select. Exported to a run as the provider's env var (e.g. ANTHROPIC_API_KEY) — env-only, no auth file is written.",
 		Fields: []agent.Field{
@@ -42,9 +46,19 @@ func (m *authModule) Methods() []agent.AuthMethod {
 				Help: "Optional: the exact env var name to export the key as. Leave blank to derive it from the provider."},
 		},
 	}}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, method := range m.nativeMethods {
+		out = append(out, method.Method)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
-func (m *authModule) Begin(_ context.Context, methodID string) (agent.AuthState, error) {
+func (m *authModule) Begin(ctx context.Context, methodID string) (agent.AuthState, error) {
+	if strings.HasPrefix(methodID, "oauth:") {
+		return m.beginNative(ctx, methodID)
+	}
 	if methodID != "apiKey" {
 		return agent.AuthState{}, errors.New("unknown auth method: " + methodID)
 	}
@@ -52,7 +66,13 @@ func (m *authModule) Begin(_ context.Context, methodID string) (agent.AuthState,
 		Fields: agent.MethodFields(m, "apiKey"), Message: "Enter your provider and API key."}, nil
 }
 
-func (m *authModule) Step(_ context.Context, input map[string]string) (agent.AuthState, error) {
+func (m *authModule) Step(ctx context.Context, input map[string]string) (agent.AuthState, error) {
+	if input[agent.AuthFlowIDKey] != "" || input[agent.AuthActionKey] != "" {
+		return m.stepNative(input)
+	}
+	if m.Active() {
+		return agent.AuthState{}, errors.New("cancel the current sign-in first")
+	}
 	key := strings.TrimSpace(input[ckAPIKey])
 	if key == "" {
 		return agent.AuthState{Status: "error", Message: "no API key provided"}, nil
@@ -66,12 +86,18 @@ func (m *authModule) Step(_ context.Context, input map[string]string) (agent.Aut
 			return agent.AuthState{}, err
 		}
 	}
+	if err := m.store.Set("authMethod", "apiKey"); err != nil {
+		return agent.AuthState{}, err
+	}
 	return agent.AuthState{Method: "apiKey", Status: "complete"}, nil
 }
 
 // Status reports whether a run would authenticate, from the stored credential (env-only creds don't
 // appear in opencode's auth store, so presence is authoritative).
 func (m *authModule) Status(_ context.Context) agent.AuthStatus {
+	if method := m.store.Get("authMethod"); strings.HasPrefix(method, "oauth:") {
+		return agent.AuthStatus{Configured: nativeAuthPresent(m.store.Get("oauthProvider")), Method: method, Detail: "OpenCode native provider sign-in"}
+	}
 	if strings.TrimSpace(m.store.Get(ckAPIKey)) == "" {
 		return agent.AuthStatus{Configured: false, Detail: "No API key set — add a provider key."}
 	}
@@ -89,7 +115,7 @@ func (m *authModule) Status(_ context.Context) agent.AuthStatus {
 // placeholders resolve at runtime — the config file never carries a literal secret.
 func (m *authModule) EnvForRun() map[string]string {
 	env := map[string]string{}
-	if key := strings.TrimSpace(m.store.Get(ckAPIKey)); key != "" {
+	if key := strings.TrimSpace(m.store.Get(ckAPIKey)); key != "" && !strings.HasPrefix(m.store.Get("authMethod"), "oauth:") {
 		name := strings.TrimSpace(m.store.Get(ckEnvVar))
 		if name == "" {
 			name = providerEnvVar(strings.TrimSpace(m.store.Get(ckProvider)))

@@ -128,7 +128,7 @@
 .secondaryButton:hover { background: var(--mw-inset); }
 .agentLine { font-size: 12px; color: var(--mw-muted); display: flex; align-items: center; justify-content: center; gap: 22px; }
 .agentLine > div { display: flex; align-items: center; gap: 22px; }
-.agentLine a { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--mw-ink); }
+.agentLine a { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--mw-ink); white-space: nowrap; }
 .agentLine a:hover { color: var(--mw-peach); }
 .workspaceScene { position: relative; margin-top: 43px; scroll-margin-top: 108px; }
 .workspaceScene::before { content: ""; position: absolute; z-index: 0; inset: -50px -30px -30px; background: radial-gradient(ellipse at 25% 65%, #eb925719, transparent 50%), radial-gradient(ellipse at 90% 40%, #78baa91c, transparent 40%); pointer-events: none; }
@@ -377,9 +377,9 @@
 @media (max-width: 900px) {
   .heroCompanion { display: none; }
   .desktopLinks { gap: 21px; padding-left: 0; }
-  .desktopLinks a { font-size: 13px; }
+  .desktopLinks a { font-size: 14px; }
   .navActions { gap: 5px; }
-  .accountLink { padding-inline: 14px; font-size: 12px; gap: 10px; }
+  .accountLink { padding-inline: 14px; font-size: 14px; gap: 10px; }
   .navInner { gap: 14px; }
   .wordmark { font-size: 22px; }
   .hero { padding-top: 32px; }
@@ -443,9 +443,9 @@
   .heroCopy h1 { font-size: clamp(42px, 9.7vw, 64px); letter-spacing: -.055em; }
   .heroCopy > p { font-size: 16px; max-width: 340px; margin-top: 21px; }
   .heroActions { gap: 9px; margin-top: 23px; margin-bottom: 28px; }
-  .primaryButton, .secondaryButton { font-size: 13px; gap: 13px; padding: 11px 17px; min-height: 46px; }
+  .primaryButton, .secondaryButton { font-size: 14px; gap: 13px; padding: 11px 17px; min-height: 46px; }
   .agentLine { flex-direction: column; gap: 14px; font-size: 11px; }
-  .agentLine > div { gap: 20px; }
+  .agentLine > div { gap: 14px; }
   .agentLine a { font-size: 12px; }
   .workspaceScene { margin-top: 33px; }
   .workspace { grid-template-columns: 1fr; grid-template-rows: auto auto auto; height: auto; padding: 9px; gap: 8px; border-radius: 21px; }

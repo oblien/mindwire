@@ -1,7 +1,7 @@
 {
   "name": "mindwire-monorepo",
   "version": "0.1.0",
-  "description": "Your Mindwire agent for everyday work and coding. Bring your supported AI subscriptions and get things done from your phone.",
+  "description": "Make your product AI-powered without rebuilding the agent layer. White-label and customize leading agents with an open-source SDK and runtime.",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",

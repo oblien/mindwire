@@ -1,0 +1,16 @@
+Reference artwork: https://www.rainbrand.com/
+Retrieved October 28, 2026 for the requested visual adaptation.
+
+The diagram illustrations, agent row, corner icons, ornaments, static
+artwork, and closing field texture come from the reference site's public assets.
+workspace.svg and workspace-icon.svg are its figma illustrations.
+agents.svg is the unmodified six-icon reference illustration.
+The Mindwire identity, product copy, and SDK example are supplied by this
+project.
+
+Live rendering and responsive connector geometry are isolated in
+components/landing/effects and components/landing/geometry. React owns
+mounting, sizing, visibility, reduced-motion handling, and cleanup.
+
+Fonts are in public/fonts/framework with their accompanying OFL licenses.
+This provenance note does not change the reference assets' ownership.

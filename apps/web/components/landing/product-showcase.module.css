@@ -1,0 +1,19 @@
+.section { position: relative; max-width: 1360px; margin: 100px auto 0; scroll-margin-top: 105px; }
+.anchor { position: absolute; top: 0; left: 0; width: 1px; height: 1px; scroll-margin-top: 105px; }
+.intro { display: grid; grid-template-columns: 1.2fr 1fr; align-items: end; gap: 65px; padding: 0 20px; margin-bottom: 25px; }
+.intro h2 { font-size: clamp(36px, 4vw, 54px); font-weight: 500; line-height: 1.08; letter-spacing: -.055em; }
+.intro h2 em { color: var(--mw-peach); font-style: normal; }
+.intro p { max-width: 460px; color: var(--mw-muted); font-size: 16px; line-height: 1.75; }
+.tabs { display: flex; align-items: stretch; gap: 6px; width: fit-content; max-width: 100%; padding: 4px; margin: 0 20px 20px; background: var(--mw-subtle); border-radius: 12px; }
+.tabs button { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 10px 16px; color: var(--mw-muted); border-radius: 8px; font-size: 15px; line-height: 1.4; }
+.tabs button:hover { color: var(--mw-ink); }
+.tabs button[aria-selected="true"] { background: var(--mw-surface); color: var(--mw-ink); }
+.tabs button[aria-selected="true"] svg { color: var(--mw-peach); }
+.panel { min-width: 0; }
+.panel[hidden] { display: none; }
+@media (max-width: 1440px) { .section { margin-inline: 28px; }.intro { gap: 40px; padding-inline: 9px; }.tabs { margin-inline: 9px; } }
+@media (max-width: 900px) { .section { margin-top: 80px; }.intro { grid-template-columns: 1fr; gap: 18px; }.intro p { max-width: 650px; } }
+@media (max-width: 600px) {
+  .section { margin: 70px 15px 0; }.intro { padding-inline: 6px; margin-bottom: 20px; }.intro h2 { font-size: 38px; }.tabs { margin-inline: 0; width: 100%; gap: 4px; }.tabs button { flex: 1; padding: 10px; font-size: 14px; gap: 7px; }
+}
+@media (max-width: 360px) { .tabs button { padding-inline: 8px; gap: 6px; }.tabs button svg { width: 16px; } }

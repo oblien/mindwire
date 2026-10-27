@@ -21,6 +21,6 @@ export default function ContinuityScene({ cloud }: { cloud: boolean }) {
     </div>
     <div className={styles.handoffNote}><span className={styles.handoffLine} /><strong>Heading out?</strong><span>Take the conversation<br />with you.</span></div>
     <div className={styles.continuityPhone}><PhoneArt cloud={cloud} /></div>
-    <div className={styles.continuityCaption}><span className={styles.onlineDot} />Same bot. Same workspace. Another screen.</div>
+    <div className={styles.continuityCaption}><span className={styles.onlineDot} />Same conversation. Same workspace. Another screen.</div>
   </div>;
 }

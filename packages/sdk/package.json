@@ -33,7 +33,7 @@
       "require": "./dist/index.cjs"
     }
   },
-  "description": "Build personal assistants and coding tools on native agent harnesses with one Mindwire runtime API.",
+  "description": "White-label and customize leading agent harnesses to power your product, without rebuilding the agent layer.",
   "engines": {
     "node": ">=18"
   },

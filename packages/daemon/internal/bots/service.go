@@ -123,7 +123,7 @@ func (s *Service) Bind(ctx context.Context, adapter agent.Adapter, turn runner.T
 	}
 	turn.Options.SkillsRoot = skillRoot
 	turn.Options.ContextInstructions += skillInstructions(definitions, skillRoot)
-	if adapter.ID() != "codex" && adapter.ID() != "claude-code" {
+	if !adapter.Capabilities().MCPServers {
 		helper, err := os.Executable()
 		if err != nil {
 			finish()
@@ -155,9 +155,6 @@ func (s *Service) Bind(ctx context.Context, adapter agent.Adapter, turn runner.T
 	}
 	url := "http://" + listener.Addr().String() + "/mcp"
 	var config any = map[string]any{"url": url, "bearerTokenEnvVar": tokenEnv, "defaultToolsApprovalMode": "approve"}
-	if adapter.ID() == "claude-code" {
-		config = map[string]any{"type": "http", "url": url, "headers": map[string]string{"Authorization": "Bearer ${" + tokenEnv + "}"}}
-	}
 	servers[mcpName], _ = json.Marshal(config)
 	turn.Options.MCPServers, err = json.Marshal(map[string]any{"mcpServers": servers})
 	if err != nil {
@@ -168,7 +165,7 @@ func (s *Service) Bind(ctx context.Context, adapter agent.Adapter, turn runner.T
 		turn.Environment = map[string]string{}
 	}
 	turn.Environment[tokenEnv] = token
-	if adapter.ID() == "claude-code" {
+	if adapter.Capabilities().ClaudeSettings {
 		turn.Options.ClaudeSettings, err = allowClaudeTools(turn.Options.ClaudeSettings, bot.IsMaster)
 		if err != nil {
 			finish()

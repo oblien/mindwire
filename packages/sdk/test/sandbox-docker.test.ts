@@ -29,7 +29,7 @@ function fakeDocker(
     inspect: 0,
     exec: [] as string[][],
     execEnv: [] as string[][],
-    putArchive: [] as { path: string; size: number }[],
+    putArchive: [] as { path: string; size: number; copyUIDGID?: boolean }[],
   };
 
   const stdoutFor = (argv: string[]): string => {
@@ -79,8 +79,8 @@ function fakeDocker(
         inspect: async () => ({ ExitCode: 0 }),
       };
     },
-    putArchive: async (file: Uint8Array, o: { path: string }) => {
-      calls.putArchive.push({ path: o.path, size: file.length });
+    putArchive: async (file: Uint8Array, o: { path: string; copyUIDGID?: boolean }) => {
+      calls.putArchive.push({ path: o.path, size: file.length, copyUIDGID: o.copyUIDGID });
     },
     modem: {
       // Write the scripted stdout into the stdout sink, then end the stream on the next tick — after
@@ -159,6 +159,7 @@ test("provisionDocker: creates a container publishing the port, deploys the daem
   expect(calls.execEnv.length).toBeGreaterThan(0);
   expect(calls.execEnv.every((env) => env.includes("MINDWIRE_ISOLATION=container"))).toBe(true);
   expect(calls.putArchive[0]?.path).toBe("/root/.mindwire");
+  expect(calls.putArchive[0]?.copyUIDGID).toBe(true);
   expect(calls.exec.some((a) => (a[2] ?? "").includes("MINDWIRE_READY"))).toBe(true);
 
   // Transport is a plain published host port — no custom fetch.

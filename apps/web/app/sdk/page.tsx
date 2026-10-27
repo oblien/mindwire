@@ -9,15 +9,15 @@ import base from "@/components/landing/landing.module.css";
 import styles from "@/components/landing/product.module.css";
 
 export const metadata: Metadata = {
-  title: "Mindwire SDK — Put leading coding agents inside your product",
-  description: "Build with Codex, Claude Code and OpenCode through one SDK. Stream agent work, handle tools and approvals, and run on your own infrastructure with TypeScript, Go or REST.",
+  title: "Mindwire SDK — Add AI without rebuilding the agent layer",
+  description: "White-label and customize leading agent harnesses with one open-source SDK and runtime. Your tools, knowledge, goals, and interface. TypeScript, Go, and REST.",
   alternates: { canonical: "/sdk/" },
 };
 
 export default function SDK() {
   return <div className={base.landing}>
     <section className={styles.sdkHero} aria-labelledby="sdk-title">
-      <div className={styles.sdkHeroCopy}><span className={styles.eyebrow}>Mindwire SDK</span><h1 id="sdk-title">Hire extraordinary agents.<br /><em>Inside your product.</em></h1><p>Give your users more than an answer. Let them build, edit and get real work done with the coding agents they already love. One SDK, your experience.</p><InstallBlock sdk /><Link href="/docs/guides/quickstart" className={base.primaryButton}>Build your first integration <ArrowUpRight size={17} /></Link><div className={styles.sdkAgentLine}><span><AgentLogo agent="codex" size={17} />Codex</span><span><AgentLogo agent="claude" size={17} />Claude Code</span><span><AgentLogo agent="opencode" size={16} />OpenCode</span></div><span className={styles.smallNote}>Examples run on your server with a configured agent account.</span></div>
+      <div className={styles.sdkHeroCopy}><span className={styles.eyebrow}>Mindwire SDK</span><h1 id="sdk-title">The agent layer.<br /><em>Ready for your product.</em></h1><p>White-label and customize leading agents through one SDK. Add your tools, knowledge, instructions, and goals. Build advanced AI features on top of the planning and execution already in the agent.</p><InstallBlock sdk /><Link href="/docs/guides/quickstart" className={base.primaryButton}>Build your first integration <ArrowUpRight size={17} /></Link><div className={styles.sdkAgentLine}><span><AgentLogo agent="codex" size={17} />Codex</span><span><AgentLogo agent="claude" size={17} />Claude Code</span><span><AgentLogo agent="opencode" size={16} />OpenCode</span></div><span className={styles.smallNote}>Examples run on your server with a configured agent account.</span></div>
       <SDKExample />
     </section>
     <section className={styles.sdkFeatureBand} aria-labelledby="sdk-features-title"><h2 id="sdk-features-title">The agent does the work.<br />You own the experience.</h2><p>A shared protocol for agent conversations, tools and results. Keep your product focused on what your users want to make.</p><div className={styles.sdkFeatures}>
@@ -28,10 +28,10 @@ export default function SDK() {
     <section className={`${styles.section} ${styles.architecture}`} aria-labelledby="runtime-title">
       <div className={styles.architectureScene}>
         <div className={styles.architectureApp}><Code2 size={27} /><div>Your product<small>Your interface. Your users. Your ideas.</small></div></div><div className={styles.architectureConnector} />
-        <div className={styles.architectureCore}><strong>Mindwire runtime</strong><p>TypeScript · Go · REST + SSE</p><div className={styles.architectureCapabilities}><span>Conversations</span><span>Tool events</span><span>Approvals</span><span>Saved bots</span></div></div>
+        <div className={styles.architectureCore}><strong>Mindwire runtime</strong><p>TypeScript · Go · REST + SSE</p><div className={styles.architectureCapabilities}><span>Conversations</span><span>Tool events</span><span>Approvals</span><span>Optional profiles</span></div></div>
         <div className={styles.architectureConnector} /><div className={styles.architectureEngines}><span><AgentLogo agent="codex" size={20} />Codex</span><span><AgentLogo agent="claude" size={20} />Claude Code</span><span><AgentLogo agent="opencode" size={19} />OpenCode</span></div><div className={styles.architectureHosts}><span>Local</span><span>SSH server</span><span>Docker</span><span>Cloud</span></div>
       </div>
-      <div className={styles.sectionCopy}><span className={styles.eyebrow}>One integration. Plenty of possibilities.</span><h2 id="runtime-title">Your app up front.<br /><em>Real agents behind it.</em></h2><p>Build an app builder, a code-review companion or a personal assistant. Switch the underlying agent without rewriting your product around its output format.</p><ul className={styles.checkList}><li><Check size={16} />Saved bots with instructions, memory and knowledge</li><li><Check size={16} />A local runtime or a remote workspace</li><li><Check size={16} />Your infrastructure and provider accounts</li></ul><Link href="/docs/guides/destinations" className={styles.textLink}>Choose where it runs <ArrowUpRight size={16} /></Link></div>
+      <div className={styles.sectionCopy}><span className={styles.eyebrow}>One integration. Plenty of possibilities.</span><h2 id="runtime-title">Your app up front.<br /><em>Real agents behind it.</em></h2><p>Resolve customer issues, research and update a project, coordinate product operations, or create a complete campaign. The same integration supports agents that reason, create, and act through your tools.</p><ul className={styles.checkList}><li><Check size={16} />Optional profiles with instructions, memory and knowledge</li><li><Check size={16} />A local runtime or a remote workspace</li><li><Check size={16} />Your infrastructure and provider accounts</li></ul><Link href="/docs/guides/destinations" className={styles.textLink}>Choose where it runs <ArrowUpRight size={16} /></Link></div>
     </section>
     <section className={`${styles.section} ${styles.faqSection}`} aria-labelledby="sdk-questions" style={{ paddingTop: 0 }}>
       <div className={styles.sectionCopy}><span className={styles.eyebrow}>A few implementation details</span><h2 id="sdk-questions">Built to fit.<br /><em>Yours to shape.</em></h2><p>The same runtime powers the Mindwire app and your integration.</p></div>
@@ -43,6 +43,6 @@ export default function SDK() {
         { question: "How do I isolate work for different users?", answer: <>Give separate users or trust boundaries separate environments. A project folder alone is not a sandbox. Use supported Docker or remote targets and make explicit choices about credentials and access. <Link href="/sandboxing">Explore sandboxing.</Link></> },
       ]} />
     </section>
-    <div className={styles.pageWrap}><section className={styles.sdkClosing}><div><h2>What could your product do next?</h2><p>Start with one task. Give it a very capable agent.</p></div><Link href="/docs/guides/quickstart" className={base.primaryButton}>Open the quickstart <ArrowUpRight size={17} /></Link></section></div>
+    <div className={styles.pageWrap}><section className={styles.sdkClosing}><div><h2>What could your product do next?</h2><p>Start with one task your users already need to complete.</p></div><Link href="/docs/guides/quickstart" className={base.primaryButton}>Open the quickstart <ArrowUpRight size={17} /></Link></section></div>
   </div>;
 }

@@ -65,7 +65,7 @@ func (adapter) Capabilities() agent.Capabilities {
 		SystemPrompt:       true,
 		BotProfiles:        true,
 		AppendSystemPrompt: false,
-		MCPServers:         false,
+		MCPServers:         true,
 		Subagents:          false,
 		ClaudeSettings:     false,
 		// Persistent prompt/memory/subagent surface: AGENTS.md memory at project + user scope (memory.go),
@@ -251,6 +251,9 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 	for k, v := range in.Env {
 		env[k] = v
 	}
+	if err := applyMCPOverlay(env, in.Options.MCPServers); err != nil {
+		return agent.TurnResult{IsError: true, Text: err.Error()}, err
+	}
 
 	// Attachments: images become native `file` vision parts, non-images are path-referenced in the
 	// message (attach.go). cleanup removes any temp files written for inline non-image Data; it must
@@ -273,6 +276,6 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 		contextInstructions: in.Options.ContextInstructions,
 		cwd:                 workdir,
 		resumeID:            agent.FirstNonEmpty(in.Options.SessionID, in.SessionID),
-		interactive:         permMode(in) == "ask" && in.Inbound != nil,
+		interactive:         permMode(in) == "ask",
 	}.Run(ctx, in, emit)
 }

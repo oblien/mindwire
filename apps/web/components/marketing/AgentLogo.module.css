@@ -1,0 +1,5 @@
+.artwork { display: inline-grid; flex-shrink: 0; }
+.artwork > img { grid-area: 1 / 1; width: 100%; height: 100%; object-fit: contain; }
+.dark { display: none; }
+:global(.dark) .artwork[data-surface="auto"] .light, .artwork[data-surface="dark"] .light { display: none; }
+:global(.dark) .artwork[data-surface="auto"] .dark, .artwork[data-surface="dark"] .dark { display: block; }

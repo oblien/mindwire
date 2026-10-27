@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 2,
+  "revision": 3,
   "harnesses": {
     "codex": {
       "releases": [
@@ -16,7 +16,18 @@
     },
     "grok": {
       "releases": [
-        { "version": "1.0.5", "daemon": [{ "min": "0.1.15", "maxExclusive": "0.2.0" }] }
+        { "version": "1.0.5", "daemon": [{ "min": "0.1.15", "maxExclusive": "0.2.0" }] },
+        { "version": "1.0.50", "daemon": [{ "min": "0.1.60", "maxExclusive": "0.2.0" }] }
+      ]
+    },
+    "cursor": {
+      "releases": [
+        { "version": "2026.10.22-27dcf5f", "daemon": [{ "min": "0.1.60", "maxExclusive": "0.2.0" }] }
+      ]
+    },
+    "antigravity": {
+      "releases": [
+        { "version": "1.4.3", "daemon": [{ "min": "0.1.60", "maxExclusive": "0.2.0" }] }
       ]
     },
     "opencode": {

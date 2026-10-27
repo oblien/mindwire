@@ -9,9 +9,9 @@ import LandingFooter from "@/components/landing/LandingFooter";
 import HideOnDocs from "@/components/HideOnDocs";
 
 export const metadata: Metadata = {
-  title: "Mindwire — Your personal assistant, on your terms",
+  title: "Mindwire — Your product. Powered by agents.",
   description:
-    "Your Mindwire agent for everyday work and coding. Bring your supported AI subscriptions, connect your computer, and keep work moving from your phone.",
+    "Make your product AI-powered without rebuilding the agent layer. White-label and customize leading agents with Mindwire’s open-source SDK and runtime.",
   metadataBase: new URL("https://mindwire.sh"),
   openGraph: {
     siteName: "Mindwire",
@@ -27,14 +27,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-sans">
         {/* RootProvider owns theme (next-themes, class strategy → the same `.dark` contract every
             marketing page already uses) and the search dialog. It wraps Nav so its ThemeToggle and the
-            ⌘K search reach the provider. Default light, opt-in dark — matching the prior behavior. */}
-        <RootProvider theme={{ defaultTheme: "light", enableSystem: false }}>
+            ⌘K search reach the provider. New visitors start in dark mode; saved choices persist. */}
+        <RootProvider theme={{ defaultTheme: "dark", enableSystem: false }}>
           <a href="#main-content" className="skip-link">Skip to content</a>
           <Nav />
           <SiteContent>{children}</SiteContent>
           {/* The marketing footer is hidden on /docs — the Fumadocs sidebar is a fixed full-height
               column, so a site footer beneath it just adds clutter. */}
-          <HideOnDocs>
+          <HideOnDocs hideOnHome>
             <LandingFooter />
           </HideOnDocs>
         </RootProvider>

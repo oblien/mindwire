@@ -22,7 +22,8 @@ const places = {
   Copenhagen: ["Coffee in Nørrebro", "A walk along the harbor", "Dinner with the locals"],
 };
 
-export default function PersonalSection() {
+export default function PersonalSection({ audience = "app" }: { audience?: "app" | "developers" }) {
+  const forProducts = audience === "developers";
   const [example, setExample] = useState<(typeof examples)[number]["id"]>("secretary");
   const [dinner, setDinner] = useState(0);
   const [city, setCity] = useState<keyof typeof places>("Lisbon");
@@ -78,8 +79,8 @@ export default function PersonalSection() {
         onPointerDownCapture={event => { if (!(event.target as HTMLElement).closest("[data-playback]")) setAutoPlay(false); }}>
         <div className={styles.personalCopy}>
           <h2 id="personal-title">Wish it existed?<br /><em>Let’s make it.</em></h2>
-          <p>A calmer day. A plan for the weekend. That little tool you can’t find. Tell your bot what you have in mind, then shape it together.</p>
-          <div className={styles.exampleChoices} role="tablist" aria-label="Things your bot can make" onKeyDown={navigateTabs}>
+          <p>{forProducts ? "A planner. A meal guide. A tool for tracking spending. Build useful features around your users’ tasks, with agents doing the work behind them." : "A calmer day. A plan for the weekend. That little tool you can’t find. Describe the result you need, then review and refine the work."}</p>
+          <div className={styles.exampleChoices} role="tablist" aria-label={forProducts ? "Ideas for your product" : "Things you can make in the app"} onKeyDown={navigateTabs}>
             {examples.map(item => (
               <button key={item.id} type="button" role="tab" id={`everyday-tab-${item.id}`} aria-label={item.label} aria-selected={example === item.id} aria-controls={`everyday-example-${item.id}`} tabIndex={example === item.id ? 0 : -1} data-example={item.id} onClick={() => { setAutoPlay(false); setExample(item.id); setNotice(""); }}>
                 <UseCaseArt kind={item.art} className={styles.choiceArt} />
@@ -89,7 +90,7 @@ export default function PersonalSection() {
             ))}
           </div>
           <div className={styles.choiceFooter}>
-            <Link href="/use-cases" className={styles.exploreCases}>Find your next idea<ArrowUpRight size={17} /></Link>
+            <Link href={forProducts ? "/sdk" : "/use-cases"} className={styles.exploreCases}>{forProducts ? "Build with the SDK" : "Find your next idea"}<ArrowUpRight size={17} /></Link>
             {motionAllowed && <button type="button" data-playback className={styles.playback} onClick={() => setAutoPlay(!autoPlay)} aria-label={autoPlay ? "Pause automatic preview" : "Resume automatic preview"} title={autoPlay ? "Pause automatic preview" : "Resume automatic preview"}>{autoPlay ? <Pause size={14} /> : <Play size={14} />}</button>}
           </div>
         </div>
@@ -143,7 +144,7 @@ export default function PersonalSection() {
                     </div>
                   )}
                 </div>
-                <div className={styles.appFooter}><span>Interactive example</span><Link href={`/use-cases/${item.slug}`}>Make one like this<ArrowUpRight size={15} /></Link></div>
+                <div className={styles.appFooter}><span>Interactive example</span><Link href={forProducts ? "/docs/guides/quickstart" : `/use-cases/${item.slug}`}>{forProducts ? "Build a feature like this" : "Make one like this"}<ArrowUpRight size={15} /></Link></div>
               </div>
             </div>
           ))}

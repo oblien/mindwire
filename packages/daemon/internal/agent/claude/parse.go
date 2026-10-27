@@ -28,11 +28,12 @@ type streamEnvelope struct {
 	DurationMS   int             `json:"duration_ms"`
 	// Control protocol (persistent transport): a CLI→client control_request carries a top-level
 	// request_id (the correlator the client must echo in its control_response) and the request body.
-	RequestID string          `json:"request_id"`
-	Request   json.RawMessage `json:"request"`
-	Response  json.RawMessage `json:"response"`
-	UUID      string          `json:"uuid"`
-	IsReplay  bool            `json:"isReplay"`
+	RequestID       string          `json:"request_id"`
+	Request         json.RawMessage `json:"request"`
+	Response        json.RawMessage `json:"response"`
+	UUID            string          `json:"uuid"`
+	IsReplay        bool            `json:"isReplay"`
+	ParentToolUseID string          `json:"parent_tool_use_id"`
 	// EstimatedTokens is the CUMULATIVE thinking-token estimate on a `system/thinking_tokens` event
 	// (Claude Code's own "thinking preview" counter). Present even on subscription auth where the
 	// thinking TEXT is withheld, so it's the reliable live progress signal for the thinking block.
@@ -72,6 +73,13 @@ func parseStreamHooks(r io.Reader, emit agent.Emit, control func(json.RawMessage
 	// block by id to reclassify the result into the same ToolAction with its output folded in.
 	use := map[string]block{}
 	interactions := map[string]agent.Interaction{}
+	var background agent.TaskTracker
+	var deferredResult *agent.Event
+	finishResult := func(ev agent.Event) {
+		if resultBoundary == nil || resultBoundary(ev, emit) {
+			emit(ev)
+		}
+	}
 
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -82,12 +90,24 @@ func parseStreamHooks(r io.Reader, emit agent.Emit, control func(json.RawMessage
 		if json.Unmarshal([]byte(line), &env) != nil {
 			continue
 		}
-		if env.SessionID != "" {
+		if env.SessionID != "" && env.ParentToolUseID == "" {
 			sessionID = env.SessionID
 		}
 
 		switch env.Type {
 		case "system":
+			tasks, start := backgroundUpdates([]byte(line))
+			for _, task := range tasks {
+				if background.Update(task, start) {
+					copy := background.Get(task.ID)
+					emit(agent.Event{Type: agent.EventTask, SessionID: sessionID, Task: &copy})
+				}
+			}
+			if deferredResult != nil && !background.Active() {
+				finishResult(*deferredResult)
+				deferredResult = nil
+				got = true
+			}
 			switch env.Subtype {
 			case "init":
 				meta := map[string]any{}
@@ -183,6 +203,9 @@ func parseStreamHooks(r io.Reader, emit agent.Emit, control func(json.RawMessage
 			}
 
 		case "result":
+			if env.ParentToolUseID != "" {
+				continue // A child agent result cannot settle the foreground turn.
+			}
 			result = agent.TurnResult{Text: env.Result, SessionID: sessionID, IsError: env.IsError, Subtype: env.Subtype}
 			got = true
 			ri := &agent.ResultInfo{
@@ -203,8 +226,13 @@ func parseStreamHooks(r io.Reader, emit agent.Emit, control func(json.RawMessage
 				}
 			}
 			ev := agent.Event{Type: agent.EventResult, SessionID: sessionID, Result: ri}
-			if resultBoundary == nil || resultBoundary(ev, emit) {
-				emit(ev)
+			if !env.IsError && background.Active() {
+				deferredResult = &ev
+				got = false
+				emit(agent.Event{Type: agent.EventStatus, SessionID: sessionID, Result: ri, Meta: map[string]any{"foregroundComplete": true, "backgroundActive": true}})
+			} else {
+				deferredResult = nil
+				finishResult(ev)
 			}
 
 		case "control_response":
@@ -231,6 +259,9 @@ func parseStreamHooks(r io.Reader, emit agent.Emit, control func(json.RawMessage
 
 	if !got {
 		text := "no result from agent"
+		if deferredResult != nil {
+			text = "Claude exited with unfinished background tasks"
+		}
 		if err := sc.Err(); err != nil {
 			// A read error (e.g. a line over the 16 MiB cap) ended scanning early; report it
 			// instead of the generic "no result" so the failure isn't silently misattributed.

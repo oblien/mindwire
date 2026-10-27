@@ -257,7 +257,11 @@ func decodeEvent(c savedConnection, r *http.Request, body []byte) (*envelope, an
 				_ = json.Unmarshal(option.Value, &text)
 			}
 		}
-		return &envelope{Receipt: Receipt{ID: interaction.ID, ChannelID: interaction.Channel, UserID: user}, Workspace: interaction.Guild, Text: text, Command: true, InteractionToken: interaction.Token}, map[string]int{"type": 5}, nil
+		ack := map[string]any{"type": 5}
+		if c.Dispatch == "host" {
+			ack["data"] = map[string]int{"flags": 64}
+		}
+		return &envelope{Receipt: Receipt{ID: interaction.ID, ChannelID: interaction.Channel, UserID: user}, Workspace: interaction.Guild, Text: text, Command: true, InteractionToken: interaction.Token}, ack, nil
 	case "teams":
 		var activity struct {
 			ID      string `json:"id"`

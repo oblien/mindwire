@@ -45,33 +45,33 @@
 .sdkSectionInner { padding: 75px 62px; display: grid; grid-template-columns: .9fr 1.1fr; align-items: center; gap: 70px; }
 .sdkSection .sectionCopy h2 em { color: var(--mw-blue); }
 .sdkSection .sectionCopy h2 { font-size: clamp(35px, 3.6vw, 51px); }
-.sdkSection .checkList { font-size: 13px; gap: 13px; }
+.sdkSection .checkList { font-size: 14px; gap: 13px; }
 .sdkExample { min-width: 0; border-radius: 22px; background: #1d231f; color: #ebeee7; overflow: clip; box-shadow: 0 20px 60px -30px #19354e48; }
-.sdkWindowHeader { display: flex; align-items: center; justify-content: space-between; padding: 19px 23px; border-bottom: 1px solid #ffffff12; font-size: 12px; }
+.sdkWindowHeader { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 19px 23px; border-bottom: 1px solid #ffffff12; font-size: 14px; }
 .sdkWindowHeader > span:first-child { display: flex; align-items: center; gap: 9px; }
-.sdkWindowHeader > span:last-child { color: #99a297; font-family: var(--font-geist-mono), monospace; font-size: 10px; }
+.sdkWindowHeader > span:last-child { color: #99a297; font-family: var(--font-geist-mono), monospace; font-size: 14px; }
 .agentPicker { display: flex; gap: 5px; padding: 17px 20px 8px; flex-wrap: wrap; }
-.agentPicker button { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 12px; border-radius: 20px; font-size: 11px; color: #a6b1a4; transition: background .2s; }
+.agentPicker button { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 12px; border-radius: 20px; font-size: 14px; color: #a6b1a4; transition: background .2s; }
 .agentPicker button:hover { color: #ebeee7; background: #ffffff08; }
 .agentPicker button[aria-pressed="true"] { background: #354133; color: #d4e5c7; }
 .codeToolbar { display: flex; justify-content: space-between; align-items: center; padding: 7px 20px 0; border-bottom: 1px solid #ffffff12; }
 .codeToolbar > div { display: flex; gap: 18px; }
-.codeToolbar [role="tab"] { padding: 10px 0 13px; position: relative; font-size: 11px; color: #a6b1a4; }
+.codeToolbar [role="tab"] { padding: 10px 0 13px; position: relative; font-size: 14px; color: #a6b1a4; }
 .codeToolbar [aria-selected="true"] { color: #f2d1aa; }
 .codeToolbar [aria-selected="true"]::after { content: ""; position: absolute; height: 2px; background: #edbf85; bottom: -1px; inset-inline: 0; border-radius: 2px; }
 .codePanel { padding: 22px; min-height: 450px; }
-.codePanel pre { font-size: 11px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; font-family: var(--font-geist-mono), monospace; }
+.codePanel pre { font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; font-family: var(--font-geist-mono), monospace; }
 .codePanel:focus-visible { outline: 2px solid #edbf85; outline-offset: -4px; border-radius: 6px; }
 .codeKeyword { color: #c2d8f4; }
 .codeString { color: #e9c395; }
 .codeComment { color: #95a991; }
-.sdkExampleFooter { display: flex; align-items: center; justify-content: space-between; padding: 15px 22px; background: #ffffff05; border-top: 1px solid #ffffff0b; color: #aebb9f; font-size: 10px; }
+.sdkExampleFooter { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 15px 22px; background: #ffffff05; border-top: 1px solid #ffffff0b; color: #aebb9f; font-size: 14px; }
 .sdkExampleFooter > span { display: flex; align-items: center; gap: 7px; }
 .sdkCompact .codePanel { min-height: 445px; }
 .copyControl { position: relative; display: inline-flex; }
 .copyButton { width: 33px; height: 33px; border-radius: 10px; display: grid; place-items: center; color: inherit; opacity: .8; }
 .copyButton:hover { background: #ffffff10; opacity: 1; }
-.copyFailure { display: block; position: absolute; top: 100%; right: 0; background: #1d231f; color: #ebeee7; border: 1px solid #65705d; width: 145px; padding: 8px; border-radius: 8px; font: 11px/1.4 var(--font-sans); z-index: 2; }
+.copyFailure { display: block; position: absolute; top: 100%; right: 0; background: #1d231f; color: #ebeee7; border: 1px solid #65705d; width: 145px; padding: 8px; border-radius: 8px; font: 14px/1.4 var(--font-sans); z-index: 2; }
 .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .faqSection { display: grid; grid-template-columns: .85fr 1.15fr; gap: 100px; }
 .questions { min-width: 0; }
@@ -81,7 +81,7 @@
 .questions summary svg { color: var(--mw-muted); transition: transform .2s; }
 .questions details[open] summary svg { transform: rotate(45deg); }
 .questions summary:focus-visible { outline: 2px solid var(--mw-peach); outline-offset: 4px; border-radius: 5px; }
-.questions details > div { font-size: 14px; line-height: 1.8; color: var(--mw-muted); padding: 0 24px 24px 0; }
+.questions details > div { font-size: 16px; line-height: 1.8; color: var(--mw-muted); padding: 0 24px 24px 0; }
 .questions a { text-decoration: underline; text-underline-offset: 4px; color: var(--mw-ink); }
 .finalInvite { text-align: center; background: var(--mw-peach-soft); border-radius: 36px; width: calc(100% - 56px); max-width: 1360px; margin: 0 auto; padding: 58px 25px 55px; }
 .inviteBots { display: flex; align-items: flex-end; justify-content: center; gap: 9px; margin-bottom: 26px; }
@@ -92,12 +92,12 @@
 .finalInvite > span { display: block; color: var(--mw-muted); font-size: 11px; margin-top: 20px; }
 .siteFooter { max-width: 1290px; margin: auto; padding: 72px 36px 26px; }
 .footerTop { display: grid; grid-template-columns: 1.45fr 1fr 1fr 1fr; gap: 45px; padding-bottom: 55px; }
-.footerIdentity p { font-size: 15px; line-height: 1.7; color: var(--mw-muted); margin-top: 20px; }
+.footerIdentity p { font-size: 16px; line-height: 1.7; color: var(--mw-muted); margin-top: 20px; }
 .footerTop nav { display: flex; flex-direction: column; gap: 13px; }
-.footerTop nav h3 { font-size: 12px; font-weight: 500; color: var(--mw-faint); margin-bottom: 8px; }
+.footerTop nav h3 { font-size: 14px; font-weight: 500; color: var(--mw-faint); margin-bottom: 8px; }
 .footerTop nav a { display: inline-flex; align-items: center; align-self: flex-start; gap: 5px; font-size: 14px; }
 .footerTop nav a:hover { color: var(--mw-peach); }
-.footerBottom { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid var(--mw-line); padding-top: 22px; color: var(--mw-muted); font-size: 11px; }
+.footerBottom { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid var(--mw-line); padding-top: 22px; color: var(--mw-muted); font-size: 14px; }
 .footerBottom a { display: flex; align-items: center; gap: 7px; }
 
 /* Route headers and the cloud plans. */
@@ -208,7 +208,7 @@
 .sdkHero h1 em { font-style: normal; color: var(--mw-blue); }
 .sdkHeroCopy > p { font-size: 17px; line-height: 1.75; color: var(--mw-muted); margin: 24px 0; }
 .sdkHeroCopy > .installBlock { margin: 28px 0 24px; }
-.sdkAgentLine { display: flex; gap: 17px; align-items: center; padding: 22px 0 2px; font-size: 11px; color: var(--mw-muted); flex-wrap: wrap; }
+.sdkAgentLine { display: flex; gap: 17px; align-items: center; padding: 22px 0 2px; font-size: 14px; color: var(--mw-muted); flex-wrap: wrap; }
 .sdkAgentLine > span { display: flex; gap: 6px; align-items: center; }
 .sdkFeatureBand { background: var(--mw-subtle); max-width: 1360px; width: calc(100% - 56px); margin: auto; padding: 64px 55px; border-radius: 34px; }
 .sdkFeatureBand > h2 { font-size: 39px; font-weight: 500; letter-spacing: -1.5px; text-align: center; }
@@ -217,7 +217,7 @@
 .sdkFeatures svg { color: var(--mw-blue); }
 .sdkFeatures h3 { font-size: 19px; font-weight: 500; margin: 18px 0 12px; letter-spacing: -.4px; }
 .sdkFeatures p { font-size: 14px; line-height: 1.75; color: var(--mw-muted); }
-.sdkFeatures a { font-size: 12px; margin-top: 18px; }
+.sdkFeatures a { font-size: 14px; margin-top: 18px; }
 .architecture { display: grid; grid-template-columns: 1fr 1fr; gap: 95px; align-items: center; }
 .architectureScene { position: relative; padding: 18px 0; }
 .architectureApp { padding: 19px 23px; border: 1px solid var(--mw-line); border-radius: 17px; display: flex; align-items: center; gap: 14px; background: var(--mw-surface); margin-inline: 55px; font-size: 17px; font-weight: 500; }
@@ -277,9 +277,9 @@
   .sdkCompact .codePanel { min-height: 410px; }
   .faqSection { gap: 35px; grid-template-columns: .75fr 1.25fr; }
   .questions summary { font-size: 15px; padding-block: 21px; }
-  .questions details > div { font-size: 13px; }
+  .questions details > div { font-size: 16px; }
   .footerTop { gap: 25px; grid-template-columns: 1.2fr 1fr 1fr 1fr; }
-  .footerTop nav a { font-size: 12px; }
+  .footerTop nav a { font-size: 14px; }
   .siteFooter { padding-inline: 28px; }
   .freePlan { flex-wrap: wrap; }
   .freePlan > div:first-of-type { flex-basis: 55%; }
@@ -322,7 +322,7 @@
   .sdkFeatureBand h2 { font-size: 33px; }
   .sdkFeatures { gap: 24px; }
   .sdkFeatures h3 { font-size: 17px; }
-  .sdkFeatures p { font-size: 13px; }
+  .sdkFeatures p { font-size: 14px; }
   .architecture { gap: 30px; }
   .architectureApp { margin-inline: 20px; }
   .architectureEngines { gap: 12px; font-size: 9px; }
@@ -347,19 +347,19 @@
   .sdkSection { width: calc(100% - 26px); border-radius: 25px; margin-top: 0; }
   .sdkSectionInner { padding: 36px 19px 20px; gap: 30px; }
   .sdkSection .sectionCopy h2 { font-size: 39px; }
-  .sdkSection .checkList { font-size: 12px; gap: 12px; }
+  .sdkSection .checkList { font-size: 14px; gap: 12px; }
   .sdkExample { border-radius: 16px; }
-  .sdkWindowHeader { padding: 16px; font-size: 11px; }
+  .sdkWindowHeader { padding: 16px; font-size: 14px; }
   .sdkWindowHeader > span:last-child { display: none; }
   .agentPicker { padding: 12px 10px 5px; gap: 3px; }
-  .agentPicker button { font-size: 10px; padding: 9px 9px; gap: 6px; }
+  .agentPicker button { font-size: 14px; padding: 9px 9px; gap: 6px; }
   .agentPicker button > span { width: 14px !important; height: 14px !important; }
   .codeToolbar { padding: 6px 15px 0; }
   .codeToolbar > div { gap: 16px; }
-  .codeToolbar [role="tab"] { font-size: 10px; }
+  .codeToolbar [role="tab"] { font-size: 14px; }
   .codePanel, .sdkCompact .codePanel { padding: 19px 15px; min-height: 435px; }
-  .codePanel pre { font-size: 10px; line-height: 1.9; }
-  .sdkExampleFooter { padding: 14px 15px; font-size: 9px; }
+  .codePanel pre { font-size: 14px; line-height: 1.9; }
+  .sdkExampleFooter { padding: 14px 15px; font-size: 14px; }
   .faqSection { grid-template-columns: 1fr; gap: 22px; }
   .faqSection .sectionCopy h2 br { display: none; }
   .faqSection .sectionCopy h2 { font-size: 39px; }
@@ -372,11 +372,11 @@
   .inviteBots { transform: scale(.85); margin-bottom: 18px; }
   .siteFooter { padding: 49px 25px 25px; }
   .footerTop { grid-template-columns: 1fr 1fr; gap: 30px 23px; padding-bottom: 35px; }
-  .footerIdentity p { font-size: 13px; margin-top: 15px; }
+  .footerIdentity p { font-size: 16px; margin-top: 15px; }
   .footerTop nav { gap: 12px; }
-  .footerTop nav h3 { font-size: 11px; }
-  .footerTop nav a { font-size: 12px; }
-  .footerBottom { flex-wrap: wrap; gap: 13px; font-size: 10px; }
+  .footerTop nav h3 { font-size: 14px; }
+  .footerTop nav a { font-size: 14px; }
+  .footerBottom { flex-wrap: wrap; gap: 13px; font-size: 14px; }
   .footerBottom > span:nth-child(2) { order: 3; width: 100%; }
   .footerBottom a { margin-left: auto; }
   .pageHero { padding: 38px 22px 36px; }
@@ -441,19 +441,19 @@
   .sdkHero h1 { font-size: clamp(44px, 10vw, 60px); }
   .sdkHeroCopy > p { font-size: 15px; }
   .sdkHeroCopy > .installBlock { margin-block: 23px 20px; }
-  .sdkAgentLine { gap: 16px; font-size: 10px; }
+  .sdkAgentLine { gap: 16px; font-size: 14px; }
   .sdkFeatureBand { width: calc(100% - 26px); padding: 36px 25px; border-radius: 25px; }
   .sdkFeatureBand > h2 { font-size: 32px; text-align: left; line-height: 1.1; }
   .sdkFeatureBand > p { font-size: 14px; text-align: left; }
   .sdkFeatures { grid-template-columns: 1fr; gap: 30px; margin-top: 32px; }
   .sdkFeatures h3 { font-size: 20px; margin-top: 15px; }
-  .sdkFeatures p { font-size: 13px; }
+  .sdkFeatures p { font-size: 14px; }
   .architecture { grid-template-columns: 1fr; gap: 35px; }
   .architectureScene { order: 2; }
   .architectureEngines { gap: 19px; font-size: 11px; }
   .sdkClosing { flex-direction: column; align-items: flex-start; padding: 30px 25px; border-radius: 23px; gap: 23px; }
   .sdkClosing h2 { font-size: 28px; line-height: 1.1; }
-  .sdkClosing p { font-size: 13px; line-height: 1.7; }
+  .sdkClosing p { font-size: 14px; line-height: 1.7; }
   .setupLayout { grid-template-columns: 1fr; gap: 15px; padding-bottom: 30px; }
   .setupIntro { padding-top: 5px; }
   .setupIntro h2 { font-size: 31px; }

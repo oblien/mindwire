@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oblien/mindwire/packages/daemon/internal/acp"
 	"github.com/oblien/mindwire/packages/daemon/internal/agent"
 )
 
@@ -27,7 +28,7 @@ func TestACPResumeDrainsHistoryBeforePrompt(t *testing.T) {
 						methods[1] = "session/resume"
 					}
 					for i, method := range methods {
-						var req rpcMessage
+						var req acp.Message
 						if err := dec.Decode(&req); err != nil {
 							serverDone <- err
 							return
@@ -50,7 +51,11 @@ func TestACPResumeDrainsHistoryBeforePrompt(t *testing.T) {
 								return
 							}
 						}
-						if err := enc.Encode(map[string]any{"id": req.ID, "result": map[string]any{"sessionId": "native-existing"}}); err != nil {
+						response := map[string]any{"sessionId": "native-existing"}
+						if i == 2 {
+							response["stopReason"] = "end_turn"
+						}
+						if err := enc.Encode(map[string]any{"id": req.ID, "result": response}); err != nil {
 							serverDone <- err
 							return
 						}
@@ -63,8 +68,8 @@ func TestACPResumeDrainsHistoryBeforePrompt(t *testing.T) {
 				if resumeLatest {
 					in.SessionID, in.Options.ContinueLatest = "", true
 				}
-				client := newACPClient(inputW, outputR)
-				defer client.close()
+				client := acp.NewClient(inputW, outputR)
+				defer client.Close()
 				var streamed string
 				result, err := acpRun(ctx, client, in, func(e agent.Event) {
 					if e.Type == agent.EventText {

@@ -1,6 +1,6 @@
 # @mindwire/web
 
-Mindwire’s mobile product site and developer documentation. Built with Next.js App
+Mindwire’s SDK/runtime product site, app showcase, and developer documentation. Built with Next.js App
 Router, React, Tailwind CSS, and Fumadocs. The Node deployment uses Next’s
 `standalone` output.
 
@@ -28,8 +28,11 @@ are not used.
 
 ## Product pages
 
-- `/`: personal-bot hero, interactive everyday creations, General / Developer mode explorer, computer/phone
-  continuity, SDK showcase, questions and a download invitation.
+- `/`: developer positioning, an example product with embedded agent work, a white-label
+  configuration preview, custom tools/context/goals, automation, and SDK integration examples.
+- `/app/`: the first-party app showcase with a desktop/phone preview, shared review state,
+  General / Developer modes, everyday examples, continuity, and app setup/download links.
+- `/cloud/`: optional Cloud Computer hosting, its relationship to the runtime, and pricing/Console links.
 - `/get-started/`: app, computer/server/cloud and agent setup.
 - `/pricing/`: free own-computer runtime and monthly Mindwire Cloud Computer plans.
 - `/download/`: Mac and iOS app availability, CLI installation and release links.
@@ -46,14 +49,29 @@ Shared product URLs live in `lib/product.ts`. Product pages share the components
 and scoped styles in `components/landing/`. The changelog and sandboxing content
 retain `components/marketing/`; the docs theme stays in `app/globals.css`.
 
-The homepage uses Gellix, soft rounded surfaces, and the native app's peach, blue,
-and mint bot palette. `BotAvatar` adapts the native bean, robot, and sprout vectors.
+The site uses Gellix, soft rounded surfaces, and the shared peach, blue,
+and mint palette. Dark mode is the default; a saved light/dark preference is respected.
+Keep the homepage focused on adapting leading agents to a developer's own product. The centered
+hero uses tool and provider illustrations; its preview demonstrates an agent feature in a product,
+not a bot directory or personal chat flow. Avoid decorative status dots, dotted backgrounds,
+numbered section badges, and widely spaced uppercase labels. App modes and everyday task demos
+belong on `/app/`, which has no SDK promotional section. `BotAvatar` remains in app-specific art.
+Separate homepage containers with contrasting surface colors instead of nested borders.
+Claude and OpenCode use SVG images that preserve their artwork; don't recolor them with CSS masks.
+The hero shows an agent creating a complete project inside a product: a brief becomes a working
+landing page, campaign poster and announcement, and an assigned launch plan. Visitors can try the
+page, copy the announcement, complete tasks, and download self-contained HTML, SVG, and CSV outputs.
+The build is illustrative; the outputs are usable local examples. Provider choice stays outside the
+product UI. Campaign artwork and its generation prompt are in `public/images/launch-demo/`.
+The white-label section pairs a customization rail with an editable product feature preview.
+Automation uses connected nodes, context/tool inputs, a review branch, and an inspectable result;
+connections follow the responsive node layout. Keep its canvas free of decorative dot grids.
 `LandingNav` and `LandingFooter` are shared by marketing routes without changing the documentation shell.
 The previews use fictional example content and local interactions only: changing
-bots, inspecting their memory and instructions, checking tasks, comparing ideas,
-switching bookshelves, trying everyday tools, and exploring General / Developer views. They never contact
+project creation, working artifact previews, downloads, tasks, and agent choices, editing brand/tools/instructions/context/goals, stepping through
+automation and review, switching bookshelves, and exploring General / Developer views. They never contact
 an agent or touch an account. Mode switching preserves the example app's state.
-The personal secretary example shares one component between the homepage and the
+The personal secretary example shares one component between the app page and the
 use-case directory. Check a priority, open the meeting brief, or switch with arrow keys.
 Use-case prompts start from information the user supplies and tools they connect;
 they do not imply built-in email or calendar integrations.
@@ -120,3 +138,13 @@ selection when changing its presentation.
 Verify public pages, guide and API docs, search, and 404 pages in both themes at
 desktop and phone widths. Workspace options on `/sandboxing/` are a local preview;
 they never create a computer or change an account.
+
+### Positioning
+
+Mindwire is the SDK and runtime for putting supported agents inside an existing product. Lead with
+a concrete task and the integration surface: execution, streaming, sessions, and supported approvals.
+The app is a first-party client; Cloud is optional hosting. Neither is required for an SDK integration.
+General mode remains an approachable app experience alongside Developer mode. Saved bot profiles
+remain an optional runtime capability, not a prerequisite or the primary marketing promise. Avoid
+claims of universal app access, identical provider capabilities, bundled model usage, or unimplemented
+managed orchestration. Keep Cloud prices sourced from the existing catalog.
