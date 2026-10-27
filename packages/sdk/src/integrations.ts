@@ -17,6 +17,8 @@ export interface IntegrationSpec {
   name: string;
   provider: IntegrationProvider;
   botId: string;
+  /** Host dispatch delivers verified events to claim()/complete(), without starting an agent. */
+  dispatch?: "bot" | "host";
   mode: IntegrationMode;
   enabled: boolean;
   /** Explicit allowlist. Empty lists are rejected. */
@@ -55,6 +57,19 @@ export interface IntegrationReceipt {
   createdAt: string;
 }
 
+export interface IntegrationHostEvent {
+  id: string;
+  integrationId: string;
+  workspaceId: string;
+  channelId: string;
+  userId: string;
+  threadId?: string;
+  text: string;
+  command: boolean;
+  lease: string;
+  revision: number;
+}
+
 /** Persistent messaging connections shared with the app and daemon. */
 export class IntegrationsApi {
   constructor(private readonly mw: Mindwire) {}
@@ -78,6 +93,17 @@ export class IntegrationsApi {
   }
   retry(id: string, eventId: string): Promise<IntegrationReceipt> {
     return this.mw.http.request("POST", `${this.path(id)}/events/${encodeURIComponent(eventId)}/retry`);
+  }
+  /** Requires integrationsVersion >= 2. Events have a 90-second lease; use id for host idempotency. */
+  claim(id: string): Promise<IntegrationHostEvent | null> {
+    return this.mw.http.request("POST", `${this.path(id)}/claim`, { body: {} });
+  }
+  complete(id: string, eventId: string, lease: string, text: string): Promise<IntegrationReceipt> {
+    return this.mw.http.request("POST", `${this.path(id)}/events/${encodeURIComponent(eventId)}/complete`, { body: { lease, text } });
+  }
+  /** Forward raw provider bytes through an authenticated private transport. Signatures are still verified. */
+  forwardWebhook(id: string, body: string, headers: Record<string, string>): Promise<{status: number;body: string;contentType: string}> {
+    return this.mw.http.request("POST", `${this.path(id)}/forward`, { body: {body,headers} });
   }
   private path(id: string): string { return `/integrations/${encodeURIComponent(id)}`; }
 }

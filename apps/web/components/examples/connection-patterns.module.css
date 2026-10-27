@@ -1,0 +1,252 @@
+.section {
+  width: calc(100% - 2 * var(--site-gutter));
+  max-width: var(--site-content);
+  margin: var(--site-section-space) auto;
+}
+.heading {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 64px;
+  align-items: end;
+  margin-bottom: 32px;
+}
+.heading h2 {
+  font-size: var(--site-heading);
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.045em;
+}
+.heading p {
+  color: var(--mw-muted);
+  font-size: 16px;
+  line-height: 1.65;
+  max-width: 530px;
+  text-wrap: pretty;
+}
+.switcher {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+.switcher button {
+  font-size: 16px;
+  padding: 12px 20px;
+  border-radius: 30px;
+  background: var(--mw-subtle);
+  color: var(--mw-body);
+  cursor: pointer;
+}
+.switcher button[aria-pressed="true"] {
+  background: var(--mw-ink);
+  color: var(--mw-on-ink);
+}
+.flow {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.06fr);
+  align-items: center;
+  gap: 90px;
+}
+.connection,
+.product {
+  background: var(--mw-surface);
+  border-radius: 28px;
+  padding: 34px;
+  min-width: 0;
+}
+.connection {
+  margin-bottom: 45px;
+}
+.label {
+  display: block;
+  color: var(--mw-muted);
+  font-size: 14px;
+}
+.connection h3 {
+  font-size: 27px;
+  line-height: 1.16;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  margin-top: 18px;
+  max-width: 350px;
+}
+.agents {
+  display: grid;
+  gap: 8px;
+  margin-block: 24px;
+}
+.agents button {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  gap: 16px;
+  padding: 14px;
+  border-radius: 14px;
+  cursor: pointer;
+  background: var(--mw-subtle);
+}
+.agents button[aria-pressed="true"] {
+  background: var(--mw-subtle);
+}
+.agents button > span {
+  flex: 1;
+  font-size: 16px;
+}
+.agents small {
+  display: block;
+  color: var(--mw-muted);
+  font-size: 14px;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.agents b {
+  min-width: 16px;
+  font-weight: 400;
+}
+.cloudAccount {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  padding: 24px 0;
+  min-height: 166px;
+}
+.cloudAccount > p {
+  font-size: 18px;
+  line-height: 1.5;
+}
+.cloudAccount span {
+  font-size: 16px;
+  color: var(--mw-muted);
+}
+.connectButton {
+  width: 100%;
+  border-radius: 10px;
+  padding: 15px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  background: var(--mw-ink);
+  color: var(--mw-on-ink);
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+.product {
+  margin-top: 45px;
+}
+.productHeader {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+.productHeader strong {
+  font-size: 23px;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+}
+.productHeader > span {
+  font-size: 14px;
+  color: var(--mw-muted);
+}
+.productRequest {
+  margin-block: 24px;
+  background: var(--mw-subtle);
+  padding: 20px;
+  border-radius: 12px 12px 3px 12px;
+  font-size: 18px;
+  line-height: 1.5;
+}
+.product h3 {
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+}
+.product > p {
+  color: var(--mw-muted);
+  font-size: 16px;
+  line-height: 1.65;
+  margin-top: 14px;
+  max-width: 370px;
+}
+.connectionState {
+  min-height: 48px;
+  margin-top: 26px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--mw-body);
+}
+.notes {
+  display: flex;
+  gap: 36px;
+  align-items: start;
+  justify-content: space-between;
+  margin-top: 26px;
+}
+.notes p {
+  max-width: 800px;
+  color: var(--mw-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.notes a {
+  display: inline-flex;
+  align-items: center;
+  gap: 22px;
+  white-space: nowrap;
+  font-size: 14px;
+  padding-block: 2px;
+}
+.notes a:hover {
+  text-decoration: underline;
+  text-underline-offset: 5px;
+}
+.section button:focus-visible,
+.section a:focus-visible {
+  outline: 2px solid var(--mw-focus);
+  outline-offset: 4px;
+}
+@media (max-width: 1000px) {
+  .flow {
+    gap: 50px;
+  }
+  .connection,
+  .product {
+    padding: 26px;
+  }
+  .heading {
+    gap: 40px;
+  }
+}
+@media (max-width: 767px) {
+  .heading {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .flow {
+    grid-template-columns: 1fr;
+    gap: 42px;
+  }
+  .connection,
+  .product {
+    margin: 0;
+    padding: 24px;
+  }
+  .notes {
+    flex-direction: column;
+    gap: 18px;
+  }
+  .connection h3 {
+    font-size: 26px;
+  }
+  .product h3 {
+    font-size: 28px;
+  }
+  .agents button {
+    padding: 12px;
+    gap: 12px;
+  }
+}

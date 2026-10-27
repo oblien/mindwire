@@ -6,6 +6,8 @@ import { useCloud, computerState } from "@/lib/cloud";
 import { primaryComputerImages } from "@/lib/computer-images";
 import { ComputerSystemPicker } from "./ComputerSystemPicker";
 import { AccountArtwork } from "./AccountArtwork";
+import { BusinessCloudLink } from "./portal/BusinessCloudLink";
+import styles from "./portal/portal.module.css";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -63,7 +65,7 @@ export function CloudComputers() {
     <div className="space-y-7">
       <PageTitle
         title="Cloud Computers"
-        description="Your managed computers, capacity and monthly plans. Connect from the Mindwire app to start working."
+        description="Personal computers in the cloud. Keep your projects online and connect from the Mindwire app."
         action={
           <Button asChild>
             <Link to="/computers/new">
@@ -109,6 +111,7 @@ export function CloudComputers() {
         Personal computers and SSH connections are managed in the Mindwire app.
         They do not require a Cloud subscription.
       </p>
+      <BusinessCloudLink />
     </div>
   );
 }
@@ -126,11 +129,11 @@ export function PlanCards({
   const { catalog } = useCloud();
   return (
     <div className="grid gap-4 min-[700px]:grid-cols-3">
-      {catalog?.plans.map((plan, index) => (
+      {catalog?.plans.map((plan) => (
         <Card
           key={plan.id}
-          style={{ background: `var(--mw-${["peach", "blue", "mint"][index % 3]}-soft)` }}
-          className={selected === plan.id ? "ring-2 ring-foreground ring-offset-4 ring-offset-background" : ""}
+          data-selected={selected === plan.id}
+          className={styles.planCard}
         >
           <CardContent className="space-y-6 p-6">
             <div className="flex items-center justify-between">
@@ -249,13 +252,14 @@ export function NewComputer() {
     <div className="space-y-7">
       <PageTitle
         title="New Cloud Computer"
-        description="Choose your system and monthly capacity. Review the payment before your computer is created."
+        description="A computer for your personal projects. Choose a system and monthly plan, then review the payment."
         action={
           <Button asChild variant="ghost">
             <Link to="/computers">Cancel</Link>
           </Button>
         }
       />
+      <BusinessCloudLink />
       {error && (
         <ErrorNotice message={error} retry={() => setRetry((n) => n + 1)} />
       )}
@@ -379,10 +383,11 @@ export function Billing() {
     <div className="space-y-7">
       <PageTitle
         title="Plans & billing"
-        description="One subscription per Cloud Computer. Your personal computers and Mindwire account stay free."
+        description="Personal Cloud plans, with one subscription per computer. Using your own hardware stays free."
       />
+      <BusinessCloudLink />
       {error && <ErrorNotice message={error} />}
-      {cloud.loaded && !cloud.computers.length && <Card><CardContent className="flex flex-wrap items-center justify-between gap-5 p-6"><div><p className="text-base font-medium">Your own computer. Always free.</p><p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">You have no Cloud subscriptions. Use Mindwire with your Mac or a server you already own, and add a Cloud Computer whenever you need one.</p></div><Button asChild variant="outline"><a href="https://mindwire.sh/download">Get Mindwire<ArrowRight /></a></Button></CardContent></Card>}
+      {cloud.loaded && !cloud.computers.length && <Card><CardContent className="flex flex-wrap items-center justify-between gap-5 p-6"><div><p className="text-base font-medium">Your own computer. Always free.</p><p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">You have no Cloud subscriptions. Use Mindwire with your Mac or a server you already own, and add a Cloud Computer whenever you need one.</p></div><Button asChild variant="outline"><a href="https://mindwire.sh/app#download">Get Mindwire<ArrowRight /></a></Button></CardContent></Card>}
       {!!cloud.computers.length && (
         <section className="space-y-4">
           <h2 className="text-sm font-medium">Your subscriptions</h2>

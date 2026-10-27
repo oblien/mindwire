@@ -1,7 +1,7 @@
 # Contributing to mindwire
 
-Mindwire is an open personal assistant and coding companion, with a native Apple client and shared agent runtime. Contributions to everyday workflows, clients, adapters, documentation,
-and infrastructure are welcome.
+Mindwire is an open-source SDK and runtime for adding native agent capabilities to products.
+Contributions to agent adapters, integrations, clients, documentation, and infrastructure are welcome.
 
 By participating you agree to abide by our [Code of Conduct](./CODE_OF_CONDUCT.md).
 

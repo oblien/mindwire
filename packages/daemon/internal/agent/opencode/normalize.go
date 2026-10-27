@@ -62,12 +62,14 @@ type ocTokens struct {
 // ocPermission is the permission.updated payload — opencode sends the Permission object AS properties
 // (it is the "ask" itself), so normalize decodes properties directly into this.
 type ocPermission struct {
-	ID        string          `json:"id"`
-	SessionID string          `json:"sessionID"`
-	Title     string          `json:"title"`
-	Type      string          `json:"type"`
-	CallID    string          `json:"callID"`
-	Metadata  json.RawMessage `json:"metadata"`
+	ID         string          `json:"id"`
+	SessionID  string          `json:"sessionID"`
+	Title      string          `json:"title"`
+	Type       string          `json:"type"`
+	CallID     string          `json:"callID"`
+	Metadata   json.RawMessage `json:"metadata"`
+	Permission string          `json:"permission"`
+	Patterns   []string        `json:"patterns"`
 }
 
 // ── streaming state ──
@@ -75,6 +77,7 @@ type ocPermission struct {
 // streamState tracks per-part progress so cumulative text turns into once-only deltas and each tool
 // fires one use + one result. Mirrors codex's streamState.
 type streamState struct {
+	parts      map[string]ocPart // retained identity/type for message.part.delta
 	roles      map[string]string // Native user/context parts must never become assistant output.
 	emitted    map[string]int    // part id → bytes of text/reasoning already emitted
 	seenUse    map[string]bool   // tool id → tool_use emitted
@@ -84,6 +87,7 @@ type streamState struct {
 
 func newStreamState() *streamState {
 	return &streamState{
+		parts:      map[string]ocPart{},
 		roles:      map[string]string{},
 		emitted:    map[string]int{},
 		seenUse:    map[string]bool{},

@@ -14,6 +14,7 @@ const (
 	EventError        EventType = "error"
 	EventStatus       EventType = "status"       // generic status (retry, queued, …) in Meta
 	EventInput        EventType = "input"        // durable follow-up queued/accepted/failed
+	EventTask         EventType = "task"         // native background task lifecycle
 	EventInteraction  EventType = "interaction"  // structured agent-defined prompt/feedback (todos, approval, …)
 	EventCompaction   EventType = "compaction"   // the conversation was compacted; Compaction has trigger + token counts
 	EventContinuation EventType = "continuation" // resolve-mode iteration boundary; Continuation has the iteration + reason
@@ -25,6 +26,7 @@ type ToolEvent struct {
 	Input   any    `json:"input,omitempty"`
 	Output  string `json:"output,omitempty"`
 	IsError bool   `json:"isError,omitempty"`
+	Status  string `json:"status,omitempty"` // native completed/failed/cancelled; incomplete is not success
 	// Action is the deep-normalized view of this tool call (canonical kind + structured payload),
 	// carried alongside the raw Input/Output. Best-effort and optional: nil when the adapter can't
 	// classify the tool. See toolaction.go.
@@ -105,6 +107,8 @@ type Event struct {
 	Compaction   *CompactionInfo   `json:"compaction,omitempty"`   // populated on EventCompaction
 	Continuation *ContinuationInfo `json:"continuation,omitempty"` // populated on EventContinuation (resolve mode)
 	Input        *UserInput        `json:"input,omitempty"`
+	Capabilities *Capabilities     `json:"capabilities,omitempty"` // negotiated session features
+	Task         *TaskInfo         `json:"task,omitempty"`
 	Error        string            `json:"error,omitempty"`
 	Meta         map[string]any    `json:"meta,omitempty"`
 	At           string            `json:"at,omitempty"`

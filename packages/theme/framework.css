@@ -1,0 +1,165 @@
+@font-face {
+  font-family: "Mindwire Host";
+  src: url("/fonts/framework/host-grotesk.woff2") format("woff2");
+  font-weight: 300 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mindwire Mono";
+  src: url("/fonts/framework/geist-mono.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mindwire Graphic";
+  src: url("/fonts/framework/archivo-black.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* Shared visual language for the public website and account Console. */
+:root {
+  --font-graphic: "Mindwire Graphic", Arial, sans-serif;
+  --canvas: var(--mw-bg);
+  --black: var(--mw-ink);
+  --white: var(--mw-surface);
+  --muted: var(--mw-muted);
+  --mw-bg: #d9d9d9;
+  --mw-surface: #fff;
+  --mw-subtle: #ededed;
+  --mw-inset: #e3e3e3;
+  --mw-ink: #0a0a0a;
+  --mw-muted: #5c5c5c;
+  --mw-faint: #666;
+  --mw-line: #d0d0d0;
+  --mw-body: #444;
+  --mw-on-ink: #fff;
+  --mw-ink-hover: #333;
+  --mw-focus: #315ddd;
+  --mw-peach: var(--mw-ink);
+  --mw-blue: var(--mw-ink);
+  --mw-mint: var(--mw-ink);
+  --mw-peach-soft: var(--mw-subtle);
+  --mw-blue-soft: var(--mw-inset);
+  --mw-mint-soft: var(--mw-subtle);
+  --mw-border: var(--mw-line);
+  --mw-success: #32694a;
+  --mw-success-soft: #e0e4d8;
+  --mw-info: #33444b;
+  --mw-info-soft: #dde4e6;
+  --mw-danger: #b42318;
+  --mw-danger-soft: #fcebea;
+  --mw-shadow: none;
+  --mw-shadow-popover: 0 12px 40px #00000012;
+  --mw-radius-control: 12px;
+  --mw-radius-pill: 999px;
+  --mw-radius-card: 20px;
+  --mw-radius-panel: 20px;
+
+  /* Terminals and text over artwork keep a fixed contrast pair. */
+  --mw-stage: #0a0a0a;
+  --mw-stage-panel: #252527;
+  --mw-stage-ink: #f4f4f3;
+  --mw-stage-muted: #bdbdbd;
+  --mw-stage-line: #3b3b3d;
+  /* Contrasting sections exchange their background and foreground by theme. */
+  --mw-inverse: #0a0a0a;
+  --mw-inverse-ink: #f4f4f3;
+  --mw-inverse-muted: #bdbdbd;
+  --mw-inverse-panel: #252527;
+  --mw-inverse-line: #3b3b3d;
+  --mw-runtime-route: var(--mw-inverse);
+  --mw-section-surface: #fff;
+  --mw-diagram-surface: #d9d9d9;
+  --mw-diagram-inset: #eee;
+  --mw-paper: #f2f1e9;
+  --mw-paper-inset: #e6e7db;
+  --mw-paper-selected: #dfe3d4;
+  --mw-paper-ink: #25302a;
+  --mw-paper-muted: #5b665a;
+  --mw-paper-accent: #8f513d;
+  --mw-warm: #f0ede6;
+  --mw-warm-inset: #e6e1d7;
+  --mw-warm-muted: #746b5f;
+  --mw-cool: #eff1f2;
+  --mw-chart: #354238;
+  --mw-chart-secondary: #91a18e;
+  --mw-chart-tertiary: #bac3aa;
+  --mw-mono-filter: none;
+
+  /* Marketing layout and type follow the proportions of Home. */
+  --site-frame: 1360px;
+  --site-content: 1280px;
+  --site-copy: 600px;
+  --site-gutter: 40px;
+  --site-inset: 40px;
+  --site-section-space: 96px;
+  --site-display: 60px;
+  --site-heading: 40px;
+  --site-card-heading: 24px;
+  --site-body: 16px;
+  --site-control: 14px;
+  --site-label: 12px;
+}
+
+:root.dark {
+  --mw-bg: #000;
+  --mw-surface: #242424;
+  --mw-subtle: #303030;
+  --mw-inset: #3b3b3b;
+  --mw-ink: #f2f2f0;
+  --mw-muted: #aaa;
+  --mw-faint: #999;
+  --mw-body: #ccc;
+  --mw-line: #333;
+  --mw-on-ink: #0a0a0a;
+  --mw-ink-hover: #d7d7d7;
+  --mw-focus: #9bacff;
+  --mw-success: #a2d6af;
+  --mw-success-soft: #142018;
+  --mw-info: #b6cbd5;
+  --mw-info-soft: #141b20;
+  --mw-danger: #ffa8a3;
+  --mw-danger-soft: #2b1515;
+  --mw-shadow-popover: 0 16px 48px #0006;
+  --mw-stage-panel: #141414;
+  --mw-stage-line: #272727;
+  --mw-inverse: #f5f5f5;
+  --mw-inverse-ink: #0a0a0a;
+  --mw-inverse-muted: #5c5c5c;
+  --mw-inverse-panel: #e3e3e3;
+  --mw-inverse-line: #ccc;
+  --mw-section-surface: #080808;
+  --mw-diagram-surface: #242424;
+  --mw-diagram-inset: #181818;
+  --mw-paper: #10110f;
+  --mw-paper-inset: #181b16;
+  --mw-paper-selected: #25301f;
+  --mw-paper-ink: #e8ece0;
+  --mw-paper-muted: #b3beaa;
+  --mw-paper-accent: #e8ad8d;
+  --mw-warm: #12110f;
+  --mw-warm-inset: #211d17;
+  --mw-warm-muted: #c4b8a5;
+  --mw-cool: #101112;
+  --mw-chart: #bbcfb9;
+  --mw-chart-secondary: #829b7d;
+  --mw-chart-tertiary: #596b50;
+  --mw-mono-filter: invert(1);
+}
+
+@media (max-width: 1100px) {
+  :root {
+    --site-display: 52px;
+  }
+}
+
+@media (max-width: 767px) {
+  :root {
+    --site-gutter: 16px;
+    --site-inset: 24px;
+    --site-section-space: 64px;
+    --site-display: clamp(28px, 7.8vw, 48px);
+    --site-heading: 32px;
+  }
+}

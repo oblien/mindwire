@@ -269,10 +269,10 @@ func (f v2Form) interaction() *agent.Interaction {
 	return it
 }
 
-func (s server) replyV2Form(ctx context.Context, client *http.Client, base, sid string, msg agent.Inbound) {
+func (s server) replyV2Form(ctx context.Context, client *http.Client, base, sid string, msg agent.Inbound) error {
 	var fields []v2Field
 	if json.Unmarshal([]byte(msg.Meta["opencodeForm"]), &fields) != nil {
-		return
+		return fmt.Errorf("invalid OpenCode form")
 	}
 	answers := map[string]any{}
 	for _, field := range fields {
@@ -288,13 +288,13 @@ func (s server) replyV2Form(ctx context.Context, client *http.Client, base, sid 
 		case "boolean":
 			boolean, err := strconv.ParseBool(value)
 			if err != nil {
-				return
+				return fmt.Errorf("invalid boolean for OpenCode form field %s", field.Key)
 			}
 			answers[field.Key] = boolean
 		case "number", "integer":
 			number, err := strconv.ParseFloat(value, 64)
 			if err != nil {
-				return
+				return fmt.Errorf("invalid number for OpenCode form field %s", field.Key)
 			}
 			answers[field.Key] = number
 		case "multiselect":
@@ -308,5 +308,5 @@ func (s server) replyV2Form(ctx context.Context, client *http.Client, base, sid 
 		}
 	}
 	body, _ := json.Marshal(map[string]any{"answer": answers})
-	_ = s.doJSON(ctx, client, http.MethodPost, base+"/api/session/"+url.PathEscape(sid)+"/form/"+url.PathEscape(msg.InteractionID)+"/reply", body, nil)
+	return s.doJSON(ctx, client, http.MethodPost, base+"/api/session/"+url.PathEscape(sid)+"/form/"+url.PathEscape(msg.InteractionID)+"/reply", body, nil)
 }

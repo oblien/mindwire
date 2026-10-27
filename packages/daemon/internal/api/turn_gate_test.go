@@ -7,8 +7,11 @@ import (
 	"github.com/oblien/mindwire/packages/daemon/internal/agent"
 	// Registered for their init() so the test gates against the REAL declared capabilities,
 	// not a hand-copied literal that could drift from the adapters.
+	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/antigravity"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/claude"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/codex"
+	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/cursor"
+	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/grok"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/opencode"
 )
 
@@ -22,6 +25,24 @@ func capsByID(t *testing.T, id string) agent.Capabilities {
 	}
 	t.Fatalf("adapter %q not registered", id)
 	return agent.Capabilities{}
+}
+
+func TestAllProductHarnessesExposeToolsAndHonestOutputSchemas(t *testing.T) {
+	for _, id := range []string{"codex", "claude-code", "opencode", "grok", "cursor", "antigravity"} {
+		t.Run(id, func(t *testing.T) {
+			caps := capsByID(t, id)
+			if !caps.MCPServers || !caps.BotProfiles || !caps.Respond || !caps.Resume {
+				t.Fatalf("missing product integration: %+v", caps)
+			}
+			if msg, ok := agent.UnsupportedTurnOption(caps, agent.TurnOptions{MCPServers: json.RawMessage(`{"tools":{"url":"https://example.test/mcp"}}`)}); !ok {
+				t.Fatal(msg)
+			}
+			_, ok := agent.UnsupportedTurnOption(caps, agent.TurnOptions{OutputSchema: json.RawMessage(`{"type":"object"}`)})
+			if ok != (id == "codex" || id == "claude-code") {
+				t.Fatal("output schema would be silently ignored")
+			}
+		})
+	}
 }
 
 // TestTurnOptionGate is W1's honest-signaling regression, updated for W4b. api.turn must reject a turn
@@ -44,8 +65,8 @@ func TestTurnOptionGate(t *testing.T) {
 	}
 	// opencode's prompt body carries a per-turn system override, so systemPrompt is accepted; the four
 	// Claude-shaped passthroughs have no opencode wire path and must each 400.
-	if !opencode.SystemPrompt || opencode.AppendSystemPrompt || opencode.MCPServers || opencode.Subagents || opencode.ClaudeSettings {
-		t.Fatalf("opencode must support systemPrompt only (not append/mcp/subagents/claudeSettings), got %+v", opencode)
+	if !opencode.SystemPrompt || opencode.AppendSystemPrompt || !opencode.MCPServers || opencode.Subagents || opencode.ClaudeSettings {
+		t.Fatalf("opencode must support systemPrompt and canonical MCP overlays, got %+v", opencode)
 	}
 
 	tests := []struct {
@@ -59,7 +80,7 @@ func TestTurnOptionGate(t *testing.T) {
 		{"systemPrompt typed", agent.TurnOptions{SystemPrompt: "You are a bot."}, "", ""},
 		{"systemPrompt canon", agent.TurnOptions{Settings: map[string]string{agent.CanonSystemPrompt: "You are a bot."}}, "", ""},
 		{"appendSystemPrompt canon", agent.TurnOptions{Settings: map[string]string{agent.CanonAppendSystemPrompt: "Be terse."}}, "agent does not support appendSystemPrompt", "agent does not support appendSystemPrompt"},
-		{"mcpServers", agent.TurnOptions{MCPServers: json.RawMessage(`{"srv":{"command":"x"}}`)}, "", "agent does not support mcpServers"},
+		{"mcpServers", agent.TurnOptions{MCPServers: json.RawMessage(`{"srv":{"command":"x"}}`)}, "", ""},
 		{"subagents", agent.TurnOptions{Subagents: json.RawMessage(`{"reviewer":{"description":"r","prompt":"p"}}`)}, "agent does not support subagents", "agent does not support subagents"},
 		{"claudeSettings", agent.TurnOptions{ClaudeSettings: json.RawMessage(`{"hooks":{}}`)}, "agent does not support claudeSettings", "agent does not support claudeSettings"},
 		// An unrelated setting is never gated by these option checks.

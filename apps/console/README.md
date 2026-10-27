@@ -146,10 +146,15 @@ code, never passwords, provider tokens or the opaque progress receipt.
 ## Visual theme
 
 The portal and sign-in screens share the website palette in
-[`packages/theme/tokens.css`](../../packages/theme/tokens.css). Console primitives
+[`packages/theme/framework.css`](../../packages/theme/framework.css). Console primitives
 map their semantic tokens in `src/index.css`; feature CSS owns layout and
 illustrations. The light default and stored `mw-theme` preference are applied
-before paint. Both themes use the same rounded controls and Gellix typeface.
+before paint. Host Grotesk, Archivo Black, and Geist Mono are self-hosted in
+`public/fonts/framework`, with their licenses. The wordmark, monochrome surfaces,
+and connected artwork follow the public site.
+
+Cloud plans in Console are for personal use. Business products and scalable
+customer workspaces are directed to [Oblien](https://oblien.com/).
 
 The account shell uses an inset desktop sidebar and an expandable mobile menu.
 Check empty and populated accounts, error states, form focus, plan selection,

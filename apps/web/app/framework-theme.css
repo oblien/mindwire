@@ -1,0 +1,29 @@
+@import "../../../packages/theme/framework.css";
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+body {
+  font-family: "Mindwire Host", Arial, sans-serif;
+}
+
+/* Monochrome line art follows the page ink. Photos and agent logos retain their colors. */
+img:is(
+  [src="/images/framework/canvas-motif.svg"],
+  [src="/images/framework/connect-motif.svg"],
+  [src="/images/framework/cross.svg"],
+  [src="/images/framework/sphere.svg"],
+  [src="/images/framework/globe.svg"],
+  [src="/images/framework/footer-orbit.svg"],
+  [src="/images/framework/hub-ticks.svg"],
+  [src="/images/framework/files-icon.svg"],
+  [src="/images/framework/website-icon.svg"],
+  [src="/images/framework/workspace-icon.svg"],
+  [src="/images/framework/agents-icon.svg"],
+  [src="/images/framework/api-icon.svg"]
+) {
+  filter: var(--mw-mono-filter);
+}

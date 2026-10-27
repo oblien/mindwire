@@ -1,0 +1,104 @@
+.page {
+  color: var(--mw-ink);
+  background: var(--mw-bg);
+  overflow: clip;
+}
+.page :is(section, [id]) {
+  scroll-margin-top: 90px;
+}
+.page :where(h1, h2, h3, p) {
+  margin: 0;
+}
+.page :is(a, button, summary):focus-visible {
+  outline: 2px solid var(--mw-focus);
+  outline-offset: 4px;
+}
+.page svg {
+  flex-shrink: 0;
+}
+.hero {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  margin: auto;
+  padding-bottom: var(--site-section-space);
+}
+.heroWindow {
+  margin-bottom: 0;
+}
+.bridge {
+  width: fit-content;
+  margin: 64px auto 0;
+  padding: 11px 24px;
+  border-radius: 30px;
+  font-size: 15px;
+  background: var(--mw-surface);
+}
+.workspaceSection {
+  width: calc(100% - 2 * var(--site-gutter));
+  max-width: var(--site-frame);
+  margin: 0 auto;
+}
+.sectionHeading {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  align-items: end;
+  gap: 64px;
+  margin-bottom: 48px;
+  padding-inline: var(--site-inset);
+}
+.sectionHeading h2 {
+  font-size: var(--site-heading);
+  font-weight: 400;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+.workspaceHeading > div {
+  max-width: 460px;
+}
+.workspaceHeading p {
+  color: var(--mw-muted);
+  font-size: var(--site-body);
+  line-height: 1.65;
+}
+.workspaceHeading a {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  margin-top: 20px;
+}
+.workspaceHeading a:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+@media (max-width: 1100px) {
+  .sectionHeading {
+    gap: 32px;
+    padding-inline: 8px;
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 767px) {
+  .hero {
+    padding-bottom: 64px;
+  }
+  .bridge {
+    margin-top: 48px;
+  }
+  .sectionHeading {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    margin-bottom: 36px;
+  }
+  .workspaceHeading > div {
+    max-width: 100%;
+  }
+}
+.primary {
+  composes: primaryButton from "./landing.module.css";
+}
+.secondary {
+  composes: secondaryButton from "./landing.module.css";
+}

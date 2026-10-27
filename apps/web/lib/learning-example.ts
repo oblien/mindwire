@@ -1,0 +1,4 @@
+export const learningPrompt =
+  "Turn my piano notes into a beginner course. Make a keyboard I can play, an exercise for building a C major chord, and a short quiz. Save everything in my course library.";
+
+export const lessonNotes = `# First chords\n\nA short introduction to the piano.\n\n## Meet the keys\nThe white keys repeat C, D, E, F, G, A, B. Find C just before a pair of black keys. Play each note and listen to how the pitch changes.\n\n## Build a C major chord\nPlay C, E, and G together. These are the root, major third, and perfect fifth of C major. Try the notes separately, then together.\n\n## Check your understanding\n1. Which three notes make a C major chord? C, E, and G.\n2. Which white key comes immediately after C? D.\n\nSample lesson for the Mindwire learning-product example.\n`;

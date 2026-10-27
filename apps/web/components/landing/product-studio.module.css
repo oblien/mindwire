@@ -1,0 +1,78 @@
+.section { display: grid; grid-template-columns: .8fr 1.5fr; gap: 14px 100px; max-width: 1240px; margin: 135px auto 0; scroll-margin-top: 110px; align-items: start; }
+.intro h2 { font-size: clamp(43px, 4.6vw, 61px); font-weight: 500; line-height: 1.02; letter-spacing: -.055em; }
+.intro h2 em { color: var(--mw-peach); font-style: normal; }
+.intro > p { font-size: 16px; line-height: 1.8; color: var(--mw-muted); max-width: 320px; margin-top: 23px; }
+.tabs { display: grid; gap: 5px; margin-top: 27px; }
+.tabs button { display: flex; align-items: center; gap: 14px; padding: 12px 15px; border-radius: 10px; text-align: left; color: var(--mw-muted); transition: background .15s, color .15s; }
+.tabs button[aria-selected="true"] { background: var(--mw-subtle); color: var(--mw-ink); }
+.tabs button:hover { color: var(--mw-ink); }
+.tabs button > svg:first-child { flex-shrink: 0; }
+.tabs button[aria-selected="true"] > svg:first-child { color: var(--mw-peach); }
+.tabs strong { display: block; font-size: 14px; font-weight: 500; }
+.tabs small { display: block; font-size: 14px; color: var(--mw-muted); margin-top: 3px; }
+.tabs button > svg:last-child { margin-left: auto; opacity: 0; }
+.tabs button[aria-selected="true"] > svg:last-child { opacity: 1; }
+.playground { --brand-ink: color-mix(in srgb, var(--brand) 65%, var(--mw-ink)); min-width: 0; }
+.stage { background: color-mix(in srgb, var(--brand) 16%, var(--mw-subtle)); padding: 20px 36px 22px; border-radius: 22px; position: relative; }
+.previewCaption { display: flex; justify-content: space-between; gap: 10px; color: var(--mw-muted); font-size: 14px; margin-bottom: 18px; }
+.previewCaption > span:last-child { color: var(--brand-ink); }
+.product { background: var(--mw-surface); border-radius: 13px; overflow: hidden; box-shadow: 0 14px 35px #00000010; }
+.productHeader { display: flex; align-items: center; gap: 9px; padding: 16px 23px; }
+.brandMark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; padding-bottom: 2px; background: var(--brand); color: white; font-size: 22px; line-height: 1; font-weight: 500; }
+.productHeader strong { font-size: 20px; letter-spacing: -.04em; font-weight: 500; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.productHeader > span:last-child { color: var(--mw-muted); font-size: 14px; margin-left: auto; }
+.productBody { padding: 9px 27px 21px; }
+.productBody h3 { font-size: 29px; font-weight: 500; line-height: 1.1; letter-spacing: -.045em; margin-bottom: 23px; }
+.composer { background: color-mix(in srgb, var(--brand) 10%, var(--mw-bg)); padding: 17px; border-radius: 10px; }
+.composer > span { font-size: 14px; color: var(--brand-ink); }
+.composer textarea { display: block; resize: none; width: 100%; min-height: 112px; padding: 0; margin-top: 9px; font-size: 16px; line-height: 1.75; background: transparent; color: var(--mw-ink); border: 0; }
+.taskSummary { font-size: 16px; line-height: 1.75; margin-top: 9px; min-height: 53px; overflow-wrap: anywhere; }
+.composerFooter { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.composerFooter > span { display: flex; align-items: center; gap: 6px; color: var(--mw-muted); font-size: 14px; }
+.composerFooter button { display: flex; align-items: center; gap: 9px; font-size: 14px; padding: 9px 12px; border-radius: 7px; color: white; background: var(--brand); white-space: nowrap; }
+.workingStyle { display: flex; align-items: flex-start; gap: 9px; padding: 8px 0; margin-top: 10px; color: var(--mw-muted); border-radius: 8px; }
+.workingStyle > svg { color: var(--brand-ink); flex-shrink: 0; margin-top: 2px; }
+.workingStyle p { font-size: 16px; line-height: 1.7; overflow-wrap: anywhere; }
+.capabilities { padding-top: 6px; border-radius: 8px; }
+.capabilities > span { display: flex; align-items: center; gap: 6px; color: var(--mw-muted); font-size: 14px; }
+.capabilities > div { display: flex; flex-wrap: wrap; gap: 9px 14px; margin-top: 9px; }
+.capabilities > div > span { display: flex; align-items: center; gap: 5px; font-size: 14px; }
+.capabilities svg { color: var(--brand-ink); }
+.capabilities small, .contextShelf small { font-size: 14px; color: var(--mw-muted); }
+.contextShelf { margin: 17px -5px 0; border-radius: 8px; }
+.contextShelf > span { display: flex; align-items: center; gap: 7px; color: var(--mw-muted); font-size: 14px; }
+.contextShelf > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.contextShelf > div > span { display: flex; align-items: center; gap: 7px; background: var(--mw-surface); padding: 9px 11px; border-radius: 6px; font-size: 14px; }
+.contextShelf svg { color: var(--brand-ink); }
+[data-highlight="true"].composer, [data-highlight="true"].workingStyle, [data-highlight="true"].capabilities, [data-highlight="true"].contextShelf { background: color-mix(in srgb, var(--brand) 16%, var(--mw-surface)); box-shadow: 0 0 0 7px color-mix(in srgb, var(--brand) 16%, var(--mw-surface)); }
+.settings { padding: 23px 4px 0; min-height: 128px; }
+.brandControls { display: grid; grid-template-columns: 1fr auto; gap: 25px; align-items: end; }
+.field { display: block; font-size: 14px; }
+.field input, .field textarea { display: block; width: 100%; background: var(--mw-subtle); color: var(--mw-ink); border-radius: 8px; padding: 12px 14px; margin-top: 9px; font-size: 16px; }
+.field textarea { line-height: 1.6; min-height: 75px; resize: vertical; }
+.palette { display: flex; align-items: center; gap: 8px; border: 0; padding: 0; }
+.palette legend { font-size: 14px; margin-bottom: 11px; }
+.palette button { display: grid; place-items: center; width: 37px; height: 37px; border-radius: 9px; color: #fff; }
+.palette button[aria-pressed="true"] { outline: 2px solid var(--mw-ink); outline-offset: 3px; }
+.options { display: flex; flex-wrap: wrap; gap: 11px 18px; padding: 0; border: 0; min-height: 70px; align-content: center; }
+.options legend { margin-bottom: 12px; font-size: 14px; }
+.options label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.options input { accent-color: var(--brand); width: 15px; height: 15px; }
+.settingsFooter { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 9px 15px; margin-top: 20px; font-size: 14px; color: var(--mw-muted); }
+.settingsFooter a { display: flex; align-items: center; gap: 6px; color: var(--mw-ink); }
+.settingsFooter a:hover { color: var(--mw-peach); }
+.footnote { grid-column: 2; color: var(--mw-muted); font-size: 14px; line-height: 1.7; max-width: 620px; }
+@media (max-width: 1340px) { .section { margin-inline: 38px; gap: 22px 60px; } }
+@media (max-width: 1050px) { .section { gap: 20px 35px; margin-top: 100px; grid-template-columns: .8fr 1.3fr; }.intro h2 { font-size: 49px; }.intro > p { font-size: 16px; }.stage { padding-inline: 23px; }.productBody { padding-inline: 21px; }.productBody h3 { font-size: 27px; }.productHeader > span:last-child { display: none; }.contextShelf > div { gap: 6px; }.contextShelf > div > span { font-size: 14px; padding: 8px; }.brandControls { gap: 20px; }.palette button { width: 31px; height: 31px; }.productHeader strong { max-width: 85%; } }
+@media (max-width: 760px) {
+  .section { grid-template-columns: 1fr; margin: 85px 25px 0; gap: 27px; }
+  .intro h2 { font-size: 46px; max-width: 440px; }.intro h2 br { display: none; }
+  .intro > p { max-width: 520px; margin-top: 18px; }
+  .tabs { display: flex; gap: 4px; margin-top: 23px; }.tabs button { flex: 1; flex-direction: column; align-items: center; gap: 7px; padding: 11px 6px; }.tabs strong { font-size: 14px; }.tabs small, .tabs button > svg:last-child { display: none; }
+  .stage { padding-inline: 28px; }.productHeader > span:last-child { display: block; }.productHeader strong { max-width: 55%; }.productBody h3 { font-size: 31px; }.contextShelf > div > span { font-size: 14px; padding: 9px 11px; }
+  .settings { min-height: 0; }.footnote { grid-column: 1; margin-top: -6px; }.palette button { width: 37px; height: 37px; }
+}
+@media (max-width: 480px) {
+  .section { margin: 75px 22px 0; }.intro h2 { font-size: 42px; }.intro > p { font-size: 16px; }.stage { padding: 19px 15px 22px; border-radius: 17px; }.previewCaption { font-size: 14px; margin-bottom: 18px; }.productHeader { padding: 16px 17px; }.productHeader > span:last-child { display: none; }.productHeader strong { max-width: 80%; }.productBody { padding: 7px 17px 20px; }.productBody h3 { font-size: 26px; }.composer { padding: 13px; }.composer textarea, .taskSummary { font-size: 16px; min-height: 172px; }.composerFooter { gap: 12px; flex-wrap: wrap; }.composerFooter > span { font-size: 14px; }.composerFooter button { font-size: 14px; padding: 8px; gap: 5px; }.contextShelf { margin-inline: 0; }.contextShelf > div > span { font-size: 14px; overflow-wrap: anywhere; min-width: 0; }.brandControls { grid-template-columns: 1fr; gap: 17px; }.palette legend { margin-bottom: 10px; }.settingsFooter { font-size: 14px; }.footnote { font-size: 14px; }.tabs button > svg:first-child { width: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .section * { transition: none !important; } }

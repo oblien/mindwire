@@ -29,6 +29,7 @@ type (
 	VoiceAudio      = agent.VoiceAudio
 	VoiceEvent      = agent.VoiceEvent
 	ToolEvent       = agent.ToolEvent
+	TaskInfo        = agent.TaskInfo
 	ResultInfo      = agent.ResultInfo
 	RunSnapshot     = orchestrator.RunSnapshot
 	CompactionInfo  = agent.CompactionInfo
@@ -74,6 +75,7 @@ const (
 	EventError        = agent.EventError
 	EventStatus       = agent.EventStatus
 	EventInput        = agent.EventInput
+	EventTask         = agent.EventTask
 	EventInteraction  = agent.EventInteraction
 	EventCompaction   = agent.EventCompaction
 	EventContinuation = agent.EventContinuation
@@ -164,6 +166,7 @@ const (
 // Protocol values — how the daemon drives an agent for a turn.
 const (
 	ProtocolCLI        = agent.ProtocolCLI
+	ProtocolACP        = agent.ProtocolACP
 	ProtocolHTTP       = agent.ProtocolHTTP
 	ProtocolPersistent = agent.ProtocolPersistent
 )

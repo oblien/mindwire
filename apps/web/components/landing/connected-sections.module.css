@@ -1,0 +1,198 @@
+.costs,
+.faq {
+  position: relative;
+  width: calc(100% - 2 * var(--site-gutter));
+  max-width: var(--site-content);
+  margin: var(--site-section-space) auto;
+}
+
+.costHeading {
+  width: fit-content;
+  max-width: 100%;
+  margin: auto;
+  padding: 28px 40px;
+  border-radius: 24px;
+  background: var(--mw-surface);
+  text-align: center;
+}
+
+.costHeading h2,
+.faqIntro h2 {
+  font-size: var(--site-heading);
+  font-weight: 400;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.costHeading p {
+  margin-top: 14px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--mw-muted);
+}
+
+.costGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 64px;
+}
+
+.costCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 30px;
+  background: var(--mw-surface);
+  border-radius: 24px;
+  min-width: 0;
+}
+
+.costLabel {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--mw-muted);
+  font-size: var(--site-control);
+}
+
+.costLabel img {
+  flex-shrink: 0;
+}
+
+.costCard h3 {
+  max-width: 240px;
+  margin-top: 28px;
+  font-size: var(--site-card-heading);
+  line-height: 1.1;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.costCard > p {
+  margin: 20px 0 30px;
+  color: var(--mw-muted);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.costCard > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  margin-top: auto;
+  font-size: var(--site-control);
+}
+
+.costCard > a:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.faq {
+  display: grid;
+  grid-template-columns: 0.85fr 1.15fr;
+  gap: 64px;
+  align-items: start;
+}
+
+.faqIntro,
+.faqBody {
+  min-width: 0;
+  padding: 32px;
+  background: var(--mw-surface);
+  border-radius: 24px;
+}
+
+.faqIntro > span {
+  display: block;
+  font-size: var(--site-label);
+  color: var(--mw-muted);
+  margin-bottom: 22px;
+  font-family: var(--font-mono);
+  line-height: 20px;
+}
+
+.faqIntro > p {
+  margin-top: 24px;
+  color: var(--mw-muted);
+  font-size: var(--site-body);
+  line-height: 1.65;
+}
+
+.faqIntro > img {
+  display: block;
+  margin-top: 36px;
+}
+
+.faqBody {
+  margin-top: 56px;
+  padding-block: 10px;
+}
+
+.faqBody details:last-child {
+  border-bottom: 0;
+}
+
+.faqBody summary {
+  font-size: 18px;
+  line-height: 1.45;
+}
+
+@media (max-width: 1000px) {
+  .costCard {
+    padding: 24px;
+  }
+  .costGrid {
+    gap: 18px;
+  }
+  .faq {
+    gap: 48px;
+  }
+  .faqIntro,
+  .faqBody {
+    padding-inline: 26px;
+  }
+}
+
+@media (max-width: 767px) {
+  .costs,
+  .faq {
+    margin-block: 56px;
+  }
+  .costHeading {
+    padding: 28px 24px;
+  }
+  .costGrid {
+    grid-template-columns: 1fr;
+    gap: 44px;
+    margin-top: 44px;
+  }
+  .costCard {
+    padding: 28px;
+  }
+  .costCard h3 {
+    max-width: none;
+    margin-top: 20px;
+  }
+  .costCard > p {
+    margin-block: 16px 24px;
+  }
+  .faq {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+  .faqIntro {
+    padding: 28px;
+  }
+  .faqBody {
+    margin-top: 0;
+    padding-inline: 24px;
+  }
+}

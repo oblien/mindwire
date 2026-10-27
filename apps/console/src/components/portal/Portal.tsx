@@ -72,13 +72,14 @@ function PortalShell({
       <a href="#account-content" className={styles.skip}>Skip to content</a>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <Link to="/" aria-label="Mindwire home" onClick={() => setMenuOpen(false)}><BrandMark size={26} /></Link>
+          <div><Link to="/" aria-label="Mindwire home" onClick={() => setMenuOpen(false)}><BrandMark size={22} /></Link><p className={styles.accountType}>Personal account</p></div>
           <Button ref={menuTrigger} size="icon" variant="ghost" className={styles.menuButton} aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen} aria-controls="account-navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</Button>
         </div>
         <nav id="account-navigation" aria-label="Account navigation" className={styles.nav} data-open={menuOpen}>
           {navigation.map((item) => <NavLink end={item.to === "/"} key={item.to} to={item.to} onClick={() => setMenuOpen(false)}><item.icon className="size-[18px]" />{item.label}</NavLink>)}
         </nav>
         <div className={styles.sidebarBottom} data-open={menuOpen}>
+          <a href="https://oblien.com/" target="_blank" rel="noreferrer" className={styles.help}>Building for customers?<ArrowUpRight className="size-4" /></a>
           <a href="https://mindwire.sh/docs" target="_blank" rel="noreferrer" className={styles.help}>Help & documentation<ArrowUpRight className="size-4" /></a>
           <div className={styles.profile}>
             <span className={styles.avatar} aria-hidden="true">{(user.name || user.email).slice(0,2).toUpperCase()}</span>
@@ -88,7 +89,7 @@ function PortalShell({
       </aside>
       <div className={styles.workspace}>
         <header className={styles.topbar}>
-          <p className={styles.location}><span>Your account /</span><strong>{currentPage}</strong></p>
+          <p className={styles.location}><span>Personal workspace /</span><strong>{currentPage}</strong></p>
           <div className={styles.headerActions}>
             <ThemeButton />
           <Button

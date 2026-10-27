@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,10 @@ type Spec struct {
 	Package     string
 	VersionArgs []string
 	Environment map[string]string
+	// Native distributions are immutable, compiled sources; the remote catalog
+	// can select only versions whose installer ships with this daemon.
+	Archives       map[string]map[string]Archive
+	VersionPattern string
 }
 
 type Manager struct {
@@ -51,7 +56,7 @@ func New(daemonVersion string) *Manager {
 }
 
 func newManager(root, version, url string) *Manager {
-	return &Manager{root: root, version: version, catalog: newCatalogCache(root, url), probes: map[string]probe{}, install: installNPM}
+	return &Manager{root: root, version: version, catalog: newCatalogCache(root, url), probes: map[string]probe{}, install: installDistribution}
 }
 
 func (m *Manager) Software(ctx context.Context, spec Spec) Software {
@@ -139,7 +144,19 @@ func versionOutput(ctx context.Context, spec Spec, path string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(out)), nil
+	output := strings.TrimSpace(string(out))
+	if spec.VersionPattern != "" {
+		pattern, err := regexp.Compile(spec.VersionPattern)
+		if err != nil {
+			return "", err
+		}
+		match := pattern.FindStringSubmatch(output)
+		if len(match) < 2 {
+			return "", fmt.Errorf("%s returned no recognizable version", spec.Name)
+		}
+		output = match[1]
+	}
+	return output, nil
 }
 
 // Check is a setup probe, not an update. An installed, untested external CLI stays installed.

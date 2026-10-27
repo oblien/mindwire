@@ -1,0 +1,149 @@
+.hero {
+  position: relative;
+  isolation: isolate;
+  width: calc(100% - 2 * var(--site-gutter));
+  max-width: var(--site-frame);
+  min-height: 598px;
+  margin: 0 auto var(--site-section-space);
+  padding: 84px var(--site-inset) 112px;
+  background: linear-gradient(var(--mw-surface) 0 0) top / 100% 32px no-repeat;
+  text-align: center;
+}
+.heroCopy {
+  min-width: 0;
+}
+.hero .eyebrow {
+  display: block;
+  margin-bottom: 20px;
+  color: var(--mw-muted);
+  font-family: var(--font-mono);
+  font-size: var(--site-label);
+  line-height: 20px;
+}
+.hero h1 {
+  max-width: 800px;
+  margin: 0 auto;
+  font-family: var(--font-graphic);
+  text-transform: uppercase;
+  font-weight: 400;
+  font-size: var(--site-display);
+  line-height: 0.94;
+  letter-spacing: -0.05em;
+  text-wrap: balance;
+}
+.hero h1 em {
+  color: inherit;
+  font-style: normal;
+}
+.heroCopy > p {
+  max-width: var(--site-copy);
+  margin: 24px auto 0;
+  color: var(--mw-muted);
+  font-size: var(--site-body);
+  line-height: 2;
+  text-wrap: pretty;
+}
+.heroActions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 64px;
+}
+.heroActions > div {
+  flex-basis: 100%;
+}
+.heroActions > small {
+  display: block;
+  flex-basis: 100%;
+  font-size: var(--site-control);
+  line-height: 1.5;
+  color: var(--mw-muted);
+  margin-top: 8px;
+}
+.hero[data-split="true"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 64px;
+  align-items: start;
+  text-align: left;
+}
+.hero[data-split="true"] h1,
+.hero[data-split="true"] .heroCopy > p {
+  margin-inline: 0;
+}
+.hero[data-split="true"] .heroActions {
+  justify-content: flex-start;
+  margin-top: 32px;
+}
+.heroAside {
+  min-width: 0;
+  align-self: center;
+}
+.heroAside > img {
+  width: min(100%, 330px);
+  height: auto;
+  margin: auto;
+}
+.heroFoot {
+  position: absolute;
+  inset: auto 88px 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  color: var(--mw-muted);
+  font-family: var(--font-mono);
+  font-size: var(--site-label);
+  line-height: 20px;
+}
+.heroFoot img {
+  width: 94px;
+  height: 26px;
+}
+.heroFoot span {
+  text-align: right;
+}
+@media (max-width: 1100px) {
+  .hero[data-split="true"] {
+    gap: 40px;
+  }
+  .hero[data-split="true"] h1 {
+    font-size: 40px;
+  }
+}
+@media (max-width: 900px) {
+  .hero[data-split="true"] {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+  .hero[data-split="true"] h1 {
+    font-size: var(--site-display);
+  }
+  .heroAside > img {
+    max-width: 240px;
+  }
+}
+@media (max-width: 767px) {
+  .hero {
+    min-height: 0;
+    padding-block: 40px 104px;
+  }
+  .hero h1 {
+    line-height: 1.02;
+  }
+  .heroCopy > p {
+    line-height: 1.65;
+  }
+  .heroActions {
+    margin-top: 32px;
+  }
+  .heroFoot {
+    inset-inline: 56px;
+    justify-content: center;
+  }
+  .heroFoot span {
+    display: none;
+  }
+}

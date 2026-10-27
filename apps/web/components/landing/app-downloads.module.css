@@ -1,0 +1,258 @@
+.downloads {
+  position: relative;
+  width: calc(100% - 2 * var(--site-gutter));
+  max-width: var(--site-content);
+  margin: var(--site-section-space) auto;
+}
+
+.headingRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.65fr);
+  align-items: center;
+  gap: 96px;
+}
+
+.intro {
+  position: relative;
+  isolation: isolate;
+  padding: 36px;
+}
+
+.intro h2 {
+  font-family: var(--font-graphic);
+  font-size: var(--site-heading);
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+}
+
+.intro > p {
+  margin-top: 24px;
+  color: var(--mw-muted);
+  font-size: var(--site-body);
+  line-height: 1.6;
+}
+
+.textLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  font-size: var(--site-control);
+  line-height: 1.5;
+}
+
+.textLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 5px;
+}
+
+.intro > .textLink {
+  margin-top: 24px;
+}
+
+.art {
+  position: relative;
+  isolation: isolate;
+  height: 190px;
+  max-width: 290px;
+  width: 100%;
+  margin-inline: auto;
+}
+
+.texture {
+  clip-path: var(--window-clip, inset(0 round 20px));
+}
+
+.platforms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 64px;
+}
+
+.platform {
+  min-width: 0;
+  padding: 36px;
+  border-radius: 24px;
+  background: var(--mw-surface);
+}
+
+.platformHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.platform h3 {
+  font-size: var(--site-card-heading);
+  line-height: 1.05;
+  font-weight: 400;
+  letter-spacing: -0.045em;
+}
+
+.platform > p {
+  margin-top: 24px;
+  max-width: 430px;
+  min-height: 58px;
+  font-size: var(--site-body);
+  line-height: 1.65;
+  color: var(--mw-muted);
+}
+
+.platformAction {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  margin-top: 36px;
+}
+
+.platformAction > span:last-child {
+  font-size: var(--site-control);
+  color: var(--mw-muted);
+  line-height: 1.5;
+}
+
+.availability {
+  display: inline-flex;
+  align-items: center;
+  min-height: 47px;
+  padding: 13px 27px;
+  border-radius: 30px;
+  background: var(--mw-subtle);
+  font-size: var(--site-control);
+  line-height: 21px;
+}
+
+.platform > .textLink {
+  margin-top: 28px;
+}
+
+.runtime {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 48px;
+  margin-top: 24px;
+  padding: 36px;
+  border-radius: 24px;
+  background: var(--mw-inverse);
+  color: var(--mw-inverse-ink);
+}
+
+.runtime h3 {
+  font-size: var(--site-card-heading);
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+
+.runtime p {
+  margin-top: 18px;
+  font-size: 16px;
+  line-height: 1.65;
+  max-width: 420px;
+  color: var(--mw-inverse-muted);
+}
+
+.runtime .textLink {
+  margin-top: 22px;
+}
+
+.terminal {
+  min-width: 0;
+  color: var(--mw-ink);
+}
+
+.terminal > div {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--mw-surface);
+  border: 0;
+  border-radius: 16px;
+}
+
+.terminal > div > div {
+  padding: 16px 20px;
+  margin-bottom: 0;
+  color: var(--mw-muted);
+  font-size: 15px;
+}
+
+.terminal > div pre {
+  padding: 20px;
+  font-size: 16px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--mw-ink);
+}
+
+@media (max-width: 1100px) {
+  .headingRow {
+    gap: 64px;
+  }
+  .intro,
+  .platform,
+  .runtime {
+    padding: 28px;
+  }
+  .runtime {
+    gap: 32px;
+  }
+}
+
+@media (max-width: 767px) {
+  .headingRow {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  .intro {
+    padding: 30px 24px;
+  }
+  .art {
+    width: 65%;
+    max-width: 280px;
+    height: 140px;
+    margin-right: 12px;
+  }
+  .platforms {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    margin-top: 40px;
+  }
+  .platform {
+    padding: 28px;
+  }
+  .platform > p {
+    min-height: 0;
+  }
+  .platformAction {
+    margin-top: 28px;
+  }
+  .runtime {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    padding: 28px;
+  }
+}
+
+@media (max-width: 380px) {
+  .platform,
+  .runtime {
+    padding: 24px;
+  }
+  .platformHeading {
+    gap: 12px;
+  }
+  .platformAction > a {
+    padding-inline: 20px;
+  }
+  .terminal > div pre {
+    padding-inline: 16px;
+    font-size: 15px;
+  }
+}

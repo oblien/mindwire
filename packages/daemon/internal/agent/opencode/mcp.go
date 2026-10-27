@@ -11,7 +11,7 @@ import (
 // Persistent MCP-server config for opencode, exposed through the optional agent.MCPServerModule
 // (type-asserted by the API, never part of the mandatory Adapter). opencode reads persistent MCP servers
 // from the top-level `mcp` object of its user config, opencode.json, loading them on every run. This is
-// DISTINCT from a per-turn MCP passthrough (opencode has none): here we read/write the config opencode
+// DISTINCT from a per-turn MCP overlay: here we read/write the config opencode
 // applies to every session. User scope only — opencode.json is a single user-level file.
 //
 // SURGICAL IO: opencode.json holds unrelated top-level keys ($schema, model, theme, provider, …). We

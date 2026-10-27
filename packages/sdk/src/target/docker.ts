@@ -115,7 +115,7 @@ interface ContainerLike {
   remove(opts?: Record<string, unknown>): Promise<unknown>;
   inspect(): Promise<ContainerInspect>;
   exec(opts: Record<string, unknown>): Promise<ExecLike>;
-  putArchive(file: Uint8Array, opts: { path: string }): Promise<unknown>;
+  putArchive(file: Uint8Array, opts: { path: string; copyUIDGID?: boolean }): Promise<unknown>;
   modem: { demuxStream(stream: DuplexLike, stdout: unknown, stderr: unknown): void };
 }
 
@@ -175,15 +175,20 @@ class DockerHost implements SandboxHost {
     const base = path.slice(slash + 1);
     await this.exec(["mkdir", "-p", dir]); // putArchive extracts into an existing directory
     const tar = tarSingleFile(base, data, opts?.mode ?? "0644");
-    await this.container.putArchive(tar, { path: dir });
+    // Docker otherwise extracts as root. The launch script must be able to chmod
+    // and replace this binary as the container's configured runtime user.
+    await this.container.putArchive(tar, { path: dir, copyUIDGID: true });
   }
 }
 
 // ---- adapter entry points --------------------------------------------------
 
 async function connectDocker(config: DockerConfig, spec: ConnectSpec): Promise<TargetHandle> {
-  const Docker = await importDockerode();
-  const instance = config.docker ?? new Docker(config.engine);
+  let instance = config.docker;
+  if (!instance) {
+    const Docker = await importDockerode();
+    instance = new Docker(config.engine);
+  }
   // The in-container daemon's agent defaults to the client's default agent (config.agent wins).
   const merged: DockerConfig = { ...config, agent: config.agent ?? spec.agent };
   return provisionDocker(instance, merged, spec.onLog);

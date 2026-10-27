@@ -15,7 +15,7 @@ import (
 
 // Version identifies this daemon binary's agent definitions. The app caches the
 // fetched schema/catalog keyed by this, and refreshes when it changes.
-const Version = "0.1.59"
+const Version = "0.1.60"
 
 // TurnInput is one chat turn's parameters.
 type TurnInput struct {
@@ -173,6 +173,7 @@ type Message struct {
 // tool_result on one `Tool` payload (keyed by tool-use id) so the wire shape matches the app's
 // DaemonMessagePart/DaemonToolCall exactly.
 type Part struct {
+	Task        *TaskInfo       `json:"task,omitempty"`
 	Type        string          `json:"type"`                 // "text" | "thinking" | "tool" | "interaction" | "compaction"
 	ID          string          `json:"id,omitempty"`         // streaming item identity, when supplied
 	Text        string          `json:"text,omitempty"`       // body for text / thinking

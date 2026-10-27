@@ -37,10 +37,10 @@ export function PageTitle({
   return (
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="break-words text-[30px] font-medium leading-tight tracking-tight sm:text-[34px]">
+        <h1 className="break-words text-[32px] font-normal leading-tight tracking-tight sm:text-[40px]">
           {title}
         </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+        <p className="mt-3 max-w-2xl text-base leading-relaxed text-muted-foreground">
           {description}
         </p>
       </div>

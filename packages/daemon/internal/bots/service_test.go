@@ -266,7 +266,7 @@ func TestCommandHarnessUsesTheSameScopedBotTools(t *testing.T) {
 			adapter = a
 		}
 	}
-	turn, cleanup, err := s.Bind(t.Context(), adapter, runner.Turn{ChatID: "chat"})
+	turn, cleanup, err := s.Bind(t.Context(), commandOnlyAdapter{adapter}, runner.Turn{ChatID: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,4 +291,12 @@ func TestCommandHarnessUsesTheSameScopedBotTools(t *testing.T) {
 	if err = ToolHelper(t.Context(), []string{"list"}, &output); err == nil {
 		t.Fatal("helper accepted a remote endpoint")
 	}
+}
+
+type commandOnlyAdapter struct{ agent.Adapter }
+
+func (a commandOnlyAdapter) Capabilities() agent.Capabilities {
+	caps := a.Adapter.Capabilities()
+	caps.MCPServers = false
+	return caps
 }

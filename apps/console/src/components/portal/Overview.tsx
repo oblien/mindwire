@@ -14,10 +14,10 @@ export function Overview({ user }: { user: AuthUser }) {
   const allocated = cloud.computers.filter(c => c.workspaceId && c.state !== "deleting");
   const hasComputers = cloud.computers.length > 0;
   return <div className="space-y-8">
-    <PageTitle title={`Good to see you${user.name ? `, ${user.name.split(" ")[0]}` : ""}.`} description="A home for your computers, connections, and everything that comes next." action={hasComputers ? <Button asChild><Link to="/computers/new"><Plus />New computer</Link></Button> : undefined} />
+    <PageTitle title={`Good to see you${user.name ? `, ${user.name.split(" ")[0]}` : ""}.`} description="Your personal workspace. Computers, devices, and the projects you’re working on." action={hasComputers ? <Button asChild><Link to="/computers/new"><Plus />New computer</Link></Button> : undefined} />
     {!cloud.loaded && !cloud.error && <Loading />}
     {cloud.loaded && !hasComputers && <section className={styles.intro}>
-      <div><h2>A little more room for your ideas.</h2><p>Use your own computer for free, or give your bots a Cloud Computer of their own. Connect from the Mindwire app and make it yours.</p><div className="flex flex-wrap gap-3"><Button asChild><Link to="/computers/new">Explore Cloud Computers<ArrowRight /></Link></Button><Button asChild variant="ghost"><a href="https://mindwire.sh/download">Get the app</a></Button></div></div>
+      <div><h2>Your work. Room to grow.</h2><p>Use your own computer for free, or add a personal Cloud Computer that stays online. Pick up your projects from the Mindwire app.</p><div className="flex flex-wrap gap-3"><Button asChild><Link to="/computers/new">Explore Cloud Computers<ArrowRight /></Link></Button><Button asChild variant="ghost"><a href="https://mindwire.sh/app#download">Get the app</a></Button></div></div>
       <AccountArtwork className={styles.introArt} />
     </section>}
     {hasComputers && <>
@@ -33,9 +33,9 @@ export function Overview({ user }: { user: AuthUser }) {
     <section className="space-y-4" aria-label="Account shortcuts">
       <h2 className="text-base font-medium">Make yourself at home</h2>
       <div className={styles.quickLinks}>
-        <a href="https://mindwire.sh/download" className={styles.quickLink}><span><Download className="size-5" /></span><h3>Get Mindwire<ArrowRight className="size-4" /></h3><p>Your bots and work, on your Mac and iPhone.</p></a>
+        <a href="https://mindwire.sh/app#download" className={styles.quickLink}><span><Download className="size-5" /></span><h3>Get Mindwire<ArrowRight className="size-4" /></h3><p>Create, review, and keep working from your Mac or phone.</p></a>
         <Link to="/devices" className={styles.quickLink}><span><Smartphone className="size-5" /></span><h3>Your connections<ArrowRight className="size-4" /></h3><p>See where you’re signed in and manage your devices.</p></Link>
-        <a href="https://mindwire.sh/docs" className={styles.quickLink}><span><BookOpen className="size-5" /></span><h3>A little guidance<ArrowRight className="size-4" /></h3><p>Set up a computer, meet your agents, and create your first bot.</p></a>
+        <a href="https://mindwire.sh/docs" className={styles.quickLink}><span><BookOpen className="size-5" /></span><h3>A little guidance<ArrowRight className="size-4" /></h3><p>Connect a computer and start your first project in Mindwire.</p></a>
       </div>
     </section>
   </div>;

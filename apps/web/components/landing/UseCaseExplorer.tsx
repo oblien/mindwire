@@ -1,30 +1,54 @@
 "use client";
-
-import { useRef, useState } from "react";
-import { ArrowRight, Search, X } from "lucide-react";
-import { useCaseCategories, useCases, type UseCaseCategory } from "@/lib/use-cases";
+import { useState } from "react";
+import { useCases } from "@/lib/use-cases";
 import UseCaseCard from "./UseCaseCard";
-import BotAvatar from "./BotAvatar";
 import styles from "./use-cases.module.css";
 
 export default function UseCaseExplorer() {
-  const [category, setCategory] = useState<UseCaseCategory | "All">("All");
-  const [query, setQuery] = useState("");
-  const search = useRef<HTMLInputElement>(null);
-  const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
-  const filtered = useCases.filter(item => {
-    const content = [item.title, item.summary, item.category, ...item.inputs, ...item.outcomes].join(" ").toLocaleLowerCase();
-    return (category === "All" || item.category === category) && terms.every(term => content.includes(term));
-  });
-
-  return <section id="use-case-library" className={styles.library} aria-labelledby="library-title">
-    <div className={styles.libraryHeading}><div><span className={styles.eyebrow}>For the everyday. And the what-if.</span><h2 id="library-title">What could you use a hand with?</h2></div><p>Find an idea, borrow a starting prompt,<br />and make it your own.</p></div>
-    <div className={styles.filters}>
-      <div role="group" aria-label="Filter use cases by category" className={styles.categories}>{(["All", ...useCaseCategories] as const).map(value => <button type="button" key={value} aria-pressed={category === value} onClick={() => setCategory(value)}>{value}</button>)}</div>
-      <div className={styles.search}><Search size={16} aria-hidden="true" /><label className="sr-only" htmlFor="use-case-search">Search use cases</label><input ref={search} id="use-case-search" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Find an idea…" />{query && <button type="button" aria-label="Clear search" onClick={() => { setQuery(""); search.current?.focus(); }}><X size={15} /></button>}</div>
-    </div>
-    <p className={styles.resultCount} role="status" aria-live="polite" aria-atomic="true">{filtered.length} of {useCases.length} ideas{category !== "All" ? ` · ${category}` : ""}{query.trim() ? ` matching “${query.trim()}”` : ""}</p>
-    {filtered.length ? <div className={styles.caseGrid}>{filtered.map(item => <UseCaseCard key={item.slug} item={item} />)}</div> : <div className={styles.empty}><BotAvatar character="sprout" size={65} /><h3>Let’s try another idea.</h3><p>No use cases match these filters. Try a shorter search or explore the full collection.</p><button type="button" onClick={() => { setCategory("All"); setQuery(""); search.current?.focus(); }}>Show all ideas<ArrowRight size={15} /></button></div>}
-  </section>;
+  const [platform, setPlatform] = useState("All products");
+  const cases = useCases.filter(
+    (item) => platform === "All products" || item.platform === platform,
+  );
+  return (
+    <section
+      id="use-case-library"
+      className={styles.library}
+      aria-labelledby="library-title"
+    >
+      <div className={styles.libraryHeading}>
+        <div>
+          <span>Built into the product.</span>
+          <h2 id="library-title">What could yours become?</h2>
+        </div>
+        <p>
+          Six product blueprints. Explore the customer experience, try the
+          result, and see how the integration fits together.
+        </p>
+      </div>
+      <div className={styles.filters}>
+        <div role="group" aria-label="Filter examples by platform">
+          {["All products", "Desktop", "Cloud"].map((label) => (
+            <button
+              key={label}
+              type="button"
+              aria-pressed={platform === label}
+              onClick={() => setPlatform(label)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <span role="status">{cases.length} product examples</span>
+      </div>
+      <div className={styles.caseGrid}>
+        {cases.map((item) => (
+          <UseCaseCard key={item.slug} item={item} />
+        ))}
+      </div>
+      <p className={styles.sampleNote}>
+        Illustrative products with sample data. Each walkthrough shows a product
+        you could build with Mindwire.
+      </p>
+    </section>
+  );
 }
-

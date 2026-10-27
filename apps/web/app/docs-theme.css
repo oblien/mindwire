@@ -1,39 +1,187 @@
-/* Fumadocs keeps its navigation and interaction model; Mindwire supplies the surfaces. */
-#nd-docs-layout { --fd-banner-height: 4.75rem; --fd-docs-height: 100dvh; --fd-layout-width: 94rem; min-height: calc(100dvh - 4.75rem); }
-#nd-docs-layout :is(h1, h2, h3, h4) { scroll-margin-top: 7rem; }
-#nd-sidebar { background: var(--mw-subtle); border-color: transparent; }
-#nd-sidebar:not([data-collapsed="true"]) { inset-block: 12px; inset-inline-start: 12px; width: calc(100% - 12px); border-radius: var(--mw-radius-card); }
-#nd-sidebar > * { max-width: 100%; }
-:is(#nd-sidebar, #nd-sidebar-mobile) :is(a, button) { border-radius: 10px; }
-:is(#nd-sidebar, #nd-sidebar-mobile) a[data-active="true"] { background: var(--mw-peach-soft); color: var(--mw-peach); }
-:is(#nd-sidebar, #nd-sidebar-mobile) :is(a, button):focus-visible { outline: 2px solid var(--mw-peach); outline-offset: -2px; }
-#nd-sidebar-mobile { inset-block: 8px; inset-inline-end: 8px; width: min(380px, calc(100% - 40px)); border-radius: 24px; background: var(--mw-surface); border: 1px solid var(--mw-line); }
-#nd-subnav { margin: 8px 12px 0; border: 0; border-radius: 14px; background: var(--mw-subtle); }
-#nd-subnav button { border-radius: 10px; }
-#nd-toc { color: var(--mw-muted); font-size: 13px; }
-#nd-page { padding-top: 40px; padding-bottom: 64px; }
-#nd-page > h1 { font-size: clamp(32px, 3.2vw, 47px); line-height: 1.1; font-weight: 500; letter-spacing: -.045em; }
-#nd-page > p { line-height: 1.7; color: var(--mw-muted); }
-.prose { --tw-prose-body: var(--mw-muted); --tw-prose-headings: var(--mw-ink); --tw-prose-bold: var(--mw-ink); --tw-prose-links: var(--mw-peach); --tw-prose-code: var(--mw-ink); }
-.prose :not(pre) > code { border: 0; border-radius: 6px; background: var(--mw-inset); padding: .18em .38em; color: var(--mw-ink); }
-.prose :is(h2, h3, h4) { font-weight: 500; letter-spacing: -.025em; }
-.prose h2 { margin-top: 2.5em; }
-.prose a:not([data-card]) { text-underline-offset: 4px; }
-.prose :is(figure.shiki, .fd-codeblock) { border: 1px solid var(--mw-line); border-radius: 16px; box-shadow: none; background: var(--mw-subtle); }
-.prose pre { font-size: 12.5px; line-height: 1.75; }
-.prose :is(th, td) { border-color: var(--mw-line); }
-.prose th { background: var(--mw-subtle); font-weight: 500; }
-.prose [role="tablist"] { border-radius: 12px 12px 0 0; }
-.prose [role="tab"] { border-radius: 8px; }
-.prose [role="tab"][data-state="active"] { color: var(--mw-peach); }
-[role="dialog"] { box-shadow: var(--mw-shadow-popover); }
-#nd-search { border-radius: var(--mw-radius-card); }
+/* Fumadocs keeps its layout, search and keyboard behavior; the site supplies paper surfaces. */
+#nd-docs-layout {
+  --fd-banner-height: 4.75rem;
+  --fd-docs-height: 100dvh;
+  --fd-layout-width: 94rem;
+  min-height: calc(100dvh - 4.75rem);
+}
+#nd-docs-layout :is(h1, h2, h3, h4) {
+  scroll-margin-top: 7rem;
+}
+#nd-sidebar {
+  background: transparent;
+  border: 0;
+  font-size: 14px;
+}
+#nd-sidebar:not([data-collapsed="true"]) {
+  inset-block: 12px;
+  inset-inline-start: 12px;
+  width: calc(100% - 12px);
+  border-radius: 20px;
+}
+#nd-sidebar > * {
+  max-width: 100%;
+}
+:is(#nd-sidebar, #nd-sidebar-mobile) :is(a, button) {
+  border-radius: 10px;
+}
+:is(#nd-sidebar, #nd-sidebar-mobile) a[data-active="true"] {
+  background: var(--mw-surface);
+  color: var(--mw-ink);
+}
+:is(#nd-sidebar, #nd-sidebar-mobile) :is(a, button):focus-visible {
+  outline: 2px solid var(--mw-focus);
+  outline-offset: -2px;
+}
+#nd-sidebar-mobile {
+  inset-block: 8px;
+  inset-inline-end: 8px;
+  width: min(380px, calc(100% - 32px));
+  border-radius: 20px;
+  background: var(--mw-bg);
+  border: 0;
+}
+#nd-subnav {
+  margin: 8px 12px 0;
+  border: 0;
+  border-radius: 14px;
+  background: var(--mw-surface);
+}
+#nd-subnav button {
+  border-radius: 10px;
+}
+#nd-toc {
+  color: var(--mw-muted);
+  font-size: 14px;
+}
+#nd-page {
+  margin-block: 20px;
+  padding: 40px;
+  background: var(--mw-surface);
+  border-radius: 20px;
+  min-width: 0;
+}
+#nd-page > h1 {
+  font-size: var(--site-heading);
+  line-height: 1.1;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+}
+#nd-page > p {
+  font-size: var(--site-body);
+  line-height: 1.7;
+  color: var(--mw-muted);
+}
+#nd-page .prose {
+  font-size: 16px;
+  line-height: 1.8;
+  --tw-prose-body: var(--mw-body);
+  --tw-prose-headings: var(--mw-ink);
+  --tw-prose-bold: var(--mw-ink);
+  --tw-prose-links: var(--mw-ink);
+  --tw-prose-code: var(--mw-ink);
+}
+#nd-page .prose :not(pre) > code {
+  border: 0;
+  border-radius: 5px;
+  background: var(--mw-subtle);
+  padding: 0.18em 0.38em;
+  color: var(--mw-ink);
+  font-size: 0.875em;
+}
+#nd-page .prose :is(h2, h3, h4) {
+  font-weight: 400;
+  letter-spacing: -0.025em;
+}
+#nd-page .prose h2 {
+  margin-top: 2.5em;
+}
+#nd-page .prose a:not([data-card]) {
+  text-underline-offset: 4px;
+}
+#nd-page .prose :is(figure.shiki, .fd-codeblock) {
+  border: 0;
+  border-radius: 12px;
+  box-shadow: none;
+  background: var(--shiki-light-bg, var(--mw-subtle));
+}
+:root.dark #nd-page .prose :is(figure.shiki, .fd-codeblock) {
+  background: var(--mw-subtle);
+}
+#nd-page .prose pre {
+  font: 14px/1.75 var(--font-mono);
+}
+#nd-page .prose :is(th, td) {
+  border-color: var(--mw-line);
+}
+#nd-page .prose th {
+  background: var(--mw-subtle);
+  font-weight: 500;
+}
+#nd-page [role="tablist"] {
+  border-radius: 12px 12px 0 0;
+}
+#nd-page [role="tab"] {
+  border-radius: 8px;
+  font-size: 14px;
+}
+#nd-page [role="tab"]:is([data-state="active"], [data-active]) {
+  color: var(--mw-ink);
+  background: var(--mw-inset);
+}
+#nd-page a[data-card]:not([href^="#"]) {
+  box-shadow: none;
+  border-color: transparent;
+  background: var(--mw-subtle);
+  border-radius: 14px;
+}
+#nd-page a[data-card]:not([href^="#"]):hover {
+  background: var(--mw-inset);
+}
+[role="dialog"]:has(#fd-search-list) {
+  background: var(--mw-surface);
+  color: var(--mw-ink);
+  border: 0;
+  border-radius: 20px;
+  box-shadow: 0 20px 80px #0002;
+}
+[role="dialog"]:has(#fd-search-list) [role="combobox"] {
+  font-family: var(--font-sans);
+  font-size: 16px;
+}
+#fd-search-list [aria-selected="true"] {
+  background: var(--mw-subtle);
+  color: var(--mw-ink);
+}
+@media (max-width: 1100px) {
+  #nd-page {
+    padding: 32px;
+  }
+}
 @media (max-width: 767px) {
-  #nd-docs-layout { --fd-banner-height: 4.25rem; min-height: calc(100dvh - 4.25rem); }
-  #nd-docs-layout :is(h1, h2, h3, h4) { scroll-margin-top: 11rem; }
-  #nd-page { padding: 28px 22px 50px; }
-  #nd-page > h1 { font-size: 32px; }
+  #nd-docs-layout {
+    --fd-banner-height: 4.25rem;
+    min-height: calc(100dvh - 4.25rem);
+  }
+  #nd-docs-layout :is(h1, h2, h3, h4) {
+    scroll-margin-top: 11rem;
+  }
+  #nd-page {
+    width: calc(100% - 24px);
+    margin: 12px 0;
+    padding: 28px 22px 40px;
+  }
+  #nd-page > h1 {
+    font-size: var(--site-heading);
+  }
+  #nd-page > p {
+    font-size: var(--site-body);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  #nd-docs-layout *, [role="dialog"] { animation: none !important; transition: none !important; }
+  #nd-docs-layout *,
+  [role="dialog"]:has(#fd-search-list) {
+    animation: none !important;
+    transition: none !important;
+  }
 }

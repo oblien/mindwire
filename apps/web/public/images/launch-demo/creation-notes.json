@@ -1,0 +1,6 @@
+{
+  "asset": "fieldwork-retreat.webp",
+  "tool": "Built-in image_gen",
+  "purpose": "Fictional Fieldwork launch project shown in the Mindwire homepage creation demo",
+  "prompt": "Use case: photorealistic-natural\nAsset type: shared campaign photography for a fictional design retreat website and social poster in a product demo.\nPrimary request: an art-directed architectural photograph of a quiet creative retreat on the Mediterranean coast. A sculptural warm sandstone studio and broad terrace, a long weathered wooden table with a few notebooks, olive-green modern chairs, a single slender pine tree, and a calm blue sea beyond. No people.\nComposition: wide landscape image, strong architectural geometry, the terrace and building fill the left and middle, sea and horizon visible on the right. It must remain recognizable in a tall crop. Eye-level editorial framing, subtle grain, tactile stone and sunlit wood.\nLighting: beautiful late-afternoon natural light with defined soft-edged shadows, warm and understated, believable architectural magazine photography.\nConstraints: no text, no logos, no watermark, no UI, no floating objects, no neon, no gradients, no decorative dots, no fantastical architecture."
+}

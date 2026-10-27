@@ -1,0 +1,7 @@
+cobalt.webp is the same reference artwork used by the Mindwire public website.
+Source: https://www.rainbrand.com/
+Retrieved October 28, 2026 for the requested visual adaptation.
+
+The connected framing and account copy are supplied by this project.
+Fonts and their OFL licenses are in public/fonts/framework.
+This provenance note does not change the reference asset's ownership.

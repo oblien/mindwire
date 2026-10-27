@@ -125,26 +125,27 @@ export function AuthScreen({
         <div className="flex items-center gap-3">
           <ThemeButton />
           <a href={docsUrl} className={styles.docsLink}>
-            Documentation
+            Docs
             <ArrowUpRight className="size-4" />
           </a>
         </div>
       </header>
       <main className={styles.main}>
         <section className={styles.welcome} aria-label="Your Mindwire account">
-          <AccountArtwork className={styles.art} />
           <div>
+            <span className={styles.eyebrow}>Your Mindwire account</span>
             <h1>
-              Your ideas.
-              <br />A place to go further.
+              YOUR WORK.
+              <br />WITH YOU.
             </h1>
             <p>
-              Give your bots a home, keep your devices connected, and pick up
-              wherever life takes you.
+              Your projects, connected devices, and personal Cloud Computers.
+              All in one place.
             </p>
           </div>
-          <a href="https://mindwire.sh/use-cases">
-            A few things you could do
+          <AccountArtwork className={styles.art} />
+          <a href="https://mindwire.sh/app">
+            Explore the Mindwire app
             <ArrowUpRight className="size-4" />
           </a>
         </section>
@@ -308,18 +309,13 @@ export function AuthScreen({
 
       {/* Account service links. */}
       <footer className={styles.footer}>
-        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 px-5 pb-5 pt-4 text-xs text-muted-foreground lg:pt-5">
+        <div className="flex flex-wrap items-center justify-center gap-x-7 gap-y-2 px-5 pb-5 pt-4 text-sm text-muted-foreground lg:pt-5">
           <FooterLink href={docsUrl}>Docs</FooterLink>
-          <Dot />
           <FooterLink href={githubUrl}>
             <GitHubIcon className="size-3.5" />
             GitHub
           </FooterLink>
-          <Dot />
-          <span className="inline-flex items-center gap-1.5">
-            <span className="size-1.5 rounded-full bg-ink/40" />
-            Mindwire Cloud
-          </span>
+          <FooterLink href="https://mindwire.sh/cloud">Personal Cloud</FooterLink>
         </div>
       </footer>
     </div>
@@ -633,10 +629,6 @@ function FooterLink({ href, children }: { href: string; children: ReactNode }) {
       {children}
     </a>
   );
-}
-
-function Dot() {
-  return <span aria-hidden className="size-0.5 rounded-full bg-ink/30" />;
 }
 
 // Brand marks. GitHub's is genuinely monochrome, so it rides `currentColor` (flips with the theme like

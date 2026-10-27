@@ -149,9 +149,13 @@ func (s server) converse(ctx context.Context, base string, inbound <-chan agent.
 
 	var result agent.TurnResult
 	var got bool
+	var interrupted bool // guarded by mu; set before the abort can emit session.idle
 	// emitTerminal fires the single EventResult (first wins) and closes done.
 	emitTerminal := func(res agent.TurnResult, meta map[string]any) {
 		mu.Lock()
+		if interrupted && !res.IsError {
+			res.Cancelled = true
+		}
 		first := !got
 		if first {
 			got, result = true, res
@@ -160,7 +164,7 @@ func (s server) converse(ctx context.Context, base string, inbound <-chan agent.
 		mu.Unlock()
 		if first {
 			ev := agent.Event{Type: agent.EventResult, SessionID: res.SessionID,
-				Result: &agent.ResultInfo{Text: res.Text, IsError: res.IsError, SessionID: res.SessionID}}
+				Result: &agent.ResultInfo{Text: res.Text, IsError: res.IsError, Cancelled: res.Cancelled, SessionID: res.SessionID}}
 			if len(meta) > 0 {
 				ev.Meta = meta
 			}
@@ -218,7 +222,7 @@ func (s server) converse(ctx context.Context, base string, inbound <-chan agent.
 				frames = v2stream.translate(ev, sid, emit)
 			}
 			for _, frame := range frames {
-				s.route(frame, &mu, &sessionID, &lastMeta, &lastUsage, st, answer, &order,
+				s.route(ctx, frame, &mu, &sessionID, &lastMeta, &lastUsage, st, answer, &order,
 					connected, &connectOnce, emit, emitTerminal, finalText, client, base)
 			}
 			return true
@@ -259,7 +263,12 @@ func (s server) converse(ctx context.Context, base string, inbound <-chan agent.
 	mu.Lock()
 	sessionID = sid
 	mu.Unlock()
-	emit(agent.Event{Type: agent.EventSession, SessionID: sid})
+	caps := (adapter{}).Capabilities()
+	caps.Negotiated = true
+	if s.apiV2 {
+		caps.SystemPrompt = false
+	}
+	emit(agent.Event{Type: agent.EventSession, SessionID: sid, Capabilities: &caps})
 
 	// 3. Drive the turn: a normal prompt, or (compact mode) an on-demand summarize. Both are
 	// fire-and-forget — the turn plays out over the event bus (the terminal session.idle, and for a
@@ -274,14 +283,21 @@ func (s server) converse(ctx context.Context, base string, inbound <-chan agent.
 	}
 
 	// 4. Inbound pump: answer approvals and honor interrupt for the life of the turn.
-	go s.pump(ctx, client, base, sid, inbound, done)
+	go s.pump(ctx, client, base, sid, inbound, done, func(err error) {
+		emitTerminal(agent.TurnResult{SessionID: sid, IsError: true, Text: err.Error()}, nil)
+	}, func() {
+		mu.Lock()
+		interrupted = true
+		mu.Unlock()
+	})
 
 	// 5. Wait for the terminal event (session.idle/error) or cancellation.
 	select {
 	case <-done:
 	case <-ctx.Done():
+		emitTerminal(agent.TurnResult{SessionID: sid, Text: finalText(), Cancelled: true}, nil)
 		// Turn cancelled — best-effort abort on a detached context (ctx is already done).
-		s.abort(context.Background(), client, base, sid)
+		_ = s.abort(context.Background(), client, base, sid)
 	}
 
 	mu.Lock()
@@ -296,7 +312,7 @@ func (s server) converse(ctx context.Context, base string, inbound <-chan agent.
 // route dispatches one decoded SSE frame. It runs on the single reader goroutine; shared state is
 // guarded by mu. Kept as a method (not a closure) only for readability — all state is passed in.
 func (s server) route(
-	ev sseEvent,
+	ctx context.Context, ev sseEvent,
 	mu *sync.Mutex, sessionID *string, lastMeta *map[string]any, lastUsage **agent.Usage,
 	st *streamState, answer map[string]string, order *[]string,
 	connected chan struct{}, connectOnce *sync.Once,
@@ -325,6 +341,7 @@ func (s server) route(
 		if role := st.roles[p.Part.MessageID]; role != "" && role != "assistant" {
 			return
 		}
+		st.parts[p.Part.ID] = p.Part
 		id, full := st.emitPart(p.Part, emit)
 		if id != "" {
 			mu.Lock()
@@ -354,16 +371,54 @@ func (s server) route(
 			mu.Unlock()
 		}
 
-	case "permission.updated":
+	case "message.part.delta":
+		var delta struct{ SessionID, MessageID, PartID, Field, Delta string }
+		if json.Unmarshal(ev.Properties, &delta) != nil || !mine(delta.SessionID) || delta.Field != "text" {
+			return
+		}
+		part, ok := st.parts[delta.PartID]
+		if !ok || part.Synthetic || st.roles[delta.MessageID] == "user" {
+			return
+		}
+		part.Text += delta.Delta
+		st.parts[part.ID] = part
+		id, full := st.emitPart(part, emit)
+		if id != "" {
+			mu.Lock()
+			if _, seen := answer[id]; !seen {
+				*order = append(*order, id)
+			}
+			answer[id] = full
+			mu.Unlock()
+		}
+
+	case "question.asked":
+		var question ocQuestion
+		if json.Unmarshal(ev.Properties, &question) == nil && mine(question.SessionID) {
+			emit(agent.Event{Type: agent.EventInteraction, SessionID: ours(), Interaction: question.interaction()})
+		}
+
+	case "permission.updated", "permission.asked":
 		var perm ocPermission
 		if json.Unmarshal(ev.Properties, &perm) != nil || !mine(perm.SessionID) {
 			return
 		}
 		if s.interactive {
-			emit(agent.Event{Type: agent.EventInteraction, Interaction: permissionInteraction(perm)})
+			it := permissionInteraction(perm)
+			if ev.Type == "permission.asked" {
+				it.Meta["opencodePermissionAPI"] = "request"
+			}
+			if perm.Permission != "" {
+				it.Title = perm.Permission + ": " + strings.Join(perm.Patterns, ", ")
+			}
+			emit(agent.Event{Type: agent.EventInteraction, Interaction: it})
 		} else {
-			// Autonomous default: approve for the rest of the turn without pausing.
-			go s.decide(context.Background(), client, base, perm.SessionID, perm.ID, "always")
+			// Never persist a project-wide permission grant on behalf of one run.
+			go func() {
+				if err := s.decide(ctx, client, base, perm.SessionID, perm.ID, "once", ev.Type == "permission.asked"); err != nil {
+					emitTerminal(agent.TurnResult{SessionID: ours(), IsError: true, Text: err.Error()}, nil)
+				}
+			}()
 		}
 
 	case "session.compacted":
@@ -425,7 +480,7 @@ func (s server) route(
 // pump forwards inbound control messages to opencode for the life of the turn: a response answers a
 // permission ask (allow→once, deny→reject), an interrupt aborts the session. It exits when the turn
 // ends (done), the context is cancelled, or the inbound channel closes.
-func (s server) pump(ctx context.Context, client *http.Client, base, sid string, inbound <-chan agent.Inbound, done <-chan struct{}) {
+func (s server) pump(ctx context.Context, client *http.Client, base, sid string, inbound <-chan agent.Inbound, done <-chan struct{}, fail func(error), interrupt func()) {
 	if inbound == nil {
 		return
 	}
@@ -441,8 +496,16 @@ func (s server) pump(ctx context.Context, client *http.Client, base, sid string,
 			}
 			switch msg.Kind {
 			case "response":
+				if msg.Meta["opencodeQuestion"] != "" {
+					if err := s.replyQuestion(ctx, client, base, msg); err != nil {
+						fail(err)
+					}
+					continue
+				}
 				if s.apiV2 && msg.Meta["opencodeForm"] != "" {
-					s.replyV2Form(ctx, client, base, sid, msg)
+					if err := s.replyV2Form(ctx, client, base, sid, msg); err != nil {
+						fail(err)
+					}
 					continue
 				}
 				pid := agent.FirstNonEmpty(msg.InteractionID, msg.Meta["permissionID"])
@@ -453,9 +516,14 @@ func (s server) pump(ctx context.Context, client *http.Client, base, sid string,
 				if agent.Denied(msg.Decision) {
 					decision = "reject"
 				}
-				s.decide(ctx, client, base, sid, pid, decision)
+				if err := s.decide(ctx, client, base, sid, pid, decision, msg.Meta["opencodePermissionAPI"] == "request"); err != nil {
+					fail(err)
+				}
 			case "interrupt":
-				s.abort(ctx, client, base, sid)
+				interrupt()
+				if err := s.abort(ctx, client, base, sid); err != nil {
+					fail(err)
+				}
 			}
 		}
 	}
@@ -531,23 +599,27 @@ func (s server) summarize(ctx context.Context, client *http.Client, base, sid st
 
 // decide POSTs a permission decision. response is opencode's vocabulary: once (allow this call),
 // always (allow for the rest of the turn — the autonomous default), reject (deny). Best-effort.
-func (s server) decide(ctx context.Context, client *http.Client, base, sid, permID, response string) {
+func (s server) decide(ctx context.Context, client *http.Client, base, sid, permID, response string, requestAPI bool) error {
 	if sid == "" || permID == "" {
-		return
+		return errors.New("missing OpenCode permission identity")
 	}
 	body, _ := json.Marshal(map[string]any{"response": response})
 	u := base + "/session/" + url.PathEscape(sid) + "/permissions/" + url.PathEscape(permID)
+	if requestAPI {
+		u = base + "/permission/" + url.PathEscape(permID) + "/reply"
+		body, _ = json.Marshal(map[string]any{"reply": response})
+	}
 	if s.apiV2 {
 		u = base + "/api/session/" + url.PathEscape(sid) + "/permission/" + url.PathEscape(permID) + "/reply"
 		body, _ = json.Marshal(map[string]any{"decision": response})
 	}
-	_ = s.doJSON(ctx, client, http.MethodPost, u, body, nil)
+	return s.doJSON(ctx, client, http.MethodPost, u, body, nil)
 }
 
-// abort asks opencode to stop the running turn. Best-effort.
-func (s server) abort(ctx context.Context, client *http.Client, base, sid string) {
+// abort asks opencode to stop the running turn and returns the native acknowledgement.
+func (s server) abort(ctx context.Context, client *http.Client, base, sid string) error {
 	if sid == "" {
-		return
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -555,7 +627,7 @@ func (s server) abort(ctx context.Context, client *http.Client, base, sid string
 	if s.apiV2 {
 		path = "/api/session/" + url.PathEscape(sid) + "/interrupt?resume=false"
 	}
-	_ = s.doJSON(ctx, client, http.MethodPost, base+path, nil, nil)
+	return s.doJSON(ctx, client, http.MethodPost, base+path, nil, nil)
 }
 
 // doJSON performs a JSON request and, when out != nil, decodes a 2xx body into it. A non-2xx status is

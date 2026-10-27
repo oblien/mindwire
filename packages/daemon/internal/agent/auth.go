@@ -76,6 +76,19 @@ type AuthModule interface {
 	EnvForRun() map[string]string
 }
 
+// AuthDiscoveryModule discovers native provider/plugin login methods on explicit
+// auth reads. Static catalog reads remain cheap and never launch a login.
+type AuthDiscoveryModule interface {
+	DiscoverMethods(context.Context) ([]AuthMethod, error)
+}
+
+func DiscoverAuthMethods(ctx context.Context, module AuthModule) ([]AuthMethod, error) {
+	if native, ok := module.(AuthDiscoveryModule); ok {
+		return native.DiscoverMethods(ctx)
+	}
+	return module.Methods(), nil
+}
+
 // AuthCallbackModule delivers a flow-scoped native browser response. It is
 // separate from field submission so network delivery can run without blocking
 // auth admission: the user must remain able to cancel that same login.

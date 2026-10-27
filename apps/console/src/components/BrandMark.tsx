@@ -1,9 +1,6 @@
 import { cn } from "@/lib/utils";
-import { OblienMark } from "@/components/OblienMark";
 
-// The product lockup: the Oblien parent-brand glyph next to the "Mindwire" wordmark — the same treatment
-// the marketing site uses (OblienLogo + "Mindwire"). Mindwire is built by Oblien, so the mark stays
-// Oblien's ring glyph and the wordmark carries the product name. Monochrome ink, so it flips with theme.
+/** The same graphic wordmark as the public Mindwire site. */
 export function BrandMark({
   size = 22,
   className,
@@ -14,9 +11,18 @@ export function BrandMark({
   wordClassName?: string;
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-2.5 select-none text-xl", className)}>
-      <OblienMark showWord={false} size={size} />
-      <span className={cn("font-semibold tracking-tight", wordClassName)}>Mindwire</span>
-    </span>
+    <svg
+      className={cn("shrink-0 select-none", className, wordClassName)}
+      width={size * 7.8125}
+      height={size}
+      viewBox="0 0 250 32"
+      role="img"
+      aria-label="Mindwire"
+      style={{ fontFamily: "var(--font-graphic)", fill: "currentColor", fontSize: 28 }}
+    >
+      <text x="0" y="27" textLength="250" lengthAdjust="spacingAndGlyphs">
+        MINDWIRE
+      </text>
+    </svg>
   );
 }

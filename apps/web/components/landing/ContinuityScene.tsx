@@ -1,26 +1,68 @@
-import { Check, Cloud, FileText, Laptop, MoreHorizontal } from "lucide-react";
-import BotAvatar from "./BotAvatar";
-import { PhoneArt } from "./DeviceArt";
+import {
+  ArrowUp,
+  Check,
+  Cloud,
+  FileText,
+  Laptop,
+  Smartphone,
+} from "lucide-react";
 import styles from "./home-details.module.css";
 
 export default function ContinuityScene({ cloud }: { cloud: boolean }) {
-  return <div className={styles.continuityScene}>
-    <svg className={styles.continuityWires} viewBox="0 0 540 570" fill="none" aria-hidden="true"><path d="M66 264v87q0 26 26 26h151q26 0 26 26v32h68" /><circle cx="66" cy="264" r="4" /><circle cx="337" cy="435" r="4" /></svg>
-    <div className={styles.desktop} role="img" aria-label={`Cleo preparing a weekly plan on ${cloud ? "your Cloud Computer" : "your Mac"}`}>
-      <div className={styles.desktopBar}><div aria-hidden="true"><i /><i /><i /></div><span>{cloud ? <Cloud size={12} /> : <Laptop size={12} />}{cloud ? "Cloud Computer" : "My Mac"}</span><span className={styles.onlineDot} /></div>
-      <div className={styles.desktopBody}>
-        <div className={styles.desktopRail}><BotAvatar size={28} /><BotAvatar character="robot" size={28} /><BotAvatar character="sprout" size={28} /></div>
+  return (
+    <div
+      className={styles.continuityScene}
+      aria-label="The same project on your computer and phone"
+    >
+      <div className={styles.desktop}>
+        <div className={styles.desktopBar}>
+          {cloud ? <Cloud size={18} /> : <Laptop size={18} />}
+          <span>{cloud ? "Cloud Computer" : "My Mac"}</span>
+          <Check size={16} />
+        </div>
         <div className={styles.desktopConversation}>
-          <div className={styles.conversationTitle}><strong>A little room to breathe</strong><MoreHorizontal size={15} /></div>
-          <p className={styles.desktopPrompt}>Can you get my week in order?</p>
-          <div className={styles.desktopReply}><BotAvatar size={25} /><p>Of course. Let’s leave space<br />for the good stuff, too.</p></div>
-          <div className={styles.savedFile}><FileText size={20} /><span>weekly-plan.md<small>Ready when you are</small></span><Check size={14} /></div>
+          <p className={styles.documentLabel}>Weekly plan</p>
+          <h3>
+            Make space for
+            <br />
+            the work that matters.
+          </h3>
+          <p className={styles.desktopPrompt}>
+            Plan my week around these priorities.
+          </p>
+          <div className={styles.savedFile}>
+            <FileText size={22} />
+            <span>
+              weekly-plan.md<small>Saved in your workspace</small>
+            </span>
+            <Check size={16} />
+          </div>
         </div>
       </div>
-      <div className={styles.desktopBottom}><Check size={11} />Saved in your workspace</div>
+      <div className={styles.continuityPhone}>
+        <div className={styles.phoneHeader}>
+          <Smartphone size={18} />
+          <span>Mindwire</span>
+        </div>
+        <p>
+          Same project.
+          <br />
+          <strong>Next conversation.</strong>
+        </p>
+        <div className={styles.phoneFile}>
+          <FileText size={20} />
+          <span>
+            Weekly plan<small>Ready to review</small>
+          </span>
+        </div>
+        <div className={styles.phoneComposer}>
+          <span>Move the review to Friday.</span>
+          <ArrowUp size={18} />
+        </div>
+      </div>
+      <p className={styles.continuityCaption}>
+        Your files and context come with you.
+      </p>
     </div>
-    <div className={styles.handoffNote}><span className={styles.handoffLine} /><strong>Heading out?</strong><span>Take the conversation<br />with you.</span></div>
-    <div className={styles.continuityPhone}><PhoneArt cloud={cloud} /></div>
-    <div className={styles.continuityCaption}><span className={styles.onlineDot} />Same bot. Same workspace. Another screen.</div>
-  </div>;
+  );
 }
