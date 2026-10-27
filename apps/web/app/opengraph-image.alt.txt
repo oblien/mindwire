@@ -1,1 +1,1 @@
-Mindwire — Your personal agent for everyday work and coding. Bring the AI subscriptions you already have.
+Mindwire — Your product. Powered by agents. White-label leading agents without rebuilding the agent layer.

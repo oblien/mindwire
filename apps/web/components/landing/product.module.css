@@ -1,467 +1,2011 @@
 /* Marketing surfaces share the native palette declared in landing.module.css. */
-.section { max-width: 1220px; margin: 0 auto; padding: 110px 36px; }
-.eyebrow { display: block; color: var(--mw-muted); font-size: 13px; font-weight: 500; margin-bottom: 22px; }
-.sectionCopy { min-width: 0; }
-.sectionCopy h2, .centerHeading h2 { font-size: clamp(37px, 4.1vw, 58px); line-height: 1.06; font-weight: 500; letter-spacing: -.05em; text-wrap: balance; }
-.sectionCopy h2 em, .centerHeading h2 em { font-style: normal; color: var(--mw-peach); }
-.sectionCopy > p { font-size: 17px; line-height: 1.7; color: var(--mw-muted); margin: 23px 0 29px; max-width: 470px; text-wrap: pretty; }
-.textLink { display: inline-flex; align-items: center; gap: 15px; font-size: 14px; font-weight: 500; }
-.textLink:hover { color: var(--mw-peach); }
-.smallNote { display: block; color: var(--mw-muted); font-size: 12px; margin-top: 18px; }
-.centerHeading { text-align: center; max-width: 690px; margin: 0 auto 46px; }
-.centerHeading > p { font-size: 17px; line-height: 1.7; color: var(--mw-muted); margin: 19px auto 0; max-width: 530px; }
-.checkList { display: grid; gap: 14px; margin: 27px 0 32px; font-size: 14px; }
-.checkList li { display: flex; align-items: flex-start; gap: 11px; }
-.checkList svg { color: var(--mw-mint); margin-top: 2px; }
-.segmented { display: inline-flex; align-items: center; gap: 4px; background: var(--mw-subtle); border-radius: 30px; padding: 5px; }
-.segmented button { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 12px 17px; border-radius: 25px; color: var(--mw-muted); font-size: 13px; transition: background .2s, color .2s; }
-.segmented button:hover { color: var(--mw-ink); }
-.segmented button[aria-selected="true"] { background: var(--mw-surface); color: var(--mw-ink); box-shadow: 0 2px 5px #00000006; }
-.continuity { display: grid; grid-template-columns: 1.06fr 1fr; align-items: center; gap: 90px; }
-.continuity .sectionCopy h2 em { color: var(--mw-mint); }
-.phoneArt { width: 238px; border: 6px solid var(--mw-inset); border-radius: 34px; background: var(--mw-surface); padding: 12px 12px 9px; box-shadow: 0 20px 45px -20px #171c2335; color: var(--mw-ink); }
-.phoneStatus { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 15px; font-size: 8px; font-weight: 600; }
-.phoneStatus i { width: 56px; height: 14px; border-radius: 20px; background: var(--mw-ink); margin-left: -9px; }
-.phoneTop { display: flex; align-items: center; gap: 5px; padding-block: 8px 13px; border-bottom: 1px solid var(--mw-line); font-size: 12px; font-weight: 500; }
-.phoneTop > div { flex: 1; }
-.phoneTop small { display: block; font-size: 8px; font-weight: 400; color: var(--mw-muted); margin-top: 3px; }
-.phoneMessage { font-size: 11px; line-height: 1.6; background: var(--mw-peach-soft); padding: 10px 13px; border-radius: 14px 14px 4px 14px; margin: 18px 0 18px 25px; }
-.phoneReply { display: flex; align-items: center; gap: 8px; font-size: 10px; line-height: 1.5; }
-.phoneDocument { background: var(--mw-subtle); border-radius: 14px; padding: 14px 12px; margin-top: 13px; }
-.phoneDocument > span { color: var(--mw-peach); font-size: 7px; letter-spacing: .07em; }
-.phoneDocument > strong { display: block; font-size: 17px; font-weight: 500; line-height: 1.2; margin: 8px 0 15px; letter-spacing: -.5px; }
-.phoneDocument p { font-size: 8px; display: flex; gap: 5px; align-items: center; margin: 10px 0; color: var(--mw-muted); }
-.phoneDocument p svg { color: var(--mw-mint); }
-.phoneDocument > div { display: flex; gap: 6px; align-items: center; border-top: 1px solid var(--mw-line); padding-top: 10px; margin-top: 13px; font-size: 8px; }
-.phoneDocument > div svg:last-child { margin-left: auto; color: var(--mw-mint); }
-.phoneComposer { display: flex; align-items: center; gap: 8px; font-size: 9px; color: var(--mw-muted); background: var(--mw-subtle); padding: 12px 10px; border-radius: 19px; margin-top: 20px; }
-.phoneComposer > span { flex: 1; }
-.phoneHome { width: 62px; height: 3px; background: var(--mw-ink); border-radius: 5px; margin: 17px auto 0; opacity: .7; }
-.hostDetails { padding-top: 25px; min-height: 220px; }
-.hostDetails h3 { font-size: 18px; font-weight: 500; letter-spacing: -.3px; }
-.hostDetails p { font-size: 14px; line-height: 1.7; color: var(--mw-muted); margin: 12px 0 20px; }
-.hostDetails > a { font-size: 13px; min-height: 43px; padding: 10px 18px; }
-.sdkSection { max-width: 1360px; margin: 10px auto 0; width: calc(100% - 56px); border-radius: 38px; background: var(--mw-blue-soft); }
-.sdkSectionInner { padding: 75px 62px; display: grid; grid-template-columns: .9fr 1.1fr; align-items: center; gap: 70px; }
-.sdkSection .sectionCopy h2 em { color: var(--mw-blue); }
-.sdkSection .sectionCopy h2 { font-size: clamp(35px, 3.6vw, 51px); }
-.sdkSection .checkList { font-size: 13px; gap: 13px; }
-.sdkExample { min-width: 0; border-radius: 22px; background: #1d231f; color: #ebeee7; overflow: clip; box-shadow: 0 20px 60px -30px #19354e48; }
-.sdkWindowHeader { display: flex; align-items: center; justify-content: space-between; padding: 19px 23px; border-bottom: 1px solid #ffffff12; font-size: 12px; }
-.sdkWindowHeader > span:first-child { display: flex; align-items: center; gap: 9px; }
-.sdkWindowHeader > span:last-child { color: #99a297; font-family: var(--font-geist-mono), monospace; font-size: 10px; }
-.agentPicker { display: flex; gap: 5px; padding: 17px 20px 8px; flex-wrap: wrap; }
-.agentPicker button { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 12px; border-radius: 20px; font-size: 11px; color: #a6b1a4; transition: background .2s; }
-.agentPicker button:hover { color: #ebeee7; background: #ffffff08; }
-.agentPicker button[aria-pressed="true"] { background: #354133; color: #d4e5c7; }
-.codeToolbar { display: flex; justify-content: space-between; align-items: center; padding: 7px 20px 0; border-bottom: 1px solid #ffffff12; }
-.codeToolbar > div { display: flex; gap: 18px; }
-.codeToolbar [role="tab"] { padding: 10px 0 13px; position: relative; font-size: 11px; color: #a6b1a4; }
-.codeToolbar [aria-selected="true"] { color: #f2d1aa; }
-.codeToolbar [aria-selected="true"]::after { content: ""; position: absolute; height: 2px; background: #edbf85; bottom: -1px; inset-inline: 0; border-radius: 2px; }
-.codePanel { padding: 22px; min-height: 450px; }
-.codePanel pre { font-size: 11px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; font-family: var(--font-geist-mono), monospace; }
-.codePanel:focus-visible { outline: 2px solid #edbf85; outline-offset: -4px; border-radius: 6px; }
-.codeKeyword { color: #c2d8f4; }
-.codeString { color: #e9c395; }
-.codeComment { color: #95a991; }
-.sdkExampleFooter { display: flex; align-items: center; justify-content: space-between; padding: 15px 22px; background: #ffffff05; border-top: 1px solid #ffffff0b; color: #aebb9f; font-size: 10px; }
-.sdkExampleFooter > span { display: flex; align-items: center; gap: 7px; }
-.sdkCompact .codePanel { min-height: 445px; }
-.copyControl { position: relative; display: inline-flex; }
-.copyButton { width: 33px; height: 33px; border-radius: 10px; display: grid; place-items: center; color: inherit; opacity: .8; }
-.copyButton:hover { background: #ffffff10; opacity: 1; }
-.copyFailure { display: block; position: absolute; top: 100%; right: 0; background: #1d231f; color: #ebeee7; border: 1px solid #65705d; width: 145px; padding: 8px; border-radius: 8px; font: 11px/1.4 var(--font-sans); z-index: 2; }
-.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.faqSection { display: grid; grid-template-columns: .85fr 1.15fr; gap: 100px; }
-.questions { min-width: 0; }
-.questions details { border-bottom: 1px solid var(--mw-line); }
-.questions summary { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 23px 0; font-size: 17px; font-weight: 500; letter-spacing: -.3px; cursor: pointer; list-style: none; }
-.questions summary::-webkit-details-marker { display: none; }
-.questions summary svg { color: var(--mw-muted); transition: transform .2s; }
-.questions details[open] summary svg { transform: rotate(45deg); }
-.questions summary:focus-visible { outline: 2px solid var(--mw-peach); outline-offset: 4px; border-radius: 5px; }
-.questions details > div { font-size: 14px; line-height: 1.8; color: var(--mw-muted); padding: 0 24px 24px 0; }
-.questions a { text-decoration: underline; text-underline-offset: 4px; color: var(--mw-ink); }
-.finalInvite { text-align: center; background: var(--mw-peach-soft); border-radius: 36px; width: calc(100% - 56px); max-width: 1360px; margin: 0 auto; padding: 58px 25px 55px; }
-.inviteBots { display: flex; align-items: flex-end; justify-content: center; gap: 9px; margin-bottom: 26px; }
-.inviteBots svg:first-child { transform: rotate(-13deg); margin-bottom: 6px; }
-.inviteBots svg:last-child { transform: rotate(13deg); margin-bottom: 7px; }
-.finalInvite h2 { font-size: clamp(39px, 4.8vw, 64px); font-weight: 500; letter-spacing: -.06em; line-height: 1.05; }
-.finalInvite p { font-size: 17px; color: var(--mw-muted); margin: 19px 0 25px; }
-.finalInvite > span { display: block; color: var(--mw-muted); font-size: 11px; margin-top: 20px; }
-.siteFooter { max-width: 1290px; margin: auto; padding: 72px 36px 26px; }
-.footerTop { display: grid; grid-template-columns: 1.45fr 1fr 1fr 1fr; gap: 45px; padding-bottom: 55px; }
-.footerIdentity p { font-size: 15px; line-height: 1.7; color: var(--mw-muted); margin-top: 20px; }
-.footerTop nav { display: flex; flex-direction: column; gap: 13px; }
-.footerTop nav h3 { font-size: 12px; font-weight: 500; color: var(--mw-faint); margin-bottom: 8px; }
-.footerTop nav a { display: inline-flex; align-items: center; align-self: flex-start; gap: 5px; font-size: 14px; }
-.footerTop nav a:hover { color: var(--mw-peach); }
-.footerBottom { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid var(--mw-line); padding-top: 22px; color: var(--mw-muted); font-size: 11px; }
-.footerBottom a { display: flex; align-items: center; gap: 7px; }
+.section {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 80px 40px;
+}
+.eyebrow {
+  display: block;
+  color: var(--mw-muted);
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 22px;
+  font-family: var(--font-mono);
+}
+.sectionCopy {
+  min-width: 0;
+}
+.sectionCopy h2,
+.centerHeading h2 {
+  font-size: clamp(34px, 3.8vw, 48px);
+  line-height: 1.06;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+.sectionCopy h2 em,
+.centerHeading h2 em {
+  font-style: normal;
+  color: var(--mw-peach);
+}
+.sectionCopy > p {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--mw-muted);
+  margin: 23px 0 29px;
+  max-width: 470px;
+  text-wrap: pretty;
+}
+.textLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 15px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.textLink:hover {
+  color: var(--mw-peach);
+}
+.smallNote {
+  display: block;
+  color: var(--mw-muted);
+  font-size: 14px;
+  margin-top: 18px;
+}
+.centerHeading {
+  text-align: center;
+  max-width: 690px;
+  margin: 0 auto 46px;
+}
+.centerHeading > p {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--mw-muted);
+  margin: 19px auto 0;
+  max-width: 530px;
+}
+.checkList {
+  display: grid;
+  gap: 14px;
+  margin: 27px 0 32px;
+  font-size: 14px;
+}
+.checkList li {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+.checkList svg {
+  color: var(--mw-mint);
+  margin-top: 2px;
+}
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #ccc;
+  border-radius: 30px;
+  padding: 5px;
+}
+.segmented button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 12px 17px;
+  border-radius: 25px;
+  color: var(--mw-muted);
+  font-size: 14px;
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+.segmented button:hover {
+  color: var(--mw-ink);
+}
+.segmented button[aria-selected="true"] {
+  background: black;
+  color: white;
+  box-shadow: none;
+}
+.continuity {
+  display: grid;
+  grid-template-columns: 1.06fr 1fr;
+  align-items: center;
+  gap: 90px;
+}
+.continuity .sectionCopy h2 em {
+  color: var(--mw-mint);
+}
+.phoneArt {
+  width: 238px;
+  border: 6px solid var(--mw-inset);
+  border-radius: 34px;
+  background: var(--mw-surface);
+  padding: 12px 12px 9px;
+  box-shadow: 0 20px 45px -20px #171c2335;
+  color: var(--mw-ink);
+}
+.phoneStatus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px 15px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.phoneStatus i {
+  width: 56px;
+  height: 14px;
+  border-radius: 20px;
+  background: var(--mw-ink);
+  margin-left: -9px;
+}
+.phoneTop {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-block: 8px 13px;
+  border-bottom: 1px solid var(--mw-line);
+  font-size: 14px;
+  font-weight: 500;
+}
+.phoneTop > div {
+  flex: 1;
+}
+.phoneTop small {
+  display: block;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--mw-muted);
+  margin-top: 3px;
+}
+.phoneMessage {
+  font-size: 14px;
+  line-height: 1.6;
+  background: var(--mw-peach-soft);
+  padding: 10px 13px;
+  border-radius: 14px 14px 4px 14px;
+  margin: 18px 0 18px 25px;
+}
+.phoneReply {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.phoneDocument {
+  background: var(--mw-subtle);
+  border-radius: 14px;
+  padding: 14px 12px;
+  margin-top: 13px;
+}
+.phoneDocument > span {
+  color: var(--mw-peach);
+  font-size: 14px;
+  letter-spacing: normal;
+}
+.phoneDocument > strong {
+  display: block;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.2;
+  margin: 8px 0 15px;
+  letter-spacing: -0.5px;
+}
+.phoneDocument p {
+  font-size: 14px;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  margin: 10px 0;
+  color: var(--mw-muted);
+}
+.phoneDocument p svg {
+  color: var(--mw-mint);
+}
+.phoneDocument > div {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  border-top: 1px solid var(--mw-line);
+  padding-top: 10px;
+  margin-top: 13px;
+  font-size: 14px;
+}
+.phoneDocument > div svg:last-child {
+  margin-left: auto;
+  color: var(--mw-mint);
+}
+.phoneComposer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--mw-muted);
+  background: var(--mw-subtle);
+  padding: 12px 10px;
+  border-radius: 19px;
+  margin-top: 20px;
+}
+.phoneComposer > span {
+  flex: 1;
+}
+.phoneHome {
+  width: 62px;
+  height: 3px;
+  background: var(--mw-ink);
+  border-radius: 5px;
+  margin: 17px auto 0;
+  opacity: 0.7;
+}
+.hostDetails {
+  padding-top: 25px;
+  min-height: 220px;
+}
+.hostDetails h3 {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+}
+.hostDetails p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--mw-muted);
+  margin: 12px 0 20px;
+}
+.hostDetails > a {
+  font-size: 14px;
+  min-height: 43px;
+  padding: 10px 18px;
+}
+.sdkSection {
+  max-width: 1360px;
+  margin: 10px auto 0;
+  width: calc(100% - 56px);
+  border-radius: 38px;
+  background: var(--mw-blue-soft);
+}
+.sdkSectionInner {
+  padding: 75px 62px;
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  align-items: center;
+  gap: 70px;
+}
+.sdkSection .sectionCopy h2 em {
+  color: var(--mw-blue);
+}
+.sdkSection .sectionCopy h2 {
+  font-size: clamp(35px, 3.6vw, 51px);
+}
+.sdkSection .checkList {
+  font-size: 14px;
+  gap: 13px;
+}
+.sdkExample {
+  min-width: 0;
+  border-radius: 16px;
+  background: #0a0a0a;
+  color: #fff;
+  overflow: clip;
+  box-shadow: none;
+}
+.sdkWindowHeader {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 19px 23px;
+  border-bottom: 1px solid #ffffff12;
+  font-size: 14px;
+}
+.sdkWindowHeader > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.sdkWindowHeader > span:last-child {
+  color: #aaa;
+  font-family: var(--font-mono), monospace;
+  font-size: 14px;
+}
+.codeToolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 20px 0;
+  border-bottom: 1px solid #ffffff12;
+}
+.codeToolbar > div {
+  display: flex;
+  gap: 18px;
+}
+.codeToolbar [role="tab"] {
+  padding: 10px 0 13px;
+  position: relative;
+  font-size: 14px;
+  color: #aaa;
+}
+.codeToolbar [aria-selected="true"] {
+  color: #fff;
+}
+.codeToolbar [aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  height: 2px;
+  background: #fff;
+  bottom: -1px;
+  inset-inline: 0;
+  border-radius: 2px;
+}
+.codePanel {
+  padding: 20px 22px;
+  min-height: 0;
+  height: 330px;
+  overflow: auto;
+}
+.codePanel pre {
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+  font-family: var(--font-mono), monospace;
+}
+.codePanel:focus-visible {
+  outline: 2px solid white;
+  outline-offset: -4px;
+  border-radius: 6px;
+}
+.codeKeyword {
+  color: #d1c4f5;
+}
+.codeString {
+  color: #e5e5b5;
+}
+.codeComment {
+  color: #a4a4a4;
+}
+.sdkCompact .codePanel {
+  min-height: 0;
+}
+.copyControl {
+  position: relative;
+  display: inline-flex;
+}
+.copyButton {
+  width: 33px;
+  height: 33px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: inherit;
+  opacity: 0.8;
+}
+.copyButton:hover {
+  background: #8882;
+  opacity: 1;
+}
+.copyFailure {
+  display: block;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: #111;
+  color: #fff;
+  border: 0;
+  width: 145px;
+  padding: 8px;
+  border-radius: 8px;
+  font: 14px/1.4 var(--font-sans);
+  z-index: 2;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.faqSection {
+  display: grid;
+  grid-template-columns: 0.85fr 1.15fr;
+  gap: 72px;
+}
+.questions {
+  min-width: 0;
+}
+.questions details {
+  border-bottom: 1px solid var(--mw-line);
+}
+.questions summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 23px 0;
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: -0.3px;
+  cursor: pointer;
+  list-style: none;
+}
+.questions summary::-webkit-details-marker {
+  display: none;
+}
+.questions summary svg {
+  color: var(--mw-muted);
+  transition: transform 0.2s;
+}
+.questions details[open] summary svg {
+  transform: rotate(45deg);
+}
+.questions summary:focus-visible {
+  outline: 2px solid var(--mw-peach);
+  outline-offset: 4px;
+  border-radius: 5px;
+}
+.questions details > div {
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--mw-muted);
+  padding: 0 24px 24px 0;
+}
+.questions a {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  color: var(--mw-ink);
+}
+.finalInvite {
+  text-align: center;
+  background: white;
+  border-radius: 20px;
+  width: calc(100% - 80px);
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 56px 32px;
+}
+.finalInvite h2 {
+  font-size: clamp(32px, 4vw, 50px);
+  font-weight: 400;
+  letter-spacing: -0.06em;
+  line-height: 1.05;
+  max-width: 800px;
+  margin: auto;
+}
+.finalInvite p {
+  font-size: 17px;
+  color: var(--mw-muted);
+  margin: 19px 0 25px;
+}
+.finalInvite > span {
+  display: block;
+  color: var(--mw-muted);
+  font-size: 14px;
+  margin-top: 20px;
+}
 
 /* Route headers and the cloud plans. */
-.pageHero { max-width: 1100px; margin: auto; padding: 61px 30px 59px; text-align: center; }
-.pageHero h1 { font-size: clamp(49px, 6.1vw, 80px); font-weight: 500; letter-spacing: -.06em; line-height: 1.02; text-wrap: balance; }
-.pageHero h1 em { font-style: normal; color: var(--mw-peach); }
-.pageHero > p { max-width: 560px; font-size: 18px; line-height: 1.65; color: var(--mw-muted); margin: 22px auto 0; text-wrap: pretty; }
-.pageHero > .eyebrow { font-size: 12px; margin-bottom: 24px; }
-.pageHero .heroLinks { display: flex; justify-content: center; gap: 12px; margin-top: 28px; }
-.pageWrap { max-width: 1240px; margin: auto; padding: 0 36px; }
-.freePlan { background: var(--mw-subtle); border-radius: 26px; padding: 32px 38px; display: flex; align-items: center; gap: 27px; margin-bottom: 70px; }
-.freePlan > div:first-of-type { flex: 1; }
-.freePlan h2 { font-size: 25px; line-height: 1.1; font-weight: 500; letter-spacing: -.6px; }
-.freePlan p { color: var(--mw-muted); font-size: 14px; line-height: 1.6; margin-top: 9px; max-width: 410px; }
-.freePrice { display: flex; flex-direction: column; gap: 4px; padding-inline: 15px; }
-.freePrice strong { font-size: 37px; font-weight: 500; letter-spacing: -1px; line-height: 1; }
-.freePrice span { font-size: 11px; color: var(--mw-muted); }
-.cloudHeading { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; margin: 0 0 27px; }
-.cloudHeading h2 { font-size: 35px; line-height: 1.1; font-weight: 500; letter-spacing: -1.4px; }
-.cloudHeading p { margin-top: 13px; color: var(--mw-muted); font-size: 15px; }
-.billingInterval { display: inline-flex; align-items: center; gap: 9px; padding: 10px 14px; border-radius: 20px; background: var(--mw-subtle); font-size: 12px; white-space: nowrap; }
-.planGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
-.planCard { --plan-accent: var(--mw-mint); --plan-soft: var(--mw-mint-soft); display: flex; flex-direction: column; border-radius: 27px; padding: 28px; background: var(--mw-surface); border: 1px solid var(--mw-line); position: relative; }
-.planCard[data-tone="blue"] { --plan-accent: var(--mw-blue); --plan-soft: var(--mw-blue-soft); border-color: color-mix(in srgb, var(--mw-blue) 40%, var(--mw-line)); background: color-mix(in srgb, var(--mw-blue-soft) 46%, var(--mw-surface)); }
-.planCard[data-tone="peach"] { --plan-accent: var(--mw-peach); --plan-soft: var(--mw-peach-soft); }
-.planName { display: flex; justify-content: space-between; align-items: center; }
-.planName h3 { font-size: 23px; font-weight: 500; letter-spacing: -.6px; }
-.planDescription { font-size: 13px; color: var(--mw-muted); margin-top: 13px; line-height: 1.6; min-height: 43px; }
-.planPrice { display: flex; align-items: baseline; gap: 7px; margin: 28px 0 7px; }
-.planPrice strong { font-size: 55px; letter-spacing: -3px; font-weight: 500; line-height: 1; }
-.planPrice span { font-size: 14px; color: var(--mw-muted); }
-.planPriceNote { font-size: 11px; color: var(--mw-muted); }
-.planSpecs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 22px 0; margin-top: 25px; border-top: 1px solid var(--mw-line); }
-.planSpecs strong { display: block; font-size: 19px; font-weight: 500; letter-spacing: -.4px; white-space: nowrap; }
-.planSpecs small { display: block; font-size: 10px; color: var(--mw-muted); margin-top: 6px; }
-.planBenefits { display: grid; gap: 12px; padding: 15px 0 27px; font-size: 12px; }
-.planBenefits li { display: flex; align-items: center; gap: 9px; }
-.planBenefits svg { color: var(--plan-accent); }
-.planCard > a { margin-top: auto; min-height: 46px; font-size: 13px; }
-.pricingNote { font-size: 12px; color: var(--mw-muted); line-height: 1.8; margin: 20px auto 0; text-align: center; max-width: 890px; }
-.availabilityNote { display: flex; align-items: center; gap: 11px; padding: 15px 19px; background: var(--mw-subtle); border-radius: 16px; font-size: 12px; color: var(--mw-muted); line-height: 1.7; margin-top: 22px; }
-.availabilityNote a { text-decoration: underline; text-underline-offset: 3px; color: var(--mw-ink); }
-.includedSection { margin-top: 85px; }
-.includedSection h2 { font-size: 36px; font-weight: 500; letter-spacing: -1.3px; text-align: center; }
-.includedGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 45px; margin-top: 37px; }
-.includedGrid > div { min-width: 0; }
-.includedGrid span { display: inline-block; font-size: 11px; padding: 6px 10px; background: var(--mw-subtle); color: var(--mw-muted); border-radius: 8px; }
-.includedGrid h3 { font-size: 18px; font-weight: 500; margin: 18px 0 10px; }
-.includedGrid p { font-size: 14px; line-height: 1.75; color: var(--mw-muted); }
+.pageWrap {
+  max-width: 1280px;
+  margin: auto;
+  padding: 0;
+  width: calc(100% - 80px);
+}
+.freePlan {
+  background: white;
+  border-radius: 20px;
+  padding: 32px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  margin-bottom: 70px;
+}
+.freePlan > div:first-of-type {
+  flex: 1;
+}
+.freePlan h2 {
+  font-size: 25px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -0.6px;
+}
+.freePlan p {
+  color: var(--mw-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  margin-top: 9px;
+  max-width: 410px;
+}
+.freePrice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-inline: 15px;
+}
+.freePrice strong {
+  font-size: 37px;
+  font-weight: 500;
+  letter-spacing: -1px;
+  line-height: 1;
+}
+.freePrice span {
+  font-size: 14px;
+  color: var(--mw-muted);
+}
+.cloudHeading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 30px;
+  margin: 0 0 27px;
+}
+.cloudHeading h2 {
+  font-size: 35px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -1.4px;
+}
+.cloudHeading p {
+  margin-top: 13px;
+  color: var(--mw-muted);
+  font-size: 15px;
+}
+.billingInterval {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  border-radius: 20px;
+  background: var(--mw-subtle);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.planGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.planCard {
+  --plan-accent: #0a0a0a;
+  --plan-soft: var(--mw-mint-soft);
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  padding: 32px;
+  background: var(--mw-surface);
+  border: 0;
+  position: relative;
+}
+.planCard[data-tone="blue"] {
+  --plan-accent: #fff;
+  --plan-soft: var(--mw-blue-soft);
+  border-color: color-mix(in srgb, var(--mw-blue) 40%, var(--mw-line));
+  background: #0a0a0a;
+  color: white;
+  --mw-ink: #fff;
+  --mw-muted: #bbb;
+  --mw-bg: #0a0a0a;
+  --mw-line: #333;
+}
+.planCard[data-tone="peach"] {
+  --plan-accent: var(--mw-peach);
+  --plan-soft: var(--mw-peach-soft);
+}
+.planName {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.planName h3 {
+  font-size: 23px;
+  font-weight: 500;
+  letter-spacing: -0.6px;
+}
+.planDescription {
+  font-size: 16px;
+  color: var(--mw-muted);
+  margin-top: 13px;
+  line-height: 1.6;
+  min-height: 54px;
+}
+.planPrice {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin: 28px 0 7px;
+}
+.planPrice strong {
+  font-size: 55px;
+  letter-spacing: -3px;
+  font-weight: 500;
+  line-height: 1;
+}
+.planPrice span {
+  font-size: 14px;
+  color: var(--mw-muted);
+}
+.planPriceNote {
+  font-size: 13px;
+  color: var(--mw-muted);
+}
+.planSpecs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 22px 0;
+  margin-top: 25px;
+  border-top: 1px solid var(--mw-line);
+}
+.planSpecs strong {
+  display: block;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  white-space: nowrap;
+}
+.planSpecs small {
+  display: block;
+  font-size: 13px;
+  color: var(--mw-muted);
+  margin-top: 6px;
+}
+.planBenefits {
+  display: grid;
+  gap: 12px;
+  padding: 15px 0 27px;
+  font-size: 14px;
+}
+.planBenefits li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.planBenefits svg {
+  color: var(--plan-accent);
+}
+.planCard > a {
+  margin-top: auto;
+  min-height: 46px;
+  font-size: 14px;
+}
+.pricingNote {
+  font-size: 14px;
+  color: var(--mw-muted);
+  line-height: 1.8;
+  margin: 20px auto 0;
+  text-align: center;
+  max-width: 890px;
+}
+.availabilityNote {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 15px 19px;
+  background: var(--mw-subtle);
+  border-radius: 16px;
+  font-size: 14px;
+  color: var(--mw-muted);
+  line-height: 1.7;
+  margin-top: 22px;
+}
+.availabilityNote a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: var(--mw-ink);
+}
+.includedSection {
+  margin-top: 85px;
+}
+.includedSection h2 {
+  font-size: 36px;
+  font-weight: 500;
+  letter-spacing: -1.3px;
+  text-align: center;
+}
+.includedGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 45px;
+  margin-top: 37px;
+}
+.includedGrid > div {
+  min-width: 0;
+}
+.includedGrid span {
+  display: inline-block;
+  font-size: 14px;
+  padding: 6px 10px;
+  background: var(--mw-subtle);
+  color: var(--mw-muted);
+  border-radius: 8px;
+}
+.includedGrid h3 {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 18px 0 10px;
+}
+.includedGrid p {
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--mw-muted);
+}
 
 /* Download illustrations use actual app concepts, with no fake store links. */
-.downloadGrid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 23px; }
-.downloadCard { background: var(--mw-subtle); border-radius: 30px; padding: 33px 34px 30px; min-width: 0; display: flex; flex-direction: column; }
-.downloadCard:last-child { background: var(--mw-mint-soft); }
-.downloadCardHeader { display: flex; justify-content: space-between; gap: 20px; }
-.downloadCardHeader h2 { font-size: 31px; font-weight: 500; letter-spacing: -1px; }
-.downloadCardHeader p { font-size: 13px; line-height: 1.6; color: var(--mw-muted); margin-top: 9px; max-width: 270px; }
-.downloadCardHeader > svg { color: var(--mw-muted); margin-top: 7px; }
-.downloadVisual { height: 370px; display: flex; align-items: center; justify-content: center; min-width: 0; position: relative; }
-.downloadVisual > .phoneArt { transform: scale(.58) rotate(7deg); transform-origin: center; flex-shrink: 0; }
-.downloadVisual > .macArt { width: 100%; }
-.downloadFoot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 15px; margin-top: auto; }
-.downloadFoot > a { font-size: 12px; }
-.downloadFoot > span { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 500; padding: 11px 14px; border-radius: 20px; background: var(--mw-surface); }
-.downloadCaption { font-size: 10px; color: var(--mw-muted); margin-top: 20px; }
-.macArt { position: relative; padding: 0 10px 10px; min-width: 0; }
-.macScreen { background: var(--mw-surface); border: 5px solid var(--mw-inset); border-radius: 16px 16px 5px 5px; padding-bottom: 6px; box-shadow: 0 20px 45px -25px #171c2340; }
-.macTitle { display: flex; justify-content: space-between; align-items: center; padding: 12px 10px; font-size: 9px; color: var(--mw-muted); }
-.macTitle > span:first-child { display: flex; gap: 4px; }
-.macTitle i { width: 5px; height: 5px; border-radius: 50%; background: var(--mw-line); }
-.macBody { display: grid; grid-template-columns: 85px 1fr; min-width: 0; min-height: 200px; gap: 8px; padding: 0 7px; }
-.macSidebar { background: var(--mw-subtle); padding: 9px 5px; border-radius: 9px; }
-.macSidebar > div { display: flex; align-items: center; gap: 5px; font-size: 9px; padding: 6px 4px; border-radius: 7px; margin-bottom: 5px; }
-.macSidebar > div[data-selected="true"] { background: var(--mw-surface); }
-.macChat { min-width: 0; padding: 4px 8px 9px; }
-.macChat > span { display: block; padding: 9px 10px; border-radius: 12px 12px 3px 12px; background: var(--mw-blue-soft); font-size: 9px; margin-left: 15px; }
-.macChat > div:not(.miniApp) { display: flex; align-items: center; gap: 7px; font-size: 9px; line-height: 1.5; margin-block: 13px; }
-.miniApp { background: var(--mw-subtle); border-radius: 10px; padding: 12px; }
-.miniApp > span { display: block; color: var(--mw-peach); font-size: 6px; letter-spacing: .1em; }
-.miniApp > strong { display: block; font-size: 16px; font-weight: 500; letter-spacing: -.4px; margin: 5px 0 10px; }
-.miniApp > div { display: flex; gap: 7px; }
-.miniApp i { width: 26px; height: 34px; border-radius: 1px 3px 3px 1px; background: #dcb79a; border-left: 3px solid #cba98d; transform: rotate(-6deg); }
-.miniApp i:nth-child(2) { background: #9fb2d0; border-color: #8b9cb6; transform: rotate(4deg); }
-.miniApp i:nth-child(3) { background: #a9c1ab; border-color: #8da58f; }
-.miniApp p { display: flex; align-items: center; gap: 4px; margin-top: 10px; font-size: 7px; color: var(--mw-mint); }
-.macBase { height: 9px; background: var(--mw-line); border-radius: 1px 1px 50% 50%; margin: 0 -12px; position: relative; }
-.macBase::after { content: ""; position: absolute; top: 0; left: 42%; right: 42%; height: 3px; background: var(--mw-inset); border-radius: 0 0 5px 5px; }
-.cliSection { display: grid; grid-template-columns: 1fr 1fr; gap: 70px; padding-block: 75px; align-items: center; }
-.cliSection h2 { font-size: 33px; line-height: 1.1; letter-spacing: -1px; font-weight: 500; }
-.cliSection p { color: var(--mw-muted); font-size: 14px; line-height: 1.75; margin: 15px 0 20px; }
-.platformList { display: flex; flex-wrap: wrap; gap: 8px; color: var(--mw-muted); margin-bottom: 18px; font-size: 10px; }
-.platformList > span { padding: 5px 10px; border: 1px solid var(--mw-line); border-radius: 15px; }
-.installBlock { background: #1d231f; color: #ebeee7; border-radius: 17px; padding: 15px 21px 22px; }
-.installBlock > div { display: flex; align-items: center; justify-content: space-between; color: #a6b1a4; font-size: 11px; margin-bottom: 15px; }
-.installBlock > div > span:first-child { display: flex; align-items: center; gap: 8px; }
-.installBlock pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.9 var(--font-geist-mono), monospace; color: #e9c395; }
-.downloadGuide { background: var(--mw-subtle); border-radius: 30px; padding: 38px; margin-bottom: 30px; }
-.downloadGuide h2 { font-size: 29px; font-weight: 500; letter-spacing: -1px; }
-.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; margin-top: 32px; }
-.steps li > span { color: var(--mw-peach); font-size: 12px; font-family: var(--font-geist-mono), monospace; }
-.steps h3 { font-size: 18px; font-weight: 500; margin-top: 15px; }
-.steps p { font-size: 14px; color: var(--mw-muted); line-height: 1.7; margin-top: 10px; }
-.downloadGuide > a { margin-top: 30px; }
+.downloadGrid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 23px;
+}
+.downloadCard {
+  background: white;
+  border-radius: 20px;
+  padding: 33px 34px 30px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.downloadCard:last-child {
+  background: white;
+}
+.downloadCardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+.downloadCardHeader h2 {
+  font-size: 31px;
+  font-weight: 500;
+  letter-spacing: -1px;
+}
+.downloadCardHeader p {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--mw-muted);
+  margin-top: 9px;
+  max-width: 330px;
+}
+.downloadCardHeader > svg {
+  color: var(--mw-muted);
+  margin-top: 7px;
+}
+.downloadVisual {
+  height: 370px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  position: relative;
+}
+.downloadVisual > .phoneArt {
+  transform: scale(0.58) rotate(7deg);
+  transform-origin: center;
+  flex-shrink: 0;
+}
+.downloadVisual > .macArt {
+  width: 100%;
+}
+.downloadFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-top: auto;
+}
+.downloadFoot > a {
+  font-size: 14px;
+}
+.downloadFoot > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 11px 14px;
+  border-radius: 20px;
+  background: var(--mw-surface);
+}
+.downloadCaption {
+  font-size: 14px;
+  color: var(--mw-muted);
+  margin-top: 20px;
+}
+.macArt {
+  position: relative;
+  padding: 0 10px 10px;
+  min-width: 0;
+}
+.macScreen {
+  background: var(--mw-surface);
+  border: 5px solid var(--mw-inset);
+  border-radius: 16px 16px 5px 5px;
+  padding-bottom: 6px;
+  box-shadow: 0 20px 45px -25px #171c2340;
+}
+.macTitle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 10px;
+  font-size: 14px;
+  color: var(--mw-muted);
+}
+.macTitle > span:first-child {
+  display: flex;
+  gap: 4px;
+}
+.macTitle i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--mw-line);
+}
+.macBody {
+  display: grid;
+  grid-template-columns: 85px 1fr;
+  min-width: 0;
+  min-height: 200px;
+  gap: 8px;
+  padding: 0 7px;
+}
+.macSidebar {
+  background: var(--mw-subtle);
+  padding: 9px 5px;
+  border-radius: 9px;
+}
+.macSidebar > div {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  padding: 6px 4px;
+  border-radius: 7px;
+  margin-bottom: 5px;
+}
+.macSidebar > div[data-selected="true"] {
+  background: var(--mw-surface);
+}
+.macChat {
+  min-width: 0;
+  padding: 4px 8px 9px;
+}
+.macChat > span {
+  display: block;
+  padding: 9px 10px;
+  border-radius: 12px 12px 3px 12px;
+  background: var(--mw-blue-soft);
+  font-size: 14px;
+  margin-left: 15px;
+}
+.macChat > div:not(.miniApp) {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  line-height: 1.5;
+  margin-block: 13px;
+}
+.miniApp {
+  background: var(--mw-subtle);
+  border-radius: 10px;
+  padding: 12px;
+}
+.miniApp > span {
+  display: block;
+  color: var(--mw-peach);
+  font-size: 14px;
+  letter-spacing: normal;
+}
+.miniApp > strong {
+  display: block;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  margin: 5px 0 10px;
+}
+.miniApp > div {
+  display: flex;
+  gap: 7px;
+}
+.miniApp i {
+  width: 26px;
+  height: 34px;
+  border-radius: 1px 3px 3px 1px;
+  background: #dcb79a;
+  border-left: 3px solid #cba98d;
+  transform: rotate(-6deg);
+}
+.miniApp i:nth-child(2) {
+  background: #9fb2d0;
+  border-color: #8b9cb6;
+  transform: rotate(4deg);
+}
+.miniApp i:nth-child(3) {
+  background: #a9c1ab;
+  border-color: #8da58f;
+}
+.miniApp p {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--mw-mint);
+}
+.macBase {
+  height: 9px;
+  background: var(--mw-line);
+  border-radius: 1px 1px 50% 50%;
+  margin: 0 -12px;
+  position: relative;
+}
+.macBase::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 42%;
+  right: 42%;
+  height: 3px;
+  background: var(--mw-inset);
+  border-radius: 0 0 5px 5px;
+}
+.cliSection {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 70px;
+  padding-block: 75px;
+  align-items: center;
+}
+.cliSection h2 {
+  font-size: 33px;
+  line-height: 1.1;
+  letter-spacing: -1px;
+  font-weight: 500;
+}
+.cliSection p {
+  color: var(--mw-muted);
+  font-size: 14px;
+  line-height: 1.75;
+  margin: 15px 0 20px;
+}
+.platformList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--mw-muted);
+  margin-bottom: 18px;
+  font-size: 14px;
+}
+.platformList > span {
+  padding: 5px 10px;
+  border: 1px solid var(--mw-line);
+  border-radius: 15px;
+}
+.installBlock {
+  background: #0a0a0a;
+  color: white;
+  border-radius: 12px;
+  padding: 14px 20px 20px;
+  width: 100%;
+}
+.installBlock > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #aaa;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.installBlock > div > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.installBlock pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 14px/1.8 var(--font-mono);
+  color: #fff;
+}
+.downloadGuide {
+  background: white;
+  border-radius: 20px;
+  padding: 38px;
+  margin-bottom: 30px;
+}
+.downloadGuide h2 {
+  font-size: 29px;
+  font-weight: 500;
+  letter-spacing: -1px;
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 40px;
+  margin-top: 32px;
+}
+.steps li > span {
+  color: var(--mw-peach);
+  font-size: 14px;
+  font-family: var(--font-mono), monospace;
+}
+.steps h3 {
+  font-size: 18px;
+  font-weight: 500;
+  margin-top: 15px;
+}
+.steps p {
+  font-size: 14px;
+  color: var(--mw-muted);
+  line-height: 1.7;
+  margin-top: 10px;
+}
+.downloadGuide > a {
+  margin-top: 30px;
+}
 
 /* The SDK has a developer-oriented narrative without losing its personal character. */
-.sdkHero { max-width: 1290px; margin: auto; padding: 65px 36px 72px; display: grid; grid-template-columns: 1fr 1.13fr; gap: 75px; align-items: center; }
-.sdkHero h1 { font-size: clamp(47px, 4.9vw, 66px); font-weight: 500; line-height: 1.03; letter-spacing: -.055em; }
-.sdkHero h1 em { font-style: normal; color: var(--mw-blue); }
-.sdkHeroCopy > p { font-size: 17px; line-height: 1.75; color: var(--mw-muted); margin: 24px 0; }
-.sdkHeroCopy > .installBlock { margin: 28px 0 24px; }
-.sdkAgentLine { display: flex; gap: 17px; align-items: center; padding: 22px 0 2px; font-size: 11px; color: var(--mw-muted); flex-wrap: wrap; }
-.sdkAgentLine > span { display: flex; gap: 6px; align-items: center; }
-.sdkFeatureBand { background: var(--mw-subtle); max-width: 1360px; width: calc(100% - 56px); margin: auto; padding: 64px 55px; border-radius: 34px; }
-.sdkFeatureBand > h2 { font-size: 39px; font-weight: 500; letter-spacing: -1.5px; text-align: center; }
-.sdkFeatureBand > p { text-align: center; color: var(--mw-muted); font-size: 15px; margin: 17px auto 0; max-width: 530px; line-height: 1.7; }
-.sdkFeatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 45px; margin-top: 45px; }
-.sdkFeatures svg { color: var(--mw-blue); }
-.sdkFeatures h3 { font-size: 19px; font-weight: 500; margin: 18px 0 12px; letter-spacing: -.4px; }
-.sdkFeatures p { font-size: 14px; line-height: 1.75; color: var(--mw-muted); }
-.sdkFeatures a { font-size: 12px; margin-top: 18px; }
-.architecture { display: grid; grid-template-columns: 1fr 1fr; gap: 95px; align-items: center; }
-.architectureScene { position: relative; padding: 18px 0; }
-.architectureApp { padding: 19px 23px; border: 1px solid var(--mw-line); border-radius: 17px; display: flex; align-items: center; gap: 14px; background: var(--mw-surface); margin-inline: 55px; font-size: 17px; font-weight: 500; }
-.architectureApp svg { color: var(--mw-blue); }
-.architectureApp small { display: block; font-size: 11px; color: var(--mw-muted); font-weight: 400; margin-top: 5px; }
-.architectureConnector { width: 1px; height: 32px; background: var(--mw-line); margin: auto; position: relative; }
-.architectureConnector::after { content: ""; position: absolute; width: 5px; height: 5px; border-radius: 50%; background: var(--mw-blue); bottom: 0; left: -2px; }
-.architectureCore { background: var(--mw-blue-soft); border-radius: 22px; padding: 24px; text-align: center; }
-.architectureCore > strong { font-size: 23px; font-weight: 500; letter-spacing: -.6px; }
-.architectureCore > p { font-size: 12px; color: var(--mw-muted); margin-top: 9px; }
-.architectureCapabilities { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; margin-top: 21px; }
-.architectureCapabilities span { padding: 7px 10px; font-size: 10px; background: var(--mw-surface); color: var(--mw-muted); border-radius: 15px; }
-.architectureEngines { display: flex; align-items: center; justify-content: center; gap: 25px; padding: 20px 5px; font-size: 11px; }
-.architectureEngines > span { display: flex; align-items: center; gap: 7px; }
-.architectureHosts { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 20px 0 0; border-top: 1px solid var(--mw-line); font-size: 11px; color: var(--mw-muted); }
-.architectureHosts span { padding: 7px 11px; border-radius: 7px; background: var(--mw-subtle); }
-.sdkClosing { display: flex; align-items: center; justify-content: space-between; gap: 30px; padding: 40px; border-radius: 27px; background: var(--mw-blue-soft); margin-bottom: 15px; }
-.sdkClosing h2 { font-size: 32px; font-weight: 500; letter-spacing: -1px; }
-.sdkClosing p { font-size: 14px; color: var(--mw-muted); margin-top: 10px; }
-.setupLayout { display: grid; grid-template-columns: .75fr 1.25fr; gap: 80px; padding: 10px 0 55px; }
-.setupIntro { padding-top: 20px; }
-.setupIntro h2 { font-size: 35px; line-height: 1.1; font-weight: 500; letter-spacing: -1.1px; margin: 18px 0; }
-.setupIntro p { font-size: 15px; color: var(--mw-muted); line-height: 1.75; margin-bottom: 22px; }
-.setupSteps { counter-reset: setup; }
-.setupSteps > li { position: relative; border-bottom: 1px solid var(--mw-line); padding: 25px 0 27px 49px; }
-.setupSteps > li::before { counter-increment: setup; content: counter(setup); width: 27px; height: 27px; border-radius: 50%; display: grid; place-items: center; position: absolute; left: 0; top: 26px; background: var(--mw-inset); color: var(--mw-muted); font-size: 12px; }
-.setupSteps h3 { font-size: 20px; font-weight: 500; letter-spacing: -.4px; }
-.setupSteps p { color: var(--mw-muted); font-size: 14px; line-height: 1.75; margin: 13px 0 17px; }
-.setupSteps .installBlock { margin-block: 20px; }
-.setupSteps > li > a { font-size: 12px; }
+.sdkFeatureBand {
+  background: #0a0a0a;
+  max-width: 1360px;
+  width: calc(100% - 80px);
+  margin: auto;
+  padding: 56px;
+  border-radius: 20px;
+  color: white;
+  --mw-muted: #bbb;
+  --mw-ink: #fff;
+  --mw-blue: #fff;
+}
+.sdkFeatureBand > h2 {
+  font-size: 42px;
+  font-weight: 400;
+  letter-spacing: -1.5px;
+  text-align: left;
+  line-height: 1.1;
+}
+.sdkFeatureBand > p {
+  text-align: left;
+  color: var(--mw-muted);
+  font-size: 17px;
+  margin: 20px 0 0;
+  max-width: 600px;
+  line-height: 1.7;
+}
+.sdkFeatures {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 48px;
+  margin-top: 45px;
+}
+.sdkFeatures svg {
+  color: var(--mw-blue);
+}
+.sdkFeatures h3 {
+  font-size: 22px;
+  font-weight: 400;
+  margin: 18px 0 12px;
+  letter-spacing: -0.4px;
+}
+.sdkFeatures p {
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--mw-muted);
+}
+.sdkFeatures a {
+  font-size: 14px;
+  margin-top: 18px;
+}
+.architecture {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 95px;
+  align-items: center;
+}
+.sdkClosing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 30px;
+  padding: 40px;
+  border-radius: 20px;
+  background: white;
+  margin-bottom: 15px;
+}
+.sdkClosing h2 {
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: -1px;
+}
+.sdkClosing p {
+  font-size: 14px;
+  color: var(--mw-muted);
+  margin-top: 10px;
+}
+.setupLayout {
+  display: grid;
+  grid-template-columns: 0.75fr 1.25fr;
+  gap: 80px;
+  padding: 10px 0 55px;
+}
+.setupIntro {
+  padding-top: 20px;
+}
+.setupIntro h2 {
+  font-size: 35px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -1.1px;
+  margin: 18px 0;
+}
+.setupIntro p {
+  font-size: 17px;
+  color: var(--mw-muted);
+  line-height: 1.75;
+  margin-bottom: 22px;
+}
+.setupSteps {
+  counter-reset: setup;
+}
+.setupSteps > li {
+  position: relative;
+  border-bottom: 1px solid var(--mw-line);
+  padding: 25px 0 27px 49px;
+}
+.setupSteps > li::before {
+  counter-increment: setup;
+  content: counter(setup);
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  position: absolute;
+  left: 0;
+  top: 26px;
+  background: white;
+  color: black;
+  font-size: 14px;
+  font-family: var(--font-mono);
+}
+.setupSteps h3 {
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+}
+.setupSteps p {
+  color: var(--mw-muted);
+  font-size: 16px;
+  line-height: 1.75;
+  margin: 13px 0 17px;
+}
+.setupSteps .installBlock {
+  margin-block: 20px;
+}
+.setupSteps > li > a {
+  font-size: 14px;
+}
+
+.inviteArt {
+  display: block;
+  margin: 0 auto 28px;
+}
 
 @media (max-width: 1100px) {
-  .continuity { gap: 45px; padding-inline: 35px; }
-  .sdkSectionInner { padding: 55px 35px; gap: 35px; }
-  .faqSection { gap: 60px; }
-  .sdkHero { gap: 40px; }
-  .sdkHero h1 { font-size: 52px; }
-  .sdkFeatures { gap: 27px; }
-  .planCard { padding: 24px; }
-  .planSpecs strong { font-size: 17px; }
-  .planSpecs small { font-size: 9px; }
-  .freePlan { padding: 28px; gap: 21px; }
-  .downloadCard { padding-inline: 24px; }
-  .architecture { gap: 50px; }
+  .continuity {
+    gap: 45px;
+    padding-inline: 35px;
+  }
+  .sdkSectionInner {
+    padding: 55px 35px;
+    gap: 35px;
+  }
+  .faqSection {
+    gap: 60px;
+  }
+  .sdkFeatures {
+    gap: 27px;
+  }
+  .planCard {
+    padding: 24px;
+  }
+  .planSpecs strong {
+    font-size: 17px;
+  }
+  .planSpecs small {
+    font-size: 14px;
+  }
+  .freePlan {
+    padding: 28px;
+    gap: 21px;
+  }
+  .downloadCard {
+    padding-inline: 24px;
+  }
+  .architecture {
+    gap: 50px;
+  }
 }
 @media (max-width: 900px) {
-  .section { padding: 75px 28px; }
-  .continuity { gap: 28px; }
-  .sectionCopy h2 { font-size: 42px; }
-  .sectionCopy > p { font-size: 15px; }
-  .segmented button { font-size: 11px; padding: 11px 13px; gap: 6px; }
-  .hostDetails { min-height: 245px; }
-  .sdkSectionInner { grid-template-columns: 1fr; gap: 37px; padding: 48px; }
-  .sdkSection .sectionCopy { max-width: 560px; }
-  .sdkSection .sectionCopy h2 { font-size: 46px; }
-  .sdkSection .sectionCopy > p { max-width: none; }
-  .sdkCompact .codePanel { min-height: 410px; }
-  .faqSection { gap: 35px; grid-template-columns: .75fr 1.25fr; }
-  .questions summary { font-size: 15px; padding-block: 21px; }
-  .questions details > div { font-size: 13px; }
-  .footerTop { gap: 25px; grid-template-columns: 1.2fr 1fr 1fr 1fr; }
-  .footerTop nav a { font-size: 12px; }
-  .siteFooter { padding-inline: 28px; }
-  .freePlan { flex-wrap: wrap; }
-  .freePlan > div:first-of-type { flex-basis: 55%; }
-  .freePlan > a { margin-left: auto; }
-  .freePrice { padding-inline: 0; }
-  .pageWrap { padding-inline: 26px; }
-  .planGrid { gap: 12px; }
-  .planCard { padding: 22px 18px; border-radius: 20px; }
-  .planName h3 { font-size: 21px; }
-  .planName > svg { width: 38px; height: 38px; }
-  .planDescription { min-height: 64px; }
-  .planPrice strong { font-size: 47px; }
-  .planSpecs { grid-template-columns: 1fr; gap: 11px; }
-  .planSpecs > div { display: flex; justify-content: space-between; align-items: center; }
-  .planSpecs small { font-size: 11px; margin: 0; }
-  .planBenefits { font-size: 11px; }
-  .planCard > a { font-size: 11px; padding-inline: 13px; gap: 10px; }
-  .includedGrid { gap: 25px; }
-  .includedGrid p { font-size: 13px; }
-  .downloadGrid { gap: 16px; }
-  .downloadCard { padding: 26px 22px; }
-  .downloadVisual { height: 350px; }
-  .macBody { grid-template-columns: 62px 1fr; gap: 3px; }
-  .macSidebar > div { flex-direction: column; font-size: 8px; gap: 3px; }
-  .macChat { padding-inline: 4px; }
-  .macChat > span { font-size: 8px; margin-left: 0; padding: 8px; }
-  .macChat > div:not(.miniApp) { font-size: 8px; }
-  .miniApp { padding: 9px; }
-  .miniApp > strong { font-size: 14px; }
-  .downloadFoot { align-items: flex-start; flex-direction: column; }
-  .cliSection { gap: 35px; }
-  .cliSection h2 { font-size: 28px; }
-  .steps { gap: 25px; }
-  .steps p { font-size: 13px; }
-  .sdkHero { gap: 35px; grid-template-columns: 1fr; max-width: 750px; padding-top: 45px; }
-  .sdkHero h1 { font-size: 63px; }
-  .sdkHeroCopy { max-width: 580px; }
-  .sdkHeroCopy .installBlock { max-width: 440px; }
-  .sdkFeatureBand { padding: 43px 30px; }
-  .sdkFeatureBand h2 { font-size: 33px; }
-  .sdkFeatures { gap: 24px; }
-  .sdkFeatures h3 { font-size: 17px; }
-  .sdkFeatures p { font-size: 13px; }
-  .architecture { gap: 30px; }
-  .architectureApp { margin-inline: 20px; }
-  .architectureEngines { gap: 12px; font-size: 9px; }
-  .architectureCore { padding: 22px 15px; }
-  .sdkClosing h2 { font-size: 28px; }
-  .setupLayout { gap: 40px; }
+  .section {
+    padding: 75px 28px;
+  }
+  .continuity {
+    gap: 28px;
+  }
+  .sectionCopy h2 {
+    font-size: 42px;
+  }
+  .sectionCopy > p {
+    font-size: 15px;
+  }
+  .segmented button {
+    font-size: 14px;
+    padding: 11px 13px;
+    gap: 6px;
+  }
+  .hostDetails {
+    min-height: 245px;
+  }
+  .sdkSectionInner {
+    grid-template-columns: 1fr;
+    gap: 37px;
+    padding: 48px;
+  }
+  .sdkSection .sectionCopy {
+    max-width: 560px;
+  }
+  .sdkSection .sectionCopy h2 {
+    font-size: 46px;
+  }
+  .sdkSection .sectionCopy > p {
+    max-width: none;
+  }
+  .sdkCompact .codePanel {
+    min-height: 410px;
+  }
+  .faqSection {
+    gap: 35px;
+    grid-template-columns: 0.75fr 1.25fr;
+  }
+  .questions summary {
+    font-size: 15px;
+    padding-block: 21px;
+  }
+  .questions details > div {
+    font-size: 16px;
+  }
+  .freePlan {
+    flex-wrap: wrap;
+  }
+  .freePlan > div:first-of-type {
+    flex-basis: 55%;
+  }
+  .freePlan > a {
+    margin-left: auto;
+  }
+  .freePrice {
+    padding-inline: 0;
+  }
+  .pageWrap {
+    padding-inline: 26px;
+  }
+  .planGrid {
+    gap: 12px;
+  }
+  .planCard {
+    padding: 22px 18px;
+    border-radius: 20px;
+  }
+  .planName h3 {
+    font-size: 21px;
+  }
+  .planName > svg {
+    width: 38px;
+    height: 38px;
+  }
+  .planDescription {
+    min-height: 64px;
+  }
+  .planPrice strong {
+    font-size: 47px;
+  }
+  .planSpecs {
+    grid-template-columns: 1fr;
+    gap: 11px;
+  }
+  .planSpecs > div {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .planSpecs small {
+    font-size: 14px;
+    margin: 0;
+  }
+  .planBenefits {
+    font-size: 14px;
+  }
+  .planCard > a {
+    font-size: 14px;
+    padding-inline: 13px;
+    gap: 10px;
+  }
+  .includedGrid {
+    gap: 25px;
+  }
+  .includedGrid p {
+    font-size: 14px;
+  }
+  .downloadGrid {
+    gap: 16px;
+  }
+  .downloadCard {
+    padding: 26px 22px;
+  }
+  .downloadVisual {
+    height: 350px;
+  }
+  .macBody {
+    grid-template-columns: 62px 1fr;
+    gap: 3px;
+  }
+  .macSidebar > div {
+    flex-direction: column;
+    font-size: 14px;
+    gap: 3px;
+  }
+  .macChat {
+    padding-inline: 4px;
+  }
+  .macChat > span {
+    font-size: 14px;
+    margin-left: 0;
+    padding: 8px;
+  }
+  .macChat > div:not(.miniApp) {
+    font-size: 14px;
+  }
+  .miniApp {
+    padding: 9px;
+  }
+  .miniApp > strong {
+    font-size: 14px;
+  }
+  .downloadFoot {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .cliSection {
+    gap: 35px;
+  }
+  .cliSection h2 {
+    font-size: 28px;
+  }
+  .steps {
+    gap: 25px;
+  }
+  .steps p {
+    font-size: 14px;
+  }
+  .sdkFeatureBand {
+    padding: 43px 30px;
+  }
+  .sdkFeatureBand h2 {
+    font-size: 33px;
+  }
+  .sdkFeatures {
+    gap: 24px;
+  }
+  .sdkFeatures h3 {
+    font-size: 17px;
+  }
+  .sdkFeatures p {
+    font-size: 14px;
+  }
+  .architecture {
+    gap: 30px;
+  }
+  .sdkClosing h2 {
+    font-size: 28px;
+  }
+  .setupLayout {
+    gap: 40px;
+  }
 }
 @media (max-width: 680px) {
-  .section { padding: 65px 23px; }
-  .eyebrow { font-size: 11px; margin-bottom: 18px; }
-  .sectionCopy h2 { font-size: 40px; }
-  .sectionCopy > p { font-size: 15px; margin: 19px 0 24px; }
-  .continuity { grid-template-columns: 1fr; gap: 25px; }
-  .continuity .sectionCopy { order: -1; }
-  .continuity .sectionCopy h2 br:first-of-type { display: none; }
-  .continuity .sectionCopy h2 br:first-of-type::after { content: " "; }
-  .continuity .sectionCopy h2 { max-width: 330px; }
-  .segmented button { padding: 12px 14px; font-size: 12px; }
-  .hostDetails { min-height: 219px; padding-top: 22px; }
-  .hostDetails h3 { font-size: 17px; }
-  .hostDetails p { font-size: 13px; }
-  .sdkSection { width: calc(100% - 26px); border-radius: 25px; margin-top: 0; }
-  .sdkSectionInner { padding: 36px 19px 20px; gap: 30px; }
-  .sdkSection .sectionCopy h2 { font-size: 39px; }
-  .sdkSection .checkList { font-size: 12px; gap: 12px; }
-  .sdkExample { border-radius: 16px; }
-  .sdkWindowHeader { padding: 16px; font-size: 11px; }
-  .sdkWindowHeader > span:last-child { display: none; }
-  .agentPicker { padding: 12px 10px 5px; gap: 3px; }
-  .agentPicker button { font-size: 10px; padding: 9px 9px; gap: 6px; }
-  .agentPicker button > span { width: 14px !important; height: 14px !important; }
-  .codeToolbar { padding: 6px 15px 0; }
-  .codeToolbar > div { gap: 16px; }
-  .codeToolbar [role="tab"] { font-size: 10px; }
-  .codePanel, .sdkCompact .codePanel { padding: 19px 15px; min-height: 435px; }
-  .codePanel pre { font-size: 10px; line-height: 1.9; }
-  .sdkExampleFooter { padding: 14px 15px; font-size: 9px; }
-  .faqSection { grid-template-columns: 1fr; gap: 22px; }
-  .faqSection .sectionCopy h2 br { display: none; }
-  .faqSection .sectionCopy h2 { font-size: 39px; }
-  .faqSection .sectionCopy h2 em::before { content: " "; }
-  .faqSection .sectionCopy > p { margin-bottom: 15px; }
-  .questions summary { font-size: 15px; padding-block: 21px; }
-  .finalInvite { border-radius: 25px; padding: 40px 24px; width: calc(100% - 26px); }
-  .finalInvite p { font-size: 15px; line-height: 1.6; }
-  .finalInvite h2 { font-size: 42px; }
-  .inviteBots { transform: scale(.85); margin-bottom: 18px; }
-  .siteFooter { padding: 49px 25px 25px; }
-  .footerTop { grid-template-columns: 1fr 1fr; gap: 30px 23px; padding-bottom: 35px; }
-  .footerIdentity p { font-size: 13px; margin-top: 15px; }
-  .footerTop nav { gap: 12px; }
-  .footerTop nav h3 { font-size: 11px; }
-  .footerTop nav a { font-size: 12px; }
-  .footerBottom { flex-wrap: wrap; gap: 13px; font-size: 10px; }
-  .footerBottom > span:nth-child(2) { order: 3; width: 100%; }
-  .footerBottom a { margin-left: auto; }
-  .pageHero { padding: 38px 22px 36px; }
-  .pageHero h1 { font-size: clamp(43px, 10vw, 58px); }
-  .pageHero > p { font-size: 15px; margin-top: 20px; }
-  .pageHero > .eyebrow { margin-bottom: 20px; }
-  .pageWrap { padding-inline: 19px; }
-  .freePlan { border-radius: 21px; padding: 25px; gap: 20px; margin-bottom: 47px; }
-  .freePlan > svg { width: 49px; height: 49px; }
-  .freePlan h2 { font-size: 23px; }
-  .freePlan p { font-size: 12px; }
-  .freePrice strong { font-size: 32px; }
-  .freePlan > a { font-size: 12px; gap: 10px; min-height: 42px; }
-  .cloudHeading { align-items: flex-start; flex-direction: column; gap: 20px; }
-  .cloudHeading h2 { font-size: 30px; }
-  .cloudHeading p { font-size: 13px; line-height: 1.7; }
-  .billingInterval { font-size: 11px; }
-  .planGrid { grid-template-columns: 1fr; gap: 17px; }
-  .planCard { border-radius: 24px; padding: 27px; }
-  .planName h3 { font-size: 25px; }
-  .planName > svg { width: 48px; height: 48px; }
-  .planDescription { min-height: 0; font-size: 13px; }
-  .planPrice { margin-top: 23px; }
-  .planPrice strong { font-size: 54px; }
-  .planSpecs { grid-template-columns: repeat(3, 1fr); padding-block: 20px; margin-top: 23px; }
-  .planSpecs > div { display: block; }
-  .planSpecs strong { font-size: 19px; }
-  .planSpecs small { margin-top: 6px; font-size: 10px; }
-  .planBenefits { font-size: 12px; padding-top: 10px; }
-  .planCard > a { font-size: 13px; }
-  .availabilityNote { align-items: flex-start; padding: 16px; font-size: 11px; }
-  .availabilityNote > svg { margin-top: 3px; }
-  .pricingNote { text-align: left; font-size: 11px; }
-  .includedSection { margin-top: 55px; }
-  .includedSection h2 { text-align: left; font-size: 30px; }
-  .includedGrid { grid-template-columns: 1fr; gap: 28px; margin-top: 27px; }
-  .includedGrid h3 { margin-top: 12px; }
-  .downloadGrid { grid-template-columns: 1fr; gap: 20px; }
-  .downloadCard { padding: 27px 23px 24px; border-radius: 25px; }
-  .downloadCardHeader h2 { font-size: 29px; }
-  .downloadCardHeader p { font-size: 12px; }
-  .downloadVisual { height: 330px; }
-  .downloadVisual > .phoneArt { transform: scale(.52) rotate(7deg); }
-  .downloadFoot { flex-direction: row; align-items: center; gap: 15px; }
-  .downloadFoot > a { font-size: 11px; }
-  .downloadFoot > span { font-size: 11px; }
-  .macBody { grid-template-columns: 64px 1fr; gap: 5px; }
-  .macChat > span { font-size: 9px; }
-  .macChat > div:not(.miniApp) { font-size: 9px; }
-  .miniApp { padding: 11px; }
-  .cliSection { grid-template-columns: 1fr; gap: 26px; padding-block: 48px; }
-  .cliSection h2 { font-size: 31px; }
-  .cliSection p { font-size: 13px; margin-bottom: 16px; }
-  .installBlock { padding: 13px 17px 18px; }
-  .installBlock pre { font-size: 12px; }
-  .downloadGuide { padding: 28px 24px; border-radius: 25px; }
-  .downloadGuide h2 { font-size: 28px; line-height: 1.1; }
-  .steps { grid-template-columns: 1fr; margin-top: 28px; }
-  .steps h3 { margin-top: 9px; }
-  .steps p { margin-top: 8px; }
-  .sdkHero { padding: 38px 23px 45px; gap: 33px; }
-  .sdkHero h1 { font-size: clamp(44px, 10vw, 60px); }
-  .sdkHeroCopy > p { font-size: 15px; }
-  .sdkHeroCopy > .installBlock { margin-block: 23px 20px; }
-  .sdkAgentLine { gap: 16px; font-size: 10px; }
-  .sdkFeatureBand { width: calc(100% - 26px); padding: 36px 25px; border-radius: 25px; }
-  .sdkFeatureBand > h2 { font-size: 32px; text-align: left; line-height: 1.1; }
-  .sdkFeatureBand > p { font-size: 14px; text-align: left; }
-  .sdkFeatures { grid-template-columns: 1fr; gap: 30px; margin-top: 32px; }
-  .sdkFeatures h3 { font-size: 20px; margin-top: 15px; }
-  .sdkFeatures p { font-size: 13px; }
-  .architecture { grid-template-columns: 1fr; gap: 35px; }
-  .architectureScene { order: 2; }
-  .architectureEngines { gap: 19px; font-size: 11px; }
-  .sdkClosing { flex-direction: column; align-items: flex-start; padding: 30px 25px; border-radius: 23px; gap: 23px; }
-  .sdkClosing h2 { font-size: 28px; line-height: 1.1; }
-  .sdkClosing p { font-size: 13px; line-height: 1.7; }
-  .setupLayout { grid-template-columns: 1fr; gap: 15px; padding-bottom: 30px; }
-  .setupIntro { padding-top: 5px; }
-  .setupIntro h2 { font-size: 31px; }
-  .setupIntro p { font-size: 14px; }
-  .setupSteps > li { padding-left: 40px; }
-  .setupSteps h3 { font-size: 19px; }
-  .setupSteps p { font-size: 13px; }
+  .section {
+    padding: 65px 23px;
+  }
+  .eyebrow {
+    font-size: 14px;
+    margin-bottom: 18px;
+  }
+  .sectionCopy h2 {
+    font-size: 40px;
+  }
+  .sectionCopy > p {
+    font-size: 15px;
+    margin: 19px 0 24px;
+  }
+  .continuity {
+    grid-template-columns: 1fr;
+    gap: 25px;
+  }
+  .continuity .sectionCopy {
+    order: -1;
+  }
+  .continuity .sectionCopy h2 br:first-of-type {
+    display: none;
+  }
+  .continuity .sectionCopy h2 br:first-of-type::after {
+    content: " ";
+  }
+  .continuity .sectionCopy h2 {
+    max-width: 330px;
+  }
+  .segmented button {
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+  .hostDetails {
+    min-height: 219px;
+    padding-top: 22px;
+  }
+  .hostDetails h3 {
+    font-size: 17px;
+  }
+  .hostDetails p {
+    font-size: 14px;
+  }
+  .sdkSection {
+    width: calc(100% - 26px);
+    border-radius: 25px;
+    margin-top: 0;
+  }
+  .sdkSectionInner {
+    padding: 36px 19px 20px;
+    gap: 30px;
+  }
+  .sdkSection .sectionCopy h2 {
+    font-size: 39px;
+  }
+  .sdkSection .checkList {
+    font-size: 14px;
+    gap: 12px;
+  }
+  .sdkExample {
+    border-radius: 16px;
+  }
+  .sdkWindowHeader {
+    padding: 16px;
+    font-size: 14px;
+  }
+  .sdkWindowHeader > span:last-child {
+    display: none;
+  }
+  .codeToolbar {
+    padding: 6px 15px 0;
+  }
+  .codeToolbar > div {
+    gap: 16px;
+  }
+  .codeToolbar [role="tab"] {
+    font-size: 14px;
+  }
+  .codePanel,
+  .sdkCompact .codePanel {
+    padding: 19px 15px;
+    min-height: 435px;
+  }
+  .codePanel pre {
+    font-size: 14px;
+    line-height: 1.9;
+  }
+  .faqSection {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+  .faqSection .sectionCopy h2 br {
+    display: none;
+  }
+  .faqSection .sectionCopy h2 {
+    font-size: 39px;
+  }
+  .faqSection .sectionCopy h2 em::before {
+    content: " ";
+  }
+  .faqSection .sectionCopy > p {
+    margin-bottom: 15px;
+  }
+  .questions summary {
+    font-size: 15px;
+    padding-block: 21px;
+  }
+  .finalInvite {
+    border-radius: 25px;
+    padding: 40px 24px;
+    width: calc(100% - 26px);
+  }
+  .finalInvite p {
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .finalInvite h2 {
+    font-size: 42px;
+  }
+  .pageWrap {
+    padding-inline: 19px;
+  }
+  .freePlan {
+    border-radius: 21px;
+    padding: 25px;
+    gap: 20px;
+    margin-bottom: 47px;
+  }
+  .freePlan > svg {
+    width: 49px;
+    height: 49px;
+  }
+  .freePlan h2 {
+    font-size: 23px;
+  }
+  .freePlan p {
+    font-size: 14px;
+  }
+  .freePrice strong {
+    font-size: 32px;
+  }
+  .freePlan > a {
+    font-size: 14px;
+    gap: 10px;
+    min-height: 42px;
+  }
+  .cloudHeading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .cloudHeading h2 {
+    font-size: 30px;
+  }
+  .cloudHeading p {
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .billingInterval {
+    font-size: 14px;
+  }
+  .planGrid {
+    grid-template-columns: 1fr;
+    gap: 17px;
+  }
+  .planCard {
+    border-radius: 24px;
+    padding: 27px;
+  }
+  .planName h3 {
+    font-size: 25px;
+  }
+  .planName > svg {
+    width: 48px;
+    height: 48px;
+  }
+  .planDescription {
+    min-height: 0;
+    font-size: 14px;
+  }
+  .planPrice {
+    margin-top: 23px;
+  }
+  .planPrice strong {
+    font-size: 54px;
+  }
+  .planSpecs {
+    grid-template-columns: repeat(3, 1fr);
+    padding-block: 20px;
+    margin-top: 23px;
+  }
+  .planSpecs > div {
+    display: block;
+  }
+  .planSpecs strong {
+    font-size: 19px;
+  }
+  .planSpecs small {
+    margin-top: 6px;
+    font-size: 14px;
+  }
+  .planBenefits {
+    font-size: 14px;
+    padding-top: 10px;
+  }
+  .planCard > a {
+    font-size: 14px;
+  }
+  .availabilityNote {
+    align-items: flex-start;
+    padding: 16px;
+    font-size: 14px;
+  }
+  .availabilityNote > svg {
+    margin-top: 3px;
+  }
+  .pricingNote {
+    text-align: left;
+    font-size: 14px;
+  }
+  .includedSection {
+    margin-top: 55px;
+  }
+  .includedSection h2 {
+    text-align: left;
+    font-size: 30px;
+  }
+  .includedGrid {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    margin-top: 27px;
+  }
+  .includedGrid h3 {
+    margin-top: 12px;
+  }
+  .downloadGrid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .downloadCard {
+    padding: 27px 23px 24px;
+    border-radius: 25px;
+  }
+  .downloadCardHeader h2 {
+    font-size: 29px;
+  }
+  .downloadCardHeader p {
+    font-size: 14px;
+  }
+  .downloadVisual {
+    height: 330px;
+  }
+  .downloadVisual > .phoneArt {
+    transform: scale(0.52) rotate(7deg);
+  }
+  .downloadFoot {
+    flex-direction: row;
+    align-items: center;
+    gap: 15px;
+  }
+  .downloadFoot > a {
+    font-size: 14px;
+  }
+  .downloadFoot > span {
+    font-size: 14px;
+  }
+  .macBody {
+    grid-template-columns: 64px 1fr;
+    gap: 5px;
+  }
+  .macChat > span {
+    font-size: 14px;
+  }
+  .macChat > div:not(.miniApp) {
+    font-size: 14px;
+  }
+  .miniApp {
+    padding: 11px;
+  }
+  .cliSection {
+    grid-template-columns: 1fr;
+    gap: 26px;
+    padding-block: 48px;
+  }
+  .cliSection h2 {
+    font-size: 31px;
+  }
+  .cliSection p {
+    font-size: 14px;
+    margin-bottom: 16px;
+  }
+  .installBlock {
+    padding: 13px 17px 18px;
+  }
+  .installBlock pre {
+    font-size: 14px;
+  }
+  .downloadGuide {
+    padding: 28px 24px;
+    border-radius: 25px;
+  }
+  .downloadGuide h2 {
+    font-size: 28px;
+    line-height: 1.1;
+  }
+  .steps {
+    grid-template-columns: 1fr;
+    margin-top: 28px;
+  }
+  .steps h3 {
+    margin-top: 9px;
+  }
+  .steps p {
+    margin-top: 8px;
+  }
+  .sdkFeatureBand {
+    width: calc(100% - 26px);
+    padding: 36px 25px;
+    border-radius: 25px;
+  }
+  .sdkFeatureBand > h2 {
+    font-size: 32px;
+    text-align: left;
+    line-height: 1.1;
+  }
+  .sdkFeatureBand > p {
+    font-size: 14px;
+    text-align: left;
+  }
+  .sdkFeatures {
+    grid-template-columns: 1fr;
+    gap: 30px;
+    margin-top: 32px;
+  }
+  .sdkFeatures h3 {
+    font-size: 20px;
+    margin-top: 15px;
+  }
+  .sdkFeatures p {
+    font-size: 14px;
+  }
+  .architecture {
+    grid-template-columns: 1fr;
+    gap: 35px;
+  }
+  .sdkClosing {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 30px 25px;
+    border-radius: 23px;
+    gap: 23px;
+  }
+  .sdkClosing h2 {
+    font-size: 28px;
+    line-height: 1.1;
+  }
+  .sdkClosing p {
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .setupLayout {
+    grid-template-columns: 1fr;
+    gap: 15px;
+    padding-bottom: 30px;
+  }
+  .setupIntro {
+    padding-top: 5px;
+  }
+  .setupIntro h2 {
+    font-size: 31px;
+  }
+  .setupIntro p {
+    font-size: 14px;
+  }
+  .setupSteps > li {
+    padding-left: 40px;
+  }
+  .setupSteps h3 {
+    font-size: 19px;
+  }
+  .setupSteps p {
+    font-size: 14px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .segmented button, .agentPicker button, .questions summary svg { transition: none; }
+  .segmented button,
+  .questions summary svg {
+    transition: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .sdkFeatureBand {
+    padding: 40px;
+  }
+  .sdkFeatures {
+    gap: 28px;
+  }
+  .planDescription {
+    font-size: 15px;
+  }
+  .faqSection {
+    gap: 32px;
+  }
+}
+@media (max-width: 767px) {
+  .section {
+    padding: 56px 24px;
+  }
+  .pageWrap {
+    width: calc(100% - 32px);
+    padding: 0;
+  }
+  .sectionCopy h2,
+  .centerHeading h2 {
+    font-size: 36px;
+  }
+  .sectionCopy > p,
+  .hostDetails p {
+    font-size: 16px;
+  }
+  .sdkFeatureBand,
+  .finalInvite {
+    width: calc(100% - 32px);
+    border-radius: 20px;
+    padding: 32px 24px;
+  }
+  .sdkFeatureBand > h2 {
+    font-size: 34px;
+  }
+  .sdkFeatureBand > p {
+    font-size: 16px;
+  }
+  .sdkFeatures {
+    grid-template-columns: 1fr;
+  }
+  .codePanel,
+  .sdkCompact .codePanel {
+    min-height: 0;
+    height: 320px;
+    padding: 18px 16px;
+  }
+  .codePanel pre {
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .faqSection {
+    grid-template-columns: 1fr;
+  }
+  .questions summary {
+    font-size: 17px;
+  }
+  .downloadCard,
+  .freePlan,
+  .planCard {
+    border-radius: 20px;
+    padding: 24px;
+  }
+  .freePlan > div:first-of-type {
+    flex-basis: 60%;
+  }
+  .freePlan > a {
+    margin-left: 0;
+  }
+  .downloadVisual {
+    height: 380px;
+  }
+}
+
+/* Device illustrations use readable UI instead of a scaled-down screenshot. */
+.phoneArt {
+  border-width: 4px;
+  box-shadow: none;
+  padding: 12px;
+  width: 246px;
+}
+.phoneStatus {
+  font-size: 12px;
+  padding-bottom: 8px;
+}
+.phoneTop {
+  font-size: 15px;
+}
+.phoneTop small {
+  font-size: 12px;
+}
+.phoneMessage,
+.phoneReply {
+  font-size: 14px;
+}
+.phoneMessage {
+  margin: 16px 0 16px 16px;
+}
+.phoneDocument {
+  margin-top: 16px;
+}
+.phoneDocument > span {
+  font-size: 12px;
+  letter-spacing: normal;
+}
+.phoneDocument > strong {
+  font-size: 22px;
+}
+.phoneDocument p,
+.phoneDocument > div,
+.phoneComposer {
+  font-size: 13px;
+}
+.downloadVisual {
+  height: 560px;
+}
+.downloadVisual > .phoneArt {
+  transform: none;
+}
+.macScreen {
+  border: 0;
+  border-radius: 12px;
+  box-shadow: none;
+  background: #ededed;
+}
+.macTitle {
+  font-size: 13px;
+  padding: 16px;
+}
+.macBody {
+  grid-template-columns: 100px 1fr;
+  min-height: 290px;
+}
+.macSidebar {
+  background: #d9d9d9;
+}
+.macSidebar > div {
+  flex-direction: column;
+  padding: 12px 6px;
+  font-size: 13px;
+  gap: 8px;
+}
+.macChat > span,
+.macChat > div:not(.miniApp) {
+  font-size: 14px;
+}
+.miniApp {
+  background: white;
+}
+.miniApp > span,
+.miniApp p {
+  font-size: 13px;
+}
+@media (max-width: 900px) {
+  .downloadGrid {
+    grid-template-columns: 1fr;
+  }
+  .downloadVisual > .macArt {
+    max-width: 520px;
+  }
+}
+@media (max-width: 767px) {
+  .downloadVisual {
+    height: 540px;
+  }
+  .macBody {
+    grid-template-columns: 1fr;
+  }
+  .macSidebar {
+    display: none;
+  }
+  .macChat {
+    padding: 14px;
+  }
+  .downloadVisual:has(.macArt) {
+    height: 400px;
+  }
+}
+.planCard[data-tone="blue"] > a {
+  background: white;
+  color: black;
+}
+.sdkFeatureBand {
+  --mw-peach: #fff;
+}
+.downloadVisual:has(.phoneArt) {
+  height: auto;
+  min-height: 520px;
+  padding-block: 36px;
 }

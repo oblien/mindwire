@@ -10,8 +10,10 @@ package mindwire
 // directly (each still self-registers on import) and skip this package's conveniences — but the common
 // path is "import the SDK, get everything".
 import (
+	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/antigravity"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/claude"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/codex"
+	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/cursor"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/grok"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/opencode"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/notify/exec"

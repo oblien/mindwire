@@ -9,9 +9,9 @@ const BASE = "https://mindwire.sh";
 export default function sitemap(): MetadataRoute.Sitemap {
   const marketing: MetadataRoute.Sitemap = [
     { url: `${BASE}/`, changeFrequency: "monthly", priority: 1 },
+    { url: `${BASE}/app/`, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${BASE}/cloud/`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${BASE}/get-started/`, changeFrequency: "monthly", priority: 0.8 },
-    { url: `${BASE}/pricing/`, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${BASE}/download/`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${BASE}/sdk/`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${BASE}/developers/`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${BASE}/use-cases/`, changeFrequency: "monthly", priority: 0.8 },

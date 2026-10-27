@@ -13,7 +13,7 @@ const cols: { title: string; links: FooterLink[] }[] = [
       { href: downloadUrl, label: "Download app" },
       { href: consoleUrl, label: "Console" },
       { href: "/sandboxing", label: "Sandboxing" },
-      { href: "/pricing", label: "Pricing" },
+      { href: "/cloud", label: "Cloud & pricing" },
       { href: "/changelog", label: "Changelog" },
       { href: "/docs/guides/quickstart", label: "Quickstart" },
     ],

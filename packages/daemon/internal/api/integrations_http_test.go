@@ -143,6 +143,22 @@ const updated = await mw.integrations.update(c.id, { ...c, enabled: false, expec
 assert(updated.revision > c.revision && updated.hasCredentials, "update did not preserve credentials");
 await mw.integrations.delete(c.id);
 assert((await mw.integrations.list()).length === 0, "disconnect failed");
+const host = await mw.integrations.create({ name:"OpenShip commands",provider:"slack",botId:"",dispatch:"host",mode:"commands",enabled:true,channelIds:["C100"],workspaceId:"T100",command:"/openship",notify:false,credentials:{botToken:"slack-fixture-token",signingSecret:"slack-fixture-signing"} });
+const raw=JSON.stringify({type:"event_callback",team_id:"T100",event_id:"host-1",event:{type:"message",channel:"C100",user:"U100",text:"/openship projects",ts:"22"}});
+const timestamp=String(Math.floor(Date.now()/1000));
+const headers={"Content-Type":"application/json","X-Slack-Request-Timestamp":timestamp,"X-Slack-Signature":"v0="+createHmac("sha256","slack-fixture-signing").update("v0:"+timestamp+":"+raw).digest("hex")};
+assert((await mw.integrations.forwardWebhook(host.id,raw,{})).status===401,"relay trusted an unsigned event");
+assert((await mw.integrations.forwardWebhook(host.id,raw,headers)).status===200,"relay rejected signed raw bytes");
+assert((await mw.integrations.forwardWebhook(host.id,raw,headers)).status===200,"duplicate webhook failed");
+const claimed=await mw.integrations.claim(host.id);
+assert(claimed?.userId==="U100"&&claimed.text==="/openship projects","host did not receive verified event");
+assert(await mw.integrations.claim(host.id)===null,"leased event was claimed twice");
+await mw.integrations.complete(host.id,claimed.id,claimed.lease,"Your projects: Example");
+await mw.integrations.complete(host.id,claimed.id,claimed.lease,"Your projects: Example");
+for(let i=0;i<200;i++){ const rows=await mw.integrations.events(host.id); if(rows[0]?.state==="delivered")break;await Bun.sleep(25);}
+assert((await mw.integrations.events(host.id))[0]?.state==="delivered","host reply did not reach provider");
+await mw.integrations.delete(host.id);
+
 `
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -151,8 +167,13 @@ assert((await mw.integrations.list()).length === 0, "disconnect failed");
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("SDK end-to-end: %v\n%s", err, output)
 	}
-	if turns.Load() != 1 || deliveries.Load() != 3 {
+	if turns.Load() != 1 || deliveries.Load() != 4 {
 		t.Fatalf("expected one deduplicated turn and provider deliveries: turns=%d deliveries=%d", turns.Load(), deliveries.Load())
+	}
+	for _, endpoint := range []string{"/integrations/id/claim", "/integrations/id/forward", "/integrations/id/events/event/complete"} {
+		if got := serve(t, root, "POST", endpoint, "{}"); got.Code != 401 {
+			t.Fatal("host endpoint bypassed auth", endpoint)
+		}
 	}
 	if got := serve(t, root, "GET", "/integrations", ""); got.Code != 401 {
 		t.Fatal("management endpoint bypassed owner auth")

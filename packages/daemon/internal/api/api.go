@@ -181,6 +181,9 @@ func (a *API) Routes() []Route {
 		{"DELETE", "/integrations/{id}", a.integrationDelete},
 		{"POST", "/integrations/{id}/send", a.integrationSend},
 		{"GET", "/integrations/{id}/events", a.integrationEvents},
+		{"POST", "/integrations/{id}/claim", a.integrationClaim},
+		{"POST", "/integrations/{id}/forward", a.integrationForward},
+		{"POST", "/integrations/{id}/events/{eventId}/complete", a.integrationComplete},
 		{"POST", "/integrations/{id}/events/{eventId}/retry", a.integrationRetry},
 		{"GET", "/apps", a.appsList},
 		{"POST", "/apps", a.appRegister},
@@ -816,10 +819,8 @@ type setModelReq struct {
 	Model string `json:"model,omitempty"`
 }
 
-// setModelRun switches the model of a live turn over the control channel. Only meaningful on a
-// persistent (non-bypass) turn; on a one-shot turn the send is a documented best-effort no-op (still
-// 202). 404 if no turn is accepting ingress for that id; 400 if the run's agent declares no set-model
-// capability.
+// setModelRun waits for a native acknowledgement. Negotiated capabilities gate
+// the control; rejection, timeout, or a closed run returns an error.
 func (a *API) setModelRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run, ok := a.store.GetRun(id)
@@ -827,7 +828,7 @@ func (a *API) setModelRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
-	if ag, ok := a.sup.Resolve(run.Agent); ok && !ag.Adapter.Capabilities().SetModel {
+	if !a.sup.RunCapabilities(run.ID).SetModel {
 		badRequest(w, "this agent does not support switching the model mid-turn")
 		return
 	}
@@ -836,8 +837,8 @@ func (a *API) setModelRun(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid request body")
 		return
 	}
-	if !a.sup.SetModel(id, req.Model) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no running turn accepting input for that id"})
+	if err := a.sup.ConfirmModel(r.Context(), id, req.Model); err != nil {
+		badRequest(w, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
@@ -2078,7 +2079,12 @@ func (a *API) authMethods(w http.ResponseWriter, r *http.Request) {
 	if ag == nil {
 		return
 	}
-	writeJSON(w, http.StatusOK, ag.Auth.Methods())
+	methods, err := agent.DiscoverAuthMethods(r.Context(), ag.Auth)
+	if err != nil {
+		badRequest(w, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, methods)
 }
 
 func (a *API) authBegin(w http.ResponseWriter, r *http.Request) {

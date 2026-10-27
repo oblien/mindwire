@@ -1,18 +1,21 @@
 ---
 title: Introduction
-description: The runtime for coding agents — one protocol, one event stream, one auth flow, driven from TypeScript, Go, or plain REST.
+description: Add agents to your product with the Mindwire SDK and runtime, using TypeScript, Go, or REST.
 ---
 
-Mindwire is a personal assistant and coding companion built on existing agent harnesses.
-The Apple app and web console connect to the same runtime: ask for an outcome, follow progress,
-answer questions, and use the result. Everyday work and software development share that foundation.
+Mindwire is an open-source SDK and runtime for adding agent capabilities to your product.
+Start tasks, stream progress, handle supported approvals, and continue conversations through
+TypeScript, Go, or REST and SSE. Your application supplies its interface, authorization,
+and the context and tools its users need.
 
 **Codex, Claude Code, Grok Build, and OpenCode are supported today.** Their available tools and
-permissions determine which files, scripts, browsers, or applications a task can use. Computer use
-is capability-dependent; selecting a harness does not grant universal desktop access.
+permissions determine which files, scripts, browsers, or applications a task can use. Check
+capabilities when designing an integration.
 
-The native Apple client currently targets iPhone and iPad. Native macOS and visionOS support are
-planned. See [Get started](/get-started) for download availability and computer pairing.
+The [Mindwire app](/app) is a first-party application built on the same runtime, with General and
+Developer modes. It is optional for SDK integrations. See [Download](/download) for Mac and iOS
+availability. [Mindwire Cloud](/cloud) offers optional monthly computers; Console manages those
+computers and accounts. You can also run the SDK and runtime on infrastructure you manage.
 
 The runtime, SDKs, and web console are open source under Apache-2.0. The Apple client is
 source-available under a separate license that allows inspection and private personal builds;
@@ -80,7 +83,7 @@ Every coding agent ships its own CLI, flags, and auth. Model APIs converged on o
 
 - **Durable sessions.** A turn keeps running if the client disconnects; reattach to its live stream.
 - **A unified event stream.** `text`, `thinking`, `tool_use`, `tool_result`, `result` — every agent, one shape.
-- **A capabilities matrix.** Each adapter declares what its agent does natively; the core emulates the rest.
+- **A capabilities matrix.** Each adapter declares supported features so your application can handle differences explicitly.
 
 ## Next
 

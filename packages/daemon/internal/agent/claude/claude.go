@@ -64,6 +64,7 @@ func (adapter) Capabilities() agent.Capabilities {
 		BotProfiles:        true,
 		AppendSystemPrompt: true,
 		MCPServers:         true,
+		StructuredOutput:   true,
 		// Per-turn subagents (--agents, inline JSON) and a settings/hooks bundle (--settings, a temp
 		// file). Verified on claude-cli 2.1.220: --agents takes inline JSON ({name:{description,prompt}});
 		// --settings takes a file path (where hooks/permissions/env live). See buildCommand/materialize.
@@ -444,6 +445,10 @@ func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emi
 		return agent.TurnResult{Text: err.Error(), IsError: true}, err
 	}
 	in.Options = options
+	in.Options.MCPServers, err = nativeMCPOverlay(in.Options.MCPServers)
+	if err != nil {
+		return agent.TurnResult{IsError: true, Text: err.Error()}, err
+	}
 
 	// Materialize structured per-turn options (output schema, MCP config, inline attachments) to temp
 	// files, cleaned up when the process exits. buildCommand consumes the resolved paths and stays pure.

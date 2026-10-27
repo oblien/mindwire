@@ -19,7 +19,7 @@ func (a *Auth) Methods(opts ...ScopedOption) ([]AuthMethod, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ag.Auth.Methods(), nil
+	return agent.DiscoverAuthMethods(context.Background(), ag.Auth)
 }
 
 // Begin starts the named auth method and returns the first step (inputs to collect, a URL to open,

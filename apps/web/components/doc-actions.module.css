@@ -1,13 +1,81 @@
-.actions { position: relative; align-self: flex-start; margin-bottom: 12px; }
-.buttons { display: flex; align-items: center; padding: 3px; border-radius: 999px; background: var(--mw-subtle); }
-.buttons button { display: inline-flex; gap: 7px; align-items: center; justify-content: center; color: var(--mw-muted); min-height: 32px; padding: 6px 11px; border-radius: 999px; font-size: 12px; }
-.buttons button:last-child { width: 32px; padding: 0; }
-.buttons button:hover, .buttons button[aria-expanded="true"] { background: var(--mw-inset); color: var(--mw-ink); }
-.buttons button:disabled { cursor: wait; }
-.menu { position: absolute; top: calc(100% + 8px); left: 0; z-index: 25; background: var(--mw-surface); box-shadow: var(--mw-shadow-popover); border: 1px solid var(--mw-line); padding: 6px; border-radius: 16px; min-width: 205px; }
-.menu a { display: flex; align-items: center; gap: 10px; border-radius: 10px; padding: 10px; font-size: 13px; color: var(--mw-muted); }
-.menu a:hover { background: var(--mw-subtle); color: var(--mw-ink); }
-.error { display: block; max-width: 280px; color: var(--mw-danger); font-size: 12px; margin-top: 8px; line-height: 1.6; }
-.spinner { animation: doc-copy-spin 1s linear infinite; }
-@keyframes doc-copy-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+.actions {
+  position: relative;
+  align-self: flex-start;
+  margin-bottom: 12px;
+}
+.buttons {
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--mw-subtle);
+}
+.buttons button {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  color: var(--mw-muted);
+  min-height: 32px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+.buttons button:last-child {
+  width: 32px;
+  padding: 0;
+}
+.buttons button:hover,
+.buttons button[aria-expanded="true"] {
+  background: var(--mw-inset);
+  color: var(--mw-ink);
+}
+.buttons button:disabled {
+  cursor: wait;
+}
+.menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 25;
+  background: var(--mw-surface);
+  box-shadow: var(--mw-shadow-popover);
+  border: 0;
+  padding: 6px;
+  border-radius: 16px;
+  min-width: 205px;
+}
+.menu a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 14px;
+  color: var(--mw-muted);
+}
+.menu a:hover {
+  background: var(--mw-subtle);
+  color: var(--mw-ink);
+}
+.error {
+  display: block;
+  max-width: 280px;
+  color: var(--mw-danger);
+  font-size: 14px;
+  margin-top: 8px;
+  line-height: 1.6;
+}
+.spinner {
+  animation: doc-copy-spin 1s linear infinite;
+}
+@keyframes doc-copy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}

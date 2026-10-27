@@ -1,15 +1,49 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
-import BotAvatar from "./BotAvatar";
 import base from "./landing.module.css";
 import styles from "./product.module.css";
 
-export default function FinalInvite() {
-  return <section className={styles.finalInvite} aria-labelledby="invite-title">
-    <div className={styles.inviteBots} aria-hidden="true"><BotAvatar character="sprout" size={62} /><BotAvatar size={87} /><BotAvatar character="robot" size={66} /></div>
-    <h2 id="invite-title">What’s on your mind?</h2>
-    <p>There’s a bot for that. And you get to make it yours.</p>
-    <Link href="/download" className={base.primaryButton}>Meet your Mindwire <ArrowUpRight size={18} /></Link>
-    <span>Your agents. Your accounts. Your little team.</span>
-  </section>;
+export default function FinalInvite({
+  audience = "developers",
+  illustrated = false,
+}: {
+  audience?: "developers" | "app";
+  illustrated?: boolean;
+}) {
+  const app = audience === "app";
+  return (
+    <section className={styles.finalInvite} aria-labelledby="invite-title">
+      {illustrated && (
+        <img
+          className={styles.inviteArt}
+          src="/images/framework/canvas-motif.svg"
+          alt=""
+          width={105}
+          height={29}
+        />
+      )}
+      <h2 id="invite-title">
+        {app
+          ? "Start with something you need done."
+          : "What could your product do next?"}
+      </h2>
+      <p>
+        {app
+          ? "Bring your files, connect an agent, and give it a task."
+          : "Build your first agent feature with the Mindwire SDK."}
+      </p>
+      <Link
+        href={app ? "/app#download" : "/docs/guides/quickstart"}
+        className={base.primaryButton}
+      >
+        {app ? "Get the Mindwire app" : "Start building"}{" "}
+        <ArrowUpRight size={18} />
+      </Link>
+      <span>
+        {app
+          ? "General and Developer modes. One connected workspace."
+          : "Open-source runtime · TypeScript · Go · REST + SSE"}
+      </span>
+    </section>
+  );
 }

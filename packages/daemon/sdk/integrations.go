@@ -11,6 +11,7 @@ type Integration = integrations.Connection
 type IntegrationSpec = integrations.Spec
 type IntegrationCredentials = integrations.Credentials
 type IntegrationReceipt = integrations.Receipt
+type IntegrationHostEvent = integrations.HostEvent
 
 // Integrations shares the daemon's persistent connections and native bot runtime.
 // Start explicitly opts an embedded host into receiving and executing queued events.
@@ -52,4 +53,13 @@ func (i *Integrations) Start() { i.c.core.integrations.Start() }
 // POST /integrations/{id}/webhook; keep management routes behind owner auth.
 func (i *Integrations) Webhook(w http.ResponseWriter, r *http.Request) {
 	i.c.core.integrations.Webhook(w, r)
+}
+
+func (i *Integrations) Claim(id string) (*IntegrationHostEvent, error) {
+	value, err := i.c.core.integrations.Claim(id)
+	return value, workspaceError("Integrations.Claim", err)
+}
+func (i *Integrations) Complete(id, eventID, lease, text string) (IntegrationReceipt, error) {
+	value, err := i.c.core.integrations.Complete(id, eventID, lease, text)
+	return value, workspaceError("Integrations.Complete", err)
 }

@@ -1,70 +1,144 @@
-/* One computer and one phone, sharing the same actual workspace. */
-.continuityScene { position: relative; height: 570px; width: 100%; max-width: 540px; margin: auto; container-type: inline-size; }
-.continuityWires { position: absolute; inset: 0; width: 100%; height: 100%; stroke: var(--mw-mint); stroke-width: 1.4; opacity: .45; }
-.continuityWires circle { fill: var(--mw-mint); stroke: none; }
-.desktop { position: absolute; top: 47px; left: 0; width: 91%; background: var(--mw-surface); padding: 7px; border: 1px solid var(--mw-line); border-radius: 18px; box-shadow: var(--mw-shadow); transform: rotate(-3deg); }
-.desktopBar { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 15px; gap: 10px; }
-.desktopBar > div { display: flex; gap: 4px; }
-.desktopBar i { display: block; height: 5px; width: 5px; background: var(--mw-line); border-radius: 50%; }
-.desktopBar > span:not(.onlineDot) { display: flex; align-items: center; gap: 6px; color: var(--mw-muted); font-size: 10px; }
-.onlineDot { width: 6px; height: 6px; border-radius: 50%; background: var(--mw-mint); flex-shrink: 0; }
-.desktopBody { display: grid; grid-template-columns: 43px 1fr; gap: 7px; }
-.desktopRail { background: var(--mw-subtle); border-radius: 10px; padding: 14px 0; display: flex; flex-direction: column; align-items: center; gap: 13px; }
-.desktopRail > svg:not(:first-child) { opacity: .45; }
-.desktopConversation { padding: 11px 14px 12px; min-width: 0; }
-.conversationTitle { display: flex; gap: 10px; align-items: center; justify-content: space-between; font-size: 12px; }
-.conversationTitle strong { font-weight: 500; }
-.conversationTitle > svg { color: var(--mw-muted); }
-.desktopPrompt { font-size: 10px; background: var(--mw-peach-soft); padding: 10px 12px; border-radius: 12px 12px 4px 12px; margin: 22px 0 17px auto; width: fit-content; }
-.desktopReply { display: flex; gap: 8px; align-items: center; font-size: 10px; line-height: 1.6; }
-.savedFile { background: var(--mw-subtle); display: flex; align-items: center; gap: 9px; margin: 17px 0 4px; padding: 12px; border-radius: 10px; max-width: 220px; }
-.savedFile > svg:first-child { color: var(--mw-peach); }
-.savedFile > span { font-size: 11px; }
-.savedFile small { display: block; color: var(--mw-muted); font-size: 8px; margin-top: 4px; }
-.savedFile > svg:last-child { color: var(--mw-mint); margin-left: auto; }
-.desktopBottom { display: flex; gap: 5px; align-items: center; padding: 13px 13px 5px; color: var(--mw-muted); font-size: 8px; }
-.desktopBottom svg { color: var(--mw-mint); }
-.continuityPhone { position: absolute; right: -3px; top: 202px; width: 238px; transform: rotate(5deg) scale(.65); transform-origin: top right; }
-.handoffNote { position: absolute; top: 407px; left: 17%; font-size: 12px; }
-.handoffLine { width: 30px; height: 2px; display: block; background: var(--mw-peach); margin-bottom: 13px; }
-.handoffNote strong { display: block; font-size: 16px; font-weight: 500; margin-bottom: 7px; }
-.handoffNote > span:last-child { color: var(--mw-muted); line-height: 1.6; }
-.continuityCaption { position: absolute; bottom: 0; inset-inline: 0; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--mw-muted); font-size: 11px; }
-@media (max-width: 1100px) {
-  .continuityPhone { right: 0; }
+.continuityScene {
+  position: relative;
+  height: 510px;
+  width: 100%;
+  max-width: 540px;
+  margin: auto;
+}
+.desktop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 90%;
+  border-radius: 20px;
+  background: white;
+  overflow: hidden;
+}
+.desktopBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 24px;
+  font-size: 14px;
+  background: #ededed;
+}
+.desktopBar > svg:last-child {
+  margin-left: auto;
+}
+.desktopConversation {
+  padding: 24px;
+}
+.documentLabel {
+  font: 13px/1.5 var(--font-mono);
+  color: var(--mw-muted);
+}
+.desktopConversation h3 {
+  margin-top: 12px;
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+}
+.desktopPrompt {
+  font-size: 15px;
+  line-height: 1.6;
+  margin-block: 24px;
+  max-width: 230px;
+}
+.savedFile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--mw-line);
+  font-size: 14px;
+}
+.savedFile small {
+  display: block;
+  margin-top: 5px;
+  font-size: 13px;
+  color: var(--mw-muted);
+}
+.savedFile > svg:last-child {
+  margin-left: auto;
+}
+.continuityPhone {
+  position: absolute;
+  top: 206px;
+  right: 0;
+  width: 226px;
+  background: #0a0a0a;
+  color: white;
+  padding: 24px 20px;
+  border-radius: 24px;
+}
+.phoneHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.continuityPhone > p {
+  margin-block: 24px;
+  color: #bbb;
+  font-size: 18px;
+  line-height: 1.4;
+  letter-spacing: -0.02em;
+}
+.continuityPhone strong {
+  color: white;
+  font-weight: 400;
+}
+.phoneFile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+.phoneFile small {
+  display: block;
+  color: #aaa;
+  font-size: 13px;
+  margin-top: 4px;
+}
+.phoneComposer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #2c2c2c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.continuityCaption {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  color: var(--mw-muted);
+  font-size: 14px;
 }
 @media (min-width: 681px) and (max-width: 900px) {
-  .continuityScene { height: 540px; }
-  .desktop { top: 32px; width: 100%; }
-  .desktopBody { grid-template-columns: 32px 1fr; gap: 3px; }
-  .desktopRail > svg { width: 23px; height: 23px; }
-  .desktopConversation { padding-inline: 6px; }
-  .conversationTitle { font-size: 10px; }
-  .desktopPrompt { font-size: 9px; padding: 8px; }
-  .savedFile { max-width: 185px; padding: 9px; }
-  .continuityPhone { transform: rotate(5deg) scale(.56); top: 222px; }
-  .handoffNote { left: 5%; top: 382px; font-size: 10px; }
-  .handoffNote strong { font-size: 14px; }
-  .continuityCaption { font-size: 9px; }
+  .continuityScene {
+    height: 590px;
+  }
+  .continuityPhone {
+    top: 300px;
+  }
 }
 @media (max-width: 680px) {
-  .continuityScene { height: 540px; max-width: 420px; }
-  .desktop { top: 35px; width: 93%; }
-  .desktopConversation { padding-inline: 7px; }
-  .conversationTitle { font-size: 10px; }
-  .desktopBody { grid-template-columns: 33px 1fr; gap: 3px; }
-  .desktopPrompt { padding-inline: 8px; font-size: 9px; }
-  .continuityPhone { transform: rotate(5deg) scale(.59); top: 215px; right: 0; }
-  .handoffNote { left: 8%; top: 380px; font-size: 11px; }
-  .handoffNote strong { font-size: 15px; }
-  .continuityCaption { font-size: 10px; }
-}
-@media (max-width: 360px) {
-  .desktop { width: 96%; }
-  .desktopBar { padding-inline: 7px; }
-  .desktopReply { font-size: 9px; }
-  .continuityScene { height: 580px; }
-  .continuityPhone { transform: rotate(4deg) scale(.53); top: 275px; }
-  .handoffNote { left: 2%; top: 413px; }
-  .continuityCaption { font-size: 9px; }
+  .continuityScene {
+    height: 560px;
+    margin-top: 16px;
+  }
+  .desktop {
+    width: 100%;
+  }
+  .continuityPhone {
+    top: 254px;
+  }
+  .continuityCaption {
+    font-size: 13px;
+  }
 }

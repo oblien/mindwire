@@ -7,7 +7,7 @@ function consoleOrigin(): string {
   } catch { return "https://console.mindwire.sh"; }
 }
 export const cloudDashboardUrl = consoleOrigin() + "/computers";
-export const cloudPricingUrl = "/pricing";
+export const cloudPricingUrl = "/cloud#cloud-plans";
 export const cloudRatesUrl = "https://console.mindwire.sh/computers";
 
 // Store availability is configured independently of the GitHub desktop release.
@@ -41,7 +41,7 @@ function macDownload() {
 }
 
 export const macApp = macDownload();
-export const downloadUrl = "/download";
+export const downloadUrl = "/app#download";
 
 export const productAgents = [
   { id: "codex", name: "Codex", href: "/docs/reference/agents/codex" },

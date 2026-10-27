@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/oblien/mindwire/packages/daemon/internal/agent"
 )
 
 const MCPName = "mindwire_desktop"
@@ -30,7 +31,13 @@ func (p *runIPC) close() { _ = p.server.Close() }
 // BindRun returns a per-turn, harness-native MCP overlay and private environment.
 // Existing MCP servers are preserved; the built-in name cannot be shadowed.
 func (s *Service) BindRun(ctx context.Context, actor Actor, harness string, existing json.RawMessage) (json.RawMessage, map[string]string, func(), error) {
-	native := harness == "codex" || harness == "claude-code"
+	native := false
+	for _, adapter := range agent.All() {
+		if adapter.ID() == harness {
+			native = adapter.Capabilities().MCPServers
+			break
+		}
+	}
 	if !native && !s.HasDesktopCatalog() {
 		return existing, nil, func() {}, nil
 	}
@@ -127,9 +134,6 @@ func (s *Service) BindRun(ctx context.Context, actor Actor, harness string, exis
 	// shared approval reducer. Avoid a second, harness-owned prompt for each tool.
 	// https://developers.openai.com/codex/mcp/#other-configuration-options
 	var config any = map[string]any{"url": p.url, "bearerTokenEnvVar": runTokenEnv, "defaultToolsApprovalMode": "approve"}
-	if harness == "claude-code" {
-		config = map[string]any{"type": "http", "url": p.url, "headers": map[string]string{"Authorization": "Bearer ${" + runTokenEnv + "}"}}
-	}
 	servers[MCPName], _ = json.Marshal(config)
 	overlay, err := json.Marshal(map[string]any{"mcpServers": servers})
 	if err != nil {

@@ -1,0 +1,56 @@
+@font-face {
+  font-family: "Mindwire Host";
+  src: url("/fonts/framework/host-grotesk.woff2") format("woff2");
+  font-weight: 300 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mindwire Mono";
+  src: url("/fonts/framework/geist-mono.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mindwire Graphic";
+  src: url("/fonts/framework/archivo-black.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* Website-only tokens. Native apps and Console keep their own theme. */
+:root,
+.dark {
+  --font-graphic: "Mindwire Graphic", Arial, sans-serif;
+  --canvas: #d9d9d9;
+  --black: #0a0a0a;
+  --white: #fff;
+  --muted: #5c5c5c;
+  --mw-bg: #d9d9d9;
+  --mw-surface: #fff;
+  --mw-subtle: #ededed;
+  --mw-inset: #e3e3e3;
+  --mw-ink: #0a0a0a;
+  --mw-muted: #5c5c5c;
+  --mw-faint: #666;
+  --mw-line: #d0d0d0;
+  --mw-peach: #0a0a0a;
+  --mw-blue: #0a0a0a;
+  --mw-mint: #0a0a0a;
+  --mw-peach-soft: #ededed;
+  --mw-blue-soft: #e5e5e5;
+  --mw-mint-soft: #e8e8e8;
+  --mw-danger: #b42318;
+  --mw-danger-soft: #fcebea;
+  --mw-shadow: none;
+  --mw-shadow-popover: 0 12px 40px #00000012;
+  --mw-radius-card: 20px;
+  --mw-radius-panel: 20px;
+}
+
+html,
+html.dark {
+  color-scheme: light;
+}
+body {
+  font-family: "Mindwire Host", Arial, sans-serif;
+}

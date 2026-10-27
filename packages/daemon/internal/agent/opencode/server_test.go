@@ -189,7 +189,7 @@ func (s *scriptServer) serveEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 // TestConverseAutoApprove drives the autonomous path against a scripted server: opencode raises a
-// permission ask and the driver (interactive=false) approves it with "always" WITHOUT surfacing an
+// permission ask and the driver (interactive=false) approves it with "once" WITHOUT surfacing an
 // interaction, then the turn completes. Asserts the session/result events, the token+cost Meta, the
 // streamed answer, that no interaction leaked, and the decision frame the server received.
 func TestConverseAutoApprove(t *testing.T) {
@@ -211,15 +211,15 @@ func TestConverseAutoApprove(t *testing.T) {
 		t.Errorf("session id = %q, want ses_test", result.SessionID)
 	}
 
-	// The autonomous driver must have approved with "always".
+	// Automatic approval must not persist a project-wide grant.
 	sc.mu.Lock()
 	dec := sc.decision
 	sc.mu.Unlock()
 	var d struct {
 		Response string `json:"response"`
 	}
-	if json.Unmarshal(dec, &d) != nil || d.Response != "always" {
-		t.Errorf("auto decision = %s, want {\"response\":\"always\"}", dec)
+	if json.Unmarshal(dec, &d) != nil || d.Response != "once" {
+		t.Errorf("auto decision = %s, want {\"response\":\"once\"}", dec)
 	}
 
 	evs := col.snapshot()
@@ -313,9 +313,12 @@ func TestConverseInterrupt(t *testing.T) {
 	}
 
 	srv := server{message: "count to 100", interactive: false}
-	_, got := srv.converse(context.Background(), ts.URL, inbound, emit)
+	result, got := srv.converse(context.Background(), ts.URL, inbound, emit)
 	if !got {
 		t.Fatal("converse reported no result after interrupt")
+	}
+	if !result.Cancelled || result.IsError {
+		t.Fatalf("interrupt became success/error: %+v", result)
 	}
 
 	sc.mu.Lock()

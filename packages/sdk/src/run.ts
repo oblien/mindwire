@@ -128,9 +128,9 @@ export class Run {
   }
 
   /**
-   * Switch the model of the live turn. An empty/omitted `model` resets the turn to the agent/CLI
-   * default. Only meaningful on a persistent (non-bypass) turn; on a one-shot turn it is a
-   * best-effort no-op. Requires the agent's `setModel` capability.
+   * Switch the model of the live turn and wait for native acknowledgement.
+   * Unsupported controls, rejected changes and timeouts are reported as errors.
+   * Requires the run's negotiated `setModel` capability.
    */
   async setModel(model?: string): Promise<void> {
     await this.http.request<void>("POST", `/runs/${encodeURIComponent(this.id)}/set-model`, {
