@@ -42,8 +42,10 @@ import (
 	"github.com/oblien/mindwire/packages/daemon/internal/workspaceexec"
 
 	// Agent adapters self-register on import. Add a blank import per agent.
+	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/antigravity"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/claude"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/codex"
+	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/cursor"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/grok"
 	_ "github.com/oblien/mindwire/packages/daemon/internal/agent/opencode"
 
@@ -323,12 +325,14 @@ func printToolchains() {
 }
 
 type toolchainPlan struct {
-	Agent       string            `json:"agent"`
-	Binary      string            `json:"binary"`
-	Package     string            `json:"package"`
-	Version     string            `json:"version"`
-	VersionArgs []string          `json:"versionArgs"`
-	Environment map[string]string `json:"environment,omitempty"`
+	Agent          string                       `json:"agent"`
+	Binary         string                       `json:"binary"`
+	Package        string                       `json:"package"`
+	Version        string                       `json:"version"`
+	VersionArgs    []string                     `json:"versionArgs"`
+	Environment    map[string]string            `json:"environment,omitempty"`
+	Archives       map[string]toolchain.Archive `json:"archives,omitempty"`
+	VersionPattern string                       `json:"versionPattern,omitempty"`
 }
 
 func bundledToolchains() ([]toolchainPlan, error) {
@@ -344,7 +348,7 @@ func bundledToolchains() ([]toolchainPlan, error) {
 		if decision.RecommendedVersion == "" {
 			return nil, fmt.Errorf("no bundled %s release supports daemon %s; update the compatibility catalog before releasing", a.ID(), agent.Version)
 		}
-		plan = append(plan, toolchainPlan{Agent: a.ID(), Binary: spec.Binary, Package: spec.Package, Version: decision.RecommendedVersion, VersionArgs: spec.VersionArgs, Environment: spec.Environment})
+		plan = append(plan, toolchainPlan{Agent: a.ID(), Binary: spec.Binary, Package: spec.Package, Version: decision.RecommendedVersion, VersionArgs: spec.VersionArgs, Environment: spec.Environment, Archives: spec.Archives[decision.RecommendedVersion], VersionPattern: spec.VersionPattern})
 	}
 	return plan, nil
 }

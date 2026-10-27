@@ -11,11 +11,12 @@ import (
 // Snapshot is a materialized turn at an event cursor. Reading it and then subscribing
 // after Sequence restores a turn without replaying its animation or losing new events.
 type Snapshot struct {
-	Sequence      int64             `json:"sequence"`
-	Parts         []agent.Part      `json:"parts"`
-	Result        *agent.ResultInfo `json:"result,omitempty"`
-	Error         string            `json:"error,omitempty"`
-	StatusMessage string            `json:"statusMessage,omitempty"`
+	Capabilities  *agent.Capabilities `json:"capabilities,omitempty"`
+	Sequence      int64               `json:"sequence"`
+	Parts         []agent.Part        `json:"parts"`
+	Result        *agent.ResultInfo   `json:"result,omitempty"`
+	Error         string              `json:"error,omitempty"`
+	StatusMessage string              `json:"statusMessage,omitempty"`
 }
 
 // Transcript is the shared event reducer for persistence and live snapshots, for every
@@ -26,6 +27,7 @@ type Transcript struct {
 	items        map[string]int
 	tools        map[string]int
 	interactions map[string]int
+	tasks        map[string]int
 	toolStarted  map[string]time.Time
 	thinking     int
 	thinkStarted time.Time
@@ -35,6 +37,7 @@ func (t *Transcript) Apply(ev agent.Event) {
 	if t.items == nil {
 		t.items, t.tools, t.interactions = map[string]int{}, map[string]int{}, map[string]int{}
 		t.toolStarted = map[string]time.Time{}
+		t.tasks = map[string]int{}
 		t.thinking = -1
 	}
 	now, err := time.Parse(time.RFC3339Nano, ev.At)
@@ -42,7 +45,21 @@ func (t *Transcript) Apply(ev agent.Event) {
 		now = time.Now().UTC()
 	}
 	t.state.Sequence = ev.Sequence
+	if ev.Capabilities != nil {
+		copy := *ev.Capabilities
+		t.state.Capabilities = &copy
+	}
 	switch ev.Type {
+	case agent.EventTask:
+		if ev.Task != nil {
+			copy := *ev.Task
+			if i, ok := t.tasks[ev.Task.ID]; ok {
+				t.state.Parts[i].Task = &copy
+			} else {
+				t.tasks[ev.Task.ID] = len(t.state.Parts)
+				t.state.Parts = append(t.state.Parts, agent.Part{Type: "task", Task: &copy, At: ev.At})
+			}
+		}
 	case agent.EventText, agent.EventThinking:
 		t.state.StatusMessage = ""
 		kind := string(ev.Type)
@@ -98,6 +115,9 @@ func (t *Transcript) Apply(ev agent.Event) {
 		}
 		if ev.Tool.Action != nil {
 			tool.Action = ev.Tool.Action
+		}
+		if ev.Tool.Status != "" {
+			tool.Status = ev.Tool.Status
 		}
 		if ev.Tool.Output != "" || ev.Type == agent.EventToolResult {
 			tool.Output = ev.Tool.Output
@@ -170,6 +190,10 @@ func (t *Transcript) Apply(ev agent.Event) {
 			}
 		}
 	case agent.EventStatus:
+		if active, _ := ev.Meta["foregroundComplete"].(bool); active && ev.Result != nil {
+			t.Apply(agent.Event{Type: agent.EventContinuation, Result: ev.Result, At: ev.At, Sequence: ev.Sequence})
+			t.state.StatusMessage = "Waiting for background tasks"
+		}
 		if retry, _ := ev.Meta["willRetry"].(bool); retry {
 			t.state.StatusMessage, _ = ev.Meta["message"].(string)
 		}
@@ -196,6 +220,14 @@ func (t *Transcript) Snapshot(final bool) Snapshot {
 	snapshot.Parts = append([]agent.Part{}, t.state.Parts...)
 	if final {
 		for i, part := range snapshot.Parts {
+			if part.Task != nil && part.Task.Status == "running" {
+				task := *part.Task
+				task.Status = "incomplete"
+				if snapshot.Result != nil && snapshot.Result.Cancelled {
+					task.Status = "cancelled"
+				}
+				snapshot.Parts[i].Task = &task
+			}
 			if part.Interaction != nil && !part.Interaction.IsMessageQuestion() {
 				it := *part.Interaction
 				it.NeedsResponse = false

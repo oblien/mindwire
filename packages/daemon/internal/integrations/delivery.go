@@ -164,7 +164,11 @@ func (s *Service) reply(ctx context.Context, c savedConnection, e *envelope, tex
 		case "slack":
 			endpoint := "https://slack.com/api/chat.postMessage"
 			payload := map[string]any{"channel": e.ChannelID, "text": part, "unfurl_links": false, "unfurl_media": false, "parse": "none"}
-			if messageID != "" {
+			if c.Dispatch == "host" {
+				endpoint = "https://slack.com/api/chat.postEphemeral"
+				payload["user"] = e.UserID
+				payload["mrkdwn"] = false
+			} else if messageID != "" {
 				endpoint = "https://slack.com/api/chat.update"
 				payload["ts"] = messageID
 			} else if e.ThreadID != "" {
@@ -210,7 +214,11 @@ func (s *Service) reply(ctx context.Context, c savedConnection, e *envelope, tex
 				method = "PATCH"
 				endpoint += "/" + url.PathEscape(messageID)
 			}
-			result, err = s.request(ctx, method, endpoint, token, map[string]any{"content": part, "allowed_mentions": map[string]any{"parse": []string{}}})
+			payload := map[string]any{"content": part, "allowed_mentions": map[string]any{"parse": []string{}}}
+			if c.Dispatch == "host" && e.InteractionToken != "" && method == "POST" {
+				payload["flags"] = 64
+			}
+			result, err = s.request(ctx, method, endpoint, token, payload)
 			if err == nil && i == 0 {
 				_ = json.Unmarshal(result["id"], &e.MessageID)
 			}

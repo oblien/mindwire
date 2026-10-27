@@ -68,6 +68,7 @@ func (adapter) Capabilities() agent.Capabilities {
 		BotProfiles:        true,
 		AppendSystemPrompt: false,
 		MCPServers:         true,
+		StructuredOutput:   true,
 		// Subagents (--agents) and a settings/hooks bundle (--settings) are Claude-native shapes with no
 		// codex equivalent, so both stay false and api.turn returns an honest 400 rather than dropping.
 		Subagents:      false,

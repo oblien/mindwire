@@ -11,7 +11,7 @@ import { navigateTabs } from "./tabs";
 import styles from "./landing.module.css";
 
 const copy = {
-  general: { label: "General mode", title: <>Less managing.<br />More doing.</>, description: "Talk through an idea, hand over a folder, or give your bot a task. Get back useful things: a plan, a document, a working app.", details: ["A simple conversation", "Bots with memory and purpose", "Your files and finished work, together"], link: "Meet your personal assistant" },
+  general: { label: "General mode", title: <>Less managing.<br />More doing.</>, description: "Describe a task and provide the files it needs. Keep conversations, documents, and finished results in a simple workspace.", details: ["A simple conversation", "Saved context and reusable skills", "Your files and finished work, together"], link: "Set up the app" },
   developer: { label: "Developer mode", title: <>Stay in the flow.<br />Get into the details.</>, description: "The same agents, with your whole workspace in reach. Move between projects, inspect code changes, and work in the terminal.", details: ["Projects and workspaces", "Git changes and terminal access", "Progress, tool output, and approvals"], link: "Explore the developer tools" },
 };
 
@@ -34,7 +34,7 @@ export default function ModeExplorer() {
   const [mode, setMode] = useState<"general" | "developer">("general");
   const current = copy[mode];
   return <section className={styles.modesSection} id="modes" aria-labelledby="modes-title">
-    <div className={styles.modeIntroduction} id="features"><span>ONE MINDWIRE. TWO WAYS TO WORK.</span><h2 id="modes-title">Your everyday.<br className={styles.mobileBreak} /> Your deep work.</h2><p>Choose the space that fits you. Switch modes whenever you need.</p></div>
+    <div className={styles.modeIntroduction} id="features"><span>THE MINDWIRE APP. TWO WAYS TO WORK.</span><h2 id="modes-title">Start with the task.<br className={styles.mobileBreak} /> Open the details.</h2><p>General mode keeps the work approachable. Developer mode brings code and tools into view.</p></div>
     <div className={styles.modeLayout}>
       <div className={styles.modeCopy}>
         <div className={styles.modeTabs} role="tablist" aria-label="Explore Mindwire modes" onKeyDown={navigateTabs}>
@@ -56,6 +56,6 @@ export default function ModeExplorer() {
         <div className={styles.modePreviewFooter}><Check size={14} /><span>{mode === "general" ? "Your idea, made real." : "Your workspace, in full view."}</span><small>Illustrative example</small></div>
       </div>
     </div>
-    <div className={styles.modeBridge}><div><BotAvatar size={28} /><BotAvatar character="robot" size={28} /><BotAvatar character="sprout" size={28} /></div><p>Same bots. Same memory. Pick up where you left off.</p><span><Laptop size={19} /><i /><Smartphone size={17} /></span></div>
+    <div className={styles.modeBridge}><div><BotAvatar size={28} /><BotAvatar character="robot" size={28} /><BotAvatar character="sprout" size={28} /></div><p>Same conversations and context. Switch views as the work changes.</p><span><Laptop size={19} /><i /><Smartphone size={17} /></span></div>
   </section>;
 }

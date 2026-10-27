@@ -275,3 +275,39 @@ uses Bun to drive the actual TypeScript SDK through authenticated HTTP, the regi
 Slack ingress, the real bot supervisor, streamed output, and a simulated provider endpoint.
 It needs Bun installed. These tests use deterministic provider and harness fixtures; live
 Slack, Telegram, Teams, and Discord credentials are not required.
+
+
+## Host commands without an agent
+
+Integration protocol 2 adds `dispatch: "host"`. Set `botId: ""`, `notify: false`
+and `mode: "commands"` to deliver verified commands to your application instead
+of a Mindwire bot. Existing bot dispatch remains the default.
+
+```ts
+const event = await mw.integrations.claim(connection.id);
+if (event) {
+  // Persist event.id in your own database BEFORE executing a side effect.
+  // An expired lease can be claimed again; the host must deduplicate execution.
+  const reply = await application.handleIdempotently(event);
+  await mw.integrations.complete(connection.id, event.id, event.lease, reply);
+}
+```
+
+Claims last 90 seconds. Completion stores the reply before delivery; repeating
+completion with the same lease and text is idempotent. Changed configuration,
+disabled connections, incorrect leases and stale completions are rejected.
+Host events contain verified sender/channel/workspace IDs and command text, but
+never bot credentials or Discord interaction tokens. Mindwire does not authorize
+your application's users: enforce account linking and per-user permissions in
+your host before executing a command. The host dispatcher never invokes an agent.
+
+When Mindwire runs behind a private transport, use
+`mw.integrations.forwardWebhook(id, rawBody, headers)`. This authenticated relay
+passes the original bytes and provider signature headers through the same webhook
+verification. It does not accept a pre-verified event or trust the forwarding host
+to skip signature validation. A public proxy must bound the request body and avoid
+logging provider secrets. Do not publish daemon management credentials.
+
+Host-mode Slack replies use `chat.postEphemeral`; Discord replies are ephemeral.
+Telegram and Teams replies are visible in the allowed conversation. A successful
+send acknowledges provider acceptance, not that the user read the message.

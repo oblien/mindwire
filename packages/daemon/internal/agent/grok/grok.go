@@ -29,7 +29,7 @@ func (adapter) Meta() agent.CatalogEntry {
 
 func (adapter) Capabilities() agent.Capabilities {
 	return agent.Capabilities{
-		Protocol: agent.ProtocolCLI, Output: agent.OutputStructuredJSON,
+		Protocol: agent.ProtocolACP, Output: agent.OutputStructuredJSON,
 		// Grok persists native sessions. ACP provides the protocol-native session,
 		// structured tool-update, cancellation, and permission surfaces.
 		History: agent.SupportNative, Sessions: agent.SupportNative, Resume: true,

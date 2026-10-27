@@ -214,15 +214,14 @@ func (r *Run) Interrupt() error {
 	return nil
 }
 
-// SetModel switches the model of a live turn (empty resets to the agent/CLI default). Best-effort:
-// only a persistent transport consumes it. APIError{400} if unsupported; APIError{404} if no turn is
-// accepting input.
+// SetModel switches the model of a live turn and waits for native acknowledgement.
+// Unsupported controls, rejected changes, and closed runs return an APIError.
 func (r *Run) SetModel(model string) error {
 	if err := r.capGate(func(c Capabilities) bool { return c.SetModel }, "this agent does not support switching the model mid-turn", "Run.SetModel"); err != nil {
 		return err
 	}
-	if !r.core.sup.SetModel(r.data.ID, model) {
-		return notAccepting("Run.SetModel")
+	if err := r.core.sup.ConfirmModel(context.Background(), r.data.ID, model); err != nil {
+		return &APIError{Status: 400, Message: err.Error(), Op: "Run.SetModel"}
 	}
 	return nil
 }
@@ -272,11 +271,10 @@ func (r *Run) Snapshot() (RunSnapshot, error) {
 	return snapshot, nil
 }
 
-// capGate returns APIError{400 msg} when the run's agent declares the capability false. An
-// unresolvable agent is treated as "allowed" — mirroring api.go, where the gate is skipped when
-// Resolve fails and the sup call's false result yields the 404 instead.
+// capGate uses negotiated session capabilities when available, then the adapter's
+// declaration. Unknown/unsupported capabilities cannot accept a silent no-op.
 func (r *Run) capGate(has func(Capabilities) bool, msg, op string) error {
-	if ag, ok := r.core.sup.Resolve(r.data.Agent); ok && !has(ag.Adapter.Capabilities()) {
+	if !has(r.core.sup.RunCapabilities(r.data.ID)) {
 		return &APIError{Message: msg, Status: http.StatusBadRequest, Op: op}
 	}
 	return nil

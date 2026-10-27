@@ -277,9 +277,25 @@ func TestAppServerLocalOptions(t *testing.T) {
 	}
 	for _, request := range modelRequests {
 		wire, _ := json.Marshal(request)
-		if request["instructions"] != instructions || !bytes.Contains(wire, []byte("data:image/png;base64,")) ||
+		instructionDelivered := request["instructions"] == instructions
+		// Newer native Codex releases send base instructions as a privileged
+		// input message instead of the Responses top-level instructions field.
+		if input, ok := request["input"].([]any); ok {
+			for _, item := range input {
+				message, ok := item.(map[string]any)
+				if !ok || (message["role"] != "developer" && message["role"] != "system") {
+					continue
+				}
+				content, _ := message["content"].([]any)
+				for _, block := range content {
+					part, _ := block.(map[string]any)
+					instructionDelivered = instructionDelivered || part["text"] == instructions
+				}
+			}
+		}
+		if !instructionDelivered || !bytes.Contains(wire, []byte("data:image/png;base64,")) ||
 			!bytes.Contains(wire, []byte(`"effort":"low"`)) || !bytes.Contains(wire, []byte(`"type":"json_schema"`)) {
-			t.Fatalf("instructions, image, reasoning or output schema did not reach the model")
+			t.Fatalf("model option delivery: instructions=%v image=%v effort=%v schema=%v", instructionDelivered, bytes.Contains(wire, []byte("data:image/png;base64,")), bytes.Contains(wire, []byte(`"effort":"low"`)), bytes.Contains(wire, []byte(`"type":"json_schema"`)))
 		}
 	}
 }

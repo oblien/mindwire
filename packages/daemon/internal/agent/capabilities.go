@@ -21,6 +21,7 @@ type Protocol string
 const (
 	ProtocolCLI        Protocol = "cli"        // spawn the agent CLI per turn (Claude: claude -p)
 	ProtocolHTTP       Protocol = "http"       // call the agent's native REST/SSE API
+	ProtocolACP        Protocol = "acp"        // native Agent Client Protocol over stdio
 	ProtocolPersistent Protocol = "persistent" // a long-lived process spoken to over a protocol
 )
 
@@ -47,7 +48,9 @@ const (
 // Keeping this split explicit avoids the trap of a field that looks like a switch but
 // nothing consults — add core branching when the emulation for that field exists.
 type Capabilities struct {
-	Protocol      Protocol                   `json:"protocol"` // how the daemon drives the agent (cli | http | persistent)
+	Negotiated    bool                       `json:"negotiated,omitempty"` // this session's native handshake is authoritative
+	NativeVersion string                     `json:"nativeVersion,omitempty"`
+	Protocol      Protocol                   `json:"protocol"` // cli | http | persistent | acp
 	Output        OutputMode                 `json:"output"`
 	History       Support                    `json:"history"`                 // CORE switch (messages endpoint)
 	Sessions      Support                    `json:"sessions"`                // client hint
@@ -76,9 +79,8 @@ type Capabilities struct {
 	Input       bool `json:"input"`                 // CORE switch: POST /runs/{id}/input (inject a follow-up message mid-turn)
 	QueuedInput bool `json:"queuedInput,omitempty"` // native acknowledgements and safe completion-boundary continuation
 	Interrupt   bool `json:"interrupt"`             // CORE switch: POST /runs/{id}/interrupt (soft-stop, keeping the turn open)
-	// Runtime control — change the model / permission mode of a LIVE turn (only meaningful on a
-	// persistent transport; a one-shot turn accepts the call as a best-effort no-op). Each a CORE
-	// switch gating its route, like the ingress trio.
+	// Runtime controls require native acknowledgement. Unsupported controls,
+	// rejected changes and timeouts return errors. Each flag gates its route.
 	SetModel          bool `json:"setModel"`          // CORE switch: POST /runs/{id}/set-model (switch model mid-turn)
 	SetPermissionMode bool `json:"setPermissionMode"` // CORE switch: POST /runs/{id}/set-permission-mode (switch permission mode mid-turn)
 	// Turn-option support — whether the agent honors these per-turn inputs. Each a CORE switch gating
@@ -87,10 +89,11 @@ type Capabilities struct {
 	// appendSystemPrompt inputs (typed TurnOptions.SystemPrompt OR the canon-addressed setting);
 	// MCPServers covers TurnOptions.MCPServers. Declared per adapter so clients can also read them as
 	// hints before sending.
-	SystemPrompt       bool `json:"systemPrompt"`       // CORE switch (api.turn): honors a full system-prompt override
-	BotProfiles        bool `json:"botProfiles"`        // CORE switch: refreshes saved bot instructions/tools on every new or resumed turn
-	AppendSystemPrompt bool `json:"appendSystemPrompt"` // CORE switch (api.turn): honors appending to the default system prompt
-	MCPServers         bool `json:"mcpServers"`         // CORE switch (api.turn): honors per-turn MCP server config
+	SystemPrompt       bool `json:"systemPrompt"`               // CORE switch (api.turn): honors a full system-prompt override
+	BotProfiles        bool `json:"botProfiles"`                // CORE switch: refreshes saved bot instructions/tools on every new or resumed turn
+	AppendSystemPrompt bool `json:"appendSystemPrompt"`         // CORE switch (api.turn): honors appending to the default system prompt
+	MCPServers         bool `json:"mcpServers"`                 // CORE switch (api.turn): honors per-turn MCP server config
+	StructuredOutput   bool `json:"structuredOutput,omitempty"` // CORE switch: honors outputSchema
 	// Subagents / ClaudeSettings gate the two per-turn agent-native passthroughs (TurnOptions.Subagents,
 	// TurnOptions.ClaudeSettings) exactly like MCPServers: an agent that can't honor the shape declares
 	// false and api.turn 400s. Subagents = per-turn subagent defs (Claude --agents); ClaudeSettings = a

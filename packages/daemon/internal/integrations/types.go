@@ -6,7 +6,7 @@ import (
 	"github.com/oblien/mindwire/packages/daemon/internal/agent"
 )
 
-const Version = 1
+const Version = 2
 
 type Credentials struct {
 	BotToken      string `json:"botToken,omitempty"`
@@ -19,9 +19,11 @@ type Credentials struct {
 // Spec is a complete configuration. Credentials are write-only; omitted fields
 // preserve existing credentials on update. Revision prevents concurrent overwrites.
 type Spec struct {
-	Name             string            `json:"name"`
-	Provider         string            `json:"provider"`
-	BotID            string            `json:"botId"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	BotID    string `json:"botId"`
+	// Host dispatch lets an embedding application handle verified messages without an agent.
+	Dispatch         string            `json:"dispatch,omitempty"` // empty/bot or host
 	Mode             string            `json:"mode"`
 	Enabled          bool              `json:"enabled"`
 	ChannelIDs       []string          `json:"channelIds"`
@@ -64,13 +66,31 @@ type Receipt struct {
 
 type envelope struct {
 	Receipt
-	Text             string `json:"text"`
-	ThreadID         string `json:"threadId,omitempty"`
-	Workspace        string `json:"workspace,omitempty"`
-	Command          bool   `json:"command,omitempty"`
-	InteractionToken string `json:"interactionToken,omitempty"`
-	MessageID        string `json:"messageId,omitempty"`
-	DeliveredText    string `json:"deliveredText,omitempty"`
+	Text             string  `json:"text"`
+	ThreadID         string  `json:"threadId,omitempty"`
+	Workspace        string  `json:"workspace,omitempty"`
+	Command          bool    `json:"command,omitempty"`
+	InteractionToken string  `json:"interactionToken,omitempty"`
+	MessageID        string  `json:"messageId,omitempty"`
+	DeliveredText    string  `json:"deliveredText,omitempty"`
+	HostLease        string  `json:"hostLease,omitempty"`
+	HostLeaseUntil   int64   `json:"hostLeaseUntil,omitempty"`
+	HostRevision     int64   `json:"hostRevision,omitempty"`
+	HostReply        *string `json:"hostReply,omitempty"`
+}
+
+// HostEvent contains only verified sender context. Provider credentials and reply tokens stay private.
+type HostEvent struct {
+	ID            string `json:"id"`
+	IntegrationID string `json:"integrationId"`
+	WorkspaceID   string `json:"workspaceId"`
+	ChannelID     string `json:"channelId"`
+	UserID        string `json:"userId"`
+	ThreadID      string `json:"threadId,omitempty"`
+	Text          string `json:"text"`
+	Command       bool   `json:"command"`
+	Lease         string `json:"lease"`
+	Revision      int64  `json:"revision"`
 }
 
 type conversation struct {

@@ -60,6 +60,15 @@ func (m *ManagedAuth) Methods() []AuthMethod {
 	return methods
 }
 
+func (m *ManagedAuth) DiscoverMethods(ctx context.Context) ([]AuthMethod, error) {
+	if native, ok := m.AuthModule.(AuthDiscoveryModule); ok {
+		if _, err := native.DiscoverMethods(ctx); err != nil {
+			return m.Methods(), err
+		}
+	}
+	return m.Methods(), nil
+}
+
 func (m *ManagedAuth) Status(ctx context.Context) AuthStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -83,6 +92,9 @@ func (m *ManagedAuth) PrepareAuth(ctx context.Context) error {
 	}
 	if m.autoError != "" {
 		return errors.New(m.autoError)
+	}
+	if native, ok := m.AuthModule.(AuthPrepareModule); ok {
+		return native.PrepareAuth(ctx)
 	}
 	return nil
 }

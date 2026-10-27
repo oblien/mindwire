@@ -44,6 +44,9 @@ func UnsupportedTurnOption(caps Capabilities, opts TurnOptions) (string, bool) {
 	if len(opts.MCPServers) > 0 && !caps.MCPServers {
 		return "agent does not support mcpServers", false
 	}
+	if len(opts.OutputSchema) > 0 && !caps.StructuredOutput {
+		return "agent does not support outputSchema", false
+	}
 	if len(opts.Subagents) > 0 && !caps.Subagents {
 		return "agent does not support subagents", false
 	}

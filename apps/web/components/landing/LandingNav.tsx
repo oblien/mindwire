@@ -9,13 +9,14 @@ import ThemeToggle from "../ThemeToggle";
 import { consoleUrl } from "@/lib/console-url";
 import styles from "./landing.module.css";
 
-const links = [{ href: "/#modes", label: "Product" }, { href: "/use-cases", label: "Use cases" }, { href: "/developers", label: "Developers" }, { href: "/pricing", label: "Pricing" }, { href: "/sdk", label: "SDK" }, { href: "/download", label: "Download" }, { href: "/docs", label: "Docs" }];
+const links = [{ href: "/sdk", label: "SDK" }, { href: "/cloud", label: "Cloud" }, { href: "/app", label: "App" }, { href: "/pricing", label: "Pricing" }, { href: "/docs", label: "Docs" }];
 
 export default function LandingNav() {
   const [open, setOpen] = useState(false);
   const [docked, setDocked] = useState(false);
   const pathname = usePathname()?.replace(/\/$/, "") || "/";
-  const isCurrent = (href: string) => pathname === href || (href === "/use-cases" && pathname.startsWith("/use-cases/"));
+  const appPage = pathname === "/app";
+  const isCurrent = (href: string) => pathname === href || (href === "/app" && ["/download", "/get-started", "/developers", "/use-cases"].some(route => pathname === route || pathname.startsWith(route + "/")));
   const button = useRef<HTMLButtonElement>(null);
   const root = useRef<HTMLElement>(null);
 
@@ -60,14 +61,14 @@ export default function LandingNav() {
           <nav aria-label="Main navigation" className={styles.desktopLinks}>{links.map(link => <Link key={link.href} href={link.href} aria-current={isCurrent(link.href) ? "page" : undefined}>{link.label}</Link>)}</nav>
           <div className={styles.navActions}>
             <ThemeToggle />
-            <a className={styles.accountLink} href={consoleUrl}>Your account <ArrowUpRight size={16} /></a>
+            <Link className={styles.accountLink} href={appPage ? "/download" : "/docs/guides/quickstart"}>{appPage ? "Get the app" : "Start building"} <ArrowUpRight size={16} /></Link>
             <button ref={button} className={styles.menuToggle} type="button" aria-label={open ? "Close navigation" : "Open navigation"} aria-controls="landing-mobile-menu" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? <X size={22} /> : <Menu size={22} />}</button>
           </div>
         </div>
         <nav id="landing-mobile-menu" aria-label="Mobile navigation" className={styles.mobileLinks} hidden={!open}>
           {links.map(link => <Link key={link.href} href={link.href} aria-current={isCurrent(link.href) ? "page" : undefined} onClick={() => setOpen(false)}>{link.label}<ArrowUpRight size={16} /></Link>)}
-          <a href={consoleUrl}>Your account <ArrowUpRight size={16} /></a>
-          <Link href="/get-started" onClick={() => setOpen(false)}>Get started <ArrowUpRight size={16} /></Link>
+          <a href={consoleUrl}>Cloud Console <ArrowUpRight size={16} /></a>
+          <Link href={appPage ? "/download" : "/docs/guides/quickstart"} onClick={() => setOpen(false)}>{appPage ? "Get the app" : "Start building"} <ArrowUpRight size={16} /></Link>
         </nav>
       </header>
     </div>

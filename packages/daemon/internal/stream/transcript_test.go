@@ -47,3 +47,18 @@ func TestTerminalResultMaterializesMissingTextWithoutDuplication(t *testing.T) {
 		}
 	}
 }
+
+func TestForegroundBoundaryKeepsTasksAndFinalSnapshotSettlesUnknownWork(t *testing.T) {
+	var transcript Transcript
+	transcript.Apply(agent.Event{Type: agent.EventTask, Task: &agent.TaskInfo{ID: "build", Title: "Build", Status: "running"}})
+	transcript.Apply(agent.Event{Type: agent.EventStatus, Result: &agent.ResultInfo{Text: "Build launched"}, Meta: map[string]any{"foregroundComplete": true}})
+	live := transcript.Snapshot(false)
+	if live.Result != nil || live.Parts[0].Task.Status != "running" || live.StatusMessage == "" {
+		t.Fatalf("foreground settled background: %+v", live)
+	}
+	transcript.Apply(agent.Event{Type: agent.EventResult, Result: &agent.ResultInfo{Cancelled: true}})
+	final := transcript.Snapshot(true)
+	if final.Parts[0].Task.Status != "cancelled" || live.Parts[0].Task.Status != "running" {
+		t.Fatal("task outcome or prior snapshot mutated")
+	}
+}

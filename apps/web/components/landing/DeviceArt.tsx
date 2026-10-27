@@ -17,7 +17,7 @@ export function PhoneArt({ cloud = false }: { cloud?: boolean }) {
 export function MacArt() {
   return <div className={styles.macArt} role="img" aria-label="Illustrative Mindwire desktop with Cleo, Kit and Sage, and a completed reading tracker">
     <div className={styles.macScreen}>
-      <div className={styles.macTitle}><span><i /><i /><i /></span><span>My little team</span><MoreHorizontal size={13} /></div>
+      <div className={styles.macTitle}><span><i /><i /><i /></span><span>My workspace</span><MoreHorizontal size={13} /></div>
       <div className={styles.macBody}>
         <div className={styles.macSidebar}>{(["bean", "robot", "sprout"] as const).map((character, i) => <div key={character} data-selected={i === 1}><BotAvatar character={character} size={27} /><span>{["Cleo", "Kit", "Sage"][i]}</span></div>)}</div>
         <div className={styles.macChat}><span>Let’s build a reading tracker.</span><div><BotAvatar character="robot" size={26} /><p>One small app.<br />A lot more good books.</p></div><div className={styles.miniApp}><span>READING CORNER</span><strong>Your next chapter.</strong><div><i /><i /><i /></div><p><Check size={10} /> Your app is ready</p></div></div>

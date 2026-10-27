@@ -22,6 +22,7 @@ export type EventType =
   | "error"
   | "status" // generic status (retry, queued, stream-open sentinel) in `meta`
   | "input" // a saved follow-up receipt changed status
+  | "task" // native background work; launch is separate from completion
   | "interaction" // structured agent-defined prompt/feedback (todos, approval, …)
   | "compaction" // the conversation was compacted; `compaction` carries the trigger + token counts
   | "continuation"; // resolve-mode iteration boundary; `continuation` carries the iteration + reason
@@ -32,8 +33,18 @@ export interface ToolEvent {
   input?: unknown;
   output?: string;
   isError?: boolean;
+  status?: "completed" | "failed" | "cancelled" | "incomplete" | (string & {});
   /** Deep-normalized view of the tool call; rides alongside the raw name/input/output. */
   action?: ToolAction;
+}
+
+export interface TaskInfo {
+  id: string;
+  parentId?: string;
+  kind?: string;
+  title?: string;
+  status: "running" | "completed" | "failed" | "cancelled" | (string & {});
+  output?: string;
 }
 
 // ---- deep tool normalization (agent/toolaction.go) -------------------------
@@ -190,6 +201,8 @@ export interface Event {
   /** Populated on a `continuation` event (resolve mode). */
   continuation?: ContinuationInfo;
   input?: UserInput;
+  capabilities?: Capabilities;
+  task?: TaskInfo;
   error?: string;
   meta?: Record<string, unknown>;
   /** RFC3339 timestamp. */
@@ -313,7 +326,7 @@ export interface RespondInput {
 export type Support = "none" | "native" | "emulated";
 
 /** How the daemon drives the agent for a turn — the control channel. */
-export type Protocol = "cli" | "http" | "persistent";
+export type Protocol = "cli" | "http" | "persistent" | "acp";
 
 /** How an agent emits a turn's output. */
 export type OutputMode = "structured_json" | "terminal";
@@ -379,6 +392,8 @@ export interface Capabilities {
   /** Static harness hint; check nativeSessions.activity() for this session's controls. */
   nativeSession?: import("./native-sessions.js").NativeSessionCapabilities;
   protocol: Protocol;
+  negotiated?: boolean;
+  nativeVersion?: string;
   output: OutputMode;
   history: Support;
   sessions: Support;
@@ -420,6 +435,8 @@ export interface Capabilities {
   systemPrompt: boolean;
   appendSystemPrompt: boolean;
   mcpServers: boolean;
+  /** The harness honors TurnOptions.outputSchema. */
+  structuredOutput?: boolean;
   subagents: boolean;
   claudeSettings: boolean;
   /**
@@ -820,6 +837,7 @@ export interface NotificationSpec {
 
 /** Materialized output at an exact stream cursor, shared by all agent harnesses. */
 export interface RunSnapshot {
+  capabilities?: Capabilities;
   run: Run;
   sequence: number;
   parts: Part[];
@@ -843,7 +861,8 @@ export interface ToolPart {
 
 /** One ordered piece of an assistant turn. */
 export interface Part {
-  type: "text" | "thinking" | "tool" | "interaction" | "compaction" | (string & {});
+  task?: TaskInfo;
+  type: "text" | "thinking" | "tool" | "interaction" | "compaction" | "task" | (string & {});
   /** Streaming item identity, when the agent supplies it. */
   id?: string;
   text?: string;
@@ -934,13 +953,14 @@ export interface TurnOptions {
   /** Branch a new session id from the resumed one instead of continuing it in place. */
   forkOnResume?: boolean;
   /**
-   * JSON Schema constraining the turn's structured output. The daemon writes it to a per-turn temp
-   * file and passes it to the agent (e.g. Claude's `--json-schema`); cleaned up when the turn ends.
+   * JSON Schema constraining the turn's output. Requires capabilities.structuredOutput;
+   * passed through the harness's native configuration or turn protocol.
    */
   outputSchema?: unknown;
   /**
-   * MCP servers configuration object (same shape the agent's own `--mcp-config` file expects).
-   * Materialized to a per-turn temp file for this turn only; not persisted to the agent's config.
+   * Canonical named MCP server map, optionally wrapped in `mcpServers`.
+   * Stdio: command/args/env; HTTP: url/httpHeaders/bearerTokenEnvVar.
+   * Translated per harness and scoped to this run, including resumed sessions.
    */
   mcpServers?: unknown;
   /**

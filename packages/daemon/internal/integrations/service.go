@@ -124,8 +124,8 @@ func (s *Service) Save(id string, spec Spec) (Connection, error) {
 		if saved.Revision != spec.ExpectedRevision {
 			return Connection{}, registry.ErrConflict
 		}
-		if saved.Provider != spec.Provider || saved.BotID != spec.BotID {
-			return Connection{}, invalid("provider and bot cannot change; create a new connection")
+		if saved.Provider != spec.Provider || saved.BotID != spec.BotID || saved.Dispatch != spec.Dispatch {
+			return Connection{}, invalid("provider, bot and dispatch cannot change; create a new connection")
 		}
 	} else {
 		connections, err := s.List()
@@ -148,12 +148,21 @@ func (s *Service) Save(id string, spec Spec) (Connection, error) {
 	if !slices.Contains([]string{"slack", "teams", "discord", "telegram"}, spec.Provider) || !slices.Contains([]string{"notifications", "commands", "chat", "trigger"}, spec.Mode) {
 		return Connection{}, invalid("unsupported provider or mode")
 	}
-	bot, err := s.db.Bot(spec.BotID)
-	if err != nil {
-		return Connection{}, err
+	if !slices.Contains([]string{"", "bot", "host"}, spec.Dispatch) {
+		return Connection{}, invalid("unsupported dispatch")
 	}
-	if bot.Archived {
-		return Connection{}, invalid("restore the bot before connecting it")
+	if spec.Dispatch == "host" {
+		if spec.BotID != "" || spec.Notify || spec.Mode == "trigger" {
+			return Connection{}, invalid("host dispatch has no bot or bot notifications")
+		}
+	} else {
+		bot, err := s.db.Bot(spec.BotID)
+		if err != nil {
+			return Connection{}, err
+		}
+		if bot.Archived {
+			return Connection{}, invalid("restore the bot before connecting it")
+		}
 	}
 	if spec.Command == "" {
 		spec.Command = "/mindwire"
@@ -313,6 +322,13 @@ func (s *Service) accept(c savedConnection, e envelope) error {
 	if c.Mode == "notifications" || strings.TrimSpace(e.Text) == "" && !e.Command {
 		return nil
 	}
+	// Telegram addresses commands to a bot in group chats (e.g. /openship@MyBot).
+	if c.Provider == "telegram" {
+		words := strings.Fields(e.Text)
+		if len(words) > 0 && strings.HasPrefix(words[0], c.Command+"@") && len(words[0]) > len(c.Command)+1 {
+			e.Command = true
+		}
+	}
 	if c.Mode == "commands" && !e.Command && !strings.HasPrefix(e.Text, c.Command+" ") && e.Text != c.Command {
 		return nil
 	}
@@ -397,6 +413,9 @@ func (s *Service) dispatch() {
 				}
 				key := registry.SyncKey(e.IntegrationID, e.Workspace, e.ChannelID, e.ThreadID, e.UserID)
 				c, _ := s.load(e.IntegrationID)
+				if c.Dispatch == "host" && e.HostReply == nil {
+					continue
+				}
 				control := controlCommand(c, e)
 				if !control && (s.activeThreads[key] || s.activeStreams >= 8) {
 					continue
@@ -438,7 +457,15 @@ func (s *Service) process(e envelope) {
 		err = errForbidden
 	}
 	if err == nil {
-		err = s.run(c, &e, key)
+		if c.Dispatch == "host" {
+			if e.HostReply == nil || c.Revision != e.HostRevision {
+				err = errForbidden
+			} else {
+				err = s.reply(s.ctx, c, &e, *e.HostReply)
+			}
+		} else {
+			err = s.run(c, &e, key)
+		}
 	}
 	if s.ctx.Err() != nil {
 		return

@@ -10,7 +10,7 @@ import product from "@/components/landing/product.module.css";
 import styles from "@/components/landing/developers.module.css";
 
 export const metadata: Metadata = {
-  title: "Mindwire for developers — Your agents. Your whole workspace.",
+  title: "Mindwire App — Developer mode",
   description: "Build with Codex, Claude Code and OpenCode in a workspace made for developers. Explore projects, review Git changes, use terminals and keep working from your Mac or iPhone.",
   alternates: { canonical: "/developers/" },
 };
@@ -20,14 +20,14 @@ const capabilities = [
   { icon: GitBranch, title: "From diff to commit.", text: "Inspect changes, stage files and write a commit. Work with branches and repository history without losing the thread." },
   { icon: Terminal, title: "A terminal within reach.", text: "Run your commands beside the conversation. Reconnect to the same shell when you return to a running workspace." },
   { icon: MessageSquare, title: "Stay part of the process.", text: "Follow tool activity, answer questions and steer the next step. Supported approvals appear where the work happens." },
-  { icon: FileCode2, title: "Context that travels with you.", text: "Give your bots project instructions, reference material and reusable skills. Keep the useful details close to the task." },
+  { icon: FileCode2, title: "Context that travels with you.", text: "Give your agent project instructions, reference material and reusable skills. Keep the useful details close to the task." },
   { icon: Smartphone, title: "Away from the desk, in the loop.", text: "Pair your iPhone with your computer. Check progress, review files and continue the conversation on the same workspace." },
 ];
 
 export default function Developers() {
   return <div className={base.landing}>
     <section className={styles.hero} aria-labelledby="developers-title">
-      <div className={styles.heroIntro}><div className={styles.heroLabel}><BotAvatar character="robot" size={34} />Mindwire for developers</div><h1 id="developers-title">Your agents.<br /><em>Your whole workspace.</em></h1><p>Build with your favorite agents. Keep the code, conversations, terminal and next step together. A calmer place to do serious work.</p><div className={styles.heroActions}><Link href="/download" className={base.primaryButton}>Get Mindwire<ArrowUpRight size={17} /></Link><Link href="#developer-workspace" className={base.secondaryButton}>Explore the workspace<ArrowDown size={16} /></Link></div></div>
+      <div className={styles.heroIntro}><div className={styles.heroLabel}><BotAvatar character="robot" size={34} />Mindwire App · Developer mode</div><h1 id="developers-title">Your agents.<br /><em>Your whole workspace.</em></h1><p>Build with your favorite agents. Keep the code, conversations, terminal and next step together. A calmer place to do serious work.</p><div className={styles.heroActions}><Link href="/download" className={base.primaryButton}>Get Mindwire<ArrowUpRight size={17} /></Link><Link href="#developer-workspace" className={base.secondaryButton}>Explore the workspace<ArrowDown size={16} /></Link></div></div>
       <DeveloperWorkspace />
     </section>
 
@@ -49,7 +49,7 @@ export default function Developers() {
     <section className={styles.sdkBridge} aria-labelledby="sdk-bridge-title"><div><Code2 size={24} /><span>Building a product of your own?</span></div><h2 id="sdk-bridge-title">Put these agents inside it.</h2><p>Mindwire SDK brings the same runtime to your app, with streaming, tools and supported approvals.</p><Link href="/sdk" className={base.secondaryButton}>Meet Mindwire SDK<ArrowUpRight size={16} /></Link></section>
 
     <section className={`${product.section} ${product.faqSection}`} aria-labelledby="dev-questions"><div className={product.sectionCopy}><span className={product.eyebrow}>Before you jump in</span><h2 id="dev-questions">Make yourself<br /><em>at home.</em></h2></div><Questions items={[
-      { question: "Is Developer mode a different app?", answer: "No. General mode and Developer mode are two ways to use Mindwire. Developer mode puts projects, files, Git and terminals up front. Switch modes while keeping your bots and conversations." },
+      { question: "Is Developer mode a different app?", answer: "No. General mode and Developer mode are two ways to use Mindwire. Developer mode puts projects, files, Git and terminals up front. Switch modes while keeping your conversations and saved context." },
       { question: "Do I have to move my projects to the cloud?", answer: <>No. Connect your own Mac, Windows or Linux computer and work where your files already live. It needs to stay awake and online while you work remotely. A <Link href="/pricing">Cloud Computer</Link> is optional.</> },
       { question: "Does a terminal close when I leave the app?", answer: "Leaving the terminal view or disconnecting the phone detaches the client; the shell stays on the running computer. Returning reconnects you. Explicitly closing the terminal tab, restarting the service or rebooting the host ends that shell." },
       { question: "Can I bring my current agent account?", answer: "Use an account or API key supported by your selected agent. Mindwire works through the agent’s own authentication flow on the connected computer. Available models and usage depend on your provider." },

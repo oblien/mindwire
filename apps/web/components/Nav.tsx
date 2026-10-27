@@ -20,7 +20,7 @@ export default function Nav() {
       <Link href="/" className={styles.brand} aria-label="Mindwire home"><OblienLogo size={28} />Mindwire</Link>
       <Link href="/docs" className={styles.docsLabel}>Documentation</Link>
       <button type="button" className={styles.search} onClick={() => setOpenSearch(true)} aria-label="Search documentation"><Search size={16} /><span>Find something…</span><kbd>⌘ K</kbd></button>
-      <nav aria-label="Documentation navigation" className={styles.links}><Link href="/developers">For developers</Link><Link href="/sdk">SDK</Link></nav>
+      <nav aria-label="Documentation navigation" className={styles.links}><Link href="/sdk">SDK & runtime</Link><Link href="/app">Mindwire App</Link></nav>
       <div className={styles.actions}><ThemeToggle /><a href={consoleUrl} className={styles.account}>Your account<ArrowUpRight size={15} /></a></div>
     </div>
   </header>;

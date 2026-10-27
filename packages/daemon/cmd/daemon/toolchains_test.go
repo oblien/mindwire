@@ -16,7 +16,7 @@ func TestEveryManagedAdapterHasBundledCompatibleImageVersion(t *testing.T) {
 		t.Fatal("empty runtime image toolchain")
 	}
 	for _, item := range plan {
-		if item.Package == "" || item.Binary == "" || len(item.VersionArgs) == 0 {
+		if (item.Package == "" && len(item.Archives) == 0) || item.Binary == "" || len(item.VersionArgs) == 0 {
 			t.Fatalf("incomplete package declaration: %+v", item)
 		}
 		if got := toolchain.Bundled().Evaluate(item.Agent, agent.Version, item.Version); got.Compatibility != "supported" {
