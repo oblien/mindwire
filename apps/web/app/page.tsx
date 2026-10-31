@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import FrameworkHome from "@/components/landing/FrameworkHome";
+import RefinedLanding from "@/components/design-lab/refined/RefinedLanding";
 
 export const metadata: Metadata = {
   title: "Mindwire — Your product. Powered by agents.",
@@ -9,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function Home() {
-  return <FrameworkHome />;
+  return <RefinedLanding heroVariant="layers" />;
 }

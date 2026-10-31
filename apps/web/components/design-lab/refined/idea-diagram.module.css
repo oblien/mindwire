@@ -1,0 +1,500 @@
+.ideaInteractive {
+  --surface: #f3f2ed;
+  --surface-ink: #252724;
+  position: relative;
+}
+.ideaBoard {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.68fr) minmax(0, 1.18fr);
+  align-items: center;
+  gap: clamp(56px, 6vw, 88px);
+}
+.ideaJoins {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: -1;
+  fill: var(--surface);
+}
+.ideaInputs {
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+}
+.inputCard {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: 100%;
+  height: 200px;
+  padding: 25px 25px;
+  border: 0;
+  border-radius: 24px;
+  background: var(--surface);
+  color: var(--surface-ink);
+  text-align: left;
+  overflow: hidden;
+}
+.inputText {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 54%;
+}
+.inputText > strong {
+  display: block;
+  font: 450 clamp(23px, 1.9vw, 29px)/1.1 var(--display);
+  letter-spacing: -0.04em;
+  padding-right: 0;
+}
+.inputText > span {
+  display: block;
+  max-width: 143px;
+  margin-top: 12px;
+  color: #666963;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.inputArtwork {
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  object-fit: contain;
+  right: 4px;
+  bottom: -15px;
+  pointer-events: none;
+  transition: transform 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.inputSelection {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  bottom: 24px;
+  left: 25px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  border: 1px solid #c9ccc3;
+  background: var(--surface);
+  color: #787c72;
+  transition:
+    color 0.2s,
+    background 0.2s,
+    border-color 0.2s;
+}
+.inputCard[aria-pressed="true"] .inputSelection {
+  background: #242923;
+  border-color: #242923;
+  color: #f7f7f1;
+}
+.inputCard:focus-visible {
+  outline: 2px solid #806879;
+  outline-offset: -4px;
+}
+.ideaHub {
+  position: relative;
+  padding: 32px 18px 22px;
+  border-radius: 28px;
+  background: var(--surface);
+  color: var(--surface-ink);
+  text-align: center;
+}
+.hubBrand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font: 600 clamp(28px, 2.5vw, 36px)/1 var(--display);
+  letter-spacing: -0.06em;
+}
+.hubBrand > svg {
+  width: 29px;
+  height: 29px;
+  flex-shrink: 0;
+}
+.ideaHub > p {
+  margin-top: 13px;
+  font-size: 13px;
+  color: #64695f;
+}
+.agentPicker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding-top: 25px;
+  margin-top: 25px;
+  border-top: 1px solid #d9dbd2;
+}
+.agentPicker > button {
+  display: grid;
+  place-items: center;
+  width: clamp(36px, 3vw, 44px);
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
+}
+.agentPicker > button[aria-pressed="true"] {
+  background: #fffefa;
+  border-color: #cccec5;
+}
+.agentPicker > button:hover {
+  background: #e5e7de;
+}
+.chosenAgent {
+  display: block;
+  min-height: 19px;
+  margin-top: 13px;
+  font-size: 12px;
+  color: #64695f;
+}
+.ideaOutput {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  padding: 29px;
+  border-radius: 28px;
+  background: var(--surface);
+  color: var(--surface-ink);
+}
+.outputHeading h3 {
+  font: 450 clamp(27px, 2.5vw, 36px)/1.05 var(--display);
+  letter-spacing: -0.045em;
+}
+.outputHeading > p {
+  margin-top: 14px;
+  color: #656960;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.outputIllustration {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 17px -12px 0;
+}
+.outputIllustration > img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.outputStatus > span {
+  display: block;
+}
+.outputStatus > span + span {
+  margin-top: 5px;
+  color: #646b5f;
+  font-size: 11px;
+}
+.outputFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-top: 22px;
+}
+.outputFoot > span {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #636b5c;
+}
+.outputFoot > a {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border: 1px solid #cdd2c4;
+  border-radius: 50%;
+  color: #424b39;
+}
+.outputFoot > a:hover {
+  background: #e4e8dc;
+}
+.ideaFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 48px;
+  margin-top: 45px;
+  padding-top: 27px;
+  border-top: 1px solid #ffffff20;
+}
+.ideaFoot > p {
+  max-width: 740px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #b6bcb1;
+}
+.ideaFoot > a {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-shrink: 0;
+  font-size: 14px;
+  color: #eeefe9;
+}
+@media (hover: hover) {
+  .inputCard:hover .inputArtwork {
+    transform: translateY(-4px);
+  }
+}
+@media (max-width: 1279px) and (min-width: 1100px) {
+  .inputCard {
+    padding-inline: 21px;
+  }
+  .inputText > span {
+    max-width: 112px;
+    font-size: 12px;
+  }
+  .inputArtwork {
+    width: 166px;
+    height: 166px;
+    bottom: -8px;
+  }
+  .inputSelection {
+    left: 21px;
+  }
+  .ideaHub {
+    padding-inline: 12px;
+  }
+  .agentPicker {
+    gap: 5px;
+  }
+  .ideaOutput {
+    padding: 24px;
+  }
+  .outputHeading > p {
+    font-size: 14px;
+  }
+}
+@media (max-width: 1099px) {
+  .ideaBoard {
+    display: flex;
+    flex-direction: column;
+    gap: 72px;
+  }
+  .ideaInputs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    gap: 0;
+    border-radius: 24px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .inputCard {
+    height: 310px;
+    padding: 24px;
+    border-radius: 0;
+    overflow: hidden;
+  }
+  .inputCard + .inputCard {
+    border-left: 1px solid #daddd2;
+  }
+  .inputText > strong {
+    font-size: 24px;
+    max-width: 180px;
+    padding-right: 13px;
+  }
+  .inputText {
+    width: 100%;
+  }
+  .inputText > span {
+    max-width: 135px;
+    font-size: 12px;
+  }
+  .inputArtwork {
+    width: min(180px, calc(100% - 54px));
+    height: auto;
+    aspect-ratio: 1;
+    bottom: 0;
+    right: 2px;
+  }
+  .inputSelection {
+    left: 24px;
+    bottom: 23px;
+  }
+  .ideaHub {
+    width: 280px;
+    padding-inline: 23px;
+  }
+  .hubBrand {
+    font-size: 36px;
+  }
+  .agentPicker > button {
+    width: 44px;
+  }
+  .ideaOutput {
+    align-self: auto;
+    width: min(100%, 540px);
+    padding: 34px;
+  }
+  .outputIllustration {
+    flex: none;
+    aspect-ratio: 1;
+  }
+  .outputHeading h3 {
+    font-size: 36px;
+  }
+  .outputFoot > span {
+    font-size: 14px;
+  }
+  .ideaFoot {
+    align-items: start;
+    gap: 30px;
+  }
+  .ideaFoot > p {
+    max-width: 65%;
+    font-size: 14px;
+  }
+  .ideaFoot > a {
+    font-size: 13px;
+    gap: 10px;
+  }
+}
+@media (max-width: 639px) {
+  .ideaBoard {
+    gap: 58px;
+  }
+  .ideaInputs {
+    display: flex;
+    flex-direction: column;
+    border-radius: 21px;
+  }
+  .inputCard {
+    height: 180px;
+    padding: 23px;
+  }
+  .inputCard + .inputCard {
+    border-left: 0;
+    border-top: 1px solid #daddd2;
+  }
+  .inputText > strong {
+    font-size: 23px;
+    max-width: none;
+    padding-right: 0;
+  }
+  .inputText {
+    width: 52%;
+  }
+  .inputText > span {
+    max-width: 135px;
+    font-size: 12px;
+    margin-top: 10px;
+  }
+  .inputArtwork {
+    width: 156px;
+    height: 156px;
+    bottom: -3px;
+    right: 5px;
+  }
+  .inputSelection {
+    left: 23px;
+    bottom: 18px;
+    width: 24px;
+    height: 24px;
+  }
+  .inputSelection > svg {
+    width: 15px;
+  }
+  .ideaHub {
+    width: 248px;
+    padding: 28px 18px 20px;
+    border-radius: 24px;
+  }
+  .hubBrand {
+    font-size: 32px;
+  }
+  .agentPicker {
+    padding-top: 21px;
+    margin-top: 21px;
+    gap: 7px;
+  }
+  .agentPicker > button {
+    width: 42px;
+  }
+  .ideaOutput {
+    padding: 25px 20px;
+    border-radius: 24px;
+  }
+  .outputHeading h3 {
+    font-size: 30px;
+  }
+  .outputHeading > p {
+    font-size: 14px;
+  }
+  .outputFoot {
+    gap: 10px;
+    padding-top: 19px;
+  }
+  .outputFoot > span {
+    font-size: 12px;
+  }
+  .ideaFoot {
+    flex-direction: column;
+    gap: 23px;
+    margin-top: 32px;
+    padding-top: 24px;
+  }
+  .ideaFoot > p {
+    max-width: none;
+    font-size: 14px;
+  }
+  .ideaFoot > a {
+    font-size: 13px;
+  }
+}
+@media (max-width: 359px) {
+  .inputCard {
+    padding-inline: 18px;
+  }
+  .inputText > strong {
+    font-size: 20px;
+  }
+  .inputText > span {
+    max-width: 112px;
+    font-size: 11px;
+  }
+  .inputArtwork {
+    right: 0;
+    bottom: 0;
+    width: 136px;
+    height: 136px;
+  }
+  .inputSelection {
+    left: 18px;
+  }
+  .ideaHub {
+    width: 236px;
+    padding-inline: 15px;
+  }
+  .ideaOutput {
+    padding-inline: 16px;
+  }
+  .outputHeading h3 {
+    font-size: 27px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .inputArtwork,
+  .inputSelection,
+  .agentPicker > button {
+    transition: none;
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "method": "Built-in image_gen image editing and generation",
+  "created": "2026-10-31",
+  "palette": {
+    "knowledge": "ochre, butter, olive",
+    "actions": "terracotta, apricot, plum",
+    "identity": "plum, lilac, ochre"
+  },
+  "assets": [
+    {
+      "name": "knowledge-warm-v1",
+      "transparent": true,
+      "prompt": "Use case: style-transfer. Edit the attached illustration. Preserve its exact subject, straight-on 2D composition, overall silhouette, proportions, small symbols, and clean transparent background. Change its color and surface treatment only. Replace ALL cobalt, royal blue, periwinkle blue, and cyan. This is part of an editorial identity with warm ivory, graphite, ochre, olive, terracotta, apricot, plum and lilac. Retain clearly separated ivory surfaces and dark typographic bars. Add fine but visibly tactile cotton-paper fibres, subtly mottled printed ink, and a delicate frosted-vellum texture in the colored surfaces. Textures should feel precise and sophisticated, not noisy or weathered. Absolutely flat front-facing geometry, no perspective, no extruded edges, no added 3D depth, no objects or elements added, no harsh shadows or neon. Preserve true transparency outside the composition. Palette for this knowledge illustration: replace the blue lower index overlay with translucent warm ochre and pale butter; replace the darkest blue geometry and node with deep olive; use golden ochre and sage for the two other nodes and index tab. The paper stays warm ivory and the text graphite. Keep the subtle circular geometry on the index overlay. Balanced ochre, olive and ivory, with a small muted terracotta tab as a warm accent.",
+      "references": [
+        "apps/web/public/images/design-lab/connections/knowledge-2d-v1.webp"
+      ],
+      "toolOutput": "/Users/infobrim/.codex/generated_images/01a18fc6-d4ab-77e1-a643-074aa13187b3/exec-351ae392-6f73-4c42-bb4f-2469ee980362.png",
+      "source": ".cache/idea-palette/generated/knowledge-warm-v1.png",
+      "output": "apps/web/public/images/design-lab/connections/knowledge-warm-v1.webp",
+      "size": 720
+    },
+    {
+      "name": "actions-warm-v1",
+      "transparent": true,
+      "prompt": "Use case: style-transfer. Edit the attached illustration. Preserve its exact subject, straight-on 2D composition, overall silhouette, proportions, small symbols, and clean transparent background. Change its color and surface treatment only. Replace ALL cobalt, royal blue, periwinkle blue, and cyan. This is part of an editorial identity with warm ivory, graphite, ochre, olive, terracotta, apricot, plum and lilac. Retain clearly separated ivory surfaces and dark typographic bars. Add fine but visibly tactile cotton-paper fibres, subtly mottled printed ink, and a delicate frosted-vellum texture in the colored surfaces. Textures should feel precise and sophisticated, not noisy or weathered. Absolutely flat front-facing geometry, no perspective, no extruded edges, no added 3D depth, no objects or elements added, no harsh shadows or neon. Preserve true transparency outside the composition. Palette for this actions illustration: replace the blue automation sheet with pale apricot and softly overlapping terracotta shapes; replace the deep blue connector and check mark with deep burnt sienna. The code window remains ivory with charcoal symbols. Window dots are muted terracotta, ochre and ivory. Use warm translucent vellum and finely grained terra-cotta ink, no blue.",
+      "references": [
+        "apps/web/public/images/design-lab/connections/actions-2d-v1.webp"
+      ],
+      "toolOutput": "/Users/infobrim/.codex/generated_images/01a18fc6-d4ab-77e1-a643-074aa13187b3/exec-33466e82-6281-4a5e-bb3f-ecdb65eb5964.png",
+      "source": ".cache/idea-palette/generated/actions-warm-v1.png",
+      "output": "apps/web/public/images/design-lab/connections/actions-warm-v1.webp",
+      "size": 720
+    },
+    {
+      "name": "identity-warm-v1",
+      "transparent": true,
+      "prompt": "Use case: style-transfer. Edit the attached illustration. Preserve its exact subject, straight-on 2D composition, overall silhouette, proportions, small symbols, and clean transparent background. Change its color and surface treatment only. Replace ALL cobalt, royal blue, periwinkle blue, and cyan. This is part of an editorial identity with warm ivory, graphite, ochre, olive, terracotta, apricot, plum and lilac. Retain clearly separated ivory surfaces and dark typographic bars. Add fine but visibly tactile cotton-paper fibres, subtly mottled printed ink, and a delicate frosted-vellum texture in the colored surfaces. Textures should feel precise and sophisticated, not noisy or weathered. Absolutely flat front-facing geometry, no perspective, no extruded edges, no added 3D depth, no objects or elements added, no harsh shadows or neon. Preserve true transparency outside the composition. Palette for this identity illustration: replace the blue back interface sheet with pale dusty lilac; replace the blue line and darkest color with rich muted aubergine/plum. The three palette circles on the ivory Aa sheet are terracotta, golden ochre, and soft plum. The back panel's thumbnails combine plum, lilac and apricot. Keep the Aa specimen charcoal and the ivory paper visibly fine-grained. A sophisticated warm plum identity, no blue.",
+      "references": [
+        "apps/web/public/images/design-lab/connections/identity-2d-v1.webp"
+      ],
+      "toolOutput": "/Users/infobrim/.codex/generated_images/01a18fc6-d4ab-77e1-a643-074aa13187b3/exec-f78e7048-0969-4030-bda2-5b6cae1adcb0.png",
+      "source": ".cache/idea-palette/generated/identity-warm-v1.png",
+      "output": "apps/web/public/images/design-lab/connections/identity-warm-v1.webp",
+      "size": 720
+    },
+    {
+      "name": "product-warm-v1",
+      "transparent": true,
+      "prompt": "Use case: style-transfer. Edit the attached illustration. Preserve its exact subject, straight-on 2D composition, overall silhouette, proportions, small symbols, and clean transparent background. Change its color and surface treatment only. Replace ALL cobalt, royal blue, periwinkle blue, and cyan. This is part of an editorial identity with warm ivory, graphite, ochre, olive, terracotta, apricot, plum and lilac. Retain clearly separated ivory surfaces and dark typographic bars. Add fine but visibly tactile cotton-paper fibres, subtly mottled printed ink, and a delicate frosted-vellum texture in the colored surfaces. Textures should feel precise and sophisticated, not noisy or weathered. Absolutely flat front-facing geometry, no perspective, no extruded edges, no added 3D depth, no objects or elements added, no harsh shadows or neon. Preserve true transparency outside the composition. Palette for the unified product illustration: remake the main geometric editorial image in balanced burnt terracotta, butter ochre, muted olive and warm ivory, with one thin plum arc; NO single color dominates. The integrated assistant sheet at right becomes translucent soft champagne/apricot vellum, with a small plum conversation symbol, ivory message shape, muted lilac reply, and dark olive completion check. The browser stays ivory with a charcoal header. Its sidebar and footer swatches are terracotta, ochre and plum. The small overlapping bottom context sheet uses the same warm colors. Keep a refined restrained multi-color palette, never a rainbow; no blue remains.",
+      "references": [
+        "apps/web/public/images/design-lab/connections/product-2d-v1.webp"
+      ],
+      "toolOutput": "/Users/infobrim/.codex/generated_images/01a18fc6-d4ab-77e1-a643-074aa13187b3/exec-6dd96510-a4b2-4633-a48e-a9b554cc2859.png",
+      "source": ".cache/idea-palette/generated/product-warm-v1.png",
+      "output": "apps/web/public/images/design-lab/connections/product-warm-v1.webp",
+      "size": 1000
+    },
+    {
+      "name": "identity-flat-warm-v1",
+      "transparent": false,
+      "prompt": "Use case: stylized-concept. Asset type: original square editorial illustration for an agent-framework website. Image 1 is a SUBJECT reference only: retain its idea but discard its 3D rendering. Image 2 is a FLAT COMPOSITION / CRAFT reference only, not a color reference. Create a new genuinely two-dimensional illustration, straight-on parallel edges, restrained flat overlapping planes, no object depth or perspective. Match the prior flat interface illustration style but make surfaces richer: visible fine cotton-paper fibres, crisp screen-printed ink grain, subtly woven bookcloth, and translucent vellum overlays. Matte tactile color and finely controlled texture, with smooth clean silhouettes. Texture comes from the surfaces, not cast shadows. A warm ivory #efeee8 flat paper backdrop, square image, generous margin, principal composition fills about 82% of the square. Palette is warm ivory, charcoal, ochre, olive, terracotta, apricot, plum and lilac; NEVER blue, cobalt, cyan, or neon. Clearly recognizable at 220 pixels, a few large meaningful forms, elegant asymmetry. No photograph, 3D render, clay, plastic, inflated icons, chunky corners, beveled slabs, metallic keycaps, floor, horizon, lighting setup, glitter, noise filter, vignette, or drop shadows. Keep the symbols requested accurate; no labels, random words, or watermark. Subject: YOUR IDENTITY. A sophisticated flat graphic brand kit: a broad upright ivory browser/specimen sheet in the background, a high-contrast charcoal serif Aa, one small original four-petal plum emblem, and a quiet plum interface rule. A smaller terracotta printed brand sheet overlaps its lower left, repeating the emblem in ivory. A flat swatch strip at lower right has three clearly different surfaces: warm ochre cotton stock, softly woven dusty-lilac stock, and deep plum ink. All surfaces are wafer-flat with no visible sides. The layering should read like a 2D art-director's composition of identity and interface, not physical objects on a table. Warm matte paper and subtle translucent lilac vellum. Preserve substantial negative space around the ensemble.",
+      "references": [
+        "apps/web/public/images/design-lab/illustrations/identity-studio.webp",
+        "apps/web/public/images/design-lab/connections/identity-2d-v1.webp"
+      ],
+      "toolOutput": "/Users/infobrim/.codex/generated_images/01a18fc6-d4ab-77e1-a643-074aa13187b3/exec-447c17fe-72fc-4e5c-9482-c086f397c9cd.png",
+      "source": ".cache/idea-palette/generated/identity-flat-warm-v1.png",
+      "output": "apps/web/public/images/design-lab/illustrations/identity-flat-warm-v1.webp",
+      "size": 1000
+    },
+    {
+      "name": "context-flat-warm-v1",
+      "transparent": false,
+      "prompt": "Use case: stylized-concept. Asset type: original square editorial illustration for an agent-framework website. Image 1 is a SUBJECT reference only: retain its idea but discard its 3D rendering. Image 2 is a FLAT COMPOSITION / CRAFT reference only, not a color reference. Create a new genuinely two-dimensional illustration, straight-on parallel edges, restrained flat overlapping planes, no object depth or perspective. Match the prior flat interface illustration style but make surfaces richer: visible fine cotton-paper fibres, crisp screen-printed ink grain, subtly woven bookcloth, and translucent vellum overlays. Matte tactile color and finely controlled texture, with smooth clean silhouettes. Texture comes from the surfaces, not cast shadows. A warm ivory #efeee8 flat paper backdrop, square image, generous margin, principal composition fills about 82% of the square. Palette is warm ivory, charcoal, ochre, olive, terracotta, apricot, plum and lilac; NEVER blue, cobalt, cyan, or neon. Clearly recognizable at 220 pixels, a few large meaningful forms, elegant asymmetry. No photograph, 3D render, clay, plastic, inflated icons, chunky corners, beveled slabs, metallic keycaps, floor, horizon, lighting setup, glitter, noise filter, vignette, or drop shadows. Keep the symbols requested accurate; no labels, random words, or watermark. Subject: YOUR CONTEXT. A front-facing flat ochre file index sleeve holding three overlapping ivory document rectangles with four charcoal typographic bars and a precise olive three-node knowledge diagram. One small terracotta bookmark tab. At lower left a flat rectangular olive reference-book COVER, not a thick book, bearing a small ivory ring-and-node diagram; rich finely woven bookcloth texture inside its 2D silhouette, one fine vertical ivory spine rule. A translucent butter vellum panel partially overlays the documents. The information layers form a compact coherent graphic, warm paper textures and olive/ochre print. No fanned 3D pages, open file box, thick spine, tilted book or surface beneath.",
+      "references": [
+        "apps/web/public/images/design-lab/illustrations/context-studio.webp",
+        "apps/web/public/images/design-lab/connections/knowledge-2d-v1.webp"
+      ],
+      "toolOutput": "/Users/infobrim/.codex/generated_images/01a18fc6-d4ab-77e1-a643-074aa13187b3/exec-6fdfa7ee-2a93-42b7-8c6e-fdb801fa052e.png",
+      "source": ".cache/idea-palette/generated/context-flat-warm-v1.png",
+      "output": "apps/web/public/images/design-lab/illustrations/context-flat-warm-v1.webp",
+      "size": 1000
+    },
+    {
+      "name": "actions-flat-warm-v1",
+      "transparent": false,
+      "prompt": "Use case: stylized-concept. Asset type: original square editorial illustration for an agent-framework website. Image 1 is a SUBJECT reference only: retain its idea but discard its 3D rendering. Image 2 is a FLAT COMPOSITION / CRAFT reference only, not a color reference. Create a new genuinely two-dimensional illustration, straight-on parallel edges, restrained flat overlapping planes, no object depth or perspective. Match the prior flat interface illustration style but make surfaces richer: visible fine cotton-paper fibres, crisp screen-printed ink grain, subtly woven bookcloth, and translucent vellum overlays. Matte tactile color and finely controlled texture, with smooth clean silhouettes. Texture comes from the surfaces, not cast shadows. A warm ivory #efeee8 flat paper backdrop, square image, generous margin, principal composition fills about 82% of the square. Palette is warm ivory, charcoal, ochre, olive, terracotta, apricot, plum and lilac; NEVER blue, cobalt, cyan, or neon. Clearly recognizable at 220 pixels, a few large meaningful forms, elegant asymmetry. No photograph, 3D render, clay, plastic, inflated icons, chunky corners, beveled slabs, metallic keycaps, floor, horizon, lighting setup, glitter, noise filter, vignette, or drop shadows. Keep the symbols requested accurate; no labels, random words, or watermark. Subject: YOUR ACTIONS. A small flat ivory code-window rectangle bearing crisp charcoal </> in the upper left; a thin terracotta action sheet with a precise ivory right arrow centered slightly below and right; and a flat pale-apricot approval sheet with a large charcoal check at lower right. Connect their edges with a single finely printed plum line turning through rounded right angles. A small flat charcoal cursor near the final check. Subtle screen-printed terracotta ink, fibrous ivory paper and a light translucent apricot vellum layer. These are flat 2D interface panes with very thin outlines, emphatically NOT thick tiles or keyboard keys. Sharp modern drawing, restrained warm colors, a clear code-to-action-to-approval sequence.",
+      "references": [
+        "apps/web/public/images/design-lab/illustrations/actions-studio.webp",
+        "apps/web/public/images/design-lab/connections/actions-2d-v1.webp"
+      ],
+      "toolOutput": "/Users/infobrim/.codex/generated_images/01a18fc6-d4ab-77e1-a643-074aa13187b3/exec-a33b2797-e4b6-45b4-b70c-f72e525c602b.png",
+      "source": ".cache/idea-palette/generated/actions-flat-warm-v1.png",
+      "output": "apps/web/public/images/design-lab/illustrations/actions-flat-warm-v1.webp",
+      "size": 1000
+    }
+  ]
+}

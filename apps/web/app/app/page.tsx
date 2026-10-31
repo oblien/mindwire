@@ -5,7 +5,6 @@ import AppWorkspacePreview from "@/components/landing/AppWorkspacePreview";
 import ConnectedQuestions from "@/components/landing/ConnectedQuestions";
 import SurfaceRoutes from "@/components/landing/SurfaceRoutes";
 import PageHero from "@/components/landing/PageHero";
-import HeroTrail from "@/components/landing/HeroTrail";
 import AppDownloads from "@/components/landing/AppDownloads";
 import styles from "@/components/landing/app-framework.module.css";
 
@@ -33,7 +32,6 @@ export default function AppPage() {
             </>
           }
           description="Your projects, files, and ideas in one workspace. Make something on your Mac. Pick it up on your phone. Keep going."
-          artwork={<HeroTrail />}
           caption="Mac, iPhone, and iPad."
         >
           <Link href="#download" className={styles.primary}>

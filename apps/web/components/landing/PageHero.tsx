@@ -1,6 +1,19 @@
 import type { ReactNode } from "react";
-import WindowShape from "./WindowShape";
+import SiteIllustration, {
+  type SiteIllustrationKind,
+} from "../site/SiteIllustration";
 import styles from "./interior.module.css";
+
+const illustrations: Record<string, SiteIllustrationKind> = {
+  "cloud-title": "cloud",
+  "app-title": "devices",
+  "use-cases-title": "product",
+  "setup-title": "devices",
+  "get-started-title": "devices",
+  "developers-title": "code",
+  "dev-title": "code",
+  "changelog-title": "context",
+};
 
 export default function PageHero({
   eyebrow,
@@ -29,11 +42,17 @@ export default function PageHero({
     <section
       className={[styles.hero, className].filter(Boolean).join(" ")}
       data-split={Boolean(aside)}
+      data-illustrated={!aside}
       data-sprue={connector}
       aria-labelledby={id}
     >
-      <WindowShape kind="hero" />
-      {artwork}
+      {!aside && (
+        <div className={styles.artwork} aria-hidden="true">
+          {artwork ?? (
+            <SiteIllustration kind={illustrations[id ?? ""] ?? "identity"} />
+          )}
+        </div>
+      )}
       <div className={styles.heroCopy}>
         <span className={styles.eyebrow}>{eyebrow}</span>
         <h1 id={id}>{title}</h1>
@@ -42,13 +61,8 @@ export default function PageHero({
       </div>
       {aside && <div className={styles.heroAside}>{aside}</div>}
       <div className={styles.heroFoot} aria-hidden="true">
-        <img
-          src="/images/framework/canvas-motif.svg"
-          alt=""
-          width={105}
-          height={29}
-        />
-        <span>{caption ?? `MINDWIRE / ${eyebrow.toUpperCase()}`}</span>
+        <span>Mindwire</span>
+        <span>{caption ?? eyebrow}</span>
       </div>
     </section>
   );

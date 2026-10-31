@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { type UseCase, useCases } from "@/lib/use-cases";
-import WindowShape from "@/components/landing/WindowShape";
 import UseCaseCard from "@/components/landing/UseCaseCard";
 import BusinessProductDemo from "./BusinessProductDemo";
 import ConnectionPatterns from "./ConnectionPatterns";
@@ -55,7 +54,6 @@ export default function BusinessCaseStudy({ item }: { item: UseCase }) {
           ← All product examples
         </Link>
         <section className={styles.hero} aria-labelledby="example-title">
-          <WindowShape kind="hero" />
           <div className={styles.heroMeta}>
             <span>
               {item.category} / {item.platform} integration
@@ -159,7 +157,11 @@ export default function BusinessCaseStudy({ item }: { item: UseCase }) {
               </span>
               <span>TypeScript</span>
             </div>
-            <pre>
+            <pre
+              tabIndex={0}
+              role="region"
+              aria-label="Authentication code example"
+            >
               <code>
                 {item.platform === "Desktop"
                   ? localConnection

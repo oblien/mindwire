@@ -7,6 +7,7 @@ import Nav from "@/components/Nav";
 import SiteContent from "@/components/SiteContent";
 import LandingFooter from "@/components/landing/LandingFooter";
 import HideOnDocs from "@/components/HideOnDocs";
+import SiteTheme from "@/components/site/SiteTheme";
 
 export const metadata: Metadata = {
   title: "Mindwire — Your product. Powered by agents.",
@@ -45,13 +46,15 @@ export default function RootLayout({
           <a href="#main-content" className="skip-link">
             Skip to content
           </a>
-          <Nav />
-          <SiteContent>{children}</SiteContent>
-          {/* The marketing footer is hidden on /docs — the Fumadocs sidebar is a fixed full-height
+          <SiteTheme>
+            <Nav />
+            <SiteContent>{children}</SiteContent>
+            {/* The marketing footer is hidden on /docs — the Fumadocs sidebar is a fixed full-height
               column, so a site footer beneath it just adds clutter. */}
-          <HideOnDocs hideOnHome>
-            <LandingFooter />
-          </HideOnDocs>
+            <HideOnDocs hideOnHome>
+              <LandingFooter />
+            </HideOnDocs>
+          </SiteTheme>
         </RootProvider>
       </body>
     </html>

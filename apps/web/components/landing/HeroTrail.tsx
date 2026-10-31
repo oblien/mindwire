@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import styles from "./framework-home.module.css";
 
-/** React owns the canvas; the renderer owns only its GPU resources and listeners. */
+/** React owns the canvas; the renderer owns only its animation and listeners. */
 export default function HeroTrail() {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [moving, setMoving] = useState(false);
@@ -33,7 +33,7 @@ export default function HeroTrail() {
         if (alive && !motion.matches && !renderer)
           renderer = createCursorTrail(element, host, moved);
       } catch {
-        // Keep the seed illustration visible when WebGL is unavailable.
+        // Keep the vector ribbon visible when canvas rendering is unavailable.
       }
     };
     const lost = (event: Event) => {
@@ -45,15 +45,15 @@ export default function HeroTrail() {
     };
     void initialize();
     motion.addEventListener("change", initialize);
-    element.addEventListener("webglcontextlost", lost);
-    element.addEventListener("webglcontextrestored", initialize);
+    element.addEventListener("contextlost", lost);
+    element.addEventListener("contextrestored", initialize);
     return () => {
       alive = false;
       clearTimeout(timer);
       renderer?.destroy();
       motion.removeEventListener("change", initialize);
-      element.removeEventListener("webglcontextlost", lost);
-      element.removeEventListener("webglcontextrestored", initialize);
+      element.removeEventListener("contextlost", lost);
+      element.removeEventListener("contextrestored", initialize);
     };
   }, []);
   return (

@@ -113,11 +113,11 @@
   background: var(--mw-diagram-surface);
 }
 
-.sourceArt > div {
+.sourceArt > svg {
   position: absolute;
-  inset: 6px;
-  width: auto;
-  height: auto;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   border-radius: 14px;
   overflow: hidden;
 }

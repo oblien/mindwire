@@ -3,7 +3,7 @@ import CloudCapabilities from "./CloudCapabilities";
 import OblienLogo from "@/components/OblienLogo";
 import SurfaceRoutes from "./SurfaceRoutes";
 import WindowShape from "./WindowShape";
-import HeatformArt from "./HeatformArt";
+import SiteIllustration from "../site/SiteIllustration";
 import styles from "./cloud-infrastructure.module.css";
 
 export default function CloudInfrastructure() {
@@ -50,7 +50,7 @@ export default function CloudInfrastructure() {
             </div>
           </div>
           <div className={styles.sourceArt} data-sprue="cloud-art">
-            <HeatformArt variant="cobalt" />
+            <SiteIllustration kind="cloud" />
           </div>
         </div>
         <div className={styles.machineBase} data-sprue="cloud-provider">

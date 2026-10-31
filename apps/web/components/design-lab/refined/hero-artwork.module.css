@@ -1,0 +1,64 @@
+.artwork {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.fallback,
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.fallback {
+  background: var(--hero-surface) var(--hero-position) center / cover no-repeat;
+  opacity: var(--hero-strength);
+  mask-image: linear-gradient(transparent 44%, #0003 66%, black 94%);
+}
+.artwork[data-hero-variant="layers"] .fallback {
+  mask-image: linear-gradient(transparent 58%, #0003 73%, black 95%);
+}
+.canvas {
+  display: block;
+  opacity: 0;
+}
+.artwork[data-renderer="webgl"] .canvas {
+  opacity: 1;
+}
+.motion {
+  position: absolute;
+  right: 22px;
+  bottom: 21px;
+  z-index: 4;
+  display: none;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #797d8b66;
+  border-radius: 50%;
+  background: #f8f7f366;
+  color: #3b4055;
+  pointer-events: auto;
+}
+.artwork[data-renderer="webgl"] .motion {
+  display: flex;
+}
+.motion:hover {
+  background: #f8f7f3cc;
+}
+@media (max-width: 639px) {
+  .motion {
+    right: 17px;
+    bottom: 16px;
+    width: 29px;
+    height: 29px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .artwork[data-renderer="webgl"] .motion {
+    display: none;
+  }
+}

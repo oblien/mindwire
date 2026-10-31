@@ -1,0 +1,36 @@
+{
+  "method": "Built-in image_gen tool",
+  "created": "2026-10-31",
+  "purpose": "Original abstract material textures for Mindwire",
+  "assets": [
+    {
+      "name": "identity-cobalt",
+      "output": "apps/web/public/images/design-lab/textures/identity-cobalt.webp",
+      "prompt": "Use case: stylized-concept. Asset type: original full-bleed abstract material texture for the premium Mindwire framework website. Create a landscape 3:2 macro material study, not a website mockup. A deep saturated ultramarine/cobalt blue field with one broad, beautifully irregular folded wave of pearlescent ivory and translucent periwinkle, a hairline edge of warm persimmon. Elegant flowing topography like layers of cast resin seen very close, subtle tactile micrograin and satin ridges, soft directional studio lighting and deep dimensional occlusion. Bold clean graphic composition, fine crisp boundaries, large readable shapes, art direction of a contemporary design studio. Composition fills every edge; the focal fold passes diagonally through the center and remains interesting when cropped to a square. Colors roughly cobalt #315bc8, deep ink blue, ivory #f4f2df, with very limited orange. No words, letters, logos, icons, borders, UI, objects, spheres, donuts, metallic loops, neon glow, stars, sparkles, generic gradient blob, or watermark. This is a tactile abstract surface, not a standalone object. High resolution."
+    },
+    {
+      "name": "context-citron",
+      "output": "apps/web/public/images/design-lab/textures/context-citron.webp",
+      "prompt": "Use case: stylized-concept. Asset type: original full-bleed abstract material texture for the premium Mindwire framework website. Create a landscape 3:2 macro material study, not a website mockup. A luminous soft citron and pale yellow-green surface with a flowing layered seam of dusty lilac, deep violet and creamy ivory through the middle. Curving overlapping layers of translucent cast resin and satin pigment, beautiful organic edge details and very fine material grain, physically convincing depth and soft directional studio lighting. Restrained premium editorial art direction; bold spacious shapes, not busy marbling. A generous pale citron field, the lilac seam meandering from lower-left to upper-right, strong enough to remain distinct when cropped square. Palette citron #dce99c, pale chartreuse, lilac #b6a2d3, violet #6d65a8 and warm ivory. Fill the image edge to edge with the material. No words, letters, logos, icons, borders, UI, standalone objects, spheres, donuts, metallic loops, neon glow, sparkles, generic gradient blob, or watermark. High resolution."
+    },
+    {
+      "name": "actions-ember",
+      "output": "apps/web/public/images/design-lab/textures/actions-ember.webp",
+      "prompt": "Use case: stylized-concept. Asset type: original full-bleed abstract material texture for the premium Mindwire framework website. Create a landscape 3:2 macro material study, not a website mockup. A rich burnt orange and vivid persimmon surface crossed by three broad smooth folded channels of pearl ivory, copper and a small note of deep blue. A strong sense of directional flow, like stretched layers of glossy cast pigment and soft translucent resin caught in motion. Fine satin microtexture, soft directional light, deep subtle shadow inside the folds, clean precise edges, sculptural material depth. Premium contemporary graphic art direction. Dominant warm oranges #d95a34 and #ef8c57, pale cream highlights; small cobalt accent, no rainbow. Large bold diagonal forms fill the frame and still read in a square crop. Not a photograph of any product. No words, letters, logos, icons, borders, UI, spheres, donuts, metallic loops, fire, flames, neon glow, stars, sparkles, generic gradient blob, or watermark. High resolution."
+    }
+  ],
+  "heroRefinements": [
+    {
+      "name": "ribbon-knot-satin-v2",
+      "reference": "apps/web/public/images/design-lab/sculpted/ribbon-knot.webp",
+      "output": "apps/web/public/images/design-lab/sculpted/ribbon-knot-satin-v2.webp",
+      "prompt": "Use case: style-transfer / precise-object-edit. Input image: the exact edit target, an original multicolored ribbon knot used on a premium framework website. Preserve its precise silhouette, geometry, all openings and overlaps, orientation, relative proportions, and full uncropped framing. Preserve the distribution of its cobalt blue, warm persimmon orange, pale champagne and muted lilac colors. Change only the quality of the material and surface rendering: replace the low-poly computer-rendered finish with exquisite smooth satin resin, finely brushed pearlescent microtexture, subtle natural streaks following the ribbon direction, controlled soft specular highlights, and realistic contact occlusion where the ribbons pass each other. Fine tactile detail, no coarse scratches or heavy noise. Sophisticated sculptural design photography lighting; still the same original shape, no redesign. Absolutely no added objects, extra loops, typography, logos, shadows on a floor, or framing elements. A clean fully transparent background with genuine alpha; do not add a white or colored backdrop. The whole shape stays visible with its current generous transparent margins. High resolution."
+    },
+    {
+      "name": "ribbon-loop-satin-v2",
+      "reference": "apps/web/public/images/design-lab/sculpted/ribbon-loop.webp",
+      "output": "apps/web/public/images/design-lab/sculpted/ribbon-loop-satin-v2.webp",
+      "prompt": "Use case: style-transfer / precise-object-edit. Input image: the exact edit target, an original single twisted ribbon loop used on a premium framework website. Preserve its precise silhouette, geometry, opening, orientation, relative proportions, and full uncropped framing. Preserve the distribution of cobalt blue, persimmon orange, pale champagne and muted lilac colors exactly as in the reference. Change only material quality and surface rendering: replace the low-poly computer-rendered finish with exquisite smooth satin resin, finely brushed pearlescent microtexture, very subtle natural streaks following the ribbon direction, controlled soft specular highlights, and realistic light and occlusion. Fine tactile detail, no coarse scratches or heavy noise. Sophisticated sculptural design photography lighting; still the same original single loop, no redesign. Absolutely no added objects, extra loops, typography, logos, shadows on a floor, or framing elements. A clean fully transparent background with genuine alpha; do not add a white or colored backdrop. The whole shape stays visible with its current generous transparent margins. High resolution."
+    }
+  ]
+}

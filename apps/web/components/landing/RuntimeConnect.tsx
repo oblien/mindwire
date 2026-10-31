@@ -28,12 +28,12 @@ const languages = [
   },
 ] as const;
 
-export default function RuntimeConnect() {
+export default function RuntimeConnect({ className = "" }: { className?: string }) {
   const [selected, setSelected] = useState(0);
   const id = useId();
   const current = languages[selected];
   return (
-    <div className={styles.connectionPanel} data-sprue="connect-code">
+    <div className={`${styles.connectionPanel} ${className}`} data-sprue="connect-code">
       <div
         className={styles.connectionTabs}
         role="tablist"

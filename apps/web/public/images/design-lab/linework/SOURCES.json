@@ -1,0 +1,54 @@
+{
+  "method": "Original code-drawn SVG illustrations",
+  "created": "2026-10-31",
+  "direction": "Fine ink contours, interrupted paths, sparse hatching, and smooth neutral surfaces. Controlled lilac, sage, butter, and apricot fields distinguish identity, context, and actions. Inspired by the visual language of the supplied references; all geometry is original.",
+  "assets": [
+    {
+      "name": "knowledge-map",
+      "concept": "Knowledge organized as a connected map",
+      "output": "apps/web/public/images/design-lab/linework/knowledge-map.svg"
+    },
+    {
+      "name": "tool-routes",
+      "concept": "A tool catalogue as branching action routes",
+      "output": "apps/web/public/images/design-lab/linework/tool-routes.svg"
+    },
+    {
+      "name": "interface-frames",
+      "concept": "An agent fitted within adaptable interface boundaries",
+      "output": "apps/web/public/images/design-lab/linework/interface-frames.svg"
+    },
+    {
+      "name": "product-frame",
+      "concept": "A clean product illustration with an integrated agent",
+      "output": "apps/web/public/images/design-lab/linework/product-frame.svg"
+    },
+    {
+      "name": "identity-system",
+      "concept": "A brand and interface kit with typography and palette",
+      "output": "apps/web/public/images/design-lab/linework/identity-system.svg"
+    },
+    {
+      "name": "context-sources",
+      "concept": "Source documents and connected references",
+      "output": "apps/web/public/images/design-lab/linework/context-sources.svg"
+    },
+    {
+      "name": "action-workflow",
+      "concept": "Tool call, human approval, and completed result",
+      "output": "apps/web/public/images/design-lab/linework/action-workflow.svg"
+    },
+    {
+      "name": "sdk-embed",
+      "concept": "An agent embedded into a product through code",
+      "output": "apps/web/public/images/design-lab/linework/sdk-embed.svg"
+    },
+    {
+      "name": "closing-weave",
+      "concept": "A woven orbital field of connected possibilities",
+      "output": "apps/web/public/images/design-lab/linework/closing-weave.svg"
+    }
+  ],
+  "generator": "apps/web/scripts/generate-refined-linework.mjs",
+  "motion": "Native CSS motion within the SVG: advancing dashed paths, traveling points, and a very slow six-degree drift in the closing weave. Static geometry is preserved for reduced motion."
+}

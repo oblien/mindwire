@@ -7,6 +7,6 @@ import type { ReactNode } from "react";
 // Children stay server-rendered (passed in as a prop), this wrapper only gates them.
 export default function HideOnDocs({ children, hideOnHome = false }: { children: ReactNode; hideOnHome?: boolean }) {
   const pathname = usePathname();
-  if (pathname?.startsWith("/docs") || (hideOnHome && pathname === "/")) return null;
+  if (pathname?.startsWith("/docs") || pathname?.startsWith("/design-lab") || (hideOnHome && pathname === "/")) return null;
   return <>{children}</>;
 }

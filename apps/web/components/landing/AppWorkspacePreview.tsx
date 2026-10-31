@@ -257,7 +257,6 @@ export default function AppWorkspacePreview() {
                 type="button"
                 className={styles.resultPreview}
                 onClick={() => preview.current?.showModal()}
-                aria-label="Preview the Fieldwork launch page"
               >
                 <img
                   src={photograph}

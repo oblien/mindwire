@@ -24,10 +24,14 @@ const links = [
 
 export default function FrameworkNav({
   interior = false,
+  className = "",
+  announcement = true,
 }: {
   interior?: boolean;
+  className?: string;
+  announcement?: boolean;
 }) {
-  const [notice, setNotice] = useState(true);
+  const [notice, setNotice] = useState(announcement);
   const [docked, setDocked] = useState(false);
   const [open, setOpen] = useState(false);
   const navRef = useRef<HTMLDivElement>(null);
@@ -78,7 +82,7 @@ export default function FrameworkNav({
   }, [open]);
   return (
     <header
-      className={styles.header}
+      className={`${styles.header} ${className}`}
       data-interior={interior}
       data-announcement={notice}
     >
@@ -103,6 +107,7 @@ export default function FrameworkNav({
       <div
         ref={navRef}
         className={styles.nav}
+        data-navigation="primary"
         data-docked={docked}
         data-open={open}
       >

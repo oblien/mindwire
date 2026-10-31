@@ -1,0 +1,944 @@
+.page {
+  --frame: 1320px;
+  --gutter: 54px;
+  --panel-gap: 22px;
+  --paper: #f8f7f3;
+  --surround: #e5e4df;
+  --ink: #1c1c1a;
+  --muted: #6b6a65;
+  --line: #ffffff25;
+  --display: "Mindwire Host", sans-serif;
+  --mono: "Mindwire Mono", monospace;
+  color: var(--ink);
+  background: var(--surround);
+  font-family: "Mindwire Display", sans-serif;
+  color-scheme: light;
+  overflow: clip;
+  padding: var(--panel-gap) var(--panel-gap) 0;
+  -webkit-font-smoothing: antialiased;
+}
+.page *,
+.page *::before,
+.page *::after {
+  box-sizing: border-box;
+}
+.page :where(h1, h2, h3, h4, p) {
+  margin: 0;
+}
+.page :is(button, input, textarea) {
+  font-family: inherit;
+}
+.page :is(a, button, input, textarea):focus-visible {
+  outline: 2px solid #4262cf;
+  outline-offset: 5px;
+}
+.page :is(section, [id]) {
+  scroll-margin-top: 30px;
+}
+.page :is(a, button) {
+  -webkit-tap-highlight-color: transparent;
+}
+.page button {
+  cursor: pointer;
+}
+.heroShell {
+  --hero-radius: 28px;
+  --cutout-height: clamp(38px, 7.6dvh, 58px);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 2 * var(--panel-gap));
+  min-height: 0;
+  max-width: 1560px;
+  margin-inline: auto;
+  background: var(--paper);
+  border-radius: var(--hero-radius);
+  overflow: hidden;
+}
+.header {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: clamp(16px, 4dvh, 30px) 45px;
+  gap: 30px;
+}
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 600 33px/1 var(--display);
+  letter-spacing: -0.055em;
+}
+.wordmark > svg {
+  width: 29px;
+  height: 29px;
+}
+.header nav {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  font-size: 14px;
+}
+.header nav > a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-block: 10px;
+}
+.header nav > a:hover {
+  color: #6b6a65;
+}
+.navSource {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  padding: 10px 0 10px 24px;
+  border-left: 1px solid #d2d1cb;
+}
+.hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding-bottom: var(--cutout-height);
+}
+.heroCopy {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  flex-shrink: 0;
+  padding: clamp(12px, 7.6dvh, 64px) 30px 0;
+}
+.hero h1 {
+  font: 510 clamp(42px, min(7.8vw, 15dvh), 120px)/0.99 var(--display);
+  letter-spacing: -0.059em;
+}
+.hero h1 > span {
+  color: #292926;
+}
+.heroCopy > p {
+  font-size: clamp(14px, 2.7dvh, 20px);
+  line-height: 1.55;
+  letter-spacing: -0.018em;
+  margin: clamp(14px, 4dvh, 31px) auto 0;
+  max-width: 655px;
+  color: #62625c;
+}
+.heroActions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 30px;
+  margin-top: clamp(16px, 3.8dvh, 29px);
+}
+.primary {
+  display: inline-flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 30px;
+  min-height: 54px;
+  padding: 7px 7px 7px 21px;
+  border-radius: 9px;
+  background: #242421;
+  color: #fffef9;
+  font-size: 15px;
+  font-weight: 500;
+  transition:
+    background 0.2s,
+    transform 0.2s;
+}
+.primary > svg {
+  box-sizing: content-box;
+  padding: 10px;
+  border-radius: 5px;
+  background: #44443e;
+  transition: background 0.2s;
+}
+.primary:hover {
+  background: #41413b;
+  transform: translateY(-2px);
+}
+.primary:hover > svg {
+  background: #606059;
+}
+.textLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  font-size: 15px;
+}
+.textLink > svg {
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+.textLink:hover > svg {
+  transform: translate(2px, -2px);
+}
+.heroBottom {
+  --join-radius: min(var(--hero-radius), calc(var(--cutout-height) / 2));
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 116px;
+  height: var(--cutout-height);
+  border-radius: var(--join-radius) var(--join-radius) 0 0;
+  background: var(--surround);
+  display: grid;
+  place-items: center;
+  z-index: 3;
+  padding-top: 7px;
+}
+.heroBottom::before,
+.heroBottom::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: var(--join-radius);
+  height: var(--join-radius);
+  pointer-events: none;
+}
+.heroBottom::before {
+  right: 100%;
+  background: radial-gradient(
+    circle at top left,
+    transparent calc(var(--join-radius) - 0.5px),
+    var(--surround) var(--join-radius)
+  );
+}
+.heroBottom::after {
+  left: 100%;
+  background: radial-gradient(
+    circle at top right,
+    transparent calc(var(--join-radius) - 0.5px),
+    var(--surround) var(--join-radius)
+  );
+}
+.heroBottom > a {
+  width: clamp(30px, 5.6dvh, 43px);
+  height: clamp(30px, 5.6dvh, 43px);
+  display: grid;
+  place-items: center;
+  border: 1px solid #b9b8b1;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+.heroBottom > a:hover {
+  background: var(--paper);
+}
+.agentRail {
+  max-width: var(--frame);
+  margin: var(--panel-gap) auto 0;
+  padding: 0 5px 33px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 30px;
+  border-bottom: 1px solid #c8c7bf;
+}
+.agentRail > p {
+  font-size: 15px;
+  line-height: 1.5;
+}
+.agentRail > p > span {
+  color: #626258;
+}
+.agentRail > div {
+  display: flex;
+  align-items: center;
+  gap: 47px;
+}
+.agentRail > div > a {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+.agentRail > div > a:hover {
+  opacity: 0.65;
+}
+.railLink {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+}
+.manifesto {
+  max-width: 1420px;
+  margin: auto;
+  padding: 112px 120px 130px;
+  position: relative;
+}
+.manifesto h2 {
+  font: 450 clamp(42px, 4.3vw, 65px)/1.1 var(--display);
+  letter-spacing: -0.043em;
+  max-width: 780px;
+  margin: auto;
+  text-align: center;
+}
+.manifesto h2 > span {
+  color: #7b7b73;
+}
+.manifesto > p {
+  max-width: 480px;
+  margin: 29px auto 0;
+  text-align: center;
+  font-size: 18px;
+  line-height: 1.65;
+  color: #5b5b54;
+}
+.manifestoSymbol {
+  position: absolute;
+  width: 125px;
+  height: 125px;
+  left: 26px;
+  top: 178px;
+  transform: rotate(-18deg);
+  color: #494a43;
+}
+.manifestoSymbol > svg {
+  width: 100%;
+  height: 100%;
+}
+.manifestoWire {
+  position: absolute;
+  bottom: -1px;
+  right: 14%;
+  width: 240px;
+  height: 97px;
+  fill: none;
+  stroke: #f8f7f3;
+  stroke-width: 2px;
+}
+.system {
+  max-width: 1560px;
+  margin-inline: auto;
+  border-radius: 30px;
+  overflow: clip;
+}
+.idea {
+  background: #151715;
+  color: #f3f3ed;
+  padding: 88px var(--gutter) 64px;
+}
+.ideaHeading {
+  display: flex;
+  justify-content: space-between;
+  gap: 50px;
+  align-items: end;
+  margin-bottom: 70px;
+}
+.ideaHeading h2 {
+  font: 450 clamp(42px, 4.8vw, 74px)/1.025 var(--display);
+  letter-spacing: -0.048em;
+}
+.ideaHeading h2 > span {
+  color: #a6aaa0;
+}
+.ideaHeading > p {
+  font-size: 17px;
+  color: #bdc2b7;
+  line-height: 1.65;
+  max-width: 285px;
+  flex-shrink: 0;
+  padding-bottom: 3px;
+}
+.showcase {
+  background: var(--paper);
+  padding: 95px var(--gutter) 68px;
+  position: relative;
+}
+.systemJoint {
+  position: absolute;
+  top: -25px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 50px;
+  width: 86px;
+  border-radius: 16px;
+  background: var(--paper);
+  display: grid;
+  place-items: center;
+}
+.systemJoint > svg {
+  width: 23px;
+  height: 23px;
+}
+.closing {
+  max-width: 1560px;
+  margin: auto;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  min-height: 620px;
+  border-radius: 30px;
+  background: #1d241f;
+  color: #f3f3e9;
+}
+.closingArt {
+  position: absolute;
+  left: -45px;
+  top: 50%;
+  width: min(60%, 820px);
+  aspect-ratio: 1;
+  transform: translateY(-50%);
+  z-index: -1;
+}
+.closingArt > svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.closingCopy {
+  margin-left: 53%;
+  padding: 83px 55px 83px 20px;
+}
+.closing h2 {
+  font: 450 clamp(80px, 7.8vw, 118px)/0.98 var(--display);
+  letter-spacing: -0.055em;
+}
+.closing p {
+  margin-top: 25px;
+  font-size: 19px;
+  line-height: 1.55;
+  color: #c2c8b9;
+}
+.closing .primary {
+  background: #eff1df;
+  color: #25291d;
+  margin-top: 30px;
+}
+.closing .primary > svg {
+  background: #dbdfc7;
+}
+.closing .primary:hover {
+  background: #fff;
+}
+.footer {
+  max-width: 1320px;
+  margin: auto;
+  padding: 65px 0 28px;
+}
+.footerTop {
+  display: flex;
+  align-items: start;
+  gap: 76px;
+}
+.footerTop > p {
+  font-size: 14px;
+  line-height: 1.75;
+  color: #65665c;
+}
+.footerTop > nav {
+  margin-left: auto;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 16px 34px;
+  font-size: 13px;
+}
+.footerTop > nav > a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.footerBottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #c5c6bb;
+  padding-top: 23px;
+  margin-top: 72px;
+  font-size: 11px;
+  color: #606254;
+}
+.footerBottom > a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+@media (max-width: 1199px) {
+  .page {
+    --gutter: 36px;
+    --panel-gap: 16px;
+  }
+  .header nav {
+    gap: 24px;
+    font-size: 13px;
+  }
+  .agentRail {
+    margin-inline: 22px;
+  }
+  .agentRail > div {
+    gap: 27px;
+  }
+  .agentRail > div > a {
+    font-size: 15px;
+  }
+  .agentRail > p {
+    font-size: 13px;
+  }
+  .railLink {
+    display: none;
+  }
+  .manifesto {
+    padding: 96px 60px 118px;
+  }
+  .manifestoSymbol {
+    width: 85px;
+    height: 85px;
+    left: 0;
+    top: 170px;
+  }
+  .ideaHeading {
+    gap: 30px;
+  }
+  .ideaHeading > p {
+    font-size: 15px;
+    max-width: 280px;
+  }
+  .footer {
+    margin-inline: 30px;
+  }
+  .closing {
+    min-height: 550px;
+  }
+  .closingArt {
+    left: -75px;
+  }
+  .closingCopy {
+    margin-left: 51%;
+    padding-right: 35px;
+  }
+  .footerTop {
+    gap: 40px;
+  }
+}
+@media (max-width: 899px) {
+  .header nav {
+    gap: 19px;
+  }
+  .navSource {
+    display: none;
+  }
+  .heroCopy > p {
+    max-width: 465px;
+  }
+  .agentRail {
+    gap: 20px;
+  }
+  .agentRail > div {
+    gap: 22px;
+    flex-wrap: wrap;
+    justify-content: end;
+  }
+  .agentRail > div > a {
+    font-size: 13px;
+    gap: 8px;
+  }
+  .agentRail > div > a > img,
+  .agentRail > div > a > span:first-child {
+    max-width: 23px;
+    max-height: 23px;
+  }
+  .agentRail > p {
+    min-width: 100px;
+  }
+  .manifestoSymbol {
+    left: 6px;
+    top: 176px;
+    width: 65px;
+    height: 65px;
+  }
+  .manifesto h2 {
+    font-size: 43px;
+  }
+  .manifesto > p {
+    font-size: 16px;
+  }
+  .idea {
+    padding-top: 64px;
+  }
+  .ideaHeading {
+    display: block;
+    margin-bottom: 45px;
+  }
+  .ideaHeading h2 {
+    font-size: 48px;
+  }
+  .ideaHeading > p {
+    font-size: 17px;
+    max-width: none;
+    margin-top: 24px;
+  }
+  .showcase {
+    padding-top: 75px;
+  }
+  .closing {
+    min-height: 490px;
+  }
+  .closing h2 {
+    font-size: 78px;
+  }
+  .closingArt {
+    left: -100px;
+  }
+  .closingCopy {
+    margin-left: 47%;
+    padding-top: 70px;
+    padding-left: 0;
+  }
+  .closing p {
+    font-size: 17px;
+  }
+  .footerTop {
+    flex-wrap: wrap;
+    gap: 30px;
+  }
+  .footerTop > p {
+    margin-left: auto;
+    font-size: 13px;
+  }
+  .footerTop > nav {
+    margin-left: 0;
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    gap: 20px;
+    margin-top: 20px;
+  }
+  .footerBottom {
+    margin-top: 35px;
+  }
+}
+@media (max-width: 639px) {
+  .page {
+    --gutter: 22px;
+    --panel-gap: 10px;
+  }
+  .heroShell {
+    --hero-radius: 20px;
+  }
+  .wordmark {
+    font-size: 29px;
+    gap: 7px;
+  }
+  .wordmark > svg {
+    width: 25px;
+    height: 25px;
+  }
+  .header nav {
+    gap: 0;
+  }
+  .header nav > a {
+    display: none;
+  }
+  .header nav > a:last-child {
+    display: flex;
+    font-size: 12px;
+    gap: 4px;
+  }
+  .heroCopy > p {
+    max-width: 335px;
+  }
+  .heroActions {
+    flex-direction: column;
+  }
+  .primary {
+    font-size: 14px;
+    min-height: 52px;
+    gap: 31px;
+  }
+  .textLink {
+    font-size: 14px;
+    gap: 14px;
+  }
+  .heroBottom > a > svg {
+    width: 19px;
+  }
+  .agentRail {
+    margin: var(--panel-gap) 14px 0;
+    padding: 0 0 29px;
+    display: block;
+  }
+  .agentRail > p {
+    font-size: 14px;
+    display: flex;
+    gap: 5px;
+  }
+  .agentRail > p > br {
+    display: none;
+  }
+  .agentRail > div {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    justify-content: start;
+    margin-top: 24px;
+    gap: 23px 25px;
+  }
+  .agentRail > div > a {
+    font-size: 15px;
+    gap: 10px;
+  }
+  .agentRail > div > a > img,
+  .agentRail > div > a > span:first-child {
+    max-width: 25px;
+    max-height: 25px;
+  }
+  .manifesto {
+    padding: 75px 17px 95px;
+  }
+  .manifesto h2 {
+    text-align: left;
+    font-size: 37px;
+    line-height: 1.11;
+    letter-spacing: -0.047em;
+  }
+  .manifesto > p {
+    text-align: left;
+    font-size: 16px;
+    margin-top: 25px;
+  }
+  .manifestoSymbol {
+    display: none;
+  }
+  .manifestoWire {
+    width: 130px;
+    height: 60px;
+    right: 17%;
+  }
+  .desktopBreak {
+    display: none;
+  }
+  .system {
+    border-radius: 22px;
+  }
+  .idea {
+    padding-top: 48px;
+    padding-bottom: 35px;
+  }
+  .ideaHeading {
+    margin-bottom: 35px;
+  }
+  .ideaHeading h2 {
+    font-size: clamp(28px, 8.2vw, 44px);
+    line-height: 1.08;
+  }
+  .ideaHeading > p {
+    font-size: 16px;
+    line-height: 1.65;
+    margin-top: 24px;
+  }
+  .ideaHeading > p > br {
+    display: none;
+  }
+  .showcase {
+    padding-top: 58px;
+    padding-bottom: 37px;
+  }
+  .systemJoint {
+    width: 70px;
+    height: 43px;
+    top: -21px;
+    border-radius: 14px;
+  }
+  .systemJoint > svg {
+    width: 21px;
+  }
+  .closing {
+    min-height: 720px;
+    border-radius: 22px;
+  }
+  .closingCopy {
+    margin: 0;
+    padding: 45px 28px 300px;
+    position: relative;
+    z-index: 1;
+  }
+  .closing h2 {
+    font-size: 73px;
+    line-height: 0.99;
+  }
+  .closing p {
+    font-size: 17px;
+    margin-top: 24px;
+  }
+  .closing .primary {
+    margin-top: 27px;
+  }
+  .closingArt {
+    width: min(125vw, 460px);
+    top: auto;
+    bottom: -130px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .footer {
+    margin-inline: 14px;
+    padding: 46px 0 24px;
+  }
+  .footerTop {
+    display: block;
+  }
+  .footerTop > p {
+    margin-top: 25px;
+    font-size: 14px;
+  }
+  .footerTop > nav {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px 20px;
+    font-size: 13px;
+    margin-top: 30px;
+  }
+  .footerBottom {
+    flex-wrap: wrap;
+    row-gap: 18px;
+    padding-top: 22px;
+    margin-top: 36px;
+    font-size: 10px;
+  }
+  .footerBottom > span:nth-child(2) {
+    width: 100%;
+    order: 3;
+  }
+}
+@media (max-width: 359px) {
+  .header {
+    padding-inline: 17px;
+  }
+  .header nav > a:last-child {
+    font-size: 10px;
+  }
+  .wordmark {
+    font-size: 26px;
+  }
+  .heroCopy > p {
+    padding-inline: 8px;
+  }
+  .manifesto h2 {
+    font-size: 32px;
+  }
+  .ideaHeading h2 {
+    font-size: 28px;
+  }
+  .closing h2 {
+    font-size: 65px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page *,
+  .page *::before,
+  .page *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 1199px) {
+  .header {
+    padding-inline: 30px;
+  }
+}
+@media (max-width: 639px) {
+  .header {
+    padding: clamp(13px, 2.8dvh, 24px) 20px;
+  }
+  .heroCopy {
+    padding: clamp(12px, 2.6dvh, 30px) 20px 0;
+  }
+  .hero h1 {
+    font-size: clamp(32px, min(11vw, 6dvh), 52px);
+    line-height: 1.035;
+    letter-spacing: -0.057em;
+  }
+  .heroCopy > p {
+    font-size: clamp(14px, 2dvh, 17px);
+    line-height: 1.55;
+    margin-top: clamp(14px, 2.5dvh, 27px);
+  }
+  .heroActions {
+    gap: clamp(12px, 2dvh, 23px);
+    margin-top: clamp(16px, 2.6dvh, 26px);
+  }
+  .hero .primary {
+    min-height: clamp(44px, 6.2dvh, 52px);
+  }
+  .heroBottom {
+    width: 96px;
+  }
+}
+@media (max-height: 620px) and (max-width: 639px) {
+  .heroActions {
+    flex-direction: row;
+    gap: 12px;
+  }
+  .hero .primary {
+    font-size: 12px;
+    gap: 10px;
+    padding-left: 14px;
+  }
+  .hero .primary > svg {
+    padding: 7px;
+  }
+  .hero .textLink {
+    font-size: 11px;
+    gap: 8px;
+  }
+  .hero .textLink > svg {
+    width: 14px;
+  }
+  .heroCopy {
+    padding-inline: 12px;
+  }
+}
+@media (max-height: 520px) {
+  .hero h1 {
+    font-size: clamp(32px, min(7.8vw, 12dvh), 62px);
+  }
+  .heroCopy {
+    padding-top: 8px;
+  }
+  .heroCopy > p {
+    font-size: 13px;
+    line-height: 1.45;
+    margin-top: 10px;
+  }
+  .heroActions {
+    margin-top: 12px;
+  }
+  .hero .primary {
+    min-height: 42px;
+  }
+}
+@media (max-height: 380px) {
+  .header {
+    padding-block: 8px;
+  }
+  .heroCopy {
+    padding-top: 2px;
+  }
+  .hero h1 {
+    font-size: clamp(28px, min(7.8vw, 10.6dvh), 40px);
+  }
+  .heroCopy > p {
+    font-size: 12px;
+    margin-top: 8px;
+  }
+  .heroActions {
+    margin-top: 8px;
+  }
+  .hero .primary {
+    min-height: 38px;
+    padding-block: 5px;
+  }
+  .hero .primary > svg {
+    padding: 7px;
+  }
+}

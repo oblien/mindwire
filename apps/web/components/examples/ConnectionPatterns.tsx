@@ -117,11 +117,6 @@ export default function ConnectionPatterns({
           <button
             className={styles.connectButton}
             type="button"
-            aria-label={
-              desktop
-                ? "Preview using an existing agent account"
-                : "Preview Continue with ChatGPT connection"
-            }
             onClick={() => setConnected(!connected)}
           >
             {connected

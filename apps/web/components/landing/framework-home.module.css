@@ -563,9 +563,10 @@
   position: absolute;
   inset: 0;
   background: radial-gradient(
-    ellipse 40% 35% at 50% 50%,
-    #0a0a0abf,
-    transparent
+    ellipse 58% 70% at 50% 48%,
+    #0a0a0acc 10%,
+    #0a0a0a88 48%,
+    transparent 100%
   );
 }
 .closingContent {

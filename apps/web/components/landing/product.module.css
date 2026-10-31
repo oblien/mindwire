@@ -28,7 +28,7 @@
 .sectionCopy h2 em,
 .centerHeading h2 em {
   font-style: normal;
-  color: var(--mw-peach);
+  color: inherit;
 }
 .sectionCopy > p {
   font-size: var(--site-body);
@@ -288,9 +288,10 @@
 }
 .sdkExample {
   min-width: 0;
-  border-radius: 16px;
-  background: #0a0a0a;
-  color: #fff;
+  border-radius: 20px;
+  border: 1px solid var(--mw-line);
+  background: var(--mw-subtle);
+  color: var(--mw-ink);
   overflow: clip;
   box-shadow: none;
 }
@@ -298,24 +299,27 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 7px 20px 0;
-  border-bottom: 1px solid #ffffff12;
+  padding: 8px;
+  border-bottom: 1px solid var(--mw-line);
+  background: var(--mw-surface);
 }
 .codeToolbar > div {
   display: flex;
-  gap: 18px;
+  gap: 4px;
 }
 .codeToolbar [role="tab"] {
-  padding: 10px 0 13px;
+  padding: 10px 13px;
   position: relative;
   font-size: 14px;
-  color: #aaa;
+  color: var(--mw-muted);
+  border-radius: 12px;
 }
 .codeToolbar [aria-selected="true"] {
-  color: #fff;
+  color: var(--mw-on-ink);
+  background: var(--mw-ink);
 }
 .codeToolbar [aria-selected="true"]::after {
-  content: "";
+  content: none;
   position: absolute;
   height: 2px;
   background: #fff;
@@ -338,18 +342,18 @@
   font-family: var(--font-mono), monospace;
 }
 .codePanel:focus-visible {
-  outline: 2px solid white;
+  outline: 2px solid var(--mw-focus);
   outline-offset: -4px;
   border-radius: 6px;
 }
 .codeKeyword {
-  color: #d1c4f5;
+  color: #795b79;
 }
 .codeString {
-  color: #e5e5b5;
+  color: #4d683c;
 }
 .codeComment {
-  color: #a4a4a4;
+  color: #6a7161;
 }
 .sdkCompact .codePanel {
   min-height: 0;

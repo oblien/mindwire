@@ -1,216 +1,31 @@
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
-import SurfaceRoutes from "./SurfaceRoutes";
-import WindowShape from "./WindowShape";
-import styles from "./architecture-diagram.module.css";
-
-const asset = (name: string) => `/images/framework/${name}.svg`;
-
-const inputs = [
-  {
-    key: "files",
-    anchor: "hiw-files",
-    label: "IN // KNOWLEDGE",
-    title: "Your files, knowledge & goals",
-    art: "files",
-    icon: "files-icon",
-  },
-  {
-    key: "website",
-    anchor: "hiw-web",
-    label: "IN // YOUR PRODUCT",
-    title: "Your interface. Your brand.",
-    art: "website",
-    icon: "website-icon",
-  },
-  {
-    key: "workspace",
-    anchor: "hiw-figma",
-    label: "IN // TOOLS & CONTEXT",
-    title: "Everything your agent needs",
-    art: "workspace",
-    icon: "workspace-icon",
-  },
-] as const;
-
-function DiagramInputs() {
-  return (
-    <div className={styles.sources} data-sprue="hiw-sources">
-      {inputs.map((input) => (
-        <div
-          key={input.key}
-          data-sprue={input.anchor}
-          className={`${styles.card} ${styles[input.key]}`}
-        >
-          <img
-            className={styles.art}
-            src={asset(input.art)}
-            alt=""
-            width={366}
-            height={216}
-            loading="lazy"
-          />
-          <div className={styles.cardHeading}>
-            <span className={styles.label}>{input.label}</span>
-            <h3>{input.title}</h3>
-            {input.key === "files" && (
-              <span className={styles.reading}>[READING FILES]</span>
-            )}
-          </div>
-          <img
-            className={styles.icon}
-            src={asset(input.icon)}
-            alt=""
-            width={40}
-            height={40}
-            loading="lazy"
-          />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function DiagramHub() {
-  return (
-    <div className={styles.hub}>
-      <img
-        className={styles.hubShape}
-        src={asset("hub")}
-        alt=""
-        width={239}
-        height={239}
-      />
-      <span className={styles.hubCaption}>
-        Their intelligence. Your product.
-      </span>
-      <span
-        className={styles.hubTop}
-        data-sprue="hiw-hub-top"
-        aria-hidden="true"
-      />
-      <span className={styles.hubBody} data-sprue="hiw-rb" aria-hidden="true" />
-      <span
-        className={styles.hubFoot}
-        data-sprue="hiw-hub-foot"
-        aria-hidden="true"
-      />
-      <img
-        className={styles.hubTicks}
-        src={asset("hub-ticks")}
-        alt=""
-        width={83}
-        height={7}
-      />
-      <span className={styles.hubMark} aria-hidden="true">
-        m.
-      </span>
-      <span className={styles.hubLabel}>MINDWIRE</span>
-    </div>
-  );
-}
-
-function DiagramOutputs() {
-  return (
-    <>
-      <Link
-        href="/docs/reference/agents/codex"
-        data-sprue="hiw-agents"
-        className={`${styles.card} ${styles.agents} ${styles.outputLink}`}
-      >
-        <img
-          className={styles.art}
-          src={asset("agents")}
-          alt="Claude, Cursor, Codex, ChatGPT, Gemini, and more"
-          width={366}
-          height={153}
-          loading="lazy"
-        />
-        <div className={styles.cardHeading}>
-          <span className={styles.label}>OUT // YOUR AGENT</span>
-          <h3>
-            The best brains, made yours <ArrowUpRight size={13} />
-          </h3>
-        </div>
-        <img
-          className={styles.icon}
-          src={asset("agents-icon")}
-          alt=""
-          width={40}
-          height={40}
-          loading="lazy"
-        />
-      </Link>
-      <div className={styles.product} data-sprue="hiw-product">
-        <Link
-          href="/sdk"
-          data-sprue="hiw-api"
-          className={`${styles.card} ${styles.api} ${styles.outputLink}`}
-        >
-          <img
-            className={styles.art}
-            src={asset("api")}
-            alt=""
-            width={366}
-            height={216}
-            loading="lazy"
-          />
-          <div className={styles.cardHeading}>
-            <span className={styles.label}>OUT // SDK & API</span>
-            <h3>
-              Embed it into your product <ArrowUpRight size={13} />
-            </h3>
-          </div>
-          <img
-            className={styles.icon}
-            src={asset("api-icon")}
-            alt=""
-            width={41}
-            height={37}
-            loading="lazy"
-          />
-          <div className={styles.terminal} aria-hidden="true">
-            <span className={styles.terminalStatus}>mindwire.ts</span>
-            <pre>
-              <code>{`const run = await mw.turn({\n  chatId: conversation.id,\n  message: user.message,\n});`}</code>
-            </pre>
-          </div>
-        </Link>
-        <p className={styles.workflow}>
-          Keep your product, tools, and brand.
-          <br />
-          Mindwire brings the agent layer.
-        </p>
-      </div>
-    </>
-  );
-}
+import { ArrowUpRight, Check, FileText, Layers, Plug, Sparkles } from "lucide-react";
+import { productAgents } from "@/lib/product";
+import AgentLogo from "../marketing/AgentLogo";
+import DiagramWires from "./DiagramWires";
+import styles from "./atelier-home.module.css";
 
 export default function ArchitectureDiagram() {
   return (
-    <section
-      id="how-it-works"
-      className={styles.frame}
-      aria-labelledby="architecture-title"
-    >
-      <WindowShape kind="diagram" color="var(--mw-inverse)" />
-      <SurfaceRoutes kind="diagram" className={styles.composition}>
-        <div className={styles.heading}>
-          <span className={styles.eyebrow}>HOW IT WORKS</span>
-          <h2 id="architecture-title">
-            Your product,
-            <br />
-            powered by agents.
-          </h2>
-          <p>
-            Mindwire connects the best agent harnesses to your tools, knowledge,
-            and interface. Your users ask. Your product delivers.
-          </p>
+    <section id="how-it-works" className={styles.pipeline} aria-labelledby="architecture-title">
+      <div className={styles.pipelineHeading}><div><span className={styles.eyebrow}>EVERYTHING, CONNECTED.</span><h2 id="architecture-title">Your world in.<br /><em>Possibility out.</em></h2></div><p>Mindwire brings the agent, your context, and your product together. Your users ask. Your product delivers.</p></div>
+      <DiagramWires className={styles.pipelineBoard}>
+        <div className={styles.pipelineSources} data-signal="sources">
+          <div data-signal="files" className={`${styles.inputCard} ${styles.knowledgeInput}`}><span><FileText size={15} /> YOUR KNOWLEDGE</span><h3>Everything<br />you know.</h3><p>Files, memory & context</p><img src="/images/atelier/knowledge.webp" alt="" width={1254} height={1254} loading="lazy" /></div>
+          <div data-signal="website" className={`${styles.inputCard} ${styles.productInput}`}><span><Layers size={15} /> YOUR PRODUCT</span><h3>Your look.<br />Your experience.</h3><div className={styles.miniProduct} aria-hidden="true"><span>your product <ArrowUpRight size={12} /></span><div><i /><i /><i /></div><small>What should we make?</small></div></div>
+          <div data-signal="workspace" className={`${styles.inputCard} ${styles.toolsInput}`}><span><Plug size={15} /> YOUR TOOLS</span><h3>Power to<br />get things done.</h3><p>Actions, services & APIs</p><img src="/images/atelier/tools.webp" alt="" width={1254} height={1254} loading="lazy" /></div>
         </div>
-        <DiagramInputs />
-        <DiagramHub />
-        <DiagramOutputs />
-      </SurfaceRoutes>
+        <div className={styles.pipelineCore}>
+          <span className={styles.coreCaption}>THE CONNECTION<br />THAT CHANGES EVERYTHING.</span>
+          <div data-signal="hub" className={styles.coreEngine}><div className={styles.coreRings} aria-hidden="true" /><img src="/images/atelier/core.webp" alt="" width={1254} height={1254} loading="lazy" /></div>
+          <strong>mindwire</strong><span>One agent layer. All yours.</span>
+        </div>
+        <div className={styles.pipelineOutputs}>
+          <div data-signal="agents" className={styles.agentOutput}><span className={styles.outputEyebrow}><Sparkles size={15} /> THE INTELLIGENCE</span><h3>The best brains.<br />On your side.</h3><div className={styles.agentGrid}>{productAgents.map(agent=><Link key={agent.id} href={agent.href}><span><AgentLogo agent={agent.id} size={27} surface="dark" /></span>{agent.id==='grok'?'Grok':agent.id==='claude'?'Claude':agent.name}</Link>)}</div></div>
+          <Link href="/sdk" data-signal="api" className={styles.productOutput}><span className={styles.outputEyebrow}>THE POSSIBILITIES <ArrowUpRight size={18} /></span><h3>Extraordinary work.<br />Inside your product.</h3><div className={styles.resultSheet}><div><span className={styles.resultMark}>f.</span><span>forma<small>Your creative workspace</small></span></div><p>Your launch page is ready.</p><span className={styles.resultImage}><img src="/images/atelier/core.webp" alt="" width={1254} height={1254} loading="lazy" /><span>GOOD<br />THINGS<br /><em>AHEAD.</em></span></span><span className={styles.resultDone}><Check size={14} /> Built around your brand</span></div></Link>
+        </div>
+      </DiagramWires>
+      <div className={styles.pipelineFoot}><span>Your interface. Your users. Your rules.</span><Link href="/docs/concepts/architecture">See what’s under the hood <ArrowUpRight size={17} /></Link></div>
     </section>
   );
 }

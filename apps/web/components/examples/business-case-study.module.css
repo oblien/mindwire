@@ -13,6 +13,8 @@
   position: relative;
   isolation: isolate;
   padding: 38px 42px 68px;
+  background: var(--mw-surface);
+  border-radius: 28px;
 }
 .heroMeta {
   display: flex;

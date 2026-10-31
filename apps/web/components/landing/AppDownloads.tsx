@@ -8,7 +8,7 @@ import {
 import { githubUrl, iosApp, macApp } from "@/lib/product";
 import SurfaceRoutes from "./SurfaceRoutes";
 import WindowShape from "./WindowShape";
-import HeatformArt from "./HeatformArt";
+import SiteIllustration from "@/components/site/SiteIllustration";
 import InstallBlock from "./InstallBlock";
 import app from "./app-framework.module.css";
 import styles from "./app-downloads.module.css";
@@ -37,7 +37,9 @@ export default function AppDownloads() {
         </div>
         <div className={styles.art} data-sprue="download-art">
           <WindowShape kind="diagram" />
-          <HeatformArt variant="bloom" className={styles.texture} />
+          <div className={styles.texture}>
+            <SiteIllustration kind="devices" />
+          </div>
         </div>
       </div>
 

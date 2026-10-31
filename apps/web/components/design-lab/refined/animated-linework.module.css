@@ -1,0 +1,70 @@
+.art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  color: #292c27;
+}
+.art [data-motion="trace"] {
+  animation: trace 26s linear infinite;
+}
+.art [data-motion="travel"] {
+  offset-rotate: 0deg;
+  animation: travel var(--travel-duration, 30s) linear infinite;
+}
+.art:not([data-linework="weave"]) [data-motion="travel"] {
+  animation:
+    travel var(--travel-duration, 30s) linear infinite,
+    arrival var(--travel-duration, 30s) linear infinite;
+}
+.art [data-motion="drift"] {
+  transform-origin: 200px 200px;
+  animation: drift 32s ease-in-out infinite;
+}
+.art[data-running="false"] [data-motion] {
+  animation-play-state: paused;
+}
+.art[data-running="true"] [data-motion] {
+  animation-play-state: running;
+}
+.art[data-linework="weave"] {
+  color: #e3e7d9;
+  stroke-width: 0.8;
+}
+@keyframes trace {
+  to {
+    stroke-dashoffset: var(--trace-shift, -32px);
+  }
+}
+@keyframes travel {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}
+@keyframes drift {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes arrival {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  8%,
+  92% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .art[data-linework] [data-motion] {
+    animation: none;
+  }
+}

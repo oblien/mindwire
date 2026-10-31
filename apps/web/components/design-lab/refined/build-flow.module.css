@@ -1,0 +1,701 @@
+.section {
+  max-width: 1320px;
+  margin-inline: auto;
+  padding-bottom: 100px;
+}
+.stage {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: auto auto;
+  align-items: start;
+  row-gap: 92px;
+  position: relative;
+  isolation: isolate;
+  padding-top: 90px;
+  padding-bottom: 30px;
+}
+.joins {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: -1;
+  fill: var(--paper);
+}
+.intro {
+  grid-column: 1 / 8;
+  grid-row: 1;
+  position: relative;
+  padding: 38px 40px 36px;
+  background: var(--paper);
+  border-radius: 26px 58px 26px 26px;
+}
+.intro h2 {
+  position: relative;
+  font: 450 clamp(39px, 3.75vw, 54px)/1.1 var(--display);
+  letter-spacing: -0.055em;
+}
+.intro > p {
+  position: relative;
+  color: #65665d;
+  font-size: 17px;
+  line-height: 1.6;
+  margin-top: 20px;
+  max-width: 420px;
+}
+.introArt {
+  position: absolute;
+  width: 155px;
+  height: 155px;
+  right: 23px;
+  top: 71px;
+  color: #373c32;
+}
+.introArt svg {
+  width: 100%;
+  height: 100%;
+}
+.actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  margin-top: 29px;
+}
+.start,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.start {
+  padding: 16px 21px;
+  border-radius: 40px;
+  background: #21231e;
+  color: #f8f7f3;
+}
+.start:hover {
+  background: #3e4434;
+}
+.secondary {
+  gap: 13px;
+}
+.secondary:hover {
+  color: #6c5269;
+}
+.actions svg,
+.links svg,
+.codeFooter svg {
+  transition: transform 0.2s;
+}
+.actions a:hover svg,
+.links a:hover svg,
+.codeFooter a:hover svg {
+  transform: translate(2px, -2px);
+}
+.connector {
+  position: relative;
+  grid-column: 1 / 3;
+  grid-row: 2;
+  margin-left: 20px;
+  margin-top: 140px;
+  aspect-ratio: 1.28;
+  background: var(--paper);
+  border-radius: 24px 42px 24px 24px;
+  display: grid;
+  place-items: center;
+}
+.connector > svg {
+  position: absolute;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+}
+.sdk {
+  grid-column: 4 / -1;
+  grid-row: 2;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 26px;
+  background: var(--paper);
+}
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 20px;
+  background: #edece7;
+}
+.tabs > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 43px;
+  padding: 11px 20px;
+  border: 0;
+  border-radius: 15px;
+  background: transparent;
+  color: #61645c;
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition:
+    background 0.18s,
+    color 0.18s;
+}
+.tabs > button:hover {
+  color: #242720;
+  background: #e3e2db;
+}
+.tabs > button[aria-selected="true"] {
+  background: #242720;
+  color: #f8f7f3;
+}
+.tabs > button:focus-visible {
+  outline-offset: 2px;
+}
+.languageMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  font: 600 12px/1 var(--mono);
+  letter-spacing: -0.07em;
+}
+.languageMark[data-language="typescript"] {
+  height: 19px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 10px;
+  padding: 2px;
+}
+.languageMark[data-language="go"] {
+  font-style: italic;
+  font-size: 15px;
+}
+.tabNote {
+  margin-left: auto;
+  padding-right: 17px;
+  color: #686c61;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.instructions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.7fr);
+  gap: 22px 28px;
+  padding: 28px 24px 16px;
+  outline-offset: 3px;
+}
+.setup,
+.example {
+  min-width: 0;
+}
+.setup > .setupCopy {
+  max-width: 240px;
+  margin-top: 18px;
+  color: #6a6e63;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.setupGuide {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 20px;
+  font-size: 12px;
+  color: #414a37;
+}
+.setupGuide:hover {
+  color: #75576e;
+}
+.stepHeading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.stepHeading h3 {
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 450;
+  letter-spacing: -0.01em;
+}
+.stepNumber {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  flex-shrink: 0;
+  border: 1px solid #d9dbd0;
+  border-radius: 50%;
+  color: #60675a;
+  font: 10px/1 var(--mono);
+}
+.install {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 49px;
+  margin: 20px 0 0;
+  padding: 8px 9px 8px 12px;
+  border: 1px solid #dedfd6;
+  border-radius: 10px;
+  background: #eff0e9;
+}
+.prompt {
+  color: #717968;
+  font: 13px/1 var(--mono);
+}
+.install > code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  font: 12px/1.8 var(--mono);
+  color: #3c4535;
+  scrollbar-width: thin;
+  white-space: nowrap;
+}
+.install > span:last-child {
+  flex-shrink: 0;
+}
+.install button,
+.editorHeader button {
+  color: #62695a;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+.install button:hover,
+.editorHeader button:hover {
+  color: #242720;
+  background: #e1e4d9;
+}
+.editor {
+  margin: 18px 0 0;
+  border: 1px solid #ddded5;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f0efea;
+}
+.editorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 40px;
+  padding: 5px 12px 5px 16px;
+  border-bottom: 1px solid #ddded5;
+  background: #f5f4ef;
+}
+.editorHeader > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #666b5d;
+  font: 11px/1.5 var(--mono);
+}
+.editorHeader button {
+  height: 26px;
+}
+.code {
+  margin: 0;
+  min-height: 263px;
+  padding: 15px 17px 16px 0;
+  color: #32392e;
+  font: 12px/21px var(--mono);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  tab-size: 2;
+}
+.codeLine {
+  display: flex;
+}
+.code:focus-visible,
+.install > code:focus-visible {
+  outline: 2px solid #806879;
+  outline-offset: -2px;
+}
+.lineNumber {
+  width: 41px;
+  flex-shrink: 0;
+  padding-right: 15px;
+  color: #7b8172;
+  text-align: right;
+  user-select: none;
+}
+.codeLine > span:last-child {
+  flex: 1;
+}
+.code [data-token="keyword"] {
+  color: #7d5878;
+}
+.code [data-token="string"] {
+  color: #546e3e;
+}
+.code [data-token="comment"] {
+  color: #747769;
+}
+.codeFooter {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #ddded5;
+  font-size: 11px;
+  line-height: 1.55;
+  color: #686d60;
+}
+.codeFooter p {
+  max-width: 620px;
+}
+.codeFooter a {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+  color: #383f31;
+}
+.links {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 35px;
+  margin-top: 25px;
+}
+.links > a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-block: 19px;
+  border-bottom: 1px solid #c2c3b8;
+  font-size: 14px;
+}
+.links svg {
+  flex-shrink: 0;
+}
+@media (max-width: 1399px) {
+  .section {
+    margin-inline: 22px;
+  }
+  .intro {
+    padding: 34px 32px;
+  }
+  .introArt {
+    width: 130px;
+    height: 130px;
+    right: 16px;
+    top: 81px;
+  }
+  .intro > p {
+    font-size: 16px;
+    max-width: 370px;
+  }
+  .actions {
+    gap: 22px;
+  }
+}
+@media (min-width: 960px) and (max-width: 1199px) {
+  .section {
+    margin-inline: 14px;
+  }
+  .intro {
+    grid-column: 1 / 9;
+    padding: 32px;
+  }
+  .intro h2 {
+    font-size: 42px;
+  }
+  .introArt {
+    right: 16px;
+    top: 73px;
+  }
+  .sdk {
+    grid-column: 4 / -1;
+  }
+  .connector {
+    grid-column: 1 / 3;
+    margin-left: 15px;
+    margin-top: 160px;
+  }
+  .tabNote {
+    display: none;
+  }
+  .instructions {
+    padding-inline: 19px;
+    column-gap: 20px;
+  }
+  .tabs > button {
+    flex: 1;
+    padding-inline: 15px;
+  }
+  .links {
+    gap: 24px;
+  }
+  .links > a {
+    font-size: 13px;
+  }
+}
+@media (max-width: 959px) {
+  .section {
+    margin-inline: 14px;
+    padding-bottom: 78px;
+  }
+  .stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 58px;
+    padding-top: 75px;
+    padding-bottom: 25px;
+  }
+  .intro {
+    width: 92%;
+    align-self: start;
+    padding: 35px;
+  }
+  .intro h2 {
+    font-size: clamp(40px, 6vw, 50px);
+  }
+  .intro > p {
+    max-width: 380px;
+  }
+  .introArt {
+    width: 125px;
+    height: 125px;
+    right: 16px;
+    top: 78px;
+  }
+  .connector {
+    width: 190px;
+    height: 145px;
+    aspect-ratio: auto;
+    margin: 0;
+  }
+  .sdk {
+    width: 96%;
+    align-self: end;
+  }
+  .instructions {
+    grid-template-columns: 1fr;
+    row-gap: 26px;
+  }
+  .setup > .setupCopy {
+    max-width: none;
+    margin-top: 12px;
+  }
+  .install {
+    margin-top: 14px;
+  }
+  .setupGuide {
+    margin-top: 13px;
+  }
+  .tabNote {
+    display: none;
+  }
+  .tabs > button {
+    flex: 1;
+  }
+  .links {
+    gap: 23px;
+  }
+  .links > a {
+    font-size: 12px;
+    gap: 8px;
+    align-items: start;
+    line-height: 1.6;
+  }
+}
+@media (max-width: 639px) {
+  .section {
+    margin-inline: 0;
+    padding-bottom: 60px;
+  }
+  .stage {
+    gap: 46px;
+    padding-top: 65px;
+  }
+  .intro {
+    width: 100%;
+    padding: 29px 25px 26px;
+    border-radius: 23px 46px 23px 23px;
+  }
+  .intro h2 {
+    max-width: 260px;
+    font-size: 43px;
+    line-height: 1.06;
+    padding-right: 38px;
+  }
+  .intro > p {
+    max-width: 270px;
+    margin-top: 24px;
+    font-size: 15px;
+  }
+  .intro > p br {
+    display: none;
+  }
+  .introArt {
+    width: 112px;
+    height: 112px;
+    right: 9px;
+    top: 19px;
+    opacity: 0.8;
+  }
+  .actions {
+    flex-wrap: wrap;
+    gap: 18px 22px;
+    margin-top: 25px;
+  }
+  .start,
+  .secondary {
+    font-size: 12px;
+    gap: 12px;
+  }
+  .start {
+    padding: 14px 18px;
+  }
+  .secondary {
+    min-height: 36px;
+  }
+  .connector {
+    width: 174px;
+    height: 137px;
+  }
+  .sdk {
+    width: 100%;
+    border-radius: 22px;
+    padding: 6px;
+  }
+  .tabs {
+    gap: 1px;
+    padding: 4px;
+    border-radius: 17px;
+  }
+  .tabs > button {
+    min-height: 43px;
+    padding: 10px 9px;
+    gap: 7px;
+    font-size: 12px;
+    border-radius: 13px;
+  }
+  .languageMark {
+    min-width: 17px;
+    font-size: 11px;
+  }
+  .languageMark[data-language="typescript"] {
+    height: 17px;
+    font-size: 9px;
+  }
+  .languageMark[data-language="go"] {
+    font-size: 13px;
+  }
+  .instructions {
+    padding: 22px 13px 14px;
+    row-gap: 24px;
+  }
+  .stepHeading {
+    gap: 10px;
+    align-items: start;
+  }
+  .stepHeading h3 {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .stepNumber {
+    width: 22px;
+    height: 22px;
+    margin-top: 1px;
+    font-size: 9px;
+  }
+  .install {
+    margin: 12px 0 0;
+    gap: 9px;
+    padding: 8px 8px 8px 12px;
+  }
+  .install > code {
+    font-size: 11px;
+  }
+  .editor {
+    margin: 12px 0 0;
+  }
+  .code {
+    font-size: 10.5px;
+    line-height: 20px;
+    min-height: 251px;
+  }
+  .lineNumber {
+    width: 30px;
+    padding-right: 10px;
+    font-size: 9px;
+  }
+  .editorHeader {
+    padding-left: 12px;
+  }
+  .editorHeader > span:first-child {
+    font-size: 10px;
+  }
+  .codeFooter {
+    margin: 0;
+    align-items: start;
+    gap: 13px;
+    font-size: 10px;
+  }
+  .codeFooter p {
+    max-width: 210px;
+  }
+  .codeFooter a {
+    gap: 5px;
+  }
+  .links {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-top: 10px;
+  }
+  .links > a {
+    font-size: 13px;
+    padding-block: 17px;
+  }
+}
+@media (max-width: 359px) {
+  .intro {
+    padding-inline: 22px;
+  }
+  .intro h2 {
+    font-size: 38px;
+    max-width: 210px;
+  }
+  .introArt {
+    width: 95px;
+    height: 95px;
+    right: 4px;
+    top: 18px;
+  }
+  .tabs > button {
+    padding-inline: 7px;
+    gap: 5px;
+    font-size: 11px;
+  }
+  .codeFooter {
+    flex-direction: column;
+  }
+  .codeFooter p {
+    max-width: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .actions svg,
+  .links svg,
+  .codeFooter svg,
+  .tabs > button {
+    transition: none;
+  }
+}

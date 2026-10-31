@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSearchContext } from "fumadocs-ui/contexts/search";
 import { ArrowUpRight, Search } from "lucide-react";
 import { FrameworkWordmark } from "./landing/FrameworkNav";
-import LandingNav from "./landing/LandingNav";
+import SiteNav from "./site/SiteNav";
 import ThemeToggle from "./ThemeToggle";
 import { consoleUrl } from "@/lib/console-url";
 import styles from "./docs-nav.module.css";
@@ -13,8 +13,8 @@ import styles from "./docs-nav.module.css";
 export default function Nav() {
   const pathname = usePathname();
   const { setOpenSearch } = useSearchContext();
-  if (pathname === "/") return null;
-  if (!pathname?.startsWith("/docs")) return <LandingNav />;
+  if (pathname === "/" || pathname?.startsWith("/design-lab")) return null;
+  if (!pathname?.startsWith("/docs")) return <SiteNav />;
 
   return (
     <header className={styles.header}>
