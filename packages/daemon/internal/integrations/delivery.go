@@ -21,6 +21,10 @@ type rateLimit struct{ after time.Duration }
 
 func (e rateLimit) Error() string { return "provider rate limit; retry later" }
 
+type providerHTTPError struct{ status, code int }
+
+func (e providerHTTPError) Error() string { return fmt.Sprintf("provider returned HTTP %d", e.status) }
+
 // request deliberately returns provider error codes, never raw bodies or URLs:
 // Telegram URLs and Discord interaction URLs contain credentials.
 func (s *Service) request(ctx context.Context, method, endpoint, token string, payload any) (map[string]json.RawMessage, error) {
@@ -50,7 +54,7 @@ func (s *Service) request(ctx context.Context, method, endpoint, token string, p
 			return nil, errors.New("could not read provider response")
 		}
 		var result map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &result); err != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if err := json.Unmarshal(raw, &result); len(bytes.TrimSpace(raw)) > 0 && err != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil, errors.New("provider returned an invalid JSON response")
 		}
 		if resp.StatusCode == 429 {
@@ -94,7 +98,9 @@ func (s *Service) request(ctx context.Context, method, endpoint, token string, p
 			continue
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return nil, fmt.Errorf("provider returned HTTP %d", resp.StatusCode)
+			var code int
+			_ = json.Unmarshal(result["code"], &code)
+			return nil, providerHTTPError{status: resp.StatusCode, code: code}
 		}
 		var ok bool
 		if value, exists := result["ok"]; exists && json.Unmarshal(value, &ok) == nil && !ok {
@@ -168,6 +174,9 @@ func (s *Service) reply(ctx context.Context, c savedConnection, e *envelope, tex
 				endpoint = "https://slack.com/api/chat.postEphemeral"
 				payload["user"] = e.UserID
 				payload["mrkdwn"] = false
+				if e.ThreadID != "" {
+					payload["thread_ts"] = e.ThreadID
+				}
 			} else if messageID != "" {
 				endpoint = "https://slack.com/api/chat.update"
 				payload["ts"] = messageID
@@ -176,7 +185,11 @@ func (s *Service) reply(ctx context.Context, c savedConnection, e *envelope, tex
 			}
 			result, err = s.request(ctx, "POST", endpoint, "Bearer "+c.Secrets.BotToken, payload)
 			if err == nil && i == 0 {
-				_ = json.Unmarshal(result["ts"], &e.MessageID)
+				if c.Dispatch == "host" {
+					_ = json.Unmarshal(result["message_ts"], &e.MessageID)
+				} else {
+					_ = json.Unmarshal(result["ts"], &e.MessageID)
+				}
 			}
 		case "telegram":
 			method := "sendMessage"

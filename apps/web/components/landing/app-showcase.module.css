@@ -116,8 +116,9 @@
 }
 .wordmark {
   font-family: var(--font-graphic);
-  font-size: 18px;
-  letter-spacing: -0.04em;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.065em;
 }
 .workspaceBar > span:last-child {
   font-size: 14px;

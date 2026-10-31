@@ -96,6 +96,7 @@ const DEFAULT_RUNTIME_IMAGE = "node:24-bookworm";
 
 interface DuplexLike {
   on(event: string, listener: (...args: unknown[]) => void): DuplexLike;
+  destroy?(): void;
 }
 
 interface ExecLike {
@@ -120,11 +121,18 @@ interface ContainerLike {
 }
 
 export interface DockerodeLike {
-  modem: { followProgress(stream: DuplexLike, done: (error: Error | null, output?: Array<{ error?: string; errorDetail?: { message?: string } }>) => void): void };
+  modem: { followProgress(stream: DuplexLike, done: (error: Error | null, output?: DockerProgress[]) => void, progress?: (event: DockerProgress) => void): void };
   getContainer(id: string): ContainerLike;
   getImage(name: string): { inspect(): Promise<unknown> };
   pull(name: string): Promise<DuplexLike>;
   createContainer(opts: Record<string, unknown>): Promise<ContainerLike>;
+}
+
+interface DockerProgress {
+  error?: string;
+  errorDetail?: { message?: string };
+  status?: string;
+  progressDetail?: { current?: number; total?: number };
 }
 
 type DockerodeCtor = new (opts?: unknown) => DockerodeLike;
@@ -139,7 +147,7 @@ type DockerodeCtor = new (opts?: unknown) => DockerodeLike;
 class DockerHost implements SandboxHost {
   constructor(private readonly container: ContainerLike) {}
 
-  async exec(argv: string[]): Promise<{ exitCode?: number; stdout?: string; stderr?: string }> {
+  async exec(argv: string[], opts?: { timeoutSeconds?: number }): Promise<{ exitCode?: number; stdout?: string; stderr?: string }> {
     const { Writable } = await import("node:stream");
     const exec = await this.container.exec({ Cmd: argv, Env: ["MINDWIRE_ISOLATION=container"], AttachStdout: true, AttachStderr: true });
     const stream = await exec.start({ hijack: true, stdin: false });
@@ -156,9 +164,18 @@ class DockerHost implements SandboxHost {
     this.container.modem.demuxStream(stream, sink(out), sink(err));
 
     await new Promise<void>((resolve, reject) => {
-      stream.on("end", () => resolve());
-      stream.on("close", () => resolve());
-      stream.on("error", (e: unknown) => reject(e instanceof Error ? e : new Error(String(e))));
+      const timer = setTimeout(() => {
+        reject(new MindwireError("mindwire: Docker command timed out during sandbox preparation"));
+        stream.destroy?.();
+      }, (opts?.timeoutSeconds ?? 60) * 1000);
+      const done = (error?: unknown) => {
+        clearTimeout(timer);
+        if (error) reject(error instanceof Error ? error : new Error(String(error)));
+        else resolve();
+      };
+      stream.on("end", () => done());
+      stream.on("close", () => done());
+      stream.on("error", done);
     });
 
     const info = await exec.inspect();
@@ -208,6 +225,9 @@ export async function provisionDocker(
   const agent = config.agent ?? DEFAULT_AGENT;
   const agentCwd = config.agentCwd ?? DEFAULT_AGENT_CWD;
   const created = config.container === undefined;
+  const emit = (phase: EnsureEvent['phase'], message: string, error?: string) => {
+    try { onLog?.({ phase, target: 'docker', message, ...(error ? { error } : {}) }); } catch { /* Observer only. */ }
+  };
 
   // 1. Create or attach.
   let container: ContainerLike;
@@ -217,6 +237,7 @@ export async function provisionDocker(
     const image = config.image ?? DEFAULT_RUNTIME_IMAGE;
     await ensureImage(docker, image, config.pull ?? "missing", onLog);
     const portKey = `${port}/tcp`;
+    emit('provision', 'creating container');
     container = await docker.createContainer({
       // Keep the default base container alive while the shared binary installer bootstraps it.
       // A custom image retains its own entrypoint and command.
@@ -231,7 +252,17 @@ export async function provisionDocker(
   }
 
   // 2. Start (idempotent — tolerate an already-running container).
-  await container.start().catch(() => {});
+  emit('provision', 'starting container');
+  try {
+    await container.start();
+  } catch (error) {
+    // Only 304 means "already started". Never hide a real Docker failure behind readiness polling.
+    if ((error as { statusCode?: number }).statusCode !== 304) {
+      emit('error', 'container could not start', error instanceof Error ? error.message : String(error));
+      if (created) await container.remove({ force: true }).catch(() => {});
+      throw error;
+    }
+  }
 
   // 3. Resolve the published ephemeral host port.
   const info = await container.inspect();
@@ -291,8 +322,9 @@ async function ensureImage(
     try {
       await docker.getImage(image).inspect();
       return;
-    } catch {
+    } catch (error) {
       // Docker's 404 is expected here: pull before create rather than surfacing an opaque create error.
+      if ((error as { statusCode?: number }).statusCode !== 404) throw error;
     }
   }
   emit(`pulling runtime image ${image}`);
@@ -301,11 +333,20 @@ async function ensureImage(
     await new Promise<void>((resolve, reject) => {
       // Docker's progress stream must be consumed; just waiting for end can hang on a full buffer.
       // The client's parser also reports registry failures delivered inside otherwise successful HTTP streams.
+      let previous = '';
       docker.modem.followProgress(stream, (error, output) => {
         if (error) { reject(error); return; }
         const failure = output?.find(frame => frame.error || frame.errorDetail?.message);
         if (failure) reject(new Error(failure.error ?? failure.errorDetail!.message));
         else resolve();
+      }, event => {
+        if (!event.status) return;
+        const detail = event.progressDetail;
+        const percent = detail?.total && detail.current !== undefined ? Math.floor(detail.current / detail.total * 10) * 10 : undefined;
+        const status = `${event.status}${percent === undefined ? '' : ` ${percent}%`}`;
+        if (status === previous) return;
+        previous = status;
+        emit(`pulling runtime image ${image}: ${status}`);
       });
     });
     emit(`runtime image ready: ${image}`);

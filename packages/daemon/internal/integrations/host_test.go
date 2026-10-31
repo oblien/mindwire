@@ -1,7 +1,9 @@
 package integrations
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -125,5 +127,41 @@ func TestHostClaimRetiresDisallowedQueueEntries(t *testing.T) {
 	}
 	if f.runtime.count() != 0 {
 		t.Fatal("host dispatch invoked AI")
+	}
+}
+
+// Hosted assistants retain the verified thread and sender; a private response
+// must never fall back to channel-wide chat.postMessage.
+func TestHostSlackThreadUsesEphemeralReceipt(t *testing.T) {
+	f := newFixture(t)
+	spec := f.spec("slack")
+	spec.Dispatch, spec.BotID, spec.Mode = "host", "", "chat"
+	c, err := f.s.Save("", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := f.s.load(c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.s.http.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/api/chat.postEphemeral" {
+			t.Fatal("private reply used a public endpoint", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["thread_ts"] != "123.456" || body["user"] != "200" || body["channel"] != "100" {
+			t.Fatal("lost verified reply context", body)
+		}
+		return response(200, `{"ok":true,"message_ts":"789.012"}`), nil
+	})
+	e := &envelope{Receipt: Receipt{ChannelID: "100", UserID: "200"}, Workspace: spec.WorkspaceID, ThreadID: "123.456"}
+	if err := f.s.reply(context.Background(), saved, e, "Your assistant reply"); err != nil {
+		t.Fatal(err)
+	}
+	if e.MessageID != "789.012" {
+		t.Fatal("wrong Slack receipt", e.MessageID)
 	}
 }

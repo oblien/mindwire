@@ -6,10 +6,19 @@ import (
 	"github.com/oblien/mindwire/packages/daemon/internal/agent"
 )
 
-const Version = 2
+const Version = 4
+
+// CommandDefinition describes discoverable commands; it never grants execution access.
+// The host supplies its catalog and receives the same normalized text for every transport.
+type CommandDefinition struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Argument    string `json:"argument,omitempty"`
+}
 
 type Credentials struct {
 	BotToken      string `json:"botToken,omitempty"`
+	AppToken      string `json:"appToken,omitempty"` // Slack Socket Mode, connections:write
 	SigningSecret string `json:"signingSecret,omitempty"`
 	WebhookSecret string `json:"webhookSecret,omitempty"`
 	PublicKey     string `json:"publicKey,omitempty"`
@@ -19,37 +28,46 @@ type Credentials struct {
 // Spec is a complete configuration. Credentials are write-only; omitted fields
 // preserve existing credentials on update. Revision prevents concurrent overwrites.
 type Spec struct {
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	BotID    string `json:"botId"`
+	Name      string `json:"name"`
+	Provider  string `json:"provider"`
+	Transport string `json:"transport,omitempty"` // empty/webhook or outbound
+	BotID     string `json:"botId"`
 	// Host dispatch lets an embedding application handle verified messages without an agent.
-	Dispatch         string            `json:"dispatch,omitempty"` // empty/bot or host
-	Mode             string            `json:"mode"`
-	Enabled          bool              `json:"enabled"`
-	ChannelIDs       []string          `json:"channelIds"`
-	UserIDs          []string          `json:"userIds,omitempty"`
-	WorkspaceID      string            `json:"workspaceId,omitempty"` // Slack team, Discord guild, Teams tenant
-	ApplicationID    string            `json:"applicationId,omitempty"`
-	Command          string            `json:"command,omitempty"`
-	Notify           bool              `json:"notify"`
-	Conditions       []agent.Condition `json:"conditions,omitempty"`
-	Destination      string            `json:"destination,omitempty"`
-	ServiceURL       string            `json:"serviceUrl,omitempty"` // Teams connector, owner-configured
-	ExpectedRevision int64             `json:"expectedRevision,omitempty"`
-	Credentials      *Credentials      `json:"credentials,omitempty"`
+	Dispatch         string              `json:"dispatch,omitempty"` // empty/bot or host
+	Mode             string              `json:"mode"`
+	Enabled          bool                `json:"enabled"`
+	ChannelIDs       []string            `json:"channelIds"`
+	UserIDs          []string            `json:"userIds,omitempty"`
+	WorkspaceID      string              `json:"workspaceId,omitempty"` // Slack team, Discord guild, Teams tenant
+	ApplicationID    string              `json:"applicationId,omitempty"`
+	Command          string              `json:"command,omitempty"`
+	Commands         []CommandDefinition `json:"commands,omitempty"`
+	Notify           bool                `json:"notify"`
+	Conditions       []agent.Condition   `json:"conditions,omitempty"`
+	Destination      string              `json:"destination,omitempty"`
+	ServiceURL       string              `json:"serviceUrl,omitempty"` // Teams connector, owner-configured
+	ExpectedRevision int64               `json:"expectedRevision,omitempty"`
+	Credentials      *Credentials        `json:"credentials,omitempty"`
 }
 
 type Connection struct {
 	ID       string `json:"id"`
 	Revision int64  `json:"revision"`
 	Spec
-	HasCredentials bool   `json:"hasCredentials"`
-	WebhookPath    string `json:"webhookPath"`
+	HasCredentials bool            `json:"hasCredentials"`
+	WebhookPath    string          `json:"webhookPath"`
+	Receiver       *ReceiverStatus `json:"receiver,omitempty"`
+}
+
+type ReceiverStatus struct {
+	State string `json:"state"`
+	Error string `json:"error,omitempty"`
 }
 
 type savedConnection struct {
 	Connection
-	Secrets Credentials `json:"secrets"`
+	Secrets     Credentials `json:"secrets"`
+	BotUsername string      `json:"botUsername,omitempty"`
 }
 
 type Receipt struct {
@@ -77,6 +95,8 @@ type envelope struct {
 	HostLeaseUntil   int64   `json:"hostLeaseUntil,omitempty"`
 	HostRevision     int64   `json:"hostRevision,omitempty"`
 	HostReply        *string `json:"hostReply,omitempty"`
+	AwaitingAck      bool    `json:"awaitingAck,omitempty"`
+	ProviderEventID  string  `json:"providerEventId,omitempty"`
 }
 
 // HostEvent contains only verified sender context. Provider credentials and reply tokens stay private.

@@ -359,11 +359,15 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 				} // let the API use its recorded stream on malformed native data
 				if !modern && curAsst >= 0 && n.rawType != "userMessage" && n.Kind != kindIgnored && n.Kind != kindCompaction {
 					// Canonical completed items replace duplicate response_item activity for this turn.
-					// Keep diagnostic events: they are not restated in the item snapshots.
+					// Diagnostics and Code Mode orchestration are not restated in item
+					// snapshots. Preserve them while replacing duplicate native activity.
 					var feedback []agent.Part
 					for _, part := range out[curAsst].Parts {
-						if part.Interaction != nil && part.Interaction.Meta["source"] == "codex" {
+						if part.Interaction != nil && part.Interaction.Meta["source"] == "codex" || part.Tool != nil && codeModeTool(part.Tool.Name) {
 							feedback = append(feedback, part)
+							if part.Tool != nil {
+								toolIdx[part.Tool.ID] = toolRef{msg: curAsst, part: len(feedback) - 1}
+							}
 						}
 					}
 					if len(feedback) > 0 {
@@ -468,7 +472,22 @@ func parseRollout(r io.Reader, chatID string) ([]agent.Message, error) {
 				continue
 			}
 			if modern {
-				continue
+				// Codex 0.165 persists exec/wait only as response items, even
+				// when inner MCP calls and messages use canonical completed items.
+				// Keep the outer workflow as well, without duplicating inner tools.
+				switch p.Type {
+				case "function_call", "custom_tool_call":
+					if !codeModeTool(p.Name) {
+						continue
+					}
+				case "function_call_output", "custom_tool_call_output":
+					ref, ok := toolIdx[p.CallID]
+					if !ok || out[ref.msg].Parts[ref.part].Tool == nil || !codeModeTool(out[ref.msg].Parts[ref.part].Tool.Name) {
+						continue
+					}
+				default:
+					continue
+				}
 			}
 			switch p.Type {
 			case "message":
@@ -622,6 +641,15 @@ func rawJSON(s string) json.RawMessage {
 		return nil
 	}
 	return json.RawMessage(b)
+}
+
+func codeModeTool(name string) bool {
+	switch strings.TrimPrefix(name, "functions.") {
+	case "exec", "wait":
+		return true
+	default:
+		return false
+	}
 }
 
 // codexHistoryAction deep-normalizes a rollout tool call (function_call / custom_tool_call) into the

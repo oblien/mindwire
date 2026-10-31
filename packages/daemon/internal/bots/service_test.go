@@ -300,3 +300,58 @@ func (a commandOnlyAdapter) Capabilities() agent.Capabilities {
 	caps.MCPServers = false
 	return caps
 }
+
+func TestApplicationManagedBotPreservesCallerToolBoundary(t *testing.T) {
+	s, master := testService(t)
+	bot, err := s.db.CreateBot(registry.Bot{AgentID: "agent", ProjectID: "project", Name: "App investigator", Purpose: "Trace app failures", Instructions: "Use only approved app tools", ExternalTools: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := s.db.CreateBotChat(bot.ID, "application-chat", "Investigate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, harness := range []string{"codex", "claude-code"} {
+		t.Run(harness, func(t *testing.T) {
+			var adapter agent.Adapter
+			for _, candidate := range agent.All() {
+				if candidate.ID() == harness {
+					adapter = candidate
+				}
+			}
+			original := runner.Turn{ChatID: chat.ID, Environment: map[string]string{"OPENSHIP_TASK": "scoped"}, Options: agent.TurnOptions{ContextInstructions: "Application policy.", MCPServers: json.RawMessage(`{"openship":{"url":"http://127.0.0.1/mcp"}}`)}}
+			bound, cleanup, err := s.Bind(t.Context(), adapter, original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer cleanup()
+			if string(bound.Options.MCPServers) != string(original.Options.MCPServers) || len(bound.Environment) != 1 || bound.Environment["OPENSHIP_TASK"] != "scoped" {
+				t.Fatal("application tool boundary was changed")
+			}
+			if !strings.HasPrefix(bound.Options.ContextInstructions, "Application policy.") || !strings.Contains(bound.Options.ContextInstructions, "App investigator") || !strings.Contains(bound.Options.ContextInstructions, bot.Instructions) {
+				t.Fatal("lost application policy or specialist context")
+			}
+			if strings.Contains(bound.Options.ContextInstructions, "bots_update") || bound.Environment[tokenEnv] != "" || bound.Options.SkillsRoot != "" {
+				t.Fatal("native management capability leaked into application task")
+			}
+		})
+	}
+	for _, actor := range []registry.Bot{{}, master, bot} {
+		if _, err := s.taskTarget(actor, bot.ID, true); err == nil {
+			t.Fatal("application task was executable through native delegation")
+		}
+	}
+	archived := true
+	if _, err = s.db.UpdateBot(bot.ID, registry.BotPatch{ExpectedRevision: bot.Revision, Archived: &archived}); err != nil {
+		t.Fatal(err)
+	}
+	var adapter agent.Adapter
+	for _, candidate := range agent.All() {
+		if candidate.ID() == "codex" {
+			adapter = candidate
+		}
+	}
+	if _, _, err := s.Bind(t.Context(), adapter, runner.Turn{ChatID: chat.ID}); err == nil {
+		t.Fatal("archived application agent accepted a turn")
+	}
+}

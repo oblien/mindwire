@@ -122,7 +122,8 @@ type Capabilities struct {
 	// and the secret flows only through EnvForRun (config carries an {env:VAR} placeholder, never the
 	// key). Claude declares false — its custom-endpoint story is the gateway auth lane, not a provider
 	// registry — so /providers 400s for it.
-	CustomProviders bool `json:"customProviders"` // agent exposes custom-provider registration via /providers
+	CustomProviders      bool `json:"customProviders"`      // agent exposes custom-provider registration via /providers
+	CustomProviderModels bool `json:"customProviderModels"` // registered provider/model routes per turn without changing native sign-in
 	// CompactNow is a client hint that the agent supports on-demand conversation compaction via
 	// POST /chats/{id}/compact. The authoritative gate is the type assertion agent.CompactModule in the
 	// API handler, not this flag — an adapter that implements the module sets it true.

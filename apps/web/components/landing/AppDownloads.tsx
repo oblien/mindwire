@@ -25,7 +25,7 @@ export default function AppDownloads() {
       <div className={styles.headingRow}>
         <div className={styles.intro} data-sprue="download-heading">
           <WindowShape kind="connect" />
-          <h2 id="download-title">GET MINDWIRE.</h2>
+          <h2 id="download-title">Get Mindwire.</h2>
           <p>
             At your desk. On your phone.
             <br />

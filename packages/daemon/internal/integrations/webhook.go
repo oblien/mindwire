@@ -36,7 +36,7 @@ func (s *Service) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, err := s.load(r.PathValue("id"))
-	if err != nil || !c.Enabled {
+	if err != nil || !c.Enabled || c.Transport == "outbound" {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -125,10 +125,11 @@ func decodeEvent(c savedConnection, r *http.Request, body []byte) (*envelope, an
 			if err != nil {
 				return nil, nil, err
 			}
-			if values.Get("command") != c.Command {
+			text, recognized := commandText(c, values.Get("command"), values.Get("text"))
+			if !recognized {
 				return nil, nil, nil
 			}
-			return &envelope{Receipt: Receipt{ID: values.Get("trigger_id"), ChannelID: values.Get("channel_id"), UserID: values.Get("user_id")}, Workspace: values.Get("team_id"), Text: values.Get("text"), Command: true}, map[string]string{"response_type": "ephemeral", "text": "Request received."}, nil
+			return &envelope{Receipt: Receipt{ID: values.Get("trigger_id"), ChannelID: values.Get("channel_id"), UserID: values.Get("user_id")}, Workspace: values.Get("team_id"), Text: text, Command: true}, map[string]string{"response_type": "ephemeral", "text": "Request received."}, nil
 		}
 		var event struct {
 			Type      string `json:"type"`
@@ -194,11 +195,10 @@ func decodeEvent(c savedConnection, r *http.Request, body []byte) (*envelope, an
 		text := m.Text
 		command := false
 		if strings.HasPrefix(text, "/") {
-			head, tail, _ := strings.Cut(text, " ")
-			name, _, _ := strings.Cut(head, "@")
-			if name == c.Command {
-				command = true
-				text = tail
+			head := strings.Fields(text)[0]
+			text, command = commandText(c, head, strings.TrimSpace(text[len(head):]))
+			if !command {
+				return nil, nil, nil
 			}
 		}
 		thread := ""
@@ -225,11 +225,8 @@ func decodeEvent(c savedConnection, r *http.Request, body []byte) (*envelope, an
 				} `json:"user"`
 			} `json:"member"`
 			Data struct {
-				Name    string `json:"name"`
-				Options []struct {
-					Name  string          `json:"name"`
-					Value json.RawMessage `json:"value"`
-				} `json:"options"`
+				Name    string          `json:"name"`
+				Options []discordOption `json:"options"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(body, &interaction); err != nil {
@@ -251,11 +248,9 @@ func decodeEvent(c savedConnection, r *http.Request, body []byte) (*envelope, an
 		if interaction.Member.User.Bot || interaction.User.Bot {
 			return nil, nil, nil
 		}
-		text := ""
-		for _, option := range interaction.Data.Options {
-			if option.Name == "message" || option.Name == "text" {
-				_ = json.Unmarshal(option.Value, &text)
-			}
+		text, err := discordCommandText(c, interaction.Data.Options)
+		if err != nil {
+			return nil, nil, err
 		}
 		ack := map[string]any{"type": 5}
 		if c.Dispatch == "host" {

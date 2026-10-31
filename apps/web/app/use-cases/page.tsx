@@ -21,9 +21,9 @@ export default function UseCasesPage() {
         id="use-cases-title"
         title={
           <>
-            YOUR PRODUCT.
+            Your product.
             <br />
-            POWERED BY AGENTS.
+            Powered by agents.
           </>
         }
         description="A research app that writes the report. A builder that creates the website. A help desk that fixes the problem. Put the best agents to work inside the product your customers already use."

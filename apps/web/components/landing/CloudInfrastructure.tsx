@@ -21,9 +21,9 @@ export default function CloudInfrastructure() {
           <ArrowUpRight size={18} />
         </a>
         <h2 id="infrastructure-title">
-          YOUR PRODUCT.
+          Your product.
           <br />
-          ROOM TO SCALE.
+          Room to scale.
         </h2>
         <p>
           Building for your customers? Use the Mindwire SDK with Oblien for

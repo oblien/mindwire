@@ -1,0 +1,141 @@
+---
+title: React chat UI
+description: Connect a ready-made React chat to Mindwire, including streaming, history, approvals and reconnect.
+---
+
+Use `@raptor-ai/react` to add a chat interface to your product. Its Mindwire adapter
+connects the composer, streamed replies, tools, history and interaction forms to
+your existing daemon. The package includes the UI and browser adapter; no Raptor
+server, runtime or SDK is required.
+
+## Install
+
+```bash
+npm install @raptor-ai/react@beta react react-dom
+```
+
+The first release is available on the `beta` channel. React 18.2 and React 19 are
+supported. The package ships compiled CSS, so your application does not need Tailwind.
+
+## Connect a conversation
+
+Run and [authenticate Mindwire](/docs/guides/authentication) on the computer where
+your agent works. Expose it through your application's authenticated proxy. This
+example uses `/mindwire` as that proxy path.
+
+```tsx
+'use client';
+
+import { useEffect, useMemo } from 'react';
+import { ChatProvider, DefaultPanel } from '@raptor-ai/react';
+import { createMindwireAdapter } from '@raptor-ai/react/mindwire';
+import '@raptor-ai/react/ui.css';
+
+export function AgentChat({ chatId }: { chatId: string }) {
+  const adapter = useMemo(() => createMindwireAdapter({
+    baseUrl: '/mindwire',
+    chatId,
+    agent: 'codex',
+    cwd: '/work/my-project',
+  }), [chatId]);
+
+  useEffect(() => () => adapter.dispose(), [adapter]);
+
+  return (
+    <div style={{ height: '100dvh' }}>
+      <ChatProvider
+        autoLoadHistory
+        key={chatId}
+        apiHandler={adapter}
+        authConfig={{ sessionId: chatId }}
+        initialWelcome={{ title: 'Your project assistant', description: 'What would you like to work on?' }}
+      >
+        <DefaultPanel inputProps={{ enableLive: false }} />
+      </ChatProvider>
+    </div>
+  );
+}
+```
+
+`chatId` is the same Mindwire conversation ID you use with `turn` and `messagePage`.
+Use a stable ID to reopen a conversation. `cwd` is a path on the daemon's computer.
+Your application owns selecting the computer, agent, project and chat.
+
+Create one adapter per chat. The `key` remounts the provider when the selection
+changes. Cleanup detaches the browser's reader; it does not stop the running agent.
+
+For Next.js, render this component inside a Client Component and import the
+stylesheet once from your application layout or stylesheet entry.
+
+## Connection options
+
+| Option | Purpose |
+| --- | --- |
+| `baseUrl` | Same-origin proxy path or absolute HTTP(S) daemon URL. |
+| `chatId` | Conversation to read and write. |
+| `agent` | Harness to use, such as `codex` or `claude-code`. |
+| `cwd` | Working directory for new turns. |
+| `getToken` | Optional callback resolving the current session token for each request. |
+| `headers` | Additional HTTP headers. |
+| `fetch` | Optional custom fetch implementation. |
+| `timeoutMs` | Ordinary request timeout; defaults to 30 seconds. Streams are not timed out. |
+| `onEvent` | Observe original Mindwire events alongside the built-in UI. |
+
+The browser adapter connects to an existing daemon. It cannot start a process or
+provision a computer. Keep daemon credentials in your authenticated proxy when
+the browser should use only your application's session. For direct connections,
+configure the daemon to accept the browser's origin and session credentials.
+
+If you already have a compatible SDK client, pass it instead of `baseUrl`:
+
+```ts
+const adapter = createMindwireAdapter({ client: mw, chatId, cwd });
+```
+
+The adapter accepts the client's public methods without importing the SDK. Use
+the `baseUrl` form for an installation containing only the React package.
+
+## What gets connected
+
+| UI behavior | Mindwire operation |
+| --- | --- |
+| Send a message or normal reply | `turn`, with an idempotent request ID. |
+| Load the initial conversation | `messagePage`. |
+| Load more | Pass the page's opaque `before` cursor to the next history request. |
+| Stream a response | Render text, thinking and tool events from the run. |
+| Correct a text block | Replace the identified block when a non-delta snapshot arrives. |
+| Reconnect | Restore a run snapshot and continue after the last applied event sequence. |
+| Stop response | Cancel the active run. |
+| Answer an approval or question | Send the selected action and form answers through `respond`. |
+| Send while working | Use `sendInput` when the run advertises the `input` capability. |
+| Attach a file | Convert composer files into Mindwire attachments. |
+
+The UI owns loading indicators, message rendering and scrolling. The adapter
+owns requests, protocol conversion and cursor tracking. You do not need to wire
+the Load more button or each response event yourself.
+
+Update older daemons before using the adapter: it requires paged history and run
+snapshots. A dropped stream or a child iteration's result does not count as the
+end of the whole run. The adapter checks the durable run status.
+
+## Customize the interface
+
+Set `isDark` on `DefaultPanel`, or let it follow the host theme. Use
+`initialWelcome`, `loadingComponent`, `markdownComponents` and `statusComponents`
+on `ChatProvider` to replace individual parts. For your own layout, compose
+`ChatCore`, `ChatInputDefault` and `useChatContext`.
+
+Only expose controls supported by your integration. Native voice uses a separate
+Mindwire protocol; keep `enableLive: false` for this adapter. Raptor goal controls,
+global tool access modes and context inspection are not supplied by it. Agent
+approval and question forms work independently of those features.
+
+## Run the example
+
+The [React chat example](https://github.com/oblien/mindwire/tree/main/examples/react-chat)
+contains a complete Vite application with a local development proxy. Its README
+shows how to point it at your daemon and choose an agent, project and chat.
+
+For a different backend, implement the exported `ChatApiHandler` interface. The
+package includes an adapter reference covering required methods, optional
+capabilities, streamed events and history pagination.

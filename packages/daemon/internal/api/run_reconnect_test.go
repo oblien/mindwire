@@ -117,3 +117,47 @@ func TestRunSnapshotSurvivesBufferExpiryAndDaemonRestart(t *testing.T) {
 		}
 	}
 }
+
+// A delayed integration reply reads its own run, even after the same chat has
+// continued elsewhere. Native history is not a substitute for a turn snapshot.
+func TestRunSnapshotKeepsOriginalTurnAfterNewerTurnAndRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := session.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []session.Message{
+		{ID: "first", ChatID: "chat", Role: "assistant", Text: "First answer"},
+		{ID: "input-answer", ChatID: "chat", Role: "user", Text: "Follow-up"},
+		{ID: "continued", ChatID: "chat", Role: "assistant", Text: "Original turn finished"},
+		{ID: "newer", ChatID: "chat", Role: "assistant", Text: "Newer dashboard answer"},
+	} {
+		if err := store.AddMessage(message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, run := range []session.Run{
+		{ID: "original", ChatID: "chat", Agent: "codex", Status: "done", ReplyID: "continued", MessageIDs: []string{"first", "input-answer", "continued"}},
+		{ID: "latest", ChatID: "chat", Agent: "codex", Status: "done", ReplyID: "newer"},
+	} {
+		if err := store.SaveRun(run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store, err = session.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := stream.New()
+	sup := orchestrator.New(store, hub, notify.Fanout(nil), t.TempDir(), "codex")
+	mux := http.NewServeMux()
+	New(store, hub, sup).Register(mux)
+	response := serve(t, mux, "GET", "/runs/original/snapshot", "")
+	var snapshot orchestrator.RunSnapshot
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &snapshot) != nil {
+		t.Fatalf("snapshot: %d %s", response.Code, response.Body.String())
+	}
+	if snapshot.Run.ID != "original" || len(snapshot.Parts) != 3 || snapshot.Parts[0].Text != "First answer" || snapshot.Parts[1].Input == nil || snapshot.Parts[1].Input.Text != "Follow-up" || snapshot.Parts[2].Text != "Original turn finished" {
+		t.Fatalf("lost or mixed turns after restart: %+v", snapshot)
+	}
+}

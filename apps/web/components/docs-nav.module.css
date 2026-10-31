@@ -20,10 +20,9 @@
   display: inline-flex;
   align-items: center;
 }
-.brand svg {
+.brand > span {
   display: block;
-  width: 132px;
-  height: auto;
+  font-size: 28px;
 }
 .docsLabel {
   color: var(--mw-muted);
@@ -96,8 +95,8 @@
     padding: 0 16px;
     gap: 12px;
   }
-  .brand svg {
-    width: 120px;
+  .brand > span {
+    font-size: 26px;
   }
   .search {
     width: 38px;
@@ -124,8 +123,8 @@
     padding-inline: 12px;
     gap: 8px;
   }
-  .brand svg {
-    width: 100px;
+  .brand > span {
+    font-size: 24px;
   }
   .actions {
     gap: 2px;

@@ -52,6 +52,10 @@ type Service struct {
 	teamsKeysUntil time.Time
 	teamsRefreshAt time.Time
 	tokens         map[string]accessToken
+	receivers      map[string]*receiver
+	receiverMu     sync.Mutex
+	receiverStatus map[string]ReceiverStatus
+	commandMu      sync.Mutex
 }
 
 // Options allows a host to supply its existing HTTP transport.
@@ -64,6 +68,8 @@ func New(db *registry.Store, runtime BotRuntime, hub *stream.Hub, options ...Opt
 		s.http = options[0].HTTPClient
 	}
 	s.ownedRuns = map[string]string{}
+	s.receivers = map[string]*receiver{}
+	s.receiverStatus = map[string]ReceiverStatus{}
 	return s
 }
 
@@ -148,6 +154,12 @@ func (s *Service) Save(id string, spec Spec) (Connection, error) {
 	if !slices.Contains([]string{"slack", "teams", "discord", "telegram"}, spec.Provider) || !slices.Contains([]string{"notifications", "commands", "chat", "trigger"}, spec.Mode) {
 		return Connection{}, invalid("unsupported provider or mode")
 	}
+	if spec.Transport == "" {
+		spec.Transport = "webhook"
+	}
+	if !slices.Contains([]string{"webhook", "outbound"}, spec.Transport) || spec.Transport == "outbound" && spec.Provider == "teams" {
+		return Connection{}, invalid("outbound connections support Slack, Discord and Telegram")
+	}
 	if !slices.Contains([]string{"", "bot", "host"}, spec.Dispatch) {
 		return Connection{}, invalid("unsupported dispatch")
 	}
@@ -170,13 +182,20 @@ func (s *Service) Save(id string, spec Spec) (Connection, error) {
 	if !strings.HasPrefix(spec.Command, "/") || strings.ContainsAny(spec.Command, " \n\t") || len(spec.Command) > 64 {
 		return Connection{}, invalid("command must be a slash command without spaces")
 	}
+	if err := validateCommands(spec); err != nil {
+		return Connection{}, err
+	}
 	if spec.Credentials != nil {
+		if spec.Credentials.BotToken != "" && spec.Credentials.BotToken != saved.Secrets.BotToken {
+			saved.BotUsername = ""
+		}
 		merge := func(dst *string, src string) {
 			if src != "" {
 				*dst = src
 			}
 		}
 		merge(&saved.Secrets.BotToken, spec.Credentials.BotToken)
+		merge(&saved.Secrets.AppToken, spec.Credentials.AppToken)
 		merge(&saved.Secrets.SigningSecret, spec.Credentials.SigningSecret)
 		merge(&saved.Secrets.WebhookSecret, spec.Credentials.WebhookSecret)
 		merge(&saved.Secrets.PublicKey, spec.Credentials.PublicKey)
@@ -186,10 +205,10 @@ func (s *Service) Save(id string, spec Spec) (Connection, error) {
 	if spec.Provider != "teams" && secrets.BotToken == "" {
 		return Connection{}, invalid("bot token is required")
 	}
-	if spec.Provider == "slack" && (secrets.SigningSecret == "" || spec.WorkspaceID == "") {
-		return Connection{}, invalid("Slack signing secret and team ID are required")
+	if spec.Provider == "slack" && (spec.WorkspaceID == "" || spec.Transport == "webhook" && secrets.SigningSecret == "" || spec.Transport == "outbound" && secrets.AppToken == "") {
+		return Connection{}, invalid("Slack team ID and a signing secret (webhook) or app token (outbound) are required")
 	}
-	if spec.Provider == "telegram" {
+	if spec.Provider == "telegram" && spec.Transport == "webhook" {
 		if len(secrets.WebhookSecret) < 16 || len(secrets.WebhookSecret) > 256 || strings.IndexFunc(secrets.WebhookSecret, func(r rune) bool {
 			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-')
 		}) >= 0 {
@@ -198,8 +217,25 @@ func (s *Service) Save(id string, spec Spec) (Connection, error) {
 	}
 	if spec.Provider == "discord" {
 		key, err := hex.DecodeString(secrets.PublicKey)
-		if err != nil || len(key) != 32 || spec.ApplicationID == "" || spec.WorkspaceID == "" {
+		if spec.Transport == "webhook" && (err != nil || len(key) != 32) || spec.ApplicationID == "" || spec.WorkspaceID == "" {
 			return Connection{}, invalid("Discord application ID, guild ID and Ed25519 public key are required")
+		}
+	}
+	// One receiver per bot in a profile. Multiple pollers/sockets can steal events
+	// from one another; channels belong on the same connection instead.
+	{
+		rows, err := s.db.SurfaceList(configKind)
+		if err != nil {
+			return Connection{}, err
+		}
+		for _, raw := range rows {
+			var other savedConnection
+			if err := json.Unmarshal(raw, &other); err != nil {
+				return Connection{}, err
+			}
+			if other.ID != id && other.Provider == spec.Provider && other.Secrets.BotToken == secrets.BotToken && (spec.Transport == "outbound" || other.Transport == "outbound" || len(spec.Commands) > 0 || len(other.Commands) > 0) {
+				return Connection{}, invalid("this bot already has a connection; add channels to that connection or use a separate bot")
+			}
 		}
 	}
 	if spec.Provider == "teams" {
@@ -219,12 +255,16 @@ func (s *Service) Save(id string, spec Spec) (Connection, error) {
 	spec.Credentials = nil
 	spec.ExpectedRevision = 0
 	saved.Connection = Connection{ID: id, Revision: saved.Revision + 1, Spec: spec, HasCredentials: true, WebhookPath: "/integrations/" + id + "/webhook"}
+	if spec.Transport == "outbound" {
+		saved.WebhookPath = ""
+	}
 	if err := s.db.SurfacePut(configKind, id, saved); err != nil {
 		return Connection{}, err
 	}
 	s.teamsMu.Lock()
 	delete(s.tokens, id)
 	s.teamsMu.Unlock()
+	s.signal()
 	return saved.Connection, nil
 }
 
@@ -245,7 +285,10 @@ func (s *Service) load(id string) (savedConnection, error) {
 	err := s.db.SurfaceGet(configKind, id, &c)
 	return c, err
 }
-func (s *Service) Get(id string) (Connection, error) { c, err := s.load(id); return c.Connection, err }
+func (s *Service) Get(id string) (Connection, error) {
+	c, err := s.load(id)
+	return s.withReceiver(c.Connection), err
+}
 func (s *Service) List() ([]Connection, error) {
 	rows, err := s.db.SurfaceList(configKind)
 	if err != nil {
@@ -257,7 +300,7 @@ func (s *Service) List() ([]Connection, error) {
 		if err := json.Unmarshal(row, &c); err != nil {
 			return nil, err
 		}
-		out = append(out, c.Connection)
+		out = append(out, s.withReceiver(c.Connection))
 	}
 	return out, nil
 }
@@ -266,7 +309,11 @@ func (s *Service) Delete(id string) error {
 	defer s.mu.Unlock()
 	// Workers re-read configuration before every send, so revocation takes effect
 	// even while a bot is running. Conversation transcripts remain native records.
-	return s.db.SurfaceDelete(configKind, id)
+	defer s.signal()
+	if err := s.db.SurfaceDelete(configKind, id); err != nil {
+		return err
+	}
+	return s.db.SurfaceDelete(cursorKind, id)
 }
 func (s *Service) Events(id string) ([]Receipt, error) {
 	if _, err := s.Get(id); err != nil {
@@ -345,7 +392,7 @@ func (s *Service) accept(c savedConnection, e envelope) error {
 	if err != nil {
 		return err
 	}
-	if !current.Enabled || !s.allowed(current, e) {
+	if !current.Enabled || current.Revision != c.Revision || !s.allowed(current, e) {
 		return errForbidden
 	}
 	var prior envelope
@@ -401,6 +448,7 @@ func (s *Service) dispatch() {
 			s.mu.Unlock()
 			return
 		}
+		s.reconcileReceivers()
 		rows, err := s.db.IntegrationEvents("", true)
 		if err == nil {
 			for _, row := range rows {
@@ -408,7 +456,7 @@ func (s *Service) dispatch() {
 					break
 				}
 				var e envelope
-				if json.Unmarshal(row, &e) != nil || s.active[e.ID] || e.State != "queued" && e.State != "running" {
+				if json.Unmarshal(row, &e) != nil || e.AwaitingAck || s.active[e.ID] || e.State != "queued" && e.State != "running" {
 					continue
 				}
 				key := registry.SyncKey(e.IntegrationID, e.Workspace, e.ChannelID, e.ThreadID, e.UserID)
@@ -629,7 +677,7 @@ func (s *Service) Notify(ctx context.Context, n agent.Notification) error {
 
 func publicError(err error, secrets Credentials) string {
 	message := err.Error()
-	for _, secret := range []string{secrets.BotToken, secrets.SigningSecret, secrets.WebhookSecret, secrets.ClientSecret} {
+	for _, secret := range []string{secrets.BotToken, secrets.AppToken, secrets.SigningSecret, secrets.WebhookSecret, secrets.ClientSecret} {
 		if secret != "" {
 			message = strings.ReplaceAll(message, secret, "[redacted]")
 		}

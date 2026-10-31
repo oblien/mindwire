@@ -216,7 +216,7 @@ func (m *authModule) Status(ctx context.Context) agent.AuthStatus {
 // EnvForRun supplies stored field credentials, or selects the native account for
 // subscription runs. Old stores without a method tag keep their presence fallback.
 func (m *authModule) EnvForRun() map[string]string {
-	env := map[string]string{}
+	env := agent.ProviderEnvForRun(m.store)
 	if m.store.Get(ckMethod) == "login" {
 		// Explicit subscription selection must not inherit a previous Azure/API
 		// endpoint or its credentials. Native Codex owns account refresh.
@@ -263,12 +263,6 @@ func (m *authModule) EnvForRun() map[string]string {
 		if models := storedModels(m.store, azureProviderID); len(models) > 0 {
 			env[azureModelMarker] = models[0]
 		}
-	}
-	// Every registered CUSTOM provider's stored key, exported under the env-var name it was registered
-	// with (agent.ProviderEnvForRun) so config.toml's `[model_providers.<id>] env_key = "VAR"` resolves
-	// at runtime — the config file never carries a literal secret.
-	for name, key := range agent.ProviderEnvForRun(m.store) {
-		env[name] = key
 	}
 	return env
 }

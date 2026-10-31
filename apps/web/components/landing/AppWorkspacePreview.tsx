@@ -120,7 +120,7 @@ export default function AppWorkspacePreview() {
 
         <div className={styles.workspace} data-sprue="app-workspace">
           <div className={styles.workspaceBar}>
-            <span className={styles.wordmark}>MINDWIRE</span>
+            <span className={styles.wordmark}>mindwire</span>
             <span>On your desktop</span>
           </div>
           <div

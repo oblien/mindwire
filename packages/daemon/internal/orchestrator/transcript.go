@@ -70,7 +70,11 @@ func (s *Supervisor) Snapshot(id string) (RunSnapshot, bool) {
 					input := agent.UserInput{ID: strings.TrimPrefix(message.ID, "input-"), Text: message.Text, Attachments: message.Attachments, CreatedAt: message.CreatedAt, Status: "accepted"}
 					snapshot.Parts = append(snapshot.Parts, agent.Part{Type: "user", ID: input.ID, Input: &input})
 				} else {
-					snapshot.Parts = append(snapshot.Parts, message.Parts...)
+					if len(message.Parts) == 0 && message.Text != "" {
+						snapshot.Parts = append(snapshot.Parts, agent.Part{Type: "text", Text: message.Text})
+					} else {
+						snapshot.Parts = append(snapshot.Parts, message.Parts...)
+					}
 				}
 			}
 		}

@@ -14,7 +14,7 @@ import (
 	"github.com/oblien/mindwire/packages/daemon/internal/skills"
 )
 
-const BotsVersion = 8
+const BotsVersion = 9
 
 // SetBotEngines binds the hosting runtime's capability matrix once it attaches
 // the bot service. Metadata-only registry users can still read/import records
@@ -47,6 +47,9 @@ type Bot struct {
 	Memory       string         `json:"memory"`
 	Knowledge    []BotKnowledge `json:"knowledge"`
 	Skills       []string       `json:"skills"` // nil = unassigned; [] explicitly removes skills
+	// ExternalTools keeps profile context while the embedding application owns ALL tools and scheduling.
+	// Immutable; native bot tools, skills and delegation cannot widen an application grant.
+	ExternalTools bool `json:"externalTools,omitempty"`
 	// Raw keeps a named conversation group without injecting bot context or tools.
 	// Creation-only: changing this on a resumed session could retain its previous persona.
 	Raw                bool  `json:"raw,omitempty"`
@@ -187,6 +190,9 @@ func normalizeBot(bot Bot) (Bot, error) {
 	masterKey, masterID := strings.CutPrefix(bot.ID, "mindwire-")
 	_, masterKeyError := hex.DecodeString(masterKey)
 	bot.IsMaster = masterID && len(masterKey) == 24 && masterKeyError == nil
+	if bot.ExternalTools && (bot.Raw || bot.IsMaster || len(bot.Skills) != 0) {
+		return Bot{}, invalid("application-managed bots cannot enable native management or skills")
+	}
 	if bot.Raw && (bot.IsMaster || bot.Instructions != "" || bot.Memory != "" || len(bot.Knowledge) != 0 || len(bot.Skills) != 0) {
 		return Bot{}, invalid("plain agents cannot have bot instructions, memory, knowledge or assigned skills")
 	}
@@ -345,7 +351,7 @@ func (st *Store) CreateBot(bot Bot) (Bot, error) {
 		}
 		for _, existing := range all {
 			if existing.ID == bot.ID || (existing.ProjectID == bot.ProjectID && strings.EqualFold(existing.Name, bot.Name) && !existing.Archived) {
-				if existing.ProjectID == bot.ProjectID && existing.AgentID == bot.AgentID && existing.Raw == bot.Raw && existing.Name == bot.Name && existing.Icon == bot.Icon && existing.Purpose == bot.Purpose && existing.Instructions == bot.Instructions && existing.Memory == bot.Memory && !existing.Archived {
+				if existing.ProjectID == bot.ProjectID && existing.AgentID == bot.AgentID && existing.Raw == bot.Raw && existing.ExternalTools == bot.ExternalTools && existing.Name == bot.Name && existing.Icon == bot.Icon && existing.Purpose == bot.Purpose && existing.Instructions == bot.Instructions && existing.Memory == bot.Memory && !existing.Archived {
 					left, _ := json.Marshal(existing.Knowledge)
 					right, _ := json.Marshal(bot.Knowledge)
 					leftSkills, _ := json.Marshal(existing.Skills)

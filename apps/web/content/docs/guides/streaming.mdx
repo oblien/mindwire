@@ -8,6 +8,9 @@ ran. The stream always **replays** what already happened, then goes **live**, th
 turn reaches a terminal state. That's what makes a turn durable — a disconnected client reattaches by
 streaming the same run again.
 
+For a ready-made interface, use the [React chat UI](/docs/guides/react). Its adapter
+handles streaming, history pagination, approval forms and reconnect for you.
+
 ## Event types
 
 | `type` | Meaning |

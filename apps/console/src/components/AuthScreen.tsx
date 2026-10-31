@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, ArrowUpRight, Check, Loader2, Mail } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Mail } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { api, HttpError, type AuthUser } from "@/lib/api";
@@ -8,14 +8,12 @@ import { BrandMark } from "@/components/BrandMark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AccountArtwork } from "./AccountArtwork";
 import { ThemeButton } from "./ThemeButton";
 import styles from "./auth.module.css";
 
 type Mode = "signin" | "signup";
 
 const DOCS_FALLBACK = "https://mindwire.sh/docs";
-const GITHUB_FALLBACK = "https://github.com/oblien/mindwire";
 
 export function AuthScreen({
   onAuthed,
@@ -54,7 +52,6 @@ export function AuthScreen({
     !cfg?.appName || cfg.appName === "MindWire" ? "Mindwire" : cfg.appName;
   const socials = cfg?.socials ?? [];
   const docsUrl = cfg?.docsUrl ?? DOCS_FALLBACK;
-  const githubUrl = cfg?.githubUrl ?? GITHUB_FALLBACK;
   const isSignup = mode === "signup";
   const locked = busy || social !== null;
 
@@ -118,38 +115,15 @@ export function AuthScreen({
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <a href="https://mindwire.sh" aria-label="Mindwire home">
-          <BrandMark size={26} />
-        </a>
-        <div className="flex items-center gap-3">
-          <ThemeButton />
-          <a href={docsUrl} className={styles.docsLink}>
-            Docs
-            <ArrowUpRight className="size-4" />
-          </a>
-        </div>
-      </header>
       <main className={styles.main}>
-        <section className={styles.welcome} aria-label="Your Mindwire account">
-          <div>
-            <span className={styles.eyebrow}>Your Mindwire account</span>
-            <h1>
-              YOUR WORK.
-              <br />WITH YOU.
-            </h1>
-            <p>
-              Your projects, connected devices, and personal Cloud Computers.
-              All in one place.
-            </p>
-          </div>
-          <AccountArtwork className={styles.art} />
-          <a href="https://mindwire.sh/app">
-            Explore the Mindwire app
-            <ArrowUpRight className="size-4" />
+        <section className={styles.formSection} aria-labelledby="auth-title">
+          <a
+            href="https://mindwire.sh"
+            aria-label="Mindwire home"
+            className={styles.brand}
+          >
+            <BrandMark size={22} />
           </a>
-        </section>
-        <section className={styles.formSection}>
           <div className={styles.form}>
             {isRecovery ? (
               <PasswordRecoveryForm
@@ -159,16 +133,16 @@ export function AuthScreen({
               />
             ) : (
               <>
-                <div className="mb-6 space-y-1.5">
-                  <h2 className="text-[28px] font-medium leading-tight tracking-tight">
+                <div className={styles.intro}>
+                  <h1 id="auth-title" className={styles.title}>
                     {isSignup
-                      ? `Create your ${appName} account`
+                      ? "Create your account"
                       : `Sign in to ${appName}`}
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
+                  </h1>
+                  <p className={styles.description}>
                     {isSignup
                       ? "Manage your devices and Cloud Computers with one account."
-                      : "Welcome back — pick up where you left off."}
+                      : "Welcome back. Pick up where you left off."}
                   </p>
                 </div>
 
@@ -247,7 +221,7 @@ export function AuthScreen({
                               "/forgot-password",
                               location.pathname + location.search,
                             )}
-                            className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                            className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                           >
                             Forgot password?
                           </Link>
@@ -309,14 +283,11 @@ export function AuthScreen({
 
       {/* Account service links. */}
       <footer className={styles.footer}>
-        <div className="flex flex-wrap items-center justify-center gap-x-7 gap-y-2 px-5 pb-5 pt-4 text-sm text-muted-foreground lg:pt-5">
-          <FooterLink href={docsUrl}>Docs</FooterLink>
-          <FooterLink href={githubUrl}>
-            <GitHubIcon className="size-3.5" />
-            GitHub
-          </FooterLink>
-          <FooterLink href="https://mindwire.sh/cloud">Personal Cloud</FooterLink>
-        </div>
+        <nav aria-label="Account help">
+          <FooterLink href={docsUrl}>Help & docs</FooterLink>
+          <FooterLink href="https://mindwire.sh/app">Mindwire app</FooterLink>
+        </nav>
+        <ThemeButton />
       </footer>
     </div>
   );
@@ -440,7 +411,7 @@ function PasswordRecoveryForm({
     <div className="space-y-6">
       {complete && (
         <div
-          className="flex size-12 items-center justify-center rounded-2xl bg-muted"
+          className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-muted"
           aria-hidden
         >
           {resetting ? (
@@ -450,11 +421,11 @@ function PasswordRecoveryForm({
           )}
         </div>
       )}
-      <div className="space-y-2" role={complete ? "status" : undefined}>
-        <h2 className="text-[28px] font-medium leading-tight tracking-tight">
+      <div className={styles.intro} role={complete ? "status" : undefined}>
+        <h1 id="auth-title" className={styles.title}>
           {title}
-        </h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
+        </h1>
+        <p className={styles.description}>
           {description}
         </p>
       </div>
@@ -612,7 +583,7 @@ function Divider({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-center gap-3">
       <span className="h-px flex-1 bg-border" />
-      <span className="text-xs text-muted-foreground">{children}</span>
+      <span className="text-sm text-muted-foreground">{children}</span>
       <span className="h-px flex-1 bg-border" />
     </div>
   );

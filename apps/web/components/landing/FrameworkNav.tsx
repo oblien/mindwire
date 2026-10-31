@@ -10,16 +10,7 @@ import styles from "./framework-home.module.css";
 
 export function FrameworkWordmark() {
   return (
-    <svg
-      className={styles.wordmark}
-      viewBox="0 0 250 32"
-      aria-label="Mindwire"
-      role="img"
-    >
-      <text x="0" y="27" textLength="250" lengthAdjust="spacingAndGlyphs">
-        MINDWIRE
-      </text>
-    </svg>
+    <span className={styles.wordmark} aria-label="Mindwire">mindwire</span>
   );
 }
 

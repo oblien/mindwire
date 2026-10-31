@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-/** The same graphic wordmark as the public Mindwire site. */
+/** The same naturally spaced wordmark as the public Mindwire site. */
 export function BrandMark({
   size = 22,
   className,
@@ -11,18 +11,19 @@ export function BrandMark({
   wordClassName?: string;
 }) {
   return (
-    <svg
+    <span
       className={cn("shrink-0 select-none", className, wordClassName)}
-      width={size * 7.8125}
-      height={size}
-      viewBox="0 0 250 32"
-      role="img"
       aria-label="Mindwire"
-      style={{ fontFamily: "var(--font-graphic)", fill: "currentColor", fontSize: 28 }}
+      style={{
+        display: "inline-block",
+        fontFamily: "var(--font-display)",
+        fontSize: size * 1.45,
+        fontWeight: 600,
+        letterSpacing: "-0.065em",
+        lineHeight: 1,
+      }}
     >
-      <text x="0" y="27" textLength="250" lengthAdjust="spacingAndGlyphs">
-        MINDWIRE
-      </text>
-    </svg>
+      mindwire
+    </span>
   );
 }

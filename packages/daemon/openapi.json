@@ -342,7 +342,7 @@
           },
           "integrationsVersion": {
             "type": "integer",
-            "description": "Protocol 1 supports integrations; protocol 2 adds verified host command dispatch."
+            "description": "Protocol 1 supports integrations; 2 adds host dispatch; 3 adds outbound receivers; 4 adds command catalogs and native menu synchronization."
           },
           "crossAgentHandoffVersion": {
             "type": "integer",
@@ -8541,6 +8541,14 @@
               "host"
             ],
             "description": "Host mode requires no bot and never invokes an agent. Claim verified events, execute idempotently, then complete with a reply."
+          },
+          "commands": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "$ref": "#/components/schemas/IntegrationCommand"
+            },
+            "description": "Protocol 4 command catalog. Does not grant execution access."
           }
         }
       },
@@ -8642,6 +8650,14 @@
           },
           "webhookPath": {
             "type": "string"
+          },
+          "commands": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "$ref": "#/components/schemas/IntegrationCommand"
+            },
+            "description": "Protocol 4 command catalog. Does not grant execution access."
           }
         }
       },
@@ -9296,6 +9312,28 @@
           "id",
           "status"
         ]
+      },
+      "IntegrationCommand": {
+        "type": "object",
+        "required": [
+          "name",
+          "description"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,31}$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "argument": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+          }
+        }
       }
     }
   },
@@ -23260,6 +23298,59 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/integrations/{id}/commands/sync": {
+      "post": {
+        "operationId": "integrationCommandsSync",
+        "summary": "Publish the saved command catalog to Telegram or Discord",
+        "description": "Authenticated owner operation. Requires the current revision. Telegram updates the dedicated bot menu; Discord upserts one named guild command. Slack and Teams use their app manifests. Reconnects never register commands.",
+        "tags": [
+          "Integrations"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "expectedRevision"
+                ],
+                "properties": {
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Command menu published"
+          },
+          "400": {
+            "description": "Invalid catalog or unsupported provider"
+          },
+          "401": {
+            "description": "Owner authentication required"
+          },
+          "409": {
+            "description": "Revision changed"
           }
         }
       }

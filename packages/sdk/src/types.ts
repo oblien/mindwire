@@ -466,6 +466,8 @@ export interface Capabilities {
    * {@link ProvidersApi}; registered models surface in {@link Mindwire.models} with `custom:true`.
    */
   customProviders: boolean;
+  /** Registered provider/model selection is supported without replacing native login. */
+  customProviderModels?: boolean;
   /**
    * `compactNow` = the agent supports on-demand conversation compaction via `POST /chats/{id}/compact`
    * (the SDK's {@link Mindwire.compact}). A compaction folds prior context into a summary the

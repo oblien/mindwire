@@ -1,0 +1,3 @@
+html, body, #root, main { height: 100%; margin: 0; }
+body { font-family: system-ui, sans-serif; }
+main { height: 100dvh; }

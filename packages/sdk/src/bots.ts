@@ -18,6 +18,8 @@ export interface Bot extends WorkspaceRecord {
   skills?: string[] | null;
   /** Creation-only plain harness: no Mindwire bot context, tools or skills. Requires botsVersion >= 7. */
   raw?: boolean;
+  /** Application-managed tools; profile context only. Immutable. Requires botsVersion >= 9. */
+  externalTools?: boolean;
   isMaster: boolean;
   archived: boolean;
   /** Applies to this bot's current and future chats, independent of its base engine. */
@@ -36,6 +38,8 @@ export interface BotInput {
   skills?: string[];
   /** Keep native harness behavior. Cannot be changed after creation or combined with bot context. */
   raw?: boolean;
+  /** Application-managed tools; profile context only. Immutable. Requires botsVersion >= 9. */
+  externalTools?: boolean;
 }
 export interface BotEdit {
   /** Base agent for future chats; existing chats retain their original engine. Requires botsVersion >= 5. */

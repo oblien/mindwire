@@ -9,62 +9,13 @@ import HeatformArt from "./HeatformArt";
 import SurfaceRoutes from "./SurfaceRoutes";
 import WindowShape from "./WindowShape";
 import AgentConnect from "./AgentConnect";
+import ProductCustomization from "./ProductCustomization";
 import styles from "./framework-home.module.css";
 
 const asset = (name: string) => "/images/framework/" + name;
 
-function GraphicHeading({ first, second }: { first: string; second: string }) {
-  const stacked = first === "YOUR PRODUCT.";
-  return (
-    <>
-      <svg
-        viewBox="0 0 800 112"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-        className={`${styles.graphicHeading} ${stacked ? styles.wideHeading : ""}`}
-      >
-        <text
-          x="400"
-          y="49"
-          textAnchor="middle"
-          textLength="800"
-          lengthAdjust="spacingAndGlyphs"
-        >
-          {first}
-        </text>
-        <text
-          x="400"
-          y="105"
-          textAnchor="middle"
-          textLength="800"
-          lengthAdjust="spacingAndGlyphs"
-        >
-          {second}
-        </text>
-      </svg>
-      {stacked && (
-        <svg
-          viewBox="0 0 640 192"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-          className={styles.stackedHeading}
-        >
-          {["YOUR PRODUCT.", "POWERED BY", "AGENTS."].map((line, index) => (
-            <text
-              key={line}
-              x={320}
-              y={60 + index * 64}
-              textAnchor="middle"
-              textLength={640}
-              lengthAdjust="spacingAndGlyphs"
-            >
-              {line}
-            </text>
-          ))}
-        </svg>
-      )}
-    </>
-  );
+function ProductHeading() {
+  return <>Your product.<br />Powered by agents.</>;
 }
 
 function Hero() {
@@ -80,10 +31,7 @@ function Hero() {
         <HeroTrail />
         <div className={styles.heroIntro}>
           <h1 id="hero-title">
-            <span className={styles.srOnly}>
-              Your product. Powered by agents.
-            </span>
-            <GraphicHeading first="YOUR PRODUCT." second="POWERED BY AGENTS." />
+            <ProductHeading />
           </h1>
           <p>
             Mindwire brings the world’s best <span>agent harnesses</span>
@@ -142,96 +90,13 @@ function Manifesto() {
   );
 }
 
-function Features() {
-  return (
-    <SurfaceRoutes
-      as="section"
-      kind="features"
-      id="features"
-      className={styles.features}
-      aria-labelledby="features-title"
-    >
-      <div className={styles.featureIntro} data-sprue="feat-header">
-        <span className={styles.eyebrow}>MAKE IT YOURS</span>
-        <h2 id="features-title">
-          <span className={styles.srOnly}>Their brains. Your rules.</span>
-          <GraphicHeading first="THEIR BRAINS." second="YOUR RULES." />
-        </h2>
-        <p>
-          White-label leading agents. Give them the tools, context, and
-          direction that make your product yours.
-        </p>
-        <Link href="/docs/guides/quickstart">
-          Explore the framework <ArrowUpRight size={14} />
-        </Link>
-        <img
-          src={asset("sphere.svg")}
-          width={200}
-          height={200}
-          alt=""
-          loading="lazy"
-        />
-      </div>
-      <div className={styles.featureSteps}>
-        <div className={styles.featureStep}>
-          <div className={styles.featureArt} data-sprue="feat-brief-part">
-            <HeatformArt variant="cobalt" />
-          </div>
-          <div>
-            <h3>
-              Your <mark className={styles.blueHighlight}>brand</mark>, your
-              interface.
-              <br />
-              An agent that belongs in your product.
-            </h3>
-            <Link href="/use-cases">
-              See the experience <ArrowUpRight size={14} />
-            </Link>
-          </div>
-        </div>
-        <div className={styles.featureStep}>
-          <div className={styles.featureArt} data-sprue="feat-generate-part">
-            <HeatformArt variant="lime" />
-          </div>
-          <div>
-            <h3>
-              Your <mark className={styles.limeHighlight}>tools</mark> and
-              knowledge.
-              <br />
-              Real capabilities for your users.
-            </h3>
-            <Link href="/docs/guides/mcp">
-              Connect your tools <ArrowUpRight size={14} />
-            </Link>
-          </div>
-        </div>
-        <div className={styles.featureStep}>
-          <div className={styles.featureArt} data-sprue="feat-review-part">
-            <HeatformArt variant="thermal" />
-          </div>
-          <div>
-            <h3>
-              Your <mark className={styles.redHighlight}>mindset</mark> and
-              goals.
-              <br />
-              Give the intelligence a direction.
-            </h3>
-            <Link href="/docs/guides/quickstart">
-              Shape the work <ArrowUpRight size={14} />
-            </Link>
-          </div>
-        </div>
-      </div>
-    </SurfaceRoutes>
-  );
-}
-
 function Connect() {
   return (
     <SurfaceRoutes
       as="section"
       kind="connect"
       id="connect"
+      data-sprue="connect-section"
       className={styles.connect}
       aria-labelledby="connect-title"
     >
@@ -287,10 +152,7 @@ function Closing() {
       </div>
       <div className={styles.closingContent}>
         <h2 id="closing-title">
-          <span className={styles.srOnly}>
-            Your product. Powered by agents.
-          </span>
-          <GraphicHeading first="YOUR PRODUCT." second="POWERED BY AGENTS." />
+          <ProductHeading />
         </h2>
         <p>
           The world’s best <span>agent harnesses</span>.<br />
@@ -325,11 +187,13 @@ export default function FrameworkHome() {
       <FrameworkNav />
       <Hero />
       <Manifesto />
-      <div className={styles.systemWindow}>
-        <ArchitectureDiagram />
-        <Features />
-      </div>
-      <Connect />
+      <SurfaceRoutes kind="customizationConnect" className={styles.systemFlow}>
+        <div className={styles.systemWindow}>
+          <ArchitectureDiagram />
+          <ProductCustomization />
+        </div>
+        <Connect />
+      </SurfaceRoutes>
       <Closing />
       <FrameworkFooter />
     </div>

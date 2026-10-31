@@ -160,3 +160,62 @@ func TestExistingCodexAccountAndKeychainAreDiscoveryOnly(t *testing.T) {
 		t.Fatal("discovery wrote source credentials")
 	}
 }
+
+func TestExistingCodexAccountWithStructuredTokenMetadata(t *testing.T) {
+	m, host, private := sourceFixture(t)
+	raw := []byte(`{"auth_mode":"chatgpt","tokens":{"id_token":"fixture-id","access_token":"fixture-access","refresh_token":"fixture-refresh","account_id":"fixture-account","login_owner_id":"fixture-owner","oauth_provenance":{"client_id":"fixture-client","issuer":"https://fixture.invalid"},"future_metadata":{"enabled":true},"unrelated_secret":"must-not-copy"},"last_refresh":"2026-10-29T00:00:00Z","hooks":"must-not-copy"}`)
+	path := filepath.Join(host, "auth.json")
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	method := m.ExistingMethod()
+	if method == nil || method.ID != agent.ExistingAuthMethod || method.Existing.Name != "Codex account" {
+		t.Fatal("saved Codex account with structured token metadata was not discovered")
+	}
+	metadata, _ := json.Marshal(method)
+	if strings.Contains(string(metadata), "fixture-") {
+		t.Fatal("discovery exposed account credentials")
+	}
+	connection, err := m.sourceConnection(context.Background(), true)
+	if err != nil || connection == nil {
+		t.Fatal("could not prepare the discovered connection")
+	}
+	var copied struct {
+		Tokens map[string]json.RawMessage `json:"tokens"`
+	}
+	if json.Unmarshal(connection.data, &copied) != nil {
+		t.Fatal("invalid private account record")
+	}
+	for _, key := range []string{"id_token", "access_token", "refresh_token", "account_id", "login_owner_id", "oauth_provenance"} {
+		if len(copied.Tokens[key]) == 0 {
+			t.Fatalf("required account metadata lost: %s", key)
+		}
+	}
+	var provenance map[string]string
+	if json.Unmarshal(copied.Tokens["oauth_provenance"], &provenance) != nil || provenance["client_id"] != "fixture-client" {
+		t.Fatal("native OAuth metadata was not preserved")
+	}
+	if strings.Contains(string(connection.data), "must-not-copy") || len(copied.Tokens) != 6 {
+		t.Fatal("unrelated native fields crossed profiles")
+	}
+	original, _ := os.ReadFile(path)
+	if string(original) != string(raw) {
+		t.Fatal("discovery modified the host account")
+	}
+	if _, err := os.Stat(filepath.Join(private, "auth.json")); !os.IsNotExist(err) {
+		t.Fatal("discovery imported an account before verification")
+	}
+}
+
+func TestExistingCodexAccountRejectsIncompleteOrInvalidCredentials(t *testing.T) {
+	for _, raw := range []string{
+		`{"tokens":{"access_token":"fixture-access"}}`,
+		`{"tokens":{"refresh_token":"fixture-refresh"}}`,
+		`{"tokens":{"access_token":{"value":"fixture-access"},"refresh_token":"fixture-refresh"}}`,
+		`{"tokens":{"access_token":"fixture-access","refresh_token":42}}`,
+	} {
+		if sourceAccount([]byte(raw)) != nil {
+			t.Fatal("invalid native credentials were offered for reuse")
+		}
+	}
+}

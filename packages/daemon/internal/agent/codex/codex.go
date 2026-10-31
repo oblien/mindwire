@@ -82,7 +82,8 @@ func (adapter) Capabilities() agent.Capabilities {
 		MCPConfig: true,
 		// Custom-provider registration (see providers.go): [model_providers.<id>] tables in config.toml,
 		// user scope only. The module type assertion is the authoritative gate.
-		CustomProviders: true,
+		CustomProviders:      true,
+		CustomProviderModels: true,
 		// On-demand compaction uses the same connection settings and thread/compact/start RPC.
 		CompactNow: true,
 		// Global-resolve: codex's turn.completed is always fully settled (no subtype), and it resumes via
@@ -538,6 +539,7 @@ func isImage(at agent.Attachment) bool { return agent.NativeImageMime(at) != "" 
 // RunStream uses app-server for every chat turn, including autonomous approvalPolicy=never turns.
 // exec --json is retained for callers without an inbound channel; it may emit only completed blocks.
 func (adapter) RunStream(ctx context.Context, in agent.TurnInput, emit agent.Emit) (agent.TurnResult, error) {
+	in = registeredModel(in)
 	files, msgAppend, cleanup, err := materialize(in)
 	defer cleanup()
 	if err != nil {

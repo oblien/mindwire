@@ -347,6 +347,21 @@ func TestProvidersHTTP(t *testing.T) {
 	if rec := serve(t, h, "PUT", "/providers/cx?agent=codex&scope=user", `{"baseUrl":"https://cx.example/v1","models":["c1"]}`); rec.Code != http.StatusOK {
 		t.Fatalf("PUT /providers/cx?agent=codex: %d %s", rec.Code, rec.Body.String())
 	}
+	// Selectable custom models use the provider-qualified ID consumed by per-run routing.
+	rec = serve(t, h, "GET", "/models?agent=codex", "")
+	var models []agent.ModelInfo
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &models) != nil {
+		t.Fatalf("GET /models?agent=codex after registration: %d %s", rec.Code, rec.Body.String())
+	}
+	found := false
+	for _, model := range models {
+		if model.ID == "cx/c1" {
+			found = model.Custom && model.Provider == "cx"
+		}
+	}
+	if !found {
+		t.Fatal("registered custom model is not selectable")
+	}
 
 	// opencode is user-scope only → a project-scope single GET is a 400 (unsupported scope), surfaced by
 	// the module. (The list route ignores ?scope= — it iterates the module's own ProviderScopes.)

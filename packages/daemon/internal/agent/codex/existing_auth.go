@@ -116,9 +116,19 @@ func (m *authModule) sourceConnection(ctx context.Context, reveal bool) (*source
 
 func sourceAccount(raw []byte) *sourceConnection {
 	var account struct {
-		APIKey      string            `json:"OPENAI_API_KEY"`
-		Tokens      map[string]string `json:"tokens"`
-		LastRefresh string            `json:"last_refresh"`
+		APIKey string `json:"OPENAI_API_KEY"`
+		// Native token records also carry structured OAuth provenance. Decode only
+		// connection fields so new metadata cannot hide an otherwise valid login,
+		// and unrelated configuration never crosses into the private profile.
+		Tokens struct {
+			IDToken         string          `json:"id_token,omitempty"`
+			AccessToken     string          `json:"access_token"`
+			RefreshToken    string          `json:"refresh_token"`
+			AccountID       string          `json:"account_id,omitempty"`
+			LoginOwnerID    string          `json:"login_owner_id,omitempty"`
+			OAuthProvenance json.RawMessage `json:"oauth_provenance,omitempty"`
+		} `json:"tokens"`
+		LastRefresh string `json:"last_refresh"`
 	}
 	if json.Unmarshal(raw, &account) != nil {
 		return nil
@@ -126,16 +136,10 @@ func sourceAccount(raw []byte) *sourceConnection {
 	if key := strings.TrimSpace(account.APIKey); key != "" {
 		return &sourceConnection{metadata: agent.ExistingAuthConnection{Name: "Codex API connection"}, apiKey: key}
 	}
-	if account.Tokens["access_token"] == "" || account.Tokens["refresh_token"] == "" {
+	if account.Tokens.AccessToken == "" || account.Tokens.RefreshToken == "" {
 		return nil
 	}
-	tokens := map[string]string{}
-	for _, key := range []string{"id_token", "access_token", "refresh_token", "account_id"} {
-		if value := account.Tokens[key]; value != "" {
-			tokens[key] = value
-		}
-	}
-	data, _ := json.Marshal(map[string]any{"auth_mode": "chatgpt", "OPENAI_API_KEY": nil, "tokens": tokens, "last_refresh": account.LastRefresh})
+	data, _ := json.Marshal(map[string]any{"auth_mode": "chatgpt", "OPENAI_API_KEY": nil, "tokens": account.Tokens, "last_refresh": account.LastRefresh})
 	return &sourceConnection{metadata: agent.ExistingAuthConnection{Name: "Codex account"}, file: "auth.json", data: data}
 }
 

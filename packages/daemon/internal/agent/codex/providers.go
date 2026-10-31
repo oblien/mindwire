@@ -308,6 +308,7 @@ func buildProviderSection(id string, p agent.CustomProvider, envVar string) stri
 	// credential store and reference its environment variable instead.
 	b.WriteString("env_key = " + tomlString(envVar) + "\n")
 	b.WriteString("wire_api = " + tomlString(providerWireAPI) + "\n")
+	b.WriteString("requires_openai_auth = false\n")
 	return b.String()
 }
 

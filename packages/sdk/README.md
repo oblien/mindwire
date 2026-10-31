@@ -165,6 +165,16 @@ Mindwire bot instructions, memory, knowledge, skills or bot MCP tools. `raw` is
 creation-only; create a separate profile to change modes without carrying an old
 persona into a resumed conversation.
 
+For an embedding application that owns tool authorization, create a profile with
+`externalTools: true` (Go: `Bot.ExternalTools`; requires `botsVersion >= 9`). It adds
+the saved name, purpose, instructions and knowledge to the ordinary turn context,
+while preserving the application's MCP configuration, environment and native tool
+restrictions. It does not install Mindwire management tools or skills. Start and
+steer these chats through the application's normal turn API; native bot delegation
+cannot execute them. This mode is immutable and cannot be combined with `raw`, a
+master profile or assigned skills. The application remains responsible for checking
+permissions before each turn and supplying scoped tools.
+
 With `botsVersion >= 8`, bots belong to a workspace and can work in any of its
 projects. `projectId` is only their optional default working folder. Start a chat
 in another project with `mw.bots.createChat(bot.id, { projectId })` (Go:

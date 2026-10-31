@@ -80,6 +80,9 @@ func (s *Service) taskTarget(actor registry.Bot, botID string, execution bool) (
 	if err != nil {
 		return registry.Bot{}, err
 	}
+	if execution && bot.ExternalTools {
+		return registry.Bot{}, fmt.Errorf("%w: this bot is managed by its application; start and steer tasks through that application", registry.ErrInvalid)
+	}
 	if execution && bot.Archived {
 		return registry.Bot{}, fmt.Errorf("%w: restore this bot before starting work", registry.ErrInvalid)
 	}

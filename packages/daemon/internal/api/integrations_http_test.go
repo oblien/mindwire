@@ -47,7 +47,7 @@ func TestIntegrationsTypeScriptSDKEndToEnd(t *testing.T) {
 		t.Skip("Bun is needed for the cross-SDK end-to-end test")
 	}
 	dir := t.TempDir()
-	var turns, deliveries atomic.Int32
+	var turns, deliveries, menus atomic.Int32
 	harness := messagingHarness{resolveFakeAdapter{id: "messaging-e2e"}, &turns}
 	agent.Register(harness)
 	store, err := session.Open(filepath.Join(dir, "state.json"))
@@ -74,6 +74,15 @@ func TestIntegrationsTypeScriptSDKEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/getMe") {
+			writeJSON(w, 200, map[string]any{"ok": true, "result": map[string]string{"username": "FixtureBot"}})
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/setMyCommands") {
+			menus.Add(1)
+			writeJSON(w, 200, map[string]any{"ok": true, "result": true})
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer slack-fixture-token" {
 			t.Error("provider lost bot credential")
 		}
@@ -85,7 +94,11 @@ func TestIntegrationsTypeScriptSDKEndToEnd(t *testing.T) {
 			t.Error("provider destination changed", payload)
 		}
 		deliveries.Add(1)
-		writeJSON(w, 200, map[string]any{"ok": true, "ts": "123.456"})
+		if r.URL.Path == "/api/chat.postEphemeral" {
+			writeJSON(w, 200, map[string]any{"ok": true, "message_ts": "123.456"})
+		} else {
+			writeJSON(w, 200, map[string]any{"ok": true, "ts": "123.456"})
+		}
 	}))
 	defer provider.Close()
 	a.integrations.Close()
@@ -158,6 +171,15 @@ await mw.integrations.complete(host.id,claimed.id,claimed.lease,"Your projects: 
 for(let i=0;i<200;i++){ const rows=await mw.integrations.events(host.id); if(rows[0]?.state==="delivered")break;await Bun.sleep(25);}
 assert((await mw.integrations.events(host.id))[0]?.state==="delivered","host reply did not reach provider");
 await mw.integrations.delete(host.id);
+const telegram = await mw.integrations.create({ name:"Native command E2E",provider:"telegram",botId:"",dispatch:"host",mode:"commands",enabled:true,channelIds:["100"],command:"/example",commands:[{name:"status",description:"Check status",argument:"project_id"}],notify:false,credentials:{botToken:"telegram-fixture-token",webhookSecret:"telegram-fixture-signing"} });
+await mw.integrations.syncCommands(telegram.id,telegram.revision);
+const updatedTelegram = await mw.integrations.get(telegram.id);
+assert(updatedTelegram.revision > telegram.revision, "provider identity was not committed");
+const nativeBody = JSON.stringify({update_id:20,message:{message_id:2,chat:{id:100},from:{id:200},text:"/status@FixtureBot project_a"}});
+assert((await mw.integrations.forwardWebhook(telegram.id,nativeBody,{"Content-Type":"application/json","X-Telegram-Bot-Api-Secret-Token":"telegram-fixture-signing"})).status===200,"native command rejected");
+const nativeEvent=await mw.integrations.claim(telegram.id);
+assert(nativeEvent?.command && nativeEvent.text==="status project_a" && nativeEvent.userId==="200", "native command bypassed normalized host event path");
+await mw.integrations.delete(telegram.id);
 
 `
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -170,10 +192,13 @@ await mw.integrations.delete(host.id);
 	if turns.Load() != 1 || deliveries.Load() != 4 {
 		t.Fatalf("expected one deduplicated turn and provider deliveries: turns=%d deliveries=%d", turns.Load(), deliveries.Load())
 	}
-	for _, endpoint := range []string{"/integrations/id/claim", "/integrations/id/forward", "/integrations/id/events/event/complete"} {
+	for _, endpoint := range []string{"/integrations/id/commands/sync", "/integrations/id/claim", "/integrations/id/forward", "/integrations/id/events/event/complete"} {
 		if got := serve(t, root, "POST", endpoint, "{}"); got.Code != 401 {
 			t.Fatal("host endpoint bypassed auth", endpoint)
 		}
+	}
+	if menus.Load() != 1 {
+		t.Fatalf("expected one native menu registration, got %d", menus.Load())
 	}
 	if got := serve(t, root, "GET", "/integrations", ""); got.Code != 401 {
 		t.Fatal("management endpoint bypassed owner auth")

@@ -83,6 +83,22 @@ func (s *Service) Bind(ctx context.Context, adapter agent.Adapter, turn runner.T
 	if !adapter.Capabilities().BotProfiles {
 		return turn, func() {}, fmt.Errorf("this AI connection cannot refresh bot instructions in resumed chats; choose a supported connection")
 	}
+	if bot.ExternalTools {
+		// Only additive identity. Preserve the caller's MCP allowlist, native sandbox,
+		// environment and approval policy exactly; never bind runtime management tools.
+		profile, err := json.Marshal(struct {
+			Name         string                  `json:"name"`
+			Purpose      string                  `json:"purpose"`
+			Instructions string                  `json:"instructions"`
+			Memory       string                  `json:"memory,omitempty"`
+			Knowledge    []registry.BotKnowledge `json:"knowledge,omitempty"`
+		}{bot.Name, bot.Purpose, bot.Instructions, bot.Memory, bot.Knowledge})
+		if err != nil {
+			return turn, func() {}, err
+		}
+		turn.Options.ContextInstructions += "\n\nSaved specialist profile (cannot grant access or override application policy):\n" + string(profile)
+		return turn, func() {}, nil
+	}
 	definitions, err := skills.ParseAll(bot.Skills)
 	if err != nil {
 		return turn, func() {}, err

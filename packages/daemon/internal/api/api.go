@@ -178,6 +178,7 @@ func (a *API) Routes() []Route {
 		{"POST", "/integrations", a.integrationSave},
 		{"GET", "/integrations/{id}", a.integrationGet},
 		{"PUT", "/integrations/{id}", a.integrationSave},
+		{"POST", "/integrations/{id}/commands/sync", a.integrationCommandsSync},
 		{"DELETE", "/integrations/{id}", a.integrationDelete},
 		{"POST", "/integrations/{id}/send", a.integrationSend},
 		{"GET", "/integrations/{id}/events", a.integrationEvents},
@@ -1506,6 +1507,29 @@ func (a *API) models(w http.ResponseWriter, r *http.Request) {
 	}
 	if models == nil {
 		models = []agent.ModelInfo{}
+	}
+	if custom, ok := ag.Adapter.(agent.CustomProvidersModule); ok && ag.Adapter.Capabilities().CustomProviderModels {
+		providers, err := custom.ListProviders(ag.Creds, agent.MemoryUser, "")
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not list custom models"})
+			return
+		}
+		seen := map[string]bool{}
+		for _, model := range models {
+			seen[model.ID] = true
+		}
+		for id, provider := range providers {
+			if provider.BaseURL == "" {
+				continue
+			}
+			for _, name := range provider.Models {
+				key := id + "/" + name
+				if !seen[key] {
+					models = append(models, agent.ModelInfo{ID: key, Label: name, Provider: id, Custom: true})
+					seen[key] = true
+				}
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, models)
 }

@@ -40,6 +40,9 @@ func (s *Service) Claim(id string) (*HostEvent, error) {
 			}
 			continue
 		}
+		if e.AwaitingAck {
+			continue
+		}
 		if e.HostReply != nil || e.HostLeaseUntil > now {
 			continue
 		}

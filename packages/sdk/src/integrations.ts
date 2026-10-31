@@ -4,9 +4,17 @@ import type { Condition } from "./types.js";
 export type IntegrationProvider = "slack" | "teams" | "discord" | "telegram";
 export type IntegrationMode = "notifications" | "commands" | "chat" | "trigger";
 
+export interface IntegrationCommand {
+  name: string;
+  description: string;
+  argument?: string;
+}
+
 /** Write-only credentials, stored on the daemon. Omitted fields preserve saved values. */
 export interface IntegrationCredentials {
   botToken?: string;
+  /** Slack app-level token with connections:write, for Socket Mode. */
+  appToken?: string;
   signingSecret?: string;
   webhookSecret?: string;
   publicKey?: string;
@@ -16,6 +24,8 @@ export interface IntegrationCredentials {
 export interface IntegrationSpec {
   name: string;
   provider: IntegrationProvider;
+  /** Protocol 3: outbound opens Slack/Discord sockets or Telegram polling. Default: webhook. */
+  transport?: "webhook" | "outbound";
   botId: string;
   /** Host dispatch delivers verified events to claim()/complete(), without starting an agent. */
   dispatch?: "bot" | "host";
@@ -28,6 +38,8 @@ export interface IntegrationSpec {
   workspaceId?: string;
   applicationId?: string;
   command?: string;
+  /** Protocol 4: role-filtered native command definitions. These do not grant access. */
+  commands?: IntegrationCommand[];
   /** Forward this bot's lifecycle notifications to destination. */
   notify: boolean;
   conditions?: Condition[];
@@ -43,6 +55,7 @@ export interface Integration extends Omit<IntegrationSpec, "credentials" | "expe
   revision: number;
   hasCredentials: boolean;
   webhookPath: string;
+  receiver?: { state: "connecting" | "connected" | "retrying" | "error" | "paused"; error?: string };
 }
 
 export interface IntegrationReceipt {
@@ -83,6 +96,10 @@ export class IntegrationsApi {
     return this.mw.http.request("PUT", this.path(id), { body: spec });
   }
   async delete(id: string): Promise<void> { await this.mw.http.request("DELETE", this.path(id)); }
+  /** Protocol 4. Publish the saved catalog to Telegram or Discord. Slack uses its app manifest. */
+  syncCommands(id: string, expectedRevision: number): Promise<{ synced: boolean }> {
+    return this.mw.http.request("POST", `${this.path(id)}/commands/sync`, { body: { expectedRevision } });
+  }
   /** Sends to the configured destination, also useful as a connection test. */
   send(id: string, text: string): Promise<{ sent: boolean }> {
     return this.mw.http.request("POST", `${this.path(id)}/send`, { body: { text } });

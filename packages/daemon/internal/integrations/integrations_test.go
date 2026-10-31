@@ -129,6 +129,9 @@ func newFixture(t *testing.T) *fixture {
 			return response(200, `{"ok":true,"result":{"message_id":44}}`), nil
 		}
 		if r.URL.Host == "slack.com" {
+			if r.URL.Path == "/api/chat.postEphemeral" {
+				return response(200, `{"ok":true,"message_ts":"44.1"}`), nil
+			}
 			return response(200, `{"ok":true,"ts":"44.1"}`), nil
 		}
 		return response(200, `{"id":"44"}`), nil

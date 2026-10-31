@@ -1,4 +1,54 @@
 /** Reference connector paths, separated from markup and presentation styles. */
+export const customizationConnect = {
+  routes: [
+    {
+      from: { win: "custom-direction", side: "bottom" },
+      to: { win: "connect-code", side: "top", at: 0.65 },
+      media: "(width >= 1280px)",
+    },
+    {
+      from: { win: "custom-direction", side: "bottom" },
+      to: { win: "connect-intro", side: "top" },
+      media: "(width < 1280px)",
+    },
+  ],
+};
+
+export const customizationIntro = {
+  routes: [
+    {
+      from: { x: "50%", y: 0 },
+      steps: [
+        ["s", 32],
+        ["w", { to: { win: "custom-heading", side: "top" } }],
+        ["s", { to: { win: "custom-heading", side: "top" } }],
+      ],
+      media: "(width > 600px)",
+    },
+    {
+      from: { x: "50%", y: 0 },
+      steps: [["s", { to: { win: "custom-heading", side: "top" } }]],
+      media: "(width <= 600px)",
+    },
+  ],
+};
+
+export const customization = {
+  routes: [
+    {
+      from: { win: "custom-brand", side: "right", at: 0.5 },
+      to: { win: "custom-tools", side: "left", at: 0.5 },
+      media: "(width > 1100px)",
+    },
+    {
+      from: { win: "custom-tools", side: "right", at: 0.5 },
+      to: { win: "custom-direction", side: "left", at: 0.5 },
+      media: "(width > 1100px)",
+    },
+  ],
+  mobileRoutes: [],
+};
+
 export const cloudCapabilities = {
   routes: [
     {
@@ -345,21 +395,14 @@ export const closing = {
 export const connect = {
   routes: [
     {
-      from: {
-        x: "75%",
-        y: 0,
-      },
-      steps: [
-        [
-          "s",
-          {
-            to: {
-              win: "connect-code",
-              side: "top",
-            },
-          },
-        ],
-      ],
+      from: { win: "connect-intro", side: "right", at: 0.55 },
+      to: { win: "connect-code", side: "left", at: 0.55 },
+      media: "(width >= 1280px)",
+    },
+    {
+      from: { win: "connect-code", side: "bottom" },
+      to: { x: "50%", y: "100%" },
+      media: "(width >= 1280px)",
     },
     {
       from: {
@@ -377,6 +420,7 @@ export const connect = {
           },
         ],
       ],
+      media: "(width < 1280px)",
     },
     {
       from: {
@@ -390,6 +434,7 @@ export const connect = {
         side: "top",
         at: 0.12,
       },
+      media: "(width < 1280px)",
     },
     {
       from: {
@@ -405,23 +450,6 @@ export const connect = {
     },
   ],
   mobileRoutes: [
-    {
-      from: {
-        x: "50%",
-        y: 0,
-      },
-      steps: [
-        [
-          "s",
-          {
-            to: {
-              win: "connect-intro",
-              side: "top",
-            },
-          },
-        ],
-      ],
-    },
     {
       from: {
         win: "connect-intro",
@@ -722,316 +750,6 @@ export const diagram = {
   tone: "dark",
 };
 
-export const features = {
-  routes: [
-    {
-      from: {
-        x: "50%",
-        y: 0,
-      },
-      steps: [
-        [
-          "s",
-          {
-            to: {
-              win: "feat-brief-part",
-              side: "top",
-            },
-          },
-        ],
-      ],
-      media: "(width >= 1280px)",
-    },
-    {
-      from: {
-        win: "feat-brief-part",
-        side: "bottom",
-      },
-      steps: [
-        [
-          "s",
-          {
-            to: {
-              win: "feat-generate-part",
-              side: "top",
-            },
-          },
-        ],
-      ],
-      media: "(width >= 1280px)",
-    },
-    {
-      from: {
-        win: "feat-generate-part",
-        side: "bottom",
-      },
-      steps: [
-        [
-          "s",
-          {
-            to: {
-              win: "feat-review-part",
-              side: "top",
-            },
-          },
-        ],
-      ],
-      media: "(width >= 1280px)",
-    },
-    {
-      from: {
-        x: "50%",
-        y: 0,
-      },
-      steps: [
-        [
-          "s",
-          {
-            to: {
-              win: "feat-header",
-              side: "top",
-            },
-          },
-        ],
-      ],
-      media: "(width < 1280px)",
-    },
-    {
-      from: {
-        win: "feat-header",
-        side: "bottom",
-      },
-      steps: [
-        ["s", 28],
-        [
-          "w",
-          {
-            to: {
-              win: "feat-brief-part",
-              side: "top",
-            },
-          },
-        ],
-        [
-          "s",
-          {
-            to: {
-              win: "feat-brief-part",
-              side: "top",
-            },
-          },
-        ],
-      ],
-      media: "(width < 1280px)",
-    },
-    {
-      from: {
-        win: "feat-brief-part",
-        side: "bottom",
-      },
-      steps: [
-        [
-          "s",
-          {
-            to: {
-              win: "feat-generate-part",
-              side: "top",
-            },
-          },
-        ],
-      ],
-      media: "(width < 1280px)",
-    },
-    {
-      from: {
-        win: "feat-generate-part",
-        side: "bottom",
-      },
-      steps: [
-        [
-          "s",
-          {
-            to: {
-              win: "feat-review-part",
-              side: "top",
-            },
-          },
-        ],
-      ],
-      media: "(width < 1280px)",
-    },
-    {
-      from: {
-        x: "75%",
-        y: "100%",
-      },
-      steps: [
-        ["n", 32],
-        [
-          "w",
-          {
-            to: {
-              win: "feat-review-part",
-              side: "bottom",
-            },
-          },
-        ],
-        [
-          "n",
-          {
-            to: {
-              win: "feat-review-part",
-              side: "bottom",
-            },
-          },
-        ],
-      ],
-      media: "(768px <= width < 1280px)",
-    },
-    {
-      from: {
-        x: "75%",
-        y: "100%",
-      },
-      steps: [
-        ["n", 32],
-        [
-          "w",
-          {
-            to: {
-              win: "feat-review-part",
-              side: "bottom",
-            },
-          },
-        ],
-        [
-          "n",
-          {
-            to: {
-              win: "feat-review-part",
-              side: "bottom",
-            },
-          },
-        ],
-      ],
-      media: "(width >= 1280px)",
-    },
-  ],
-  mobileRoutes: [
-    {
-      from: {
-        x: "50%",
-        y: 0,
-      },
-      steps: [
-        [
-          "s",
-          {
-            to: {
-              win: "feat-header",
-              side: "top",
-            },
-          },
-        ],
-      ],
-      media: "(width < 1280px)",
-    },
-    {
-      from: {
-        win: "feat-header",
-        side: "bottom",
-      },
-      steps: [
-        ["s", 28],
-        [
-          "w",
-          {
-            to: {
-              win: "feat-brief-part",
-              side: "top",
-            },
-          },
-        ],
-        [
-          "s",
-          {
-            to: {
-              win: "feat-brief-part",
-              side: "top",
-            },
-          },
-        ],
-      ],
-      media: "(width < 1280px)",
-    },
-    {
-      from: {
-        win: "feat-brief-part",
-        side: "bottom",
-      },
-      steps: [
-        [
-          "s",
-          {
-            to: {
-              win: "feat-generate-part",
-              side: "top",
-            },
-          },
-        ],
-      ],
-      media: "(width < 1280px)",
-    },
-    {
-      from: {
-        win: "feat-generate-part",
-        side: "bottom",
-      },
-      steps: [
-        [
-          "s",
-          {
-            to: {
-              win: "feat-review-part",
-              side: "top",
-            },
-          },
-        ],
-      ],
-      media: "(width < 1280px)",
-    },
-    {
-      from: {
-        x: "50%",
-        y: "100%",
-      },
-      steps: [
-        ["n", 32],
-        [
-          "w",
-          {
-            to: {
-              win: "feat-review-part",
-              side: "bottom",
-            },
-          },
-        ],
-        [
-          "n",
-          {
-            to: {
-              win: "feat-review-part",
-              side: "bottom",
-            },
-          },
-        ],
-      ],
-      media: "(width < 768px)",
-    },
-  ],
-  tone: "dark",
-};
-
 export const footer = {
   routes: [],
   mobileRoutes: [
@@ -1059,20 +777,6 @@ export const hero = {
         side: "bottom",
       },
       steps: [["s", "edge"]],
-    },
-    {
-      from: {
-        win: "hero",
-        side: "bottom",
-        offset: 160,
-      },
-      steps: [
-        ["s", 56],
-        ["e", 342],
-        ["se", 88],
-        ["e", "edge"],
-      ],
-      media: "(width >= 1280px)",
     },
   ],
   tone: "light",

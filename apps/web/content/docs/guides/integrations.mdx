@@ -13,7 +13,8 @@ the messaging app to send events to your computer's public HTTPS address followe
 **Send test message** checks outbound access; **Delivery activity** shows incoming task receipts
 and lets you retry failures.
 
-Check `health.integrationsVersion >= 1` before using these endpoints. Upgrade older daemons
+Check `health.integrationsVersion >= 1` before using webhook endpoints, `>= 2` for host dispatch,
+`>= 3` for outbound receivers, and `>= 4` for native command menus. Upgrade older daemons
 from the computer's settings.
 
 ## Choose a mode
@@ -30,9 +31,9 @@ defaults to the first allowed channel. `conditions` can select `finished`, `erro
 `waiting_approval`, `waiting_feedback`, or `waiting_input`; omit it to receive all conditions.
 Direct calls to `send()` work independently of this subscription.
 
-Slack, Telegram, and Teams accept normal text messages. Discord uses an HTTP slash command:
+Slack, Telegram, and Teams accept normal text messages. Discord uses slash interactions (Gateway or HTTP):
 send `/mindwire message:your question`, then continue with the same command in that channel or
-thread. Discord Gateway message ingestion is not part of this transport. Replies stream through
+thread. Ordinary Discord channel-message ingestion is not part of this transport; no privileged message-content intent is required. Replies stream through
 message edits in all four apps. Only visible assistant text and a pending-interaction notice
 are forwarded; internal thinking and tool inputs are not copied into channels.
 
@@ -96,9 +97,52 @@ if (failed) await mw.integrations.retry(connection.id, failed.id);
 await mw.integrations.delete(connection.id);
 ```
 
+## Outbound connections without public exposure
+
+With integration protocol 3, set `transport: "outbound"` for Slack, Discord or Telegram.
+The daemon opens the provider connection; no public Mindwire endpoint or tunnel is needed.
+Use one receiver per provider bot, and keep the daemon running with internet access.
+Teams still requires a public Bot Framework webhook. Webhook connectors reject attempts
+to use an outbound transport as an unsigned ingress route.
+
+- **Slack:** enable Socket Mode and pass `credentials.appToken` (`xapp-…`, with
+  `connections:write`) plus `credentials.botToken`. Keep workspace/channel allowlists.
+  Slash commands and subscribed events arrive over the authenticated socket. Request URLs
+  and `signingSecret` are not needed in this mode.
+- **Discord:** leave the Interactions Endpoint URL empty and pass the bot token,
+  `applicationId`, guild `workspaceId` and allowed channel IDs. Register the slash command
+  with the catalog below or in your app setup. The Gateway receives interactions with no privileged intents; the daemon
+  maintains heartbeats and resumes missed events. `publicKey` is only needed for webhooks.
+- **Telegram:** pass the bot token and chat allowlist. `getUpdates` uses long polling and
+  a durable offset. A configured webhook or another poller conflicts; the daemon reports
+  this without deleting another integration's webhook. `webhookSecret` is only for webhooks.
+
+```ts
+const connection = await mw.integrations.create({
+  name: "Local Telegram",
+  provider: "telegram",
+  transport: "outbound",
+  botId: "your-saved-bot-id",
+  mode: "chat",
+  enabled: true,
+  notify: false,
+  channelIds: ["123456789"],
+  credentials: { botToken: process.env.TELEGRAM_BOT_TOKEN! },
+});
+console.log((await mw.integrations.get(connection.id)).receiver);
+```
+
+`receiver.state` is `connecting`, `connected`, `retrying`, `error` or `paused`.
+Errors are safe setup guidance and never contain credentials or socket tickets.
+Outbound and webhook ingestion share the decoder, allowlists and bounded durable queue.
+Provider retries are deduplicated before bot or host dispatch. Discord acknowledges an
+interaction privately for host dispatch before releasing it to a host. Receipts recover
+an interrupted acknowledgement without rerunning work. Pausing or deleting cancels the
+receiver; restarting loads its durable provider cursor. No native agent sign-in is changed.
+
 ## Provider setup
 
-All providers need a public HTTPS webhook URL. Publish only
+For webhook transport (the compatibility default), publish only
 `POST /integrations/{id}/webhook` through your reverse proxy or tunnel. Keep the daemon's
 management API authenticated. The webhook independently verifies the provider; the daemon owner
 token is not a substitute for a valid provider signature.
@@ -276,6 +320,44 @@ Slack ingress, the real bot supervisor, streamed output, and a simulated provide
 It needs Bun installed. These tests use deterministic provider and harness fixtures; live
 Slack, Telegram, Teams, and Discord credentials are not required.
 
+
+## Native command menus
+
+Integration protocol 4 accepts a `commands` catalog alongside the root `command`.
+Descriptions and optional string arguments become native Telegram menu entries and
+Discord subcommands. The host defines the catalog; Mindwire normalizes selections into
+the same command text used by the existing dispatcher.
+
+```ts
+const current = await mw.integrations.get(connection.id);
+const updated = await mw.integrations.update(current.id, {
+  ...current,
+  expectedRevision: current.revision,
+  command: "/example",
+  commands: [
+    { name: "projects", description: "List your projects" },
+    { name: "status", description: "Check a project", argument: "project_id" },
+  ],
+});
+await mw.integrations.syncCommands(updated.id, updated.revision);
+```
+
+Sync explicitly after catalog changes, not on every reconnect. Telegram updates the dedicated
+bot's menu with `setMyCommands`; `/status <project_id>` and `/example status <project_id>`
+reach the same handler. Discord upserts only the named command in the configured guild,
+with native subcommands and argument fields. Other guild commands are preserved.
+Fetch the latest connection before subsequent updates: Telegram sync may save its verified
+bot username and advance the revision. Commands addressed to a different Telegram bot are ignored.
+
+Slack requires entries such as `/example-status` in `features.slash_commands` in the Slack
+app manifest. Use the same descriptions and argument hints from your catalog, and preserve
+the rest of the manifest. Bot tokens cannot update that manifest. Socket Mode needs no public
+request URL. Teams uses its app manifest for command suggestions. `syncCommands()` is only
+supported for Telegram and Discord.
+
+Menus do not grant access: provider verification, channel and sender restrictions, host
+account permissions, and operation confirmations still apply. Unknown aliases and malformed
+Discord arguments are rejected before dispatch. Use a dedicated bot for each catalog.
 
 ## Host commands without an agent
 

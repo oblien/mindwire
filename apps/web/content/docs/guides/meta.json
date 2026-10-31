@@ -3,6 +3,7 @@
   "pages": [
     "quickstart",
     "streaming",
+    "react",
     "tool-events",
     "interaction",
     "steering",

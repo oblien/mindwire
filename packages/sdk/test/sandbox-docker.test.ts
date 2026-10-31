@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import { createRequire } from "node:module";
@@ -14,7 +14,7 @@ import { provisionDocker, type DockerodeLike, type EnsureEvent } from "../src/in
 // marker each ensure phase emits) demultiplexed through a fake `modem.demuxStream`; `putArchive`
 // and lifecycle calls are captured.
 function fakeDocker(
-  opts: { hostPort?: string; health?: string; noPort?: boolean; running?: boolean; imagePresent?: boolean; pullError?: string } = {},
+  opts: { hostPort?: string; health?: string; noPort?: boolean; running?: boolean; imagePresent?: boolean; pullError?: string; startError?: Error; imageError?: Error; hangHome?: boolean } = {},
 ) {
   const hostPort = opts.hostPort ?? "49160";
   const health = opts.health ?? "";
@@ -26,6 +26,7 @@ function fakeDocker(
     start: 0,
     stop: 0,
     remove: 0,
+    destroyed: 0,
     inspect: 0,
     exec: [] as string[][],
     execEnv: [] as string[][],
@@ -47,6 +48,7 @@ function fakeDocker(
     id: "ctr-created",
     start: async () => {
       calls.start += 1;
+      if (opts.startError) throw opts.startError;
     },
     stop: async () => {
       calls.stop += 1;
@@ -72,8 +74,9 @@ function fakeDocker(
       const stdout = stdoutFor(argv);
       return {
         start: async () => {
-          const s = new EventEmitter() as EventEmitter & { __stdout: string };
+          const s = new EventEmitter() as EventEmitter & { __stdout: string; destroy(): void };
           s.__stdout = stdout;
+          s.destroy = () => { calls.destroyed++; s.emit("close"); };
           return s;
         },
         inspect: async () => ({ ExitCode: 0 }),
@@ -89,6 +92,7 @@ function fakeDocker(
         const s = stream as EventEmitter & { __stdout?: string };
         const out = stdout as { write(b: Uint8Array): void };
         if (s.__stdout) out.write(Buffer.from(s.__stdout));
+        if (opts.hangHome && s.__stdout?.includes("<<MW_HOME>>")) return;
         process.nextTick(() => s.emit("end"));
       },
     },
@@ -104,7 +108,8 @@ function fakeDocker(
     getImage: (name: string) => ({
       inspect: async () => {
         calls.inspectImage.push(name);
-        if (opts.imagePresent === false) throw new Error("no such image");
+        if (opts.imageError) throw opts.imageError;
+        if (opts.imagePresent === false) throw Object.assign(new Error("no such image"), { statusCode: 404 });
         return {};
       },
     }),
@@ -141,7 +146,7 @@ test("provisionDocker: creates a container publishing the port, deploys the daem
   );
 
   // The ensure cycle streamed step events tagged "docker" through the onLog callback.
-  expect(events.map((e) => e.phase)).toEqual(["connect", "probe", "upload", "launch", "ready"]);
+  expect(events.map((e) => e.phase)).toEqual(["provision", "provision", "connect", "probe", "upload", "launch", "ready"]);
   expect(events.every((e) => e.target === "docker")).toBe(true);
 
   // Create (not attach), with the daemon port exposed + published to an ephemeral host port.
@@ -216,6 +221,7 @@ test("provisionDocker: pulls a missing runtime image before creating its contain
   expect(calls.create[0]?.["Image"]).toBe(image);
   expect(events.filter((event) => event.phase === "pull").map((event) => event.message)).toEqual([
     `pulling runtime image ${image}`,
+    `pulling runtime image ${image}: Downloading layer`,
     `runtime image ready: ${image}`,
   ]);
 });
@@ -248,4 +254,42 @@ test("provisionDocker: registry progress errors fail before creating a container
   const { docker, calls } = fakeDocker({ imagePresent: false, pullError: "denied: registry access rejected" });
   await expect(provisionDocker(docker, { daemonBin: tempBin() })).rejects.toThrow(/denied: registry access rejected/);
   expect(calls.create).toHaveLength(0);
+});
+
+test('provisionDocker: a logging-driver start failure is surfaced before readiness polling', async () => {
+  const error = Object.assign(new Error('configured logging driver does not support reading'), { statusCode: 500 });
+  const { docker, calls } = fakeDocker({ startError: error });
+  const events: EnsureEvent[] = [];
+  await expect(provisionDocker(docker, { image: 'fixture' }, event => events.push(event))).rejects.toThrow(error.message);
+  expect(calls.exec).toHaveLength(0);
+  expect(calls.remove).toBe(1);
+  expect(events.at(-1)?.phase).toBe('error');
+});
+
+test('provisionDocker: an already-started attached container continues without removal', async () => {
+  const { docker, calls } = fakeDocker({ startError: Object.assign(new Error('already started'), { statusCode: 304 }), health: '{"version":"0.1.59"}' });
+  await provisionDocker(docker, { container: 'existing' });
+  expect(calls.exec.length).toBeGreaterThan(0);
+  expect(calls.remove).toBe(0);
+});
+
+test('provisionDocker: an inaccessible engine is not mistaken for a missing image', async () => {
+  const { docker, calls } = fakeDocker({ imageError: Object.assign(new Error('access denied'), { statusCode: 403 }) });
+  await expect(provisionDocker(docker)).rejects.toThrow('access denied');
+  expect(calls.pull).toHaveLength(0);
+  expect(calls.create).toHaveLength(0);
+});
+
+test("provisionDocker: an unresponsive container exec respects its preparation timeout", async () => {
+  const { docker, calls } = fakeDocker({ hangHome: true });
+  const schedule = globalThis.setTimeout;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((handler: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) =>
+    schedule(handler, delay === 15_000 ? 10 : delay, ...args)) as typeof setTimeout);
+  try {
+    await expect(provisionDocker(docker, { container: "fixture" })).rejects.toThrow(/Docker command timed out/);
+    expect(calls.destroyed).toBe(1);
+    expect(calls.putArchive).toHaveLength(0);
+  } finally {
+    timer.mockRestore();
+  }
 });

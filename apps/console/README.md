@@ -149,7 +149,7 @@ The portal and sign-in screens share the website palette in
 [`packages/theme/framework.css`](../../packages/theme/framework.css). Console primitives
 map their semantic tokens in `src/index.css`; feature CSS owns layout and
 illustrations. The light default and stored `mw-theme` preference are applied
-before paint. Host Grotesk, Archivo Black, and Geist Mono are self-hosted in
+before paint. Host Grotesk, Geist Sans, and Geist Mono are self-hosted in
 `public/fonts/framework`, with their licenses. The wordmark, monochrome surfaces,
 and connected artwork follow the public site.
 

@@ -1,18 +1,90 @@
-.page { min-height: 100dvh; display: flex; flex-direction: column; padding: 24px 40px; }
-.header { display: flex; align-items: center; justify-content: space-between; gap: 20px; width: 100%; max-width: 1360px; margin: 0 auto; padding: 18px 28px; background: var(--mw-surface); border-radius: 24px; }
-.docsLink { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--mw-muted); }
-.docsLink:hover { color: var(--mw-ink); }
-.main { display: grid; grid-template-columns: 1fr 1fr; align-items: center; width: 100%; max-width: 1120px; margin: auto; flex: 1; gap: 72px; padding: 52px 0 32px; }
-.welcome { display: flex; flex-direction: column; align-items: flex-start; padding: 24px 0; }
-.eyebrow { display: block; font-family: "Mindwire Mono", monospace; font-size: 13px; margin-bottom: 28px; color: var(--mw-muted); }
-.welcome h1 { font-family: var(--font-graphic); font-size: clamp(36px,4.3vw,60px); line-height: 1; letter-spacing: -.035em; font-weight: 400; }
-.welcome p { max-width: 350px; color: var(--mw-muted); font-size: 16px; line-height: 1.65; margin-top: 24px; }
-.art { width: 100%; max-width: 410px; margin: 26px 0 20px; }
-.welcome > a { display: flex; align-items: center; gap: 12px; font-size: 15px; }
-.welcome > a:hover { text-decoration: underline; text-underline-offset: 4px; }
-.formSection { display: flex; align-items: center; justify-content: center; background: var(--mw-surface); padding: 48px 40px; border-radius: 28px; }
-.form { max-width: 390px; width: 100%; }
-.footer { color: var(--mw-muted); padding: 8px 0 12px; }
-@media (max-width: 1000px) { .page { padding: 20px 24px; } .main { gap: 36px; } .formSection { padding: 36px 28px; } .welcome h1 { font-size: 42px; } }
-@media (max-width: 760px) { .page { padding: 16px; } .header { padding: 16px 20px; border-radius: 20px; } .header > a svg { width: 150px; } .main { display: block; padding: 32px 0; max-width: 480px; } .welcome { display: none; } .formSection { padding: 32px 24px; } .form { max-width: 410px; } .docsLink { font-size: 13px; } }
-@media (max-width: 380px) { .header { padding: 14px; gap: 8px; } .header > a svg { width: 124px; } .header > div { gap: 0; } .docsLink { font-size: 12px; gap: 4px; } .docsLink svg { display: none; } .formSection { padding: 28px 20px; } }
+.page {
+  --background: var(--mw-section-surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: var(--background);
+}
+
+.main {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  padding: 64px 24px 48px;
+}
+
+.formSection {
+  width: 100%;
+  max-width: 384px;
+}
+
+.brand {
+  display: flex;
+  justify-content: center;
+  width: fit-content;
+  margin: 0 auto 44px;
+}
+
+.intro {
+  margin-bottom: 28px;
+  text-align: center;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -.035em;
+}
+
+.description {
+  margin-top: 10px;
+  color: var(--mw-muted);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.form [data-slot="input"],
+.form [data-slot="button"] {
+  border-radius: 12px;
+}
+
+.form [data-slot="input"] {
+  padding-inline: 14px;
+  font-size: 16px;
+}
+
+.form [data-slot="button"] {
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 12px 24px 24px;
+  color: var(--mw-muted);
+  font-size: 14px;
+}
+
+.footer nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+@media (max-width: 600px) {
+  .main {
+    padding: 48px 24px 40px;
+  }
+
+  .brand {
+    margin-bottom: 36px;
+  }
+
+  .footer {
+    padding-bottom: 16px;
+  }
+}

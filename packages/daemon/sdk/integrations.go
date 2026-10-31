@@ -12,6 +12,8 @@ type IntegrationSpec = integrations.Spec
 type IntegrationCredentials = integrations.Credentials
 type IntegrationReceipt = integrations.Receipt
 type IntegrationHostEvent = integrations.HostEvent
+type IntegrationReceiverStatus = integrations.ReceiverStatus
+type IntegrationCommand = integrations.CommandDefinition
 
 // Integrations shares the daemon's persistent connections and native bot runtime.
 // Start explicitly opts an embedded host into receiving and executing queued events.
@@ -35,6 +37,9 @@ func (i *Integrations) Update(id string, spec IntegrationSpec) (Integration, err
 }
 func (i *Integrations) Delete(id string) error {
 	return workspaceError("Integrations.Delete", i.c.core.integrations.Delete(id))
+}
+func (i *Integrations) SyncCommands(ctx context.Context, id string, expectedRevision int64) error {
+	return workspaceError("Integrations.SyncCommands", i.c.core.integrations.SyncCommands(ctx, id, expectedRevision))
 }
 func (i *Integrations) Send(ctx context.Context, id, text string) error {
 	return botTaskError("Integrations.Send", i.c.core.integrations.Send(ctx, id, text))

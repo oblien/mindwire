@@ -24,11 +24,10 @@
   max-width: 800px;
   margin: 0 auto;
   font-family: var(--font-graphic);
-  text-transform: uppercase;
-  font-weight: 400;
+  font-weight: 550;
   font-size: var(--site-display);
-  line-height: 0.94;
-  letter-spacing: -0.05em;
+  line-height: 1.04;
+  letter-spacing: -0.055em;
   text-wrap: balance;
 }
 .hero h1 em {

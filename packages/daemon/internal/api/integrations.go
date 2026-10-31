@@ -2,11 +2,34 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/oblien/mindwire/packages/daemon/internal/integrations"
 )
+
+func (a *API) integrationCommandsSync(w http.ResponseWriter, r *http.Request) {
+	s := a.integrationService(w)
+	if s == nil {
+		return
+	}
+	var input struct {
+		ExpectedRevision int64 `json:"expectedRevision"`
+	}
+	if err := decode(w, r, &input); err != nil || input.ExpectedRevision < 1 {
+		badRequest(w, "expectedRevision is required")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	if err := s.SyncCommands(ctx, r.PathValue("id"), input.ExpectedRevision); err != nil {
+		workspaceError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"synced": true})
+}
 
 func (a *API) integrationService(w http.ResponseWriter) *integrations.Service {
 	if a.integrations == nil {
