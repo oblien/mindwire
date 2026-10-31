@@ -1,4 +1,4 @@
-import { Tabs } from "fumadocs-ui/components/tabs";
+import { DocsTabs } from "./docs-tabs";
 import type { ReactNode } from "react";
 
 // The tri-surface snippet switcher used across the guides: TypeScript / Go / REST, always in that order.
@@ -11,8 +11,12 @@ import type { ReactNode } from "react";
 //   </ApiTabs>
 export function ApiTabs({ children }: { children: ReactNode }) {
   return (
-    <Tabs items={["TypeScript", "Go", "REST"]} groupId="mindwire-lang" persist>
+    <DocsTabs
+      items={["TypeScript", "Go", "REST"]}
+      groupId="mindwire-lang"
+      persist
+    >
       {children}
-    </Tabs>
+    </DocsTabs>
   );
 }

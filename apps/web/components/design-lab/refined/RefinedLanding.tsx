@@ -1,16 +1,18 @@
 import Link from "next/link";
 import { ArrowDown, ArrowUpRight } from "lucide-react";
 import AgentLogo from "@/components/marketing/AgentLogo";
-import { productAgents } from "@/lib/product";
+import { heroAgents, heroHeadline, heroDescription } from "@/lib/hero";
 import SiteNav from "@/components/site/SiteNav";
 import SiteFooter from "@/components/site/SiteFooter";
 import HomeSections from "@/components/site/HomeSections";
+import AutomationFlow from "@/components/landing/AutomationFlow";
+import ConversationHandoff from "@/components/site/ConversationHandoff";
+import ProductPossibilities from "@/components/site/ProductPossibilities";
 import BuildFlow from "./BuildFlow";
 import IdeaDiagram from "./IdeaDiagram";
 import HeroArtwork from "./HeroArtwork";
 import type { HeroVariant } from "./hero-surfaces";
 import OwnershipStory from "./OwnershipStory";
-import AnimatedLinework from "./AnimatedLinework";
 import { MindwireMark, OrbitArtwork } from "./Artwork";
 import styles from "./refined.module.css";
 
@@ -40,15 +42,31 @@ export default function RefinedLanding({
 
         <section className={styles.hero} aria-labelledby="hero-title">
           <div className={styles.heroCopy}>
+            <ul
+              className={styles.heroAgents}
+              aria-label="Agents you can build with"
+            >
+              {heroAgents.map((agent) => (
+                <li key={agent.id}>
+                  <Link
+                    href={agent.href}
+                    aria-label={agent.name}
+                    title={agent.name}
+                  >
+                    <AgentLogo agent={agent.id} size={25} surface="light" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
             <h1 id="hero-title">
-              Your product.
+              {heroHeadline[0]}
               <br />
-              <span>Powered by agents.</span>
+              <span>{heroHeadline[1]}</span>
             </h1>
             <p>
-              The best agents already exist.
+              {heroDescription[0]}
               <br />
-              Give them your tools, your knowledge, and a place in your product.
+              {heroDescription[1]}
             </p>
             <div className={styles.heroActions}>
               <StartLink />
@@ -63,25 +81,6 @@ export default function RefinedLanding({
             </a>
           </div>
         </section>
-      </div>
-
-      <div className={styles.agentRail}>
-        <p>
-          Great agents.
-          <br />
-          <span>One framework.</span>
-        </p>
-        <div>
-          {productAgents.map((agent) => (
-            <Link href={agent.href} key={agent.id}>
-              <AgentLogo agent={agent.id} size={28} surface="light" />
-              <span>{agent.name}</span>
-            </Link>
-          ))}
-        </div>
-        <Link href="/docs/concepts/architecture" className={styles.railLink}>
-          Meet Mindwire <ArrowUpRight size={18} />
-        </Link>
       </div>
 
       <section className={styles.manifesto} aria-labelledby="manifesto-title">
@@ -131,38 +130,19 @@ export default function RefinedLanding({
           <IdeaDiagram />
         </section>
 
-        <section
-          className={styles.showcase}
-          id="inside"
-          aria-labelledby="showcase-title"
-        >
+        <div className={styles.showcase} id="inside">
           <div className={styles.systemJoint} aria-hidden="true">
             <MindwireMark />
           </div>
           <OwnershipStory />
-        </section>
+        </div>
       </div>
 
+      <AutomationFlow refined />
+      <ConversationHandoff />
+      <ProductPossibilities />
       <BuildFlow />
       <HomeSections />
-
-      <section className={styles.closing} aria-labelledby="closing-title">
-        <div className={styles.closingArt} aria-hidden="true">
-          <AnimatedLinework variant="weave" />
-        </div>
-        <div className={styles.closingCopy}>
-          <h2 id="closing-title">
-            Now, make
-            <br />
-            it yours.
-          </h2>
-          <p>
-            Great intelligence deserves
-            <br />a great place to work.
-          </p>
-          <StartLink />
-        </div>
-      </section>
 
       <SiteFooter />
     </div>

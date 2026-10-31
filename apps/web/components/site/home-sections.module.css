@@ -1,131 +1,74 @@
-.examples,
 .products {
-  max-width: 1212px;
-  margin: 0 auto 120px;
-}
-.heading {
-  display: grid;
-  grid-template-columns: 1fr 0.8fr;
-  gap: 80px;
-  align-items: end;
-  margin-bottom: 48px;
-}
-.heading h2,
-.faq h2 {
-  font:
-    450 clamp(42px, 5.2vw, 70px)/1.04 "Mindwire Host",
-    sans-serif;
-  letter-spacing: -0.05em;
-}
-.heading p {
-  color: #606458;
-  font-size: 17px;
-  line-height: 1.75;
-  max-width: 455px;
-}
-.heading a,
-.faq > div:first-child > a {
-  display: inline-flex;
-  align-items: center;
-  gap: 18px;
-  font-size: 14px;
-  margin-top: 26px;
-}
-.examplesGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 23px;
-}
-.examplesGrid > a {
-  border-radius: 24px;
-}
-.examplesGrid h3 {
-  font-size: 25px;
-}
-.examplesGrid p {
-  font-size: 14px;
-}
-.examples .sampleNote {
-  margin-top: 24px;
-  color: #606458;
-  font-size: 12px;
-}
-.productGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  max-width: 1212px;
+  margin: 0 auto 85px;
+  gap: 58px;
+  padding-block: 33px;
+  border-block: 1px solid #c9cdbf;
 }
 .product {
   display: flex;
-  flex-direction: column;
-  position: relative;
-  min-width: 0;
-  padding: 37px 36px 28px;
-  border-radius: 28px;
-  background: #f8f7f3;
-  overflow: hidden;
-}
-.product > span {
-  font-size: 13px;
-  color: #6a7061;
-}
-.product h3 {
-  margin-top: 26px;
-  font:
-    450 48px/1.06 "Mindwire Host",
-    sans-serif;
-  letter-spacing: -0.045em;
-}
-.product > p {
-  max-width: 350px;
-  margin-top: 27px;
-  font-size: 16px;
-  line-height: 1.7;
-  color: #65695f;
+  align-items: center;
+  gap: 24px;
 }
 .productArt {
-  position: absolute;
-  top: 38px;
-  right: 15px;
-  width: 210px;
-  height: 210px;
+  width: 85px;
+  height: 85px;
+  flex-shrink: 0;
 }
 .productArt > svg {
   width: 100%;
   height: 100%;
 }
-.productLink {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding-top: 24px;
-  border-top: 1px solid #dadcd1;
-  margin-top: 34px;
-  font-size: 14px;
+.product h3 {
+  font:
+    450 25px/1.15 "Mindwire Host",
+    sans-serif;
+  letter-spacing: -0.03em;
 }
-.productLink svg {
-  transition: transform 0.2s;
+.product p {
+  font-size: 13px;
+  line-height: 1.75;
+  color: #59634f;
+  margin-top: 11px;
+  max-width: 340px;
 }
-.product:hover .productLink svg {
-  transform: translate(3px, -3px);
+.product > svg {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: #59634f;
+}
+.product:hover h3 {
+  color: #725780;
 }
 .faq {
-  max-width: 1320px;
-  margin: 0 auto 100px;
-  padding: 64px 54px;
-  background: #f8f7f3;
-  border-radius: 32px;
+  max-width: 1212px;
+  margin: 0 auto 90px;
   display: grid;
-  grid-template-columns: 0.85fr 1.15fr;
-  gap: 90px;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 85px;
+  padding: 0;
+}
+.faq h2 {
+  font:
+    450 43px/1.1 "Mindwire Host",
+    sans-serif;
+  letter-spacing: -0.045em;
 }
 .faq > div:first-child > p {
-  max-width: 300px;
-  color: #65695f;
-  font-size: 16px;
-  line-height: 1.75;
-  margin-top: 27px;
+  max-width: 290px;
+  color: #58624e;
+  font-size: 15px;
+  line-height: 1.8;
+  margin-top: 25px;
+}
+.faq > div:first-child > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  font-size: 13px;
+  margin-top: 26px;
 }
 .faq summary {
   font-size: 17px;
@@ -135,168 +78,93 @@
   line-height: 1.8;
 }
 @media (max-width: 1399px) {
-  .examples,
+  .products,
+  .faq {
+    margin-inline: 42px;
+  }
   .products {
-    margin-inline: 32px;
+    gap: 40px;
+  }
+  .product {
+    gap: 19px;
   }
   .productArt {
-    width: 175px;
-    height: 175px;
-    right: 4px;
-    top: 52px;
+    width: 68px;
+    height: 68px;
   }
-  .product h3 {
-    font-size: 44px;
+  .faq {
+    gap: 60px;
   }
 }
 @media (max-width: 1099px) {
-  .examples,
-  .products {
-    margin-inline: 18px;
-    margin-bottom: 90px;
-  }
-  .heading {
-    gap: 40px;
-  }
-  .examplesGrid {
-    gap: 17px;
-  }
-  .examplesGrid > a > div:last-child {
-    padding-inline: 13px;
-  }
-  .examplesGrid h3 {
-    font-size: 23px;
-  }
-  .examplesGrid > a > div:last-child > div {
-    font-size: 11px;
-  }
-  .product {
-    padding: 30px 28px;
+  .products,
+  .faq {
+    margin-inline: 28px;
   }
   .productArt {
-    width: 150px;
-    height: 150px;
-    top: 60px;
-  }
-  .product h3 {
-    font-size: 39px;
+    display: none;
   }
   .faq {
-    gap: 45px;
-    padding: 48px 35px;
+    gap: 40px;
+  }
+  .faq h2 {
+    font-size: 39px;
   }
 }
 @media (max-width: 799px) {
-  .heading {
+  .products {
     grid-template-columns: 1fr;
-    gap: 24px;
-  }
-  .heading h2 br {
-    display: none;
-  }
-  .examplesGrid {
-    grid-template-columns: 1fr;
-  }
-  .examplesGrid > a {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-  .examplesGrid > a > div:last-child {
-    padding: 20px;
-  }
-  .productGrid {
-    grid-template-columns: 1fr;
+    gap: 27px;
   }
   .productArt {
-    width: 200px;
-    height: 200px;
-    right: 25px;
-    top: 35px;
+    display: block;
+    width: 75px;
+    height: 75px;
   }
-  .product > p {
-    max-width: 80%;
+  .product p {
+    max-width: 420px;
   }
   .faq {
     grid-template-columns: 1fr;
-    gap: 35px;
+    gap: 30px;
   }
 }
 @media (max-width: 539px) {
-  .examples,
+  .products,
+  .faq {
+    margin-inline: 22px;
+    margin-bottom: 65px;
+  }
   .products {
-    margin-inline: 12px;
-    margin-bottom: 70px;
+    gap: 28px;
+    padding-block: 28px;
   }
-  .heading h2,
-  .faq h2 {
-    font-size: 42px;
-  }
-  .heading {
-    margin-bottom: 30px;
-  }
-  .heading p {
-    font-size: 16px;
-  }
-  .examplesGrid {
-    gap: 24px;
-  }
-  .examplesGrid > a {
-    display: flex;
-  }
-  .examplesGrid > a > div:last-child {
-    padding: 24px 16px 16px;
-  }
-  .examplesGrid h3 {
-    font-size: 27px;
+  .productArt {
+    width: 49px;
+    height: 49px;
   }
   .product {
-    padding: 27px 24px 24px;
-  }
-  .productArt {
-    width: 135px;
-    height: 135px;
-    right: -4px;
-    top: 54px;
+    align-items: flex-start;
+    gap: 16px;
   }
   .product h3 {
+    font-size: 22px;
+  }
+  .product > svg {
+    width: 17px;
+    margin-top: 2px;
+  }
+  .product p {
+    font-size: 12px;
+    margin-top: 10px;
+  }
+  .faq h2 {
     font-size: 39px;
   }
-  .product > p {
-    max-width: 100%;
+  .faq summary {
     font-size: 15px;
   }
-  .faq {
-    padding: 36px 25px;
-    border-radius: 25px;
-    margin-bottom: 64px;
-  }
-  .faq summary {
-    font-size: 16px;
-  }
-}
-@media (min-width: 800px) and (max-width: 899px) {
-  .productArt {
-    width: 125px;
-    height: 125px;
-    top: 65px;
-    right: 0;
-  }
-}
-@media (max-width: 379px) {
-  .productArt {
-    width: 95px;
-    height: 95px;
-    top: 4px;
-    right: 10px;
-  }
-  .product h3 {
-    margin-top: 42px;
-    font-size: 36px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .productLink svg {
-    transition: none;
+  .faq details > div {
+    font-size: 14px;
   }
 }

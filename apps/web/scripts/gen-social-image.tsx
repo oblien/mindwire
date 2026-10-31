@@ -1,39 +1,154 @@
-import { ImageResponse } from "next/og";
-import { writeFile } from "node:fs/promises";
+import { writeFile, readFile } from "node:fs/promises";
+import { renderToStaticMarkup } from "react-dom/server";
+import SiteIllustration, {
+  type SiteIllustrationKind,
+} from "../components/site/SiteIllustration";
+import { renderSocialImage } from "../lib/social-image";
+import { heroHeadline, heroDescription, heroAgents } from "../lib/hero";
 
-export const alt = "Mindwire — Your product. Powered by agents. White-label leading agents without rebuilding the agent layer.";
-export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
+const pages: {
+  route: string;
+  title: string;
+  description: string;
+  label: string;
+  art: SiteIllustrationKind;
+  hero?: boolean;
+}[] = [
+  {
+    route: "",
+    title: heroHeadline.join("\n"),
+    description: heroDescription.join("\n"),
+    label: "Mindwire",
+    art: "product",
+    hero: true,
+  },
+  {
+    route: "sdk",
+    title: "The agent layer.\nAlready built.",
+    description:
+      "Bring capable agents into your product with one SDK and runtime.",
+    label: "SDK & runtime",
+    art: "code",
+  },
+  {
+    route: "cloud",
+    title: "Your work.\nAlways with you.",
+    description:
+      "A personal computer for your projects. Online, wherever you are.",
+    label: "Mindwire Cloud",
+    art: "cloud",
+  },
+  {
+    route: "app",
+    title: "Your work.\nWith you.",
+    description:
+      "Agents, files, and projects in one workspace. Pick up where you left off.",
+    label: "Mindwire App",
+    art: "devices",
+  },
+  {
+    route: "use-cases",
+    title: "What will\nyours do?",
+    description:
+      "Explore products with agents built in. Your interface. Their capabilities.",
+    label: "Product examples",
+    art: "product",
+  },
+  {
+    route: "get-started",
+    title: "Make room for\nyour next idea.",
+    description: "Set up Mindwire, connect your agent, and get to work.",
+    label: "Get started",
+    art: "devices",
+  },
+  {
+    route: "developers",
+    title: "Your project.\nWithin reach.",
+    description:
+      "Files, changes, and agent work. Keep building from wherever you are.",
+    label: "Developer mode",
+    art: "code",
+  },
+  {
+    route: "sandboxing",
+    title: "A place to work.\nRoom to build.",
+    description:
+      "Give agents an isolated workspace, with the tools and boundaries you choose.",
+    label: "Sandboxing",
+    art: "context",
+  },
+  {
+    route: "changelog",
+    title: "Always\nmoving forward.",
+    description: "New releases, improvements, and updates from Mindwire.",
+    label: "Changelog",
+    art: "context",
+  },
+];
 
-function renderSocialImage() {
-  return new ImageResponse(
-    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", background: "#10110f", padding: "64px 70px", color: "#f1f1e9", gap: 45 }}>
-      <div style={{ display: "flex", flexDirection: "column", width: 650 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 27, fontWeight: 600, marginBottom: 50 }}>
-          <div style={{ width: 27, height: 27, border: "3px solid #f1f1e9", borderRadius: 7 }} />Mindwire
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", fontSize: 73, letterSpacing: -4, lineHeight: 1.08, fontWeight: 600 }}>
-          <span>Your product.</span><span style={{ color: "#ecaa7d" }}>Powered by agents.</span>
-        </div>
-        <div style={{ marginTop: 26, fontSize: 22, lineHeight: 1.5, color: "#a3a69b", maxWidth: 580 }}>White-label leading agents. Add advanced AI to your product without rebuilding the agent layer.</div>
-        <div style={{ display: "flex", gap: 24, marginTop: 48, fontSize: 16, color: "#8abdae" }}><span>TypeScript · Go · REST</span><span>mindwire.sh</span></div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", width: 350, padding: 26, borderRadius: 24, background: "#1d231f", color: "#ebeee7" }}>
-        <div style={{ fontSize: 12, color: "#aebb9f", marginBottom: 25 }}>The agent layer is already built.</div>
-        <div style={{ fontSize: 22, marginBottom: 10 }}>Make it your product.</div>
-        <div style={{ fontSize: 15, lineHeight: 1.5, color: "#c8cdc3" }}>Agents that reason, create, and take action. Your tools, knowledge, and rules.</div>
-        <div style={{ display: "flex", flexDirection: "column", marginTop: 28, padding: 19, borderRadius: 13, background: "#2b352d", gap: 14 }}>
-          <span style={{ fontSize: 18, color: "#e9c395" }}>Mindwire SDK & runtime</span>
-          <span style={{ fontSize: 13 }}>Custom tools & knowledge</span><span style={{ fontSize: 13 }}>Instructions & goals</span><span style={{ fontSize: 13 }}>Automation & approvals</span>
-        </div>
-        <div style={{ fontSize: 13, marginTop: 25, color: "#aebb9f" }}>Codex · Claude Code · OpenCode</div>
-      </div>
-    </div>, size,
+async function artwork(kind: SiteIllustrationKind) {
+  if (kind === "cloud" || kind === "devices") {
+    const svg = renderToStaticMarkup(<SiteIllustration kind={kind} />).replace(
+      "<svg ",
+      '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" ',
+    );
+    return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+  }
+  const names = {
+    code: "sdk-embed",
+    context: "context-sources",
+    identity: "identity-system",
+    product: "product-frame",
+  };
+  const data = await readFile(
+    new URL(
+      `../public/images/design-lab/linework/${names[kind]}.svg`,
+      import.meta.url,
+    ),
+    "base64",
   );
+  return `data:image/svg+xml;base64,${data}`;
 }
 
-// Static artwork generated from the same product positioning as the website.
-const response = renderSocialImage();
-await writeFile(new URL("../app/opengraph-image.png", import.meta.url), new Uint8Array(await response.arrayBuffer()));
-await writeFile(new URL("../app/opengraph-image.alt.txt", import.meta.url), `${alt}\n`);
-console.log("Generated app/opengraph-image.png and its alt text");
+async function main() {
+  const agents = await Promise.all(
+    heroAgents.map(async (agent) => {
+      const file =
+        agent.id === "codex" || agent.id === "claude"
+          ? `${agent.id}-color`
+          : agent.id === "opencode"
+            ? "opencode-light"
+            : agent.id;
+      const svg = await readFile(
+        new URL(`../public/logos/${file}.svg`, import.meta.url),
+        "base64",
+      );
+      return { name: agent.name, image: `data:image/svg+xml;base64,${svg}` };
+    }),
+  );
+  for (const page of pages) {
+    const response = await renderSocialImage({
+      ...page,
+      artwork: await artwork(page.art),
+      agents: page.hero ? agents : undefined,
+    });
+    const directory = new URL(
+      `../app/${page.route ? page.route + "/" : ""}`,
+      import.meta.url,
+    );
+    await writeFile(
+      new URL("opengraph-image.png", directory),
+      new Uint8Array(await response.arrayBuffer()),
+    );
+    await writeFile(
+      new URL("opengraph-image.alt.txt", directory),
+      `Mindwire — ${page.title.replace(/\n/g, " ")} ${page.description.replace(/\n/g, " ")}\n`,
+    );
+    console.log(`Generated /${page.route} social preview`);
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -1,0 +1,402 @@
+.section {
+  position: relative;
+  isolation: isolate;
+  max-width: 1320px;
+  margin: 0 auto 110px;
+  padding: 75px 55px 52px;
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 77px;
+  color: #f7f6ee;
+}
+.copy {
+  padding: 15px 0;
+}
+.copy > span {
+  font-size: 12px;
+  color: #c1ccb6;
+}
+.copy h2 {
+  font:
+    450 clamp(43px, 4.1vw, 59px)/1.07 "Mindwire Host",
+    sans-serif;
+  letter-spacing: -0.045em;
+  margin-top: 25px;
+  max-width: 400px;
+}
+.copy > p {
+  color: #c5cdbb;
+  font-size: 16px;
+  line-height: 1.8;
+  margin-top: 28px;
+  max-width: 360px;
+}
+.copy > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  font-size: 13px;
+  margin-top: 28px;
+}
+.continuity {
+  border-top: 1px solid #4a5443;
+  margin-top: 53px;
+  padding-top: 25px;
+  max-width: 350px;
+}
+.continuity p {
+  color: #bbc7ae;
+  font-size: 12px;
+  margin-bottom: 21px;
+}
+.continuity a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  font-size: 13px;
+  padding: 11px 0;
+}
+.continuity svg {
+  color: #bbc7ae;
+}
+.thread {
+  background: #f8f7f3;
+  color: #272b23;
+  border: 1px solid #e0e1d6;
+  border-radius: 16px;
+  overflow: hidden;
+  align-self: center;
+}
+.threadBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 26px;
+  border-bottom: 1px solid #dcdfd3;
+  font-size: 11px;
+  color: #606b54;
+}
+.threadBar > span:last-child {
+  margin-left: auto;
+  color: #6a7161;
+  font-size: 10px;
+}
+.source {
+  padding: 28px 30px 23px;
+}
+.agent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.agent strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.agent > span:last-of-type {
+  margin-left: auto;
+  font-size: 11px;
+  color: #616a57;
+}
+.agent > svg:last-child {
+  color: #63834e;
+}
+.source > p {
+  margin-top: 22px;
+  color: #4f5b43;
+  font-size: 14px;
+  line-height: 1.85;
+}
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 19px;
+  color: #5e6b50;
+}
+.files > span {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  font-size: 11px;
+}
+.bridge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 30px;
+  border-block: 1px solid #d5dcca;
+  background: #e7edde;
+}
+.bridge > span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #b6c8a4;
+  border-radius: 50%;
+  color: #50613f;
+}
+.bridge p {
+  font-size: 12px;
+  color: #4d5e3c;
+}
+.destination {
+  padding: 25px 30px 28px;
+  background: #eee9f1;
+}
+.destination .agent > span:last-of-type {
+  color: #6e5c79;
+}
+.ready h3,
+.done h3 {
+  font:
+    450 31px/1.15 "Mindwire Host",
+    sans-serif;
+  letter-spacing: -0.035em;
+  margin-top: 25px;
+  max-width: 390px;
+}
+.ready > p,
+.done > p {
+  color: #685872;
+  font-size: 14px;
+  line-height: 1.8;
+  margin-top: 17px;
+  overflow-wrap: anywhere;
+}
+.ready button,
+.review button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 30px;
+  background: #352c3c;
+  color: #f8f5fa;
+  border-radius: 7px;
+  padding: 12px 16px;
+  font-size: 12px;
+  margin-top: 23px;
+}
+.review {
+  margin-top: 25px;
+}
+.review label {
+  display: block;
+  color: #65516f;
+  font-size: 12px;
+  margin-top: 18px;
+}
+.review label:first-child {
+  margin-top: 0;
+}
+.review textarea {
+  display: block;
+  width: 100%;
+  border: 1px solid #cdbfd5;
+  border-radius: 6px;
+  margin-top: 8px;
+  background: #f9f6fa;
+  color: #51415b;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.65;
+  resize: vertical;
+}
+.review button:disabled {
+  background: #807286;
+  cursor: default;
+}
+.done details {
+  margin-top: 19px;
+  font-size: 12px;
+  color: #675270;
+}
+.done summary {
+  cursor: pointer;
+}
+.done details p {
+  margin-top: 12px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.done > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 23px;
+  font-size: 12px;
+  color: #65516f;
+}
+.threadFoot {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 16px 26px;
+  border-top: 1px solid #d8d5dc;
+  color: #616957;
+  font-size: 10px;
+  line-height: 1.5;
+}
+@media (max-width: 1399px) {
+  .section {
+    margin-inline: 20px;
+    gap: 55px;
+    padding-inline: 45px;
+  }
+}
+@media (max-width: 1100px) {
+  .section {
+    grid-template-columns: 0.85fr 1.15fr;
+    gap: 35px;
+    padding: 65px 35px 40px;
+  }
+  .copy h2 {
+    font-size: 46px;
+  }
+  .copy > p {
+    font-size: 15px;
+  }
+  .source,
+  .destination {
+    padding-inline: 23px;
+  }
+  .bridge {
+    padding-inline: 23px;
+  }
+  .ready h3,
+  .done h3 {
+    font-size: 29px;
+  }
+  .threadBar {
+    padding-inline: 23px;
+  }
+  .threadFoot {
+    padding-inline: 23px;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+}
+@media (max-width: 799px) {
+  .section {
+    grid-template-columns: 1fr;
+    padding: 64px 32px 32px;
+    margin-bottom: 80px;
+    gap: 34px;
+  }
+  .copy {
+    padding: 0;
+  }
+  .copy h2 {
+    font-size: 52px;
+    max-width: 530px;
+  }
+  .copy > p {
+    max-width: 520px;
+  }
+  .continuity {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    max-width: none;
+    padding-top: 18px;
+    margin-top: 25px;
+  }
+  .continuity p {
+    display: none;
+  }
+  .continuity a {
+    font-size: 11px;
+    gap: 10px;
+  }
+  .thread {
+    width: 100%;
+    max-width: 610px;
+    margin: auto;
+  }
+  .source,
+  .destination {
+    padding: 25px 30px;
+  }
+  .threadFoot {
+    flex-wrap: nowrap;
+  }
+}
+@media (max-width: 539px) {
+  .section {
+    margin-inline: 0;
+    padding: 59px 23px 25px;
+    gap: 30px;
+  }
+  .copy h2 {
+    font-size: 44px;
+    margin-top: 21px;
+  }
+  .copy > p {
+    font-size: 15px;
+    margin-top: 23px;
+  }
+  .copy > a {
+    margin-top: 23px;
+  }
+  .continuity {
+    display: none;
+  }
+  .source,
+  .destination {
+    padding: 23px 20px;
+  }
+  .threadBar {
+    padding: 16px 20px;
+    font-size: 10px;
+  }
+  .threadBar > span:last-child {
+    display: none;
+  }
+  .agent {
+    gap: 8px;
+  }
+  .agent strong {
+    font-size: 13px;
+  }
+  .agent > span:last-of-type {
+    font-size: 10px;
+  }
+  .source > p,
+  .ready > p,
+  .done > p {
+    font-size: 13px;
+  }
+  .files {
+    gap: 10px;
+  }
+  .files > span {
+    font-size: 10px;
+  }
+  .bridge {
+    padding: 13px 20px;
+    gap: 11px;
+  }
+  .bridge p {
+    font-size: 11px;
+  }
+  .bridge > span {
+    flex-shrink: 0;
+  }
+  .ready h3,
+  .done h3 {
+    font-size: 29px;
+  }
+  .threadFoot {
+    flex-wrap: wrap;
+    padding: 15px 20px;
+    font-size: 9px;
+  }
+  .review textarea {
+    font-size: 12px;
+  }
+  .review label {
+    font-size: 11px;
+  }
+}

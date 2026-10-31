@@ -3,22 +3,30 @@
   top: 0;
   z-index: 35;
   background: var(--mw-bg);
-  padding-inline: 12px;
+  padding-inline: 24px;
+  border-bottom: 1px solid var(--mw-line);
 }
 .inner {
-  height: 76px;
+  height: 71px;
   max-width: 1480px;
   margin: auto;
   display: flex;
   align-items: center;
-  padding: 0 24px;
+  padding: 0 12px;
   gap: 24px;
-  background: var(--mw-surface);
-  border-radius: 0 0 20px 20px;
+  background: transparent;
 }
 .brand {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
+  font-family: "Mindwire Host", sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+}
+.brand > svg {
+  width: 25px;
+  height: 25px;
 }
 .brand > span {
   display: block;
@@ -26,19 +34,22 @@
 }
 .docsLabel {
   color: var(--mw-muted);
-  font: 13px/1.5 var(--font-mono);
+  font-size: 13px;
+  border-left: 1px solid var(--mw-line);
+  padding-left: 22px;
 }
 .search {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-left: auto;
-  padding: 11px 16px;
-  width: 270px;
+  padding: 9px 12px;
+  width: 290px;
   background: var(--mw-subtle);
-  border-radius: 24px;
+  border: 1px solid var(--mw-line);
+  border-radius: 8px;
   color: var(--mw-muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 .search:hover {
   background: var(--mw-inset);
@@ -46,7 +57,7 @@
 }
 .search kbd {
   margin-left: auto;
-  font: 12px/1.5 var(--font-mono);
+  font: 11px/1.5 var(--font-mono);
 }
 .links {
   display: flex;
@@ -65,12 +76,12 @@
 .account {
   display: inline-flex;
   align-items: center;
-  gap: 14px;
-  font-size: 14px;
+  gap: 10px;
+  font-size: 13px;
   background: var(--mw-ink);
   color: var(--mw-on-ink);
-  border-radius: 24px;
-  padding: 11px 18px;
+  border-radius: 7px;
+  padding: 9px 14px;
 }
 .header :is(a, button):focus-visible {
   outline: 2px solid var(--mw-focus);
@@ -90,9 +101,12 @@
   }
 }
 @media (max-width: 767px) {
+  .header {
+    padding-inline: 18px;
+  }
   .inner {
-    height: 68px;
-    padding: 0 16px;
+    height: 63px;
+    padding: 0;
     gap: 12px;
   }
   .brand > span {
@@ -119,12 +133,26 @@
 }
 
 @media (max-width: 380px) {
+  .header {
+    padding-inline: 14px;
+  }
   .inner {
-    padding-inline: 12px;
+    padding-inline: 0;
     gap: 8px;
   }
   .brand > span {
-    font-size: 24px;
+    font-size: 23px;
+  }
+  .brand {
+    gap: 6px;
+  }
+  .brand > svg {
+    width: 21px;
+    height: 21px;
+  }
+  .search {
+    width: 32px;
+    height: 34px;
   }
   .actions {
     gap: 2px;

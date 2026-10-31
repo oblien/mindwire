@@ -6,4 +6,10 @@ export const docs = defineDocs({
   dir: "content/docs",
 });
 
-export default defineConfig();
+export default defineConfig({
+  mdxOptions: {
+    rehypeCodeOptions: {
+      themes: { light: "github-light-high-contrast", dark: "github-dark" },
+    },
+  },
+});

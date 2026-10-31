@@ -1,33 +1,95 @@
-/* Fumadocs keeps its layout, search and keyboard behavior; the site supplies paper surfaces. */
-#nd-docs-layout {
-  --fd-banner-height: 4.75rem;
-  --fd-docs-height: 100dvh;
-  --fd-layout-width: 94rem;
-  min-height: calc(100dvh - 4.75rem);
+/* Scoped to documentation, including portalled search and mobile navigation. */
+body:has(#nd-docs-layout) {
+  --mw-bg: #f8f7f4;
+  --mw-surface: #fffefa;
+  --mw-subtle: #f0efea;
+  --mw-inset: #e9e7e0;
+  --mw-ink: #252622;
+  --mw-body: #44473f;
+  --mw-muted: #686b62;
+  --mw-faint: #71746a;
+  --mw-line: #dedfd6;
+  --mw-focus: #796384;
+  --mw-peach: #725780;
+  --mw-peach-soft: #eee7f2;
+  --mw-on-ink: #fffefa;
+  --docs-code: #f1f2ed;
+  --color-fd-background: var(--mw-bg);
+  --color-fd-foreground: var(--mw-ink);
+  --color-fd-card: var(--mw-surface);
+  --color-fd-card-foreground: var(--mw-ink);
+  --color-fd-popover: var(--mw-surface);
+  --color-fd-popover-foreground: var(--mw-ink);
+  --color-fd-primary: var(--mw-peach);
+  --color-fd-primary-foreground: var(--mw-surface);
+  --color-fd-secondary: var(--mw-subtle);
+  --color-fd-secondary-foreground: var(--mw-ink);
+  --color-fd-muted: var(--mw-subtle);
+  --color-fd-muted-foreground: var(--mw-muted);
+  --color-fd-accent: var(--mw-peach-soft);
+  --color-fd-accent-foreground: var(--mw-peach);
+  --color-fd-border: var(--mw-line);
+  --color-fd-ring: var(--mw-focus);
+  background: var(--mw-bg);
+  color: var(--mw-ink);
+  font-family: "Mindwire Display", var(--font-geist-sans), sans-serif;
 }
-#nd-docs-layout :is(h1, h2, h3, h4) {
+.dark body:has(#nd-docs-layout) {
+  --mw-bg: #191c19;
+  --mw-surface: #20241f;
+  --mw-subtle: #292e27;
+  --mw-inset: #343a31;
+  --mw-ink: #edeee5;
+  --mw-body: #c8ccc1;
+  --mw-muted: #a5ad9d;
+  --mw-faint: #a1a996;
+  --mw-line: #373e32;
+  --mw-focus: #c7aed6;
+  --mw-peach: #c7aed6;
+  --mw-peach-soft: #302a35;
+  --mw-on-ink: #1c211b;
+  --docs-code: #222720;
+}
+#nd-docs-layout {
+  --fd-banner-height: 4.5rem;
+  --fd-docs-height: 100dvh;
+  --fd-layout-width: 92rem;
+  min-height: calc(100dvh - 4.5rem);
+}
+#nd-docs-layout :is(h1, h2, h3, h4, [id]) {
   scroll-margin-top: 7rem;
 }
 #nd-sidebar {
   background: transparent;
-  border: 0;
-  font-size: 14px;
-}
-#nd-sidebar:not([data-collapsed="true"]) {
-  inset-block: 12px;
-  inset-inline-start: 12px;
-  width: calc(100% - 12px);
-  border-radius: 20px;
+  border-color: var(--mw-line);
+  font-size: 13px;
+  padding-top: 17px;
 }
 #nd-sidebar > * {
   max-width: 100%;
 }
+#nd-sidebar > div:first-child {
+  padding-inline: 24px 18px;
+}
+#nd-sidebar > div:first-child a {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mw-muted);
+}
+#nd-sidebar [data-radix-scroll-area-viewport] {
+  padding: 12px 18px 28px;
+}
 :is(#nd-sidebar, #nd-sidebar-mobile) :is(a, button) {
-  border-radius: 10px;
+  border-radius: 6px;
 }
 :is(#nd-sidebar, #nd-sidebar-mobile) a[data-active="true"] {
-  background: var(--mw-surface);
+  background: var(--mw-peach-soft);
+  color: var(--mw-peach);
+  font-weight: 500;
+}
+:is(#nd-sidebar, #nd-sidebar-mobile) button[aria-expanded] {
   color: var(--mw-ink);
+  font-weight: 500;
 }
 :is(#nd-sidebar, #nd-sidebar-mobile) :is(a, button):focus-visible {
   outline: 2px solid var(--mw-focus);
@@ -36,146 +98,328 @@
 #nd-sidebar-mobile {
   inset-block: 8px;
   inset-inline-end: 8px;
-  width: min(380px, calc(100% - 32px));
-  border-radius: 20px;
+  width: min(360px, calc(100% - 24px));
+  border-radius: 16px;
   background: var(--mw-bg);
-  border: 0;
+  border: 1px solid var(--mw-line);
 }
 #nd-subnav {
-  margin: 8px 12px 0;
-  border: 0;
-  border-radius: 14px;
-  background: var(--mw-surface);
-}
-#nd-subnav button {
-  border-radius: 10px;
+  margin: 0;
+  border-bottom: 1px solid var(--mw-line);
+  background: var(--mw-bg);
+  backdrop-filter: none;
+  padding-inline: 22px 14px;
+  font-size: 13px;
 }
 #nd-toc {
+  padding: 42px 22px 22px 18px;
   color: var(--mw-muted);
-  font-size: 14px;
+  font-size: 13px;
+}
+#nd-toc :is(h3, a) {
+  font-size: 12px;
+  line-height: 1.6;
+}
+#nd-toc h3 {
+  font-weight: 500;
+  color: var(--mw-ink);
+  margin-bottom: 8px;
+}
+#nd-toc h3 > svg {
+  display: none;
 }
 #nd-page {
-  margin-block: 20px;
-  padding: 40px;
-  background: var(--mw-surface);
-  border-radius: 20px;
+  margin: 0 auto;
+  padding: 36px 52px 80px;
+  max-width: 900px;
+  gap: 0;
+  background: transparent;
+  border-radius: 0;
   min-width: 0;
 }
+#nd-page[data-full="true"] {
+  max-width: none;
+}
+#nd-page .docs-page-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 34px;
+  min-height: 34px;
+}
+.docs-page-tools nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mw-muted);
+  font-size: 12px;
+}
+.docs-page-tools nav a:hover {
+  color: var(--mw-ink);
+}
 #nd-page > h1 {
-  font-size: var(--site-heading);
-  line-height: 1.1;
-  font-weight: 400;
-  letter-spacing: -0.04em;
+  margin: 0;
+  font:
+    500 48px/1.08 "Mindwire Host",
+    sans-serif;
+  letter-spacing: -0.045em;
+  overflow-wrap: anywhere;
 }
 #nd-page > p {
-  font-size: var(--site-body);
-  line-height: 1.7;
+  font-size: 18px;
+  line-height: 1.65;
+  letter-spacing: -0.015em;
   color: var(--mw-muted);
+  margin: 18px 0 32px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--mw-line);
+  max-width: none;
 }
 #nd-page .prose {
-  font-size: 16px;
-  line-height: 1.8;
+  font-size: 15.5px;
+  line-height: 1.85;
   --tw-prose-body: var(--mw-body);
   --tw-prose-headings: var(--mw-ink);
   --tw-prose-bold: var(--mw-ink);
-  --tw-prose-links: var(--mw-ink);
+  --tw-prose-links: var(--mw-peach);
   --tw-prose-code: var(--mw-ink);
 }
-#nd-page .prose :not(pre) > code {
-  border: 0;
-  border-radius: 5px;
-  background: var(--mw-subtle);
-  padding: 0.18em 0.38em;
-  color: var(--mw-ink);
-  font-size: 0.875em;
+#nd-page .prose > :first-child {
+  margin-top: 0;
 }
 #nd-page .prose :is(h2, h3, h4) {
-  font-weight: 400;
-  letter-spacing: -0.025em;
+  font-family: "Mindwire Host", sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
 }
 #nd-page .prose h2 {
-  margin-top: 2.5em;
+  margin-top: 48px;
+  margin-bottom: 20px;
+  font-size: 28px;
+}
+#nd-page .prose h3 {
+  margin-top: 32px;
+  font-size: 21px;
+}
+#nd-page .prose strong {
+  font-weight: 550;
 }
 #nd-page .prose a:not([data-card]) {
   text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
+  font-weight: 450;
+}
+#nd-page .prose :not(pre) > code {
+  border: 1px solid var(--mw-line);
+  border-radius: 5px;
+  background: var(--mw-subtle);
+  padding: 0.12em 0.35em;
+  color: var(--mw-ink);
+  font-size: 0.83em;
+  overflow-wrap: anywhere;
 }
 #nd-page .prose :is(figure.shiki, .fd-codeblock) {
-  border: 0;
-  border-radius: 12px;
+  border: 1px solid var(--mw-line);
+  border-radius: 10px;
   box-shadow: none;
-  background: var(--shiki-light-bg, var(--mw-subtle));
+  background: var(--docs-code);
+  margin-block: 24px;
 }
-:root.dark #nd-page .prose :is(figure.shiki, .fd-codeblock) {
-  background: var(--mw-subtle);
+#nd-page .prose figure.shiki > div:has(figcaption) {
+  min-height: 43px;
+  background: var(--mw-surface);
+  border-color: var(--mw-line);
+  padding-inline: 20px;
+  font: 12px/1.5 var(--font-mono);
+}
+#nd-page .prose figure.shiki > div[role="region"] {
+  padding-block: 19px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--mw-line) transparent;
+}
+#nd-page .prose figure.shiki button {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: var(--mw-muted);
+}
+#nd-page .prose figure.shiki button:hover {
+  background: var(--mw-inset);
+  color: var(--mw-ink);
 }
 #nd-page .prose pre {
-  font: 14px/1.75 var(--font-mono);
+  font: 13px/1.8 var(--font-mono);
+  tab-size: 2;
+}
+#nd-page .prose pre .line {
+  padding-inline-start: 21px;
+}
+#nd-page .docs-tabs {
+  margin-block: 24px;
+  background: var(--mw-surface);
+  border: 1px solid var(--mw-line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+#nd-page .docs-tabs > [role="tablist"] {
+  display: flex;
+  align-items: stretch;
+  gap: 24px;
+  padding: 0 20px;
+  min-height: 48px;
+  background: var(--mw-surface);
+  border-bottom: 1px solid var(--mw-line);
+  border-radius: 0;
+}
+#nd-page .docs-tabs > [role="tablist"] > [role="tab"] {
+  padding: 12px 1px 11px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mw-muted);
+  background: transparent;
+  margin-bottom: -1px;
+}
+#nd-page .docs-tabs > [role="tablist"] > [role="tab"][data-state="active"] {
+  color: var(--mw-ink);
+  border-bottom-color: var(--mw-peach);
+}
+#nd-page .docs-tabs > [role="tabpanel"] {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  font-size: 14px;
+}
+#nd-page .docs-tabs > [role="tabpanel"] > figure.shiki {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+#nd-page .docs-tabs > [role="tabpanel"] > p {
+  margin: 0;
+  padding: 16px 21px;
+  border-top: 1px solid var(--mw-line);
+  line-height: 1.75;
+  color: var(--mw-muted);
+}
+#nd-page .docs-tabs > [role="tabpanel"] > p:first-child {
+  border-top: 0;
+  border-bottom: 1px solid var(--mw-line);
+}
+#nd-page .docs-tabs > [role="tabpanel"] > :is(ul, ol) {
+  margin: 18px 22px;
+  padding-inline-start: 20px;
+}
+#nd-page [role="tab"]:focus-visible {
+  outline: 2px solid var(--mw-focus);
+  outline-offset: -5px;
+}
+#nd-page .prose table {
+  font-size: 14px;
+  line-height: 1.7;
 }
 #nd-page .prose :is(th, td) {
   border-color: var(--mw-line);
+  padding: 13px 16px;
 }
 #nd-page .prose th {
   background: var(--mw-subtle);
+  font-size: 12px;
   font-weight: 500;
-}
-#nd-page [role="tablist"] {
-  border-radius: 12px 12px 0 0;
-}
-#nd-page [role="tab"] {
-  border-radius: 8px;
-  font-size: 14px;
-}
-#nd-page [role="tab"]:is([data-state="active"], [data-active]) {
-  color: var(--mw-ink);
-  background: var(--mw-inset);
 }
 #nd-page a[data-card]:not([href^="#"]) {
   box-shadow: none;
-  border-color: transparent;
-  background: var(--mw-subtle);
-  border-radius: 14px;
+  border-color: var(--mw-line);
+  background: var(--mw-surface);
+  border-radius: 10px;
 }
 #nd-page a[data-card]:not([href^="#"]):hover {
-  background: var(--mw-inset);
+  border-color: var(--mw-peach);
 }
 [role="dialog"]:has(#fd-search-list) {
   background: var(--mw-surface);
   color: var(--mw-ink);
-  border: 0;
-  border-radius: 20px;
+  border: 1px solid var(--mw-line);
+  border-radius: 14px;
   box-shadow: 0 20px 80px #0002;
 }
 [role="dialog"]:has(#fd-search-list) [role="combobox"] {
-  font-family: var(--font-sans);
+  font-family: "Mindwire Display", sans-serif;
   font-size: 16px;
 }
 #fd-search-list [aria-selected="true"] {
-  background: var(--mw-subtle);
+  background: var(--mw-peach-soft);
   color: var(--mw-ink);
+}
+@media (min-width: 768px) {
+  #nd-docs-layout {
+    --fd-sidebar-width: 252px;
+  }
+}
+@media (min-width: 1280px) {
+  #nd-docs-layout {
+    --fd-toc-width: 208px;
+  }
 }
 @media (max-width: 1100px) {
   #nd-page {
-    padding: 32px;
+    padding-inline: 36px;
   }
 }
 @media (max-width: 767px) {
   #nd-docs-layout {
-    --fd-banner-height: 4.25rem;
-    min-height: calc(100dvh - 4.25rem);
+    --fd-banner-height: 4rem;
+    min-height: calc(100dvh - 4rem);
   }
-  #nd-docs-layout :is(h1, h2, h3, h4) {
+  #nd-docs-layout :is(h1, h2, h3, h4, [id]) {
     scroll-margin-top: 11rem;
   }
   #nd-page {
-    width: calc(100% - 24px);
-    margin: 12px 0;
-    padding: 28px 22px 40px;
+    width: 100%;
+    padding: 28px 22px 56px;
+  }
+  #nd-page .docs-page-tools {
+    margin-bottom: 27px;
+    gap: 12px;
+  }
+  .docs-page-tools nav {
+    font-size: 11px;
+    gap: 5px;
   }
   #nd-page > h1 {
-    font-size: var(--site-heading);
+    font-size: 37px;
   }
   #nd-page > p {
-    font-size: var(--site-body);
+    font-size: 17px;
+    margin-top: 16px;
+    margin-bottom: 26px;
+    padding-bottom: 26px;
+  }
+  #nd-page .prose {
+    font-size: 15px;
+    line-height: 1.8;
+  }
+  #nd-page .prose h2 {
+    font-size: 26px;
+    margin-top: 38px;
+  }
+  #nd-page .docs-tabs > [role="tablist"] {
+    gap: 23px;
+    padding-inline: 17px;
+  }
+  #nd-page .prose pre {
+    font-size: 12px;
+  }
+  #nd-page .prose pre .line {
+    padding-inline-start: 17px;
+  }
+  #nd-page .docs-tabs > [role="tabpanel"] > p {
+    padding: 15px 17px;
+    font-size: 13px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

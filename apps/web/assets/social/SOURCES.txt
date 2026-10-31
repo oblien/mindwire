@@ -1,0 +1,7 @@
+Static font instances used by the social image renderer:
+- host-medium.ttf: weight 500 from public/fonts/framework/host-grotesk.woff2.
+- geist-regular.ttf: weight 400 from public/fonts/framework/geist-sans.woff2.
+
+Font licenses: public/fonts/framework/LICENSE-Host-Grotesk.txt and LICENSE-Geist.txt.
+hero-optical.jpg: 1200px JPEG export of public/images/design-lab/materials/hero-optical-layers-v1.webp.
+Illustrations use Mindwire's original linework from public/images/design-lab/linework.

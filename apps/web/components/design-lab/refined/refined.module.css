@@ -112,7 +112,7 @@
   z-index: 2;
   text-align: center;
   flex-shrink: 0;
-  padding: clamp(12px, 7.6dvh, 64px) 30px 0;
+  padding: clamp(12px, 5dvh, 42px) 30px 0;
 }
 .hero h1 {
   font: 510 clamp(42px, min(7.8vw, 15dvh), 120px)/0.99 var(--display);
@@ -135,6 +135,29 @@
   align-items: center;
   gap: 30px;
   margin-top: clamp(16px, 3.8dvh, 29px);
+}
+.heroAgents {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px 23px;
+  margin: 0 auto clamp(16px, 2.6dvh, 24px);
+  padding: 0;
+  list-style: none;
+}
+.heroAgents a {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px;
+  color: #55564e;
+  transition:
+    color 0.2s,
+    transform 0.2s;
+}
+.heroAgents a:hover {
+  color: var(--ink);
+  transform: translateY(-2px);
 }
 .primary {
   display: inline-flex;
@@ -867,6 +890,13 @@
     gap: clamp(12px, 2dvh, 23px);
     margin-top: clamp(16px, 2.6dvh, 26px);
   }
+  .heroAgents {
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+  .heroAgents a {
+    padding: 5px;
+  }
   .hero .primary {
     min-height: clamp(44px, 6.2dvh, 52px);
   }
@@ -913,8 +943,24 @@
   .heroActions {
     margin-top: 12px;
   }
+  .heroAgents {
+    margin-bottom: 10px;
+  }
+  .heroAgents a {
+    padding-block: 0;
+    font-size: 12px;
+  }
   .hero .primary {
     min-height: 42px;
+    padding-block: 5px;
+  }
+  .hero .primary > svg {
+    padding: 7px;
+  }
+}
+@media (max-height: 440px) {
+  .hero h1 {
+    font-size: clamp(28px, min(7.8vw, 10.6dvh), 44px);
   }
 }
 @media (max-height: 380px) {

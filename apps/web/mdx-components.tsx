@@ -1,5 +1,6 @@
 import defaultMdxComponents from "fumadocs-ui/mdx";
-import { Tab, Tabs } from "fumadocs-ui/components/tabs";
+import { Tab } from "fumadocs-ui/components/tabs";
+import { DocsTabs } from "@/components/docs-tabs";
 import type { MDXComponents } from "mdx/types";
 import { APIPage } from "@/components/api-page";
 import { ApiTabs } from "@/components/api-tabs";
@@ -10,7 +11,7 @@ import { ApiTabs } from "@/components/api-tabs";
 export function getMDXComponents(components?: MDXComponents): MDXComponents {
   return {
     ...defaultMdxComponents,
-    Tabs,
+    Tabs: DocsTabs,
     Tab,
     ApiTabs,
     APIPage,

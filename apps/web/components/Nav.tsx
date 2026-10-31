@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSearchContext } from "fumadocs-ui/contexts/search";
 import { ArrowUpRight, Search } from "lucide-react";
-import { FrameworkWordmark } from "./landing/FrameworkNav";
+import { MindwireMark } from "./design-lab/refined/Artwork";
 import SiteNav from "./site/SiteNav";
 import ThemeToggle from "./ThemeToggle";
 import { consoleUrl } from "@/lib/console-url";
@@ -20,7 +20,8 @@ export default function Nav() {
     <header className={styles.header}>
       <div className={styles.inner}>
         <Link href="/" className={styles.brand} aria-label="Mindwire home">
-          <FrameworkWordmark />
+          <MindwireMark />
+          <span>mindwire</span>
         </Link>
         <Link href="/docs" className={styles.docsLabel}>
           Documentation

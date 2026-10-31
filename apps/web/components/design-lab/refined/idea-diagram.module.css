@@ -80,18 +80,23 @@
   width: 27px;
   height: 27px;
   border-radius: 50%;
-  border: 1px solid #c9ccc3;
-  background: var(--surface);
-  color: #787c72;
+  border: 1px solid #242923;
+  background: #242923;
+  color: #f7f7f1;
   transition:
     color 0.2s,
     background 0.2s,
     border-color 0.2s;
 }
-.inputCard[aria-pressed="true"] .inputSelection {
-  background: #242923;
-  border-color: #242923;
-  color: #f7f7f1;
+.inputCard:hover .inputSelection {
+  background: #414c3c;
+  border-color: #414c3c;
+}
+.inputCard[aria-pressed="true"] .inputText > strong {
+  text-decoration: underline;
+  text-decoration-color: #c5c9bc;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 5px;
 }
 .inputCard:focus-visible {
   outline: 2px solid #806879;
