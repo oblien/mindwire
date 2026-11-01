@@ -5,10 +5,10 @@ import { heroAgents, heroHeadline, heroDescription } from "@/lib/hero";
 import SiteNav from "@/components/site/SiteNav";
 import SiteFooter from "@/components/site/SiteFooter";
 import HomeSections from "@/components/site/HomeSections";
-import AutomationFlow from "@/components/landing/AutomationFlow";
 import ConversationHandoff from "@/components/site/ConversationHandoff";
 import ProductPossibilities from "@/components/site/ProductPossibilities";
 import BuildFlow from "./BuildFlow";
+import BackgroundWork from "./BackgroundWork";
 import IdeaDiagram from "./IdeaDiagram";
 import HeroArtwork from "./HeroArtwork";
 import type { HeroVariant } from "./hero-surfaces";
@@ -138,7 +138,7 @@ export default function RefinedLanding({
         </div>
       </div>
 
-      <AutomationFlow refined />
+      <BackgroundWork />
       <ConversationHandoff />
       <ProductPossibilities />
       <BuildFlow />

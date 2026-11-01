@@ -1,0 +1,514 @@
+.section {
+  max-width: 1320px;
+  margin-inline: auto;
+  padding-block: 100px 100px;
+}
+.heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 48px;
+  padding-inline: 26px;
+}
+.heading h2 {
+  font: 450 clamp(46px, 5.5vw, 76px)/1.04 var(--display);
+  letter-spacing: -0.06em;
+}
+.intro {
+  max-width: 422px;
+  padding-bottom: 4px;
+}
+.intro > p {
+  color: #64665e;
+  font-size: 17px;
+  line-height: 1.7;
+}
+.intro > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 17px;
+  margin-top: 22px;
+  font-size: 14px;
+}
+.intro > a:hover {
+  color: #6c5269;
+}
+.intro > a svg {
+  transition: transform 0.2s ease;
+}
+.intro > a:hover svg {
+  transform: translate(2px, -2px);
+}
+.stage {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 1fr 1.15fr 1.08fr;
+  align-items: start;
+  gap: clamp(48px, 5.5vw, 80px);
+  margin-top: 76px;
+}
+.joins {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: visible;
+  fill: var(--paper);
+  pointer-events: none;
+}
+.signal,
+.workspace,
+.result {
+  position: relative;
+  min-width: 0;
+  background: var(--paper);
+}
+.signal {
+  margin-top: 21px;
+  padding: 28px;
+  border-radius: 24px 24px 48px 24px;
+}
+.surfaceLabel {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #656a5e;
+}
+.surfaceLabel > svg {
+  flex-shrink: 0;
+  stroke-width: 1.5;
+}
+.signal h3 {
+  margin-top: 28px;
+  font: 450 33px/1.1 var(--display);
+  letter-spacing: -0.045em;
+}
+.signal > .request {
+  margin-top: 22px;
+  color: #555a4e;
+  font-size: 16px;
+  line-height: 1.75;
+}
+.signalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 27px;
+}
+.signalFooter > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 25px;
+  color: #f8f7f3;
+  background: #252a21;
+  font-size: 13px;
+  line-height: 1.4;
+  transition: background 0.2s;
+}
+.signalFooter > button:hover:not([aria-disabled="true"]) {
+  background: #47523c;
+}
+.signalFooter > button[aria-disabled="true"] {
+  cursor: progress;
+  background: #555e4c;
+}
+.signalFooter > span {
+  color: #686d61;
+  font-size: 11px;
+}
+.workspace {
+  margin-top: 138px;
+  padding: 25px 29px 24px;
+  border-radius: 48px 24px 24px 24px;
+}
+.workspaceTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.mindwireMark {
+  display: block;
+  width: 23px;
+  color: #414737;
+}
+.mindwireMark svg {
+  width: 100%;
+  height: auto;
+}
+.art {
+  width: calc(100% + 18px);
+  margin: 18px -9px 20px;
+  color: #42483b;
+}
+.art svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.workspaceCopy {
+  min-height: 147px;
+}
+.workspaceCopy h3 {
+  font: 450 28px/1.15 var(--display);
+  letter-spacing: -0.035em;
+}
+.workspaceMessages {
+  display: grid;
+  margin-top: 14px;
+}
+.workspaceMessages > p {
+  grid-area: 1 / 1;
+  visibility: hidden;
+  color: #64685d;
+  font-size: 15px;
+  line-height: 1.75;
+}
+.workspaceMessages > p[data-active="true"] {
+  visibility: visible;
+}
+.resources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 12px;
+  color: #616858;
+  font-size: 12px;
+}
+.resources > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.workspace > .activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 23px;
+  padding-top: 17px;
+  border-top: 1px solid #dcded4;
+  color: #56664a;
+  font-size: 12px;
+  min-height: 33px;
+}
+.activityDot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+  animation: working 1.2s ease-in-out infinite;
+}
+.result {
+  margin-top: 58px;
+  padding: 27px 26px 22px;
+  border-radius: 24px 48px 24px 24px;
+}
+.resultPreview {
+  position: relative;
+  margin-top: 33px;
+}
+.issue[data-pending="true"] {
+  visibility: hidden;
+}
+.waiting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  color: #616b56;
+}
+.waiting > svg {
+  margin-bottom: 24px;
+}
+.waiting > h3 {
+  font: 450 31px/1.15 var(--display);
+  letter-spacing: -0.04em;
+  color: #414a37;
+}
+.waiting > p {
+  max-width: 230px;
+  margin-top: 18px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.issueMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font: 11px/1.5 var(--mono);
+  color: #686d61;
+}
+.issueStatus {
+  border: 1px solid #d7d8cf;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-family: "Mindwire Display", sans-serif;
+  color: #62685c;
+}
+.issue h3 {
+  margin-top: 21px;
+  font: 450 33px/1.12 var(--display);
+  letter-spacing: -0.045em;
+}
+.issueMain > p {
+  margin-top: 17px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: #686c61;
+}
+.evidence {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-top: 26px;
+  padding-block: 17px;
+  border-block: 1px solid #dcded4;
+  color: #666b5e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.evidenceCount {
+  font: 450 43px/1 var(--display);
+  letter-spacing: -0.07em;
+  color: #59694a;
+}
+.issue blockquote {
+  margin: 23px 0 0;
+  padding-left: 12px;
+  border-left: 2px solid #d8ccdf;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #52594b;
+}
+.issue cite {
+  display: block;
+  margin-top: 8px;
+  color: #686d61;
+  font-style: normal;
+  font-size: 11px;
+}
+.issueOwner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 28px;
+  color: #62685c;
+  font-size: 11px;
+}
+.teamMark {
+  display: flex;
+  padding-right: 4px;
+}
+.teamMark > span {
+  display: block;
+  width: 15px;
+  height: 15px;
+  margin-right: -4px;
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  background: #cec2d6;
+}
+.teamMark > span:nth-child(2) {
+  background: #b9c7a7;
+}
+.teamMark > span:nth-child(3) {
+  background: #d9bd9e;
+}
+.issueOwner > span:last-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+.resultNote {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid #dcded4;
+  color: #56624c;
+  font-size: 12px;
+}
+.resultIcon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #e5eadc;
+}
+.stage[data-running="true"] .artSignal {
+  transform-origin: 232px 156px;
+  animation: working 1.4s ease-in-out infinite;
+}
+@keyframes working {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (max-width: 1100px) {
+  .section {
+    padding-inline: 26px;
+  }
+  .heading {
+    padding-inline: 0;
+    gap: 36px;
+  }
+  .heading h2 {
+    font-size: clamp(45px, 5.8vw, 64px);
+  }
+  .intro {
+    max-width: 350px;
+  }
+  .intro > p {
+    font-size: 15px;
+  }
+  .stage {
+    grid-template-columns: 1fr 1fr;
+    gap: 65px 80px;
+    max-width: 820px;
+    margin: 64px auto 0;
+  }
+  .signal {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .workspace {
+    grid-column: 2;
+    grid-row: 1;
+    margin-top: 110px;
+  }
+  .result {
+    grid-column: 1 / 3;
+    grid-row: 2;
+    margin-top: 0;
+  }
+}
+@media (min-width: 641px) and (max-width: 1100px) {
+  .issue {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+  }
+  .evidence {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .waiting {
+    align-items: center;
+    text-align: center;
+  }
+  .waiting > svg {
+    margin-bottom: 16px;
+  }
+  .waiting > p {
+    margin-top: 12px;
+  }
+}
+@media (max-width: 640px) {
+  .section {
+    padding: 78px 8px 74px;
+  }
+  .heading {
+    display: block;
+    padding-inline: 10px;
+  }
+  .heading h2 {
+    font-size: clamp(41px, 9.7vw, 58px);
+  }
+  .intro {
+    max-width: 400px;
+    margin-top: 25px;
+  }
+  .intro > p {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .intro > a {
+    margin-top: 19px;
+    font-size: 13px;
+  }
+  .stage {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 57px;
+    max-width: 440px;
+    margin-top: 45px;
+  }
+  .signal,
+  .workspace,
+  .result {
+    margin-top: 0;
+    padding: 25px;
+  }
+  .signal {
+    margin-right: 25px;
+  }
+  .signal h3 {
+    margin-top: 23px;
+    font-size: 30px;
+  }
+  .signal > .request {
+    margin-top: 17px;
+    font-size: 14px;
+  }
+  .workspace {
+    margin-left: 25px;
+  }
+  .workspaceCopy {
+    min-height: 0;
+  }
+  .art {
+    max-width: 310px;
+    margin: 11px auto 18px;
+  }
+  .workspaceCopy h3 {
+    font-size: 25px;
+  }
+  .resources {
+    margin-top: 22px;
+  }
+  .result {
+    margin-right: 25px;
+  }
+  .resultPreview {
+    margin-top: 26px;
+  }
+  .issue h3 {
+    font-size: 31px;
+  }
+  .issueMain > p {
+    font-size: 14px;
+  }
+  .issueMeta,
+  .issueOwner,
+  .issue cite {
+    font-size: 11px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .section *,
+  .section *::before,
+  .section *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
