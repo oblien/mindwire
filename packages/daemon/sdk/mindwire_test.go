@@ -621,6 +621,7 @@ func TestSDKRouteParity(t *testing.T) {
 		"PUT /integrations/{id}":                            "Integrations.Update",
 		"DELETE /integrations/{id}":                         "Integrations.Delete",
 		"POST /integrations/{id}/send":                      "Integrations.Send",
+		"POST /integrations/{id}/commands/sync":             "Integrations.SyncCommands",
 		"GET /integrations/{id}/events":                     "Integrations.Events",
 		"POST /integrations/{id}/events/{eventId}/retry":    "Integrations.Retry",
 		"POST /integrations/{id}/webhook":                   "Integrations.Webhook",

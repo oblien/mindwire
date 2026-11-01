@@ -35,24 +35,36 @@ func TestGroupKillsDescendants(t *testing.T) {
 	marker := filepath.Join(dir, "ticks")
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	// A backgrounded subshell that appends forever, then bash blocks on a long sleep so the
 	// process stays alive until we cancel. All three (bash, sleep, subshell) share the group.
 	script := `( while true; do echo tick >> "` + marker + `"; sleep 0.05; done ) & sleep 100`
-	cmd := exec.CommandContext(ctx, "bash", "-lc", script)
+	cmd := exec.CommandContext(ctx, "bash", "-c", script)
 	Group(cmd)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
+	waited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(waited) }()
+	defer func() {
+		cancel()
+		<-waited
+	}()
 
-	// Let the grandchild write a few ticks so we know it's actually running.
-	time.Sleep(300 * time.Millisecond)
-	if fileSize(t, marker) == 0 {
-		t.Fatal("grandchild never wrote — test setup broken")
+	// Wait for the grandchild to run, including on a busy race-enabled CI runner.
+	readyTimeout := time.NewTimer(5 * time.Second)
+	defer readyTimeout.Stop()
+	for fileSize(t, marker) == 0 {
+		select {
+		case <-waited:
+			t.Fatal("process exited before the grandchild wrote its marker")
+		case <-readyTimeout.C:
+			t.Fatal("grandchild never wrote — test setup broken")
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 
 	cancel()
-	waited := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(waited) }()
 	select {
 	case <-waited:
 	case <-time.After(10 * time.Second):
