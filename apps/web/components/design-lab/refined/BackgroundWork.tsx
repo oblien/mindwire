@@ -1,393 +1,390 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import Link from "next/link";
+import AgentLogo from "@/components/marketing/AgentLogo";
 import {
-  ArrowRight,
   ArrowUpRight,
+  Bolt,
   Check,
+  Clock,
   Cloud,
   FileText,
-  MessageSquare,
+  GitBranch,
   Play,
   RotateCcw,
-} from "lucide-react";
-import { MindwireMark } from "./Artwork";
-import { fluidJoin, type Anchor, type Edge } from "./fluid-join";
+  Send,
+} from "@/components/site/InterfaceIcon";
+import { navigateTabs } from "@/components/landing/tabs";
 import styles from "./background-work.module.css";
 
-const activity = [
+const examples = [
   {
-    text: "Reading the latest feedback alongside your product notes and existing issues.",
-    detail: "Reading 24 feedback notes",
+    name: "On a schedule",
+    icon: Clock,
+    cue: "Every night, after the team signs off.",
+    goal: "Keep the checkout healthy, overnight.",
+    trigger: "Nightly maintenance",
+    agent: "codex" as const,
+    agentName: "Codex",
+    stages: [
+      "Running the project’s test suite",
+      "Investigating the failing checkout test",
+      "Preparing a fix for review",
+    ],
+    title: "Fix duplicate checkout orders.",
+    subtitle:
+      "The checkout retry was creating duplicate orders. The fix reuses the original request.",
+    artifact: "Pull request / #128",
+    result: "All checks passed",
+    delivered: "Opened in your repository",
   },
   {
-    text: "Twelve reports describe the same export problem. Checking the backlog for an existing fix.",
-    detail: "Comparing reports with the backlog",
+    name: "On an event",
+    icon: Bolt,
+    cue: "A new batch of customer feedback arrives.",
+    goal: "Turn customer feedback into a clear next step.",
+    trigger: "New feedback received",
+    agent: "claude" as const,
+    agentName: "Claude Code",
+    stages: [
+      "Reading the new feedback",
+      "Comparing recurring themes with existing issues",
+      "Writing the findings and notifying the team",
+    ],
+    title: "Make the first step unmistakable.",
+    subtitle:
+      "Customers are getting stuck at the same onboarding step. The evidence is now in one place.",
+    artifact: "Research / Onboarding",
+    result: "Sources attached",
+    delivered: "Added to your team’s workspace",
   },
   {
-    text: "Creating one issue with the evidence, then letting the product team know what needs attention.",
-    detail: "Creating an issue in your product",
+    name: "On request",
+    icon: Send,
+    cue: "One request from a user in your product.",
+    goal: "Research the options. Bring back a recommendation.",
+    trigger: "Research request",
+    agent: "codex" as const,
+    agentName: "Codex",
+    stages: [
+      "Gathering source material",
+      "Comparing the options against your criteria",
+      "Preparing the recommendation",
+    ],
+    title: "Start smaller. Learn faster.",
+    subtitle:
+      "Three options compared against your priorities, with a recommendation and the sources behind it.",
+    artifact: "Brief / Recommendation",
+    result: "Ready to share",
+    delivered: "Returned to your product",
   },
-  {
-    text: "One issue created. Twelve reports connected. Your product team has the context to take it from here.",
-    detail: "Work completed",
-  },
-];
-
-function CloudWorkspaceArt() {
-  return (
-    <svg
-      viewBox="0 0 360 200"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.15"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path
-        d="M41 150H73M287 150H320M180 24V43"
-        strokeDasharray="2 5"
-        opacity=".5"
-      />
-      <circle cx="38" cy="150" r="3" fill="currentColor" stroke="none" />
-      <circle cx="323" cy="150" r="3" fill="currentColor" stroke="none" />
-      <path
-        d="M102 114C74 114 67 79 89 64C91 35 129 23 150 44C168 20 210 24 222 52C247 42 271 62 270 85C292 95 286 125 261 127H112"
-        fill="#e2e7d9"
-      />
-      <path
-        d="M110 78C112 60 132 53 147 64M172 47C188 40 205 50 208 64"
-        opacity=".4"
-      />
-      <rect x="95" y="92" width="185" height="87" rx="13" fill="#e2dce9" />
-      <rect x="80" y="105" width="185" height="79" rx="13" fill="#f8f7f3" />
-      <path d="M80 130H265" opacity=".5" />
-      <circle cx="96" cy="117" r="2" fill="currentColor" stroke="none" />
-      <circle cx="105" cy="117" r="2" />
-      <circle cx="114" cy="117" r="2" />
-      <path d="M240 116H250M245 112V120" opacity=".5" />
-      <path d="M101 148H153M101 159H181M101 169H141" opacity=".6" />
-      <g className={styles.artSignal}>
-        <circle cx="232" cy="156" r="13" fill="#e2e7d9" />
-        <path d="M226 156L230 160L238 152" />
-      </g>
-      <path d="M57 57H69M63 51V63M299 109H309M304 104V114" opacity=".4" />
-    </svg>
-  );
-}
+] as const;
 
 export default function BackgroundWork() {
-  const board = useRef<HTMLDivElement>(null);
-  const [joins, setJoins] = useState<string[]>([]);
+  const id = useId();
+  const [selected, setSelected] = useState(0);
   const [step, setStep] = useState(3);
-  const [hasReplayed, setHasReplayed] = useState(false);
+  const [replayed, setReplayed] = useState(false);
+  const [resultOpen, setResultOpen] = useState(false);
+  const current = examples[selected];
   const running = step < 3;
-  const current = activity[step];
 
   useEffect(() => {
     if (!running) return;
-    const timer = window.setTimeout(() => setStep((value) => value + 1), 1450);
+    const timer = window.setTimeout(() => setStep((value) => value + 1), 1300);
     return () => window.clearTimeout(timer);
-  }, [step, running]);
+  }, [step, running, selected]);
 
-  useLayoutEffect(() => {
-    const element = board.current;
-    if (!element) return;
-    let frame = 0;
-
-    const measure = () => {
-      const bounds = element.getBoundingClientRect();
-      const anchor = (name: string, edge: Edge, fraction = 0.5): Anchor => {
-        const node = element.querySelector<HTMLElement>(
-          `[data-work-surface="${name}"]`,
-        )!;
-        const rect = node.getBoundingClientRect();
-        const directions = {
-          top: [0, -1],
-          right: [1, 0],
-          bottom: [0, 1],
-          left: [-1, 0],
-        };
-        const [dx, dy] = directions[edge];
-        return {
-          x:
-            rect.left -
-            bounds.left +
-            (edge === "left"
-              ? 1
-              : edge === "right"
-                ? rect.width - 1
-                : rect.width * fraction),
-          y:
-            rect.top -
-            bounds.top +
-            (edge === "top"
-              ? 1
-              : edge === "bottom"
-                ? rect.height - 1
-                : rect.height * fraction),
-          dx,
-          dy,
-        };
-      };
-
-      if (window.innerWidth <= 640) {
-        setJoins([
-          fluidJoin(
-            anchor("signal", "bottom", 0.4),
-            anchor("workspace", "top", 0.6),
-            24,
-          ),
-          fluidJoin(
-            anchor("workspace", "bottom", 0.6),
-            anchor("result", "top", 0.4),
-            24,
-          ),
-        ]);
-      } else if (window.innerWidth <= 1100) {
-        setJoins([
-          fluidJoin(
-            anchor("signal", "right", 0.65),
-            anchor("workspace", "left", 0.2),
-            25,
-          ),
-          fluidJoin(
-            anchor("workspace", "bottom", 0.6),
-            anchor("result", "top", 0.4),
-            26,
-          ),
-        ]);
-      } else {
-        setJoins([
-          fluidJoin(
-            anchor("signal", "right", 0.7),
-            anchor("workspace", "left", 0.3),
-            27,
-          ),
-          fluidJoin(
-            anchor("workspace", "right", 0.75),
-            anchor("result", "left", 0.72),
-            27,
-          ),
-        ]);
-      }
-    };
-
-    const schedule = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(measure);
-    };
-    const observer = new ResizeObserver(schedule);
-    observer.observe(element);
-    element
-      .querySelectorAll<HTMLElement>("[data-work-surface]")
-      .forEach((node) => observer.observe(node));
-    window.addEventListener("resize", schedule);
-    measure();
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-      window.removeEventListener("resize", schedule);
-    };
-  }, []);
-
-  function replay() {
-    if (running) return;
-    setHasReplayed(true);
-    setStep(0);
+  function select(index: number) {
+    setSelected(index);
+    setStep(3);
+    setReplayed(false);
+    setResultOpen(false);
   }
+
+  const times =
+    selected === 0
+      ? ["02:00", "02:06", "02:14", "02:18"]
+      : ["00:00", "00:06", "00:14", "00:18"];
 
   return (
     <section
-      className={styles.section}
       id="automation"
+      className={styles.section}
       aria-labelledby="automation-title"
     >
       <header className={styles.heading}>
         <h2 id="automation-title">
-          Set it in motion. <br />
-          Let it work.
+          Put the work
+          <br />
+          on autopilot.
         </h2>
-        <div className={styles.intro}>
+        <div>
           <p>
-            An event in your app. A schedule. A single request. Give your agent
-            a goal and a cloud workspace. It works out the steps and brings the
-            finished work back.
+            A schedule. An event. A request.
+            <br />
+            Give an agent a goal and the tools to get there. It works in the
+            cloud and brings the result back to your product.
           </p>
-          <Link href="/docs/guides/cloud-computers">
-            Explore cloud work <ArrowUpRight size={17} />
+          <Link href="/docs/guides/resolve">
+            Explore background work <ArrowUpRight size={16} />
           </Link>
         </div>
       </header>
 
-      <div className={styles.stage} ref={board} data-running={running}>
-        <svg
-          className={styles.joins}
-          width="100%"
-          height="100%"
-          aria-hidden="true"
+      <div className={styles.workbench}>
+        <div
+          className={styles.triggers}
+          role="tablist"
+          aria-label="Ways to start background work"
+          onKeyDown={navigateTabs}
         >
-          {joins.map((path, index) => (
-            <path key={index} d={path} />
-          ))}
-        </svg>
-
-        <article className={styles.signal} data-work-surface="signal">
-          <div className={styles.surfaceLabel}>
-            <MessageSquare size={17} /> From your app
-          </div>
-          <h3>
-            New feedback.
-            <br />A clear goal.
-          </h3>
-          <p className={styles.request}>
-            “Find the problems worth fixing. Check what’s already tracked, and
-            create an issue with the evidence.”
-          </p>
-          <div className={styles.signalFooter}>
+          {examples.map((example, index) => (
             <button
               type="button"
-              onClick={replay}
-              aria-disabled={running}
-              aria-controls="background-work-result"
+              key={example.name}
+              role="tab"
+              id={`${id}-trigger-${index}`}
+              aria-controls={`${id}-example`}
+              aria-selected={selected === index}
+              tabIndex={selected === index ? 0 : -1}
+              onClick={() => select(index)}
             >
-              {hasReplayed ? <RotateCcw size={15} /> : <Play size={14} />}
-              {running
-                ? "Working…"
-                : hasReplayed
-                  ? "Replay example"
-                  : "See it work"}
+              <example.icon size={18} />
+              <span>{example.name}</span>
             </button>
-            <span>Example</span>
-          </div>
-        </article>
+          ))}
+        </div>
 
-        <article className={styles.workspace} data-work-surface="workspace">
-          <div className={styles.workspaceTop}>
-            <span className={styles.surfaceLabel}>
-              <Cloud size={17} /> In the cloud
-            </span>
-            <span className={styles.mindwireMark}>
-              <MindwireMark />
-            </span>
-          </div>
-          <div className={styles.art}>
-            <CloudWorkspaceArt />
-          </div>
-          <div className={styles.workspaceCopy}>
-            <h3>An agent, on the job.</h3>
-            <div className={styles.workspaceMessages}>
-              {activity.map((entry, index) => (
-                <p
-                  key={entry.detail}
-                  data-active={step === index}
-                  aria-hidden={step !== index}
-                >
-                  {entry.text}
-                </p>
-              ))}
-            </div>
-          </div>
-          <div
-            className={styles.resources}
-            aria-label="Context and tools available to the agent"
-          >
-            <span>
-              <FileText size={14} /> Your context
-            </span>
-            <span>
-              <ArrowUpRight size={15} /> Your tools
-            </span>
-          </div>
-          <p className={styles.activity} aria-live="polite" aria-atomic="true">
-            {running ? (
-              <span className={styles.activityDot} aria-hidden="true" />
-            ) : (
-              <Check size={14} />
-            )}
-            {current.detail}
-          </p>
-        </article>
-
-        <article
-          className={styles.result}
-          data-work-surface="result"
-          id="background-work-result"
-          aria-label="Example issue returned to your product"
-          aria-busy={running}
+        <div
+          className={styles.stage}
+          role="tabpanel"
+          id={`${id}-example`}
+          aria-labelledby={`${id}-trigger-${selected}`}
         >
-          <div className={styles.surfaceLabel}>
-            <ArrowRight size={17} /> Back in your product
-          </div>
-          <div className={styles.resultPreview}>
-            <div className={styles.issue} data-pending={running}>
-              <div className={styles.issueMain}>
-                <div className={styles.issueMeta}>
-                  <span>PRODUCT / 128</span>
-                  <span className={styles.issueStatus}>To do</span>
-                </div>
-                <h3>
-                  Keep filters
-                  <br />
-                  in CSV exports.
-                </h3>
-                <p>
-                  Filtered views export the entire dataset. The export should
-                  match exactly what the customer sees.
-                </p>
-              </div>
-              <div className={styles.issueDetail}>
-                <div className={styles.evidence}>
-                  <span className={styles.evidenceCount}>12</span>
-                  <span>
-                    customer reports
-                    <br />
-                    connected to this issue
-                  </span>
-                </div>
-                <blockquote>
-                  “I filtered the list, but the export still includes
-                  everything.”
-                  <cite>From customer feedback</cite>
-                </blockquote>
-                <div className={styles.issueOwner}>
-                  <span className={styles.teamMark} aria-hidden="true">
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                  <span>Product team</span>
-                  <span>
-                    Notified <Check size={12} />
-                  </span>
-                </div>
-              </div>
-            </div>
-            {running && (
-              <div className={styles.waiting}>
-                <FileText size={29} strokeWidth={1.2} />
-                <h3>
-                  The result is
-                  <br />
-                  on its way.
-                </h3>
-                <p>The agent is working through the task in the cloud.</p>
-              </div>
-            )}
-          </div>
-          <div className={styles.resultNote}>
-            <span className={styles.resultIcon} aria-hidden="true">
-              {running ? <FileText size={16} /> : <Check size={16} />}
+          <div className={styles.brief}>
+            <span className={styles.kicker}>You set the intention</span>
+            <h3>{current.goal}</h3>
+            <p className={styles.cue}>{current.cue}</p>
+            <button
+              className={styles.run}
+              type="button"
+              aria-disabled={running}
+              onClick={() => {
+                if (!running) {
+                  setStep(0);
+                  setReplayed(true);
+                  setResultOpen(false);
+                }
+              }}
+            >
+              {replayed ? <RotateCcw size={16} /> : <Play size={16} />}
+              {running
+                ? "Running the example…"
+                : replayed
+                  ? "Replay the run"
+                  : "See it run"}
+            </button>
+            <span className={styles.demoNote}>
+              An example of work that carries on.
             </span>
+          </div>
+
+          <div className={styles.cloudRun} data-running={running}>
+            <div className={styles.cloudLabel}>
+              <Cloud size={17} />
+              <span>Working in the cloud</span>
+            </div>
+            <div className={styles.dial}>
+              <svg
+                viewBox="0 0 300 300"
+                aria-hidden="true"
+                className={styles.dialDrawing}
+              >
+                <circle
+                  cx="150"
+                  cy="150"
+                  r="137"
+                  fill="none"
+                  stroke="#c0c8b1"
+                  strokeWidth=".8"
+                  strokeDasharray="2 7"
+                />
+                {Array.from({ length: 60 }, (_, index) => {
+                  const angle = (index * Math.PI) / 30;
+                  const outer = index % 5 === 0 ? 121 : 118;
+                  return (
+                    <line
+                      key={index}
+                      x1={150 + Math.sin(angle) * 111}
+                      y1={150 - Math.cos(angle) * 111}
+                      x2={150 + Math.sin(angle) * outer}
+                      y2={150 - Math.cos(angle) * outer}
+                      stroke={index % 5 === 0 ? "#84966d" : "#c5cdb9"}
+                      strokeWidth={index % 5 === 0 ? 1.4 : 1}
+                    />
+                  );
+                })}
+                <circle
+                  cx="150"
+                  cy="150"
+                  r="98"
+                  fill="none"
+                  stroke="#f4f3ec"
+                  strokeWidth="5"
+                />
+                <circle
+                  cx="150"
+                  cy="150"
+                  r="98"
+                  fill="none"
+                  stroke="#99ae80"
+                  strokeWidth="5"
+                  pathLength="100"
+                  strokeDasharray={`${((step + 1) / 4) * 100} 100`}
+                  strokeLinecap="round"
+                  transform="rotate(-90 150 150)"
+                  className={styles.dialProgress}
+                />
+              </svg>
+              <div className={styles.dialCenter}>
+                <AgentLogo agent={current.agent} size={29} surface="light" />
+                <span className={styles.time}>{times[step]}</span>
+                <span>
+                  {running
+                    ? "Agent at work"
+                    : selected === 0
+                      ? "Ready before morning"
+                      : "Work delivered"}
+                </span>
+              </div>
+              <span className={styles.dialSatellite} aria-hidden="true">
+                <Check size={16} />
+              </span>
+            </div>
+            <div
+              className={styles.activity}
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <span>{String(Math.min(step + 1, 3)).padStart(2, "0")} / 03</span>
+              <p>
+                {running
+                  ? current.stages[step]
+                  : "The task is complete. Your app has the result."}
+              </p>
+            </div>
+            <span className={styles.runCaption}>
+              {current.agentName} · Your context & tools
+            </span>
+          </div>
+
+          <article className={styles.result} aria-busy={running}>
+            <div className={styles.resultTop}>
+              <span>
+                {selected === 0 ? (
+                  <GitBranch size={16} />
+                ) : (
+                  <FileText size={16} />
+                )}
+                {current.artifact}
+              </span>
+              <span className={styles.stamp}>
+                {running ? "In progress" : "Delivered"}
+              </span>
+            </div>
+            <h3>
+              {running ? "The agent is taking it from here." : current.title}
+            </h3>
             <p>
               {running
-                ? "The agent is working on it."
-                : "Useful work. Already in place."}
+                ? "Reading the context, working through the task, and making the changes it needs."
+                : current.subtitle}
             </p>
-          </div>
-        </article>
+            <div className={styles.artifact} data-running={running}>
+              {selected === 0 ? (
+                <div className={styles.patch}>
+                  <span>checkout / retry.ts</span>
+                  <code>
+                    <span>− createOrder(newRequest())</span>
+                    <span>+ createOrder(originalRequest)</span>
+                  </code>
+                  <div>
+                    <Check size={13} /> Regression checks passing
+                  </div>
+                </div>
+              ) : selected === 1 ? (
+                <blockquote>
+                  “I finished setup, but wasn’t sure what to do next.”
+                  <span>A recurring theme, with the evidence attached.</span>
+                </blockquote>
+              ) : (
+                <div className={styles.comparison}>
+                  <div>
+                    <span>Focused pilot</span>
+                    <i style={{ width: "83%" }} />
+                    <Check size={12} />
+                  </div>
+                  <div>
+                    <span>Full rollout</span>
+                    <i style={{ width: "52%" }} />
+                  </div>
+                  <div>
+                    <span>Build in-house</span>
+                    <i style={{ width: "35%" }} />
+                  </div>
+                  <span>Compared against your priorities</span>
+                </div>
+              )}
+            </div>
+            <div className={styles.resultBottom}>
+              <span>
+                {running
+                  ? "Your product will receive the outcome"
+                  : current.delivered}
+              </span>
+              <button
+                type="button"
+                aria-disabled={running}
+                aria-expanded={resultOpen}
+                aria-controls={`${id}-result`}
+                aria-label={
+                  resultOpen
+                    ? "Close the example result"
+                    : "View the example result"
+                }
+                onClick={() => {
+                  if (!running) setResultOpen((value) => !value);
+                }}
+              >
+                <ArrowUpRight size={19} />
+              </button>
+            </div>
+            <div
+              id={`${id}-result`}
+              className={styles.resultDetails}
+              hidden={!resultOpen || running}
+            >
+              <p>
+                {selected === 0
+                  ? "The agent traced the failure, updated the retry behavior, and opened a pull request. Your team chooses when to merge."
+                  : selected === 1
+                    ? "The agent grouped the feedback, linked it to existing issues, and added the findings to the team’s workspace."
+                    : "The agent gathered sources, compared three approaches, and returned a brief with its recommendation and tradeoffs."}
+              </p>
+              <span>
+                <Check size={12} /> {current.result}
+              </span>
+            </div>
+          </article>
+        </div>
+        <div className={styles.footer}>
+          <span>Your app can close. The work keeps going.</span>
+          <span>
+            Example run · Your backend connects the trigger and tools.
+          </span>
+        </div>
       </div>
     </section>
   );

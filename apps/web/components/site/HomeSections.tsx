@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight } from "@/components/site/InterfaceIcon";
 import Questions from "@/components/landing/Questions";
 import SiteIllustration from "./SiteIllustration";
 import styles from "./home-sections.module.css";
@@ -8,31 +8,51 @@ export default function HomeSections() {
   return (
     <>
       <nav className={styles.products} aria-label="More from Mindwire">
-        <Link href="/app" className={styles.product}>
+        <Link
+          href="/app"
+          className={styles.product}
+          aria-label="Explore the Mindwire app"
+        >
+          <div className={styles.productCopy}>
+            <h3>
+              Take Mindwire
+              <br />
+              for a spin.
+            </h3>
+            <p>
+              Your agents, files, and projects. Together in a workspace that
+              goes with you.
+            </p>
+            <span className={styles.productAction}>
+              Explore the app <ArrowUpRight size={18} />
+            </span>
+          </div>
           <div className={styles.productArt}>
             <SiteIllustration kind="devices" />
           </div>
-          <div>
-            <h3>Try the Mindwire app.</h3>
-            <p>
-              See what the framework can do. Agents, files and projects, across
-              your devices.
-            </p>
-          </div>
-          <ArrowUpRight size={21} />
         </Link>
-        <Link href="/cloud" className={styles.product}>
+        <Link
+          href="/cloud"
+          className={`${styles.product} ${styles.cloud}`}
+          aria-label="Explore Mindwire Cloud"
+        >
+          <div className={styles.productCopy}>
+            <h3>
+              Let your projects
+              <br />
+              keep going.
+            </h3>
+            <p>
+              An optional cloud computer for the work that carries on when you
+              step away.
+            </p>
+            <span className={styles.productAction}>
+              Explore Mindwire Cloud <ArrowUpRight size={18} />
+            </span>
+          </div>
           <div className={styles.productArt}>
             <SiteIllustration kind="cloud" />
           </div>
-          <div>
-            <h3>Give your work a home.</h3>
-            <p>
-              An optional cloud computer for projects that keep going when your
-              laptop closes.
-            </p>
-          </div>
-          <ArrowUpRight size={21} />
         </Link>
       </nav>
 

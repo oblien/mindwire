@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { ArrowUpRight, Menu, X } from "lucide-react";
+import { ArrowUpRight, Menu, X } from "@/components/site/InterfaceIcon";
 import { githubUrl } from "@/lib/product";
 import { consoleUrl } from "@/lib/console-url";
 import { MindwireMark } from "@/components/design-lab/refined/Artwork";
@@ -53,7 +53,6 @@ export default function SiteNav({ embedded = false }: { embedded?: boolean }) {
       ref={header}
       className={styles.header}
       data-embedded={embedded}
-      data-detached={path?.startsWith("/use-cases/") && path !== "/use-cases/"}
       data-open={open}
     >
       <Link

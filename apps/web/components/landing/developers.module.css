@@ -193,7 +193,7 @@
   align-items: center;
   gap: 7px;
 }
-.buildReply li svg {
+.buildReply li :is(svg, [data-site-icon]) {
   color: var(--mw-mint);
 }
 .reviewLink {
@@ -220,7 +220,7 @@
   gap: 7px;
   margin-top: 18px;
 }
-.exampleComposer > div > svg:last-child {
+.exampleComposer > div > :is(svg, [data-site-icon]):last-child {
   margin-left: auto;
 }
 .workArea {
@@ -472,7 +472,7 @@
   gap: 6px;
   align-items: center;
 }
-.workbenchFoot svg {
+.workbenchFoot :is(svg, [data-site-icon]) {
   color: var(--mw-mint);
 }
 
@@ -573,7 +573,7 @@
   font-size: 15px;
   padding: 0 8px 14px;
 }
-.projectWindowTitle > svg {
+.projectWindowTitle > :is(svg, [data-site-icon]) {
   color: var(--mw-blue);
 }
 .projectWindowTitle > strong {
@@ -658,7 +658,7 @@
   --mw-muted: var(--mw-inverse-muted);
   --mw-mint: var(--mw-inverse-ink);
 }
-.commitNote > svg {
+.commitNote > :is(svg, [data-site-icon]) {
   color: var(--mw-mint);
 }
 .commitNote strong {
@@ -671,7 +671,7 @@
   color: var(--mw-muted);
   margin-top: 4px;
 }
-.commitNote > svg:last-child {
+.commitNote > :is(svg, [data-site-icon]):last-child {
   margin-left: auto;
 }
 .agentSection {
@@ -709,10 +709,10 @@
   flex-direction: column;
   gap: 32px;
 }
-.controlNotes > div > svg {
+.controlNotes > div > :is(svg, [data-site-icon]) {
   color: var(--mw-mint);
 }
-.controlNotes > div:nth-child(2) > svg {
+.controlNotes > div:nth-child(2) > :is(svg, [data-site-icon]) {
   color: var(--mw-blue);
 }
 .controlNotes h3 {
@@ -767,7 +767,7 @@
   text-align: center;
   padding: 0 25px 80px;
 }
-.closing > svg {
+.closing > :is(svg, [data-site-icon]) {
   margin: auto;
 }
 .closing h2 {

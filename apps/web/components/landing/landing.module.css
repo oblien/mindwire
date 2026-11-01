@@ -14,8 +14,8 @@
 .nav button {
   -webkit-tap-highlight-color: transparent;
 }
-.landing svg,
-.nav svg {
+.landing :is(svg, [data-site-icon]),
+.nav :is(svg, [data-site-icon]) {
   flex-shrink: 0;
 }
 .landing {
@@ -69,7 +69,7 @@
 .nav[data-docked="true"] .wordmark {
   font-size: 22px;
 }
-.nav[data-docked="true"] .wordmark > svg {
+.nav[data-docked="true"] .wordmark > :is(svg, [data-site-icon]) {
   width: 26px;
   height: 26px;
 }
@@ -309,13 +309,13 @@
   top: 77px;
   transform: rotate(8deg);
 }
-.heroCompanion > svg:not(.companionTrail) {
+.heroCompanion > :is(svg, [data-site-icon]):not(.companionTrail) {
   position: absolute;
   top: 45px;
   left: 42px;
   filter: drop-shadow(0 9px 9px #3d2c1510);
 }
-.companionRight > svg:nth-child(2) {
+.companionRight > :is(svg, [data-site-icon]):nth-child(2) {
   top: 105px;
   left: 12px;
   transform: rotate(-15deg);
@@ -550,7 +550,7 @@
   font-size: 12px;
   margin-top: 3px;
 }
-.botList button > svg:last-child {
+.botList button > :is(svg, [data-site-icon]):last-child {
   display: none;
 }
 .sidebarNote {
@@ -661,7 +661,7 @@
   align-items: center;
   gap: 7px;
 }
-.completedSteps svg {
+.completedSteps :is(svg, [data-site-icon]) {
   color: var(--bot-color);
 }
 .resultLink {
@@ -833,7 +833,7 @@
   font-weight: 500;
   margin-top: 3px;
 }
-.freeFriday svg {
+.freeFriday :is(svg, [data-site-icon]) {
   position: absolute;
   right: 11px;
   bottom: 8px;
@@ -852,7 +852,7 @@
   letter-spacing: -0.03em;
   font-weight: 500;
 }
-.readingTitle svg {
+.readingTitle :is(svg, [data-site-icon]) {
   color: var(--mw-peach);
 }
 .readingApp > p {
@@ -1019,7 +1019,7 @@
   background: var(--mw-peach-soft);
   color: var(--mw-peach);
 }
-.researchBrief > svg {
+.researchBrief > :is(svg, [data-site-icon]) {
   color: var(--mw-mint);
   margin-bottom: 15px;
 }
@@ -1099,7 +1099,7 @@
   gap: 6px;
   margin: 19px 0 9px;
 }
-.botProfile h4 svg {
+.botProfile h4 :is(svg, [data-site-icon]) {
   color: var(--bot-color);
 }
 .botProfile > p {
@@ -1259,7 +1259,7 @@
   align-items: center;
   gap: 10px;
 }
-.modeDetails li svg {
+.modeDetails li :is(svg, [data-site-icon]) {
   color: var(--mw-peach);
 }
 .modeLink {
@@ -1431,7 +1431,7 @@
   font-size: 12px;
   color: var(--mw-muted);
 }
-.modePreviewFooter > svg {
+.modePreviewFooter > :is(svg, [data-site-icon]) {
   color: var(--mw-mint);
 }
 .modePreviewFooter small {
@@ -1709,7 +1709,7 @@
   .botList button {
     gap: 6px;
   }
-  .botList button > svg:first-child {
+  .botList button > :is(svg, [data-site-icon]):first-child {
     width: 35px;
     height: 35px;
   }
@@ -2063,7 +2063,7 @@
   .botList button > span {
     text-align: center;
   }
-  .botList button > svg:first-child {
+  .botList button > :is(svg, [data-site-icon]):first-child {
     width: 35px;
     height: 35px;
   }
@@ -2095,7 +2095,7 @@
   .botResponse {
     margin-top: 15px;
   }
-  .botResponse > svg {
+  .botResponse > :is(svg, [data-site-icon]) {
     width: 27px;
     height: 27px;
   }
@@ -2169,7 +2169,7 @@
   .researchBrief {
     padding-top: 20px;
   }
-  .researchBrief > svg {
+  .researchBrief > :is(svg, [data-site-icon]) {
     display: none;
   }
   .researchBrief h3 {
@@ -2181,7 +2181,7 @@
   .profileIdentity {
     margin-bottom: 15px;
   }
-  .profileIdentity > svg {
+  .profileIdentity > :is(svg, [data-site-icon]) {
     width: 50px;
     height: 50px;
   }

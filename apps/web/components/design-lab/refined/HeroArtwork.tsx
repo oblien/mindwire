@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { Pause, Play } from "lucide-react";
+import { Pause, Play } from "@/components/site/InterfaceIcon";
 import { createHeroMaterial } from "./hero-material";
 import { heroSurfaces, type HeroVariant } from "./hero-surfaces";
 import styles from "./hero-artwork.module.css";

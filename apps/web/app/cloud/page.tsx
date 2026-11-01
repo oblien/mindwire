@@ -8,7 +8,7 @@ import {
   Cloud,
   Laptop,
   Info,
-} from "lucide-react";
+} from "@/components/site/InterfaceIcon";
 import CloudCosts from "@/components/landing/CloudCosts";
 import ConnectedQuestions from "@/components/landing/ConnectedQuestions";
 import CloudInfrastructure from "@/components/landing/CloudInfrastructure";
@@ -36,7 +36,6 @@ export default async function CloudPage() {
   return (
     <div className={base.landing}>
       <PageHero
-        eyebrow="Cloud for personal use"
         id="cloud-title"
         title={
           <>
@@ -63,8 +62,8 @@ export default async function CloudPage() {
           <div>
             <h2 id="own-computer-title">Your own computer works, too.</h2>
             <p>
-              Use Mindwire with your Mac or a server you already own.
-              Connect your devices and work with your supported agent accounts.
+              Use Mindwire with your Mac or a server you already own. Connect
+              your devices and work with your supported agent accounts.
             </p>
           </div>
           <div className={styles.freePrice}>
@@ -80,7 +79,8 @@ export default async function CloudPage() {
             <div>
               <h2 id="cloud-plans-title">A home that stays online.</h2>
               <p>
-                Personal plans. One isolated computer for your files, tools, and projects.
+                Personal plans. One isolated computer for your files, tools, and
+                projects.
               </p>
             </div>
             <span className={styles.billingInterval}>
@@ -197,7 +197,14 @@ export default async function CloudPage() {
         items={[
           {
             question: "Who is Mindwire Cloud for?",
-            answer: <>Mindwire Cloud is for personal use: your projects, your files, and work you manage through the Mindwire app. For business products, customer workspaces, or infrastructure at scale, use the Mindwire SDK with <a href="https://oblien.com/">Oblien</a>.</>,
+            answer: (
+              <>
+                Mindwire Cloud is for personal use: your projects, your files,
+                and work you manage through the Mindwire app. For business
+                products, customer workspaces, or infrastructure at scale, use
+                the Mindwire SDK with <a href="https://oblien.com/">Oblien</a>.
+              </>
+            ),
           },
           {
             question: "What runs underneath Mindwire Cloud?",
@@ -242,7 +249,8 @@ export default async function CloudPage() {
       >
         <h2 id="cloud-invite-title">A computer for your next idea.</h2>
         <p>
-          Choose a personal plan, connect from Mindwire, and keep your projects moving.
+          Choose a personal plan, connect from Mindwire, and keep your projects
+          moving.
         </p>
         <a href={cloudDashboardUrl} className={base.primaryButton}>
           Open Cloud Console <ArrowUpRight size={18} />

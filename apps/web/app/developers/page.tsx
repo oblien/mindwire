@@ -17,7 +17,7 @@ import {
   ShieldCheck,
   Smartphone,
   Terminal,
-} from "lucide-react";
+} from "@/components/site/InterfaceIcon";
 import DeveloperWorkspace from "@/components/landing/DeveloperWorkspace";
 import AgentLogo from "@/components/marketing/AgentLogo";
 import Questions from "@/components/landing/Questions";
@@ -69,7 +69,6 @@ export default function Developers() {
   return (
     <div className={base.landing}>
       <PageHero
-        eyebrow="Mindwire App / Developer mode"
         id="developers-title"
         title={
           <>

@@ -58,7 +58,7 @@
   color: var(--mw-on-ink);
   background: var(--mw-ink);
 }
-.environmentTabs button[aria-selected="true"] svg {
+.environmentTabs button[aria-selected="true"] :is(svg, [data-site-icon]) {
   color: var(--mw-on-ink);
 }
 .environmentBody {
@@ -289,7 +289,7 @@
   line-height: 1.65;
   color: var(--mw-muted);
 }
-.releaseBody li > svg {
+.releaseBody li > :is(svg, [data-site-icon]) {
   flex-shrink: 0;
   color: var(--mw-peach);
   margin-top: 5px;
@@ -343,7 +343,7 @@
   .computerBody {
     gap: 8px;
   }
-  .computerBody svg {
+  .computerBody :is(svg, [data-site-icon]) {
     width: 60px;
   }
   .computerBody p {
@@ -403,7 +403,7 @@
   .computerBody p {
     font-size: 16px;
   }
-  .computerBody > svg {
+  .computerBody > :is(svg, [data-site-icon]) {
     width: 32px;
     height: 32px;
   }

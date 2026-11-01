@@ -1,4 +1,4 @@
-import { Terminal } from "lucide-react";
+import { Terminal } from "@/components/site/InterfaceIcon";
 import CopyButton from "./CopyButton";
 import styles from "./product.module.css";
 

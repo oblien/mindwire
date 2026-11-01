@@ -1,4 +1,6 @@
 import Link from "next/link";
+import PageHero from "@/components/landing/PageHero";
+import { ArrowDown, ArrowUpRight } from "@/components/site/InterfaceIcon";
 import { type UseCase, useCases } from "@/lib/use-cases";
 import UseCaseCard from "@/components/landing/UseCaseCard";
 import BusinessProductDemo from "./BusinessProductDemo";
@@ -49,29 +51,25 @@ export default function BusinessCaseStudy({ item }: { item: UseCase }) {
     .slice(0, 2);
   return (
     <div className={base.landing}>
-      <div className={styles.page}>
-        <Link href="/use-cases#use-case-library" className={styles.back}>
-          ← All product examples
+      <PageHero
+        id="example-title"
+        title={item.headline}
+        description={item.opportunity}
+      >
+        <a
+          href={item.kind === "learning" ? "#course-results" : "#product-demo"}
+          className={base.primaryButton}
+        >
+          Try the product <ArrowDown size={16} />
+        </a>
+        <Link
+          href="/use-cases#use-case-library"
+          className={base.secondaryButton}
+        >
+          All product examples <ArrowUpRight size={16} />
         </Link>
-        <section className={styles.hero} aria-labelledby="example-title">
-          <div className={styles.heroMeta}>
-            <span>
-              {item.category} / {item.platform} integration
-            </span>
-            <span>Product blueprint</span>
-          </div>
-          <h1 id="example-title">{item.headline}</h1>
-          <div className={styles.heroBottom}>
-            <p>{item.opportunity}</p>
-            <a
-              href={
-                item.kind === "learning" ? "#course-results" : "#product-demo"
-              }
-            >
-              Try the product <span aria-hidden="true">↓</span>
-            </a>
-          </div>
-        </section>
+      </PageHero>
+      <div className={styles.page}>
         <section
           className={styles.experience}
           aria-label={`${item.brand} product experience`}

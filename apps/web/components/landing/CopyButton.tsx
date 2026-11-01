@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy } from "@/components/site/InterfaceIcon";
 import styles from "./product.module.css";
 
 export default function CopyButton({ value, label = "Copy code" }: { value: string; label?: string }) {

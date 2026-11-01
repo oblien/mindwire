@@ -13,26 +13,8 @@
   outline: 2px solid var(--mw-focus);
   outline-offset: 4px;
 }
-.page svg {
+.page :is(svg, [data-site-icon]) {
   flex-shrink: 0;
-}
-.hero {
-  position: relative;
-  width: 100%;
-  max-width: none;
-  margin: auto;
-  padding-bottom: var(--site-section-space);
-}
-.heroWindow {
-  margin-bottom: 0;
-}
-.bridge {
-  width: fit-content;
-  margin: 64px auto 0;
-  padding: 11px 24px;
-  border-radius: 30px;
-  font-size: 15px;
-  background: var(--mw-surface);
 }
 .workspaceSection {
   width: calc(100% - 2 * var(--site-gutter));
@@ -81,12 +63,6 @@
   }
 }
 @media (max-width: 767px) {
-  .hero {
-    padding-bottom: 64px;
-  }
-  .bridge {
-    margin-top: 48px;
-  }
   .sectionHeading {
     grid-template-columns: 1fr;
     gap: 24px;

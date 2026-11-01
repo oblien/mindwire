@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ArrowDown, ArrowUpRight } from "@/components/site/InterfaceIcon";
 import PageHero from "@/components/landing/PageHero";
 import UseCaseExplorer from "@/components/landing/UseCaseExplorer";
 import ConnectionPatterns from "@/components/examples/ConnectionPatterns";
@@ -17,7 +18,6 @@ export default function UseCasesPage() {
   return (
     <div className={base.landing}>
       <PageHero
-        eyebrow="Examples"
         id="use-cases-title"
         title={
           <>
@@ -29,10 +29,10 @@ export default function UseCasesPage() {
         description="A research app that writes the report. A builder that creates the website. A help desk that fixes the problem. Put the best agents to work inside the product your customers already use."
       >
         <Link href="#use-case-library" className={base.primaryButton}>
-          Explore the products <span aria-hidden="true">↓</span>
+          Explore the products <ArrowDown size={16} />
         </Link>
         <Link href="/sdk" className={base.secondaryButton}>
-          Build with Mindwire <span aria-hidden="true">↗</span>
+          Build with Mindwire <ArrowUpRight size={16} />
         </Link>
       </PageHero>
       <ConnectionPatterns />
@@ -50,7 +50,7 @@ export default function UseCasesPage() {
             work.
           </p>
           <Link href="/docs/guides/quickstart">
-            Start your integration <span aria-hidden="true">↗</span>
+            Start your integration <ArrowUpRight size={16} />
           </Link>
         </div>
       </section>

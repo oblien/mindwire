@@ -2,7 +2,7 @@
 
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, FileCode2 } from "lucide-react";
+import { ArrowUpRight, FileCode2 } from "@/components/site/InterfaceIcon";
 import { githubUrl } from "@/lib/product";
 import CopyButton from "@/components/landing/CopyButton";
 import { navigateTabs } from "@/components/landing/tabs";
@@ -68,10 +68,21 @@ export default function BuildFlow() {
   useLayoutEffect(() => {
     const element = board.current;
     if (!element) return;
+    const desktopApp =
+      document.querySelector<HTMLElement>("[data-desktop-app]");
     let frame = 0;
     const measure = () => {
       const bounds = element.getBoundingClientRect();
       const compact = window.innerWidth < 960;
+      const appBounds = desktopApp?.getBoundingClientRect();
+      const start = (fallbackX: number): Anchor => ({
+        x: appBounds
+          ? appBounds.left - bounds.left + appBounds.width * 0.6
+          : fallbackX,
+        y: appBounds ? appBounds.bottom - bounds.top - 1 : -2,
+        dx: 0,
+        dy: 1,
+      });
       const anchor = (id: string, edge: Edge, fraction = 0.5): Anchor => {
         const node = element.querySelector<HTMLElement>(
           '[data-flow="' + id + '"]',
@@ -108,7 +119,7 @@ export default function BuildFlow() {
       if (compact) {
         const entrance = anchor("intro", "top", 0.5);
         setJoins([
-          fluidJoin({ x: entrance.x + 50, y: -2, dx: 0, dy: 1 }, entrance),
+          fluidJoin(start(entrance.x + 50), entrance),
           fluidJoin(
             anchor("intro", "bottom", 0.55),
             anchor("connector", "top"),
@@ -118,7 +129,7 @@ export default function BuildFlow() {
       } else {
         const entrance = anchor("sdk", "top", 0.82);
         setJoins([
-          fluidJoin({ x: entrance.x, y: -2, dx: 0, dy: 1 }, entrance),
+          fluidJoin(start(entrance.x), entrance),
           fluidJoin(
             anchor("intro", "bottom", 0.82),
             anchor("sdk", "top", 0.25),
@@ -143,6 +154,7 @@ export default function BuildFlow() {
     };
     const observer = new ResizeObserver(schedule);
     observer.observe(element);
+    if (desktopApp) observer.observe(desktopApp);
     element
       .querySelectorAll<HTMLElement>("[data-flow]")
       .forEach((node) => observer.observe(node));

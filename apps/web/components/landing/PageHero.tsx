@@ -1,69 +1,81 @@
 import type { ReactNode } from "react";
-import SiteIllustration, {
-  type SiteIllustrationKind,
-} from "../site/SiteIllustration";
 import styles from "./interior.module.css";
 
-const illustrations: Record<string, SiteIllustrationKind> = {
-  "cloud-title": "cloud",
-  "app-title": "devices",
-  "use-cases-title": "product",
-  "setup-title": "devices",
-  "get-started-title": "devices",
-  "developers-title": "code",
-  "dev-title": "code",
-  "changelog-title": "context",
+type HeroMaterial = "precision" | "aperture" | "porcelain";
+type HeroComposition = "open" | "panorama" | "split" | "editorial";
+
+const materials: Record<HeroMaterial, string> = {
+  precision: "sdk-precision-glass-v1",
+  aperture: "app-satin-aperture-v1",
+  porcelain: "cloud-porcelain-light-v1",
+};
+
+const designs: Record<
+  string,
+  { material: HeroMaterial; composition: HeroComposition }
+> = {
+  "sdk-title": { material: "precision", composition: "split" },
+  "app-title": { material: "aperture", composition: "open" },
+  "cloud-title": { material: "porcelain", composition: "panorama" },
+  "developers-title": { material: "precision", composition: "open" },
+  "setup-title": { material: "aperture", composition: "editorial" },
+  "use-cases-title": { material: "aperture", composition: "panorama" },
+  "sandbox-title": { material: "porcelain", composition: "open" },
+  "changelog-title": { material: "precision", composition: "editorial" },
+  "example-title": { material: "aperture", composition: "editorial" },
 };
 
 export default function PageHero({
-  eyebrow,
   title,
   description,
   children,
   aside,
   id,
   artwork,
-  caption,
   connector,
   className,
 }: {
-  eyebrow: string;
   title: ReactNode;
   description: string;
   children?: ReactNode;
   aside?: ReactNode;
   id?: string;
   artwork?: ReactNode;
-  caption?: string;
   connector?: string;
   className?: string;
 }) {
+  const design = designs[id ?? ""] ?? designs["app-title"];
   return (
     <section
       className={[styles.hero, className].filter(Boolean).join(" ")}
-      data-split={Boolean(aside)}
-      data-illustrated={!aside}
+      data-page-hero
+      data-material={design.material}
+      data-composition={aside ? "split" : design.composition}
       data-sprue={connector}
       aria-labelledby={id}
     >
-      {!aside && (
-        <div className={styles.artwork} aria-hidden="true">
-          {artwork ?? (
-            <SiteIllustration kind={illustrations[id ?? ""] ?? "identity"} />
-          )}
-        </div>
-      )}
+      <div className={styles.material} aria-hidden="true">
+        <img
+          src={`/images/design-lab/materials/${materials[design.material]}.webp`}
+          alt=""
+          width={1774}
+          height={887}
+          fetchPriority="high"
+        />
+      </div>
       <div className={styles.heroCopy}>
-        <span className={styles.eyebrow}>{eyebrow}</span>
         <h1 id={id}>{title}</h1>
-        <p>{description}</p>
-        {children && <div className={styles.heroActions}>{children}</div>}
+        <div className={styles.heroDetails}>
+          <p>{description}</p>
+          {children && <div className={styles.heroActions}>{children}</div>}
+        </div>
       </div>
       {aside && <div className={styles.heroAside}>{aside}</div>}
-      <div className={styles.heroFoot} aria-hidden="true">
-        <span>Mindwire</span>
-        <span>{caption ?? eyebrow}</span>
-      </div>
+      {artwork && (
+        <div className={styles.artwork} aria-hidden="true">
+          {artwork}
+        </div>
+      )}
     </section>
   );
 }

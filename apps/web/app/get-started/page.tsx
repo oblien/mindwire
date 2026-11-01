@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import PageHero from "@/components/landing/PageHero";
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight } from "@/components/site/InterfaceIcon";
 import InstallBlock from "@/components/landing/InstallBlock";
 import { cloudDashboardUrl, macApp } from "@/lib/product";
 import base from "@/components/landing/landing.module.css";
@@ -18,7 +18,6 @@ export default function GetStarted() {
   return (
     <div className={base.landing}>
       <PageHero
-        eyebrow="App setup"
         id="setup-title"
         title={
           <>

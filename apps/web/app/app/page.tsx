@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowDown, ArrowUpRight } from "lucide-react";
+import { ArrowDown, ArrowUpRight } from "@/components/site/InterfaceIcon";
 import AppWorkspacePreview from "@/components/landing/AppWorkspacePreview";
 import ConnectedQuestions from "@/components/landing/ConnectedQuestions";
-import SurfaceRoutes from "@/components/landing/SurfaceRoutes";
 import PageHero from "@/components/landing/PageHero";
 import AppDownloads from "@/components/landing/AppDownloads";
 import styles from "@/components/landing/app-framework.module.css";
@@ -18,33 +17,24 @@ export const metadata: Metadata = {
 export default function AppPage() {
   return (
     <div className={styles.page}>
-      <SurfaceRoutes kind="appHero" className={styles.hero}>
-        <PageHero
-          className={styles.heroWindow}
-          connector="app-hero"
-          eyebrow="Mindwire App"
-          id="app-title"
-          title={
-            <>
-              Your work.
-              <br />
-              With you.
-            </>
-          }
-          description="Your projects, files, and ideas in one workspace. Make something on your Mac. Pick it up on your phone. Keep going."
-          caption="Mac, iPhone, and iPad."
-        >
-          <Link href="#download" className={styles.primary}>
-            Get the app <ArrowUpRight size={16} />
-          </Link>
-          <Link href="#workspace" className={styles.secondary}>
-            Take a look inside <ArrowDown size={16} />
-          </Link>
-        </PageHero>
-        <div className={styles.bridge} data-sprue="app-bridge">
-          A place to put your ideas to work
-        </div>
-      </SurfaceRoutes>
+      <PageHero
+        id="app-title"
+        title={
+          <>
+            Your work.
+            <br />
+            With you.
+          </>
+        }
+        description="Your projects, files, and ideas in one workspace. Make something on your Mac. Pick it up on your phone. Keep going."
+      >
+        <Link href="#download" className={styles.primary}>
+          Get the app <ArrowUpRight size={16} />
+        </Link>
+        <Link href="#workspace" className={styles.secondary}>
+          Take a look inside <ArrowDown size={16} />
+        </Link>
+      </PageHero>
 
       <section
         className={styles.workspaceSection}

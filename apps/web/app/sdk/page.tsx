@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import PageHero from "@/components/landing/PageHero";
 import Link from "next/link";
-import { ArrowUpRight, Check } from "lucide-react";
+import { ArrowUpRight, Check } from "@/components/site/InterfaceIcon";
 import SDKExample from "@/components/landing/SDKExample";
 import SDKExperience from "@/components/landing/SDKExperience";
 import SDKArchitecture from "@/components/landing/SDKArchitecture";
@@ -21,7 +21,6 @@ export default function SDK() {
   return (
     <div className={base.landing}>
       <PageHero
-        eyebrow="SDK & runtime"
         id="sdk-title"
         title={
           <>

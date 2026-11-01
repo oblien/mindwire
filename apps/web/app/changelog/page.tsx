@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import PageHero from "@/components/landing/PageHero";
-import { ArrowUpRight, Plus } from "lucide-react";
+import { ArrowUpRight, Plus } from "@/components/site/InterfaceIcon";
 import { githubUrl } from "@/lib/product";
 import base from "@/components/landing/landing.module.css";
 import styles from "@/components/landing/resource-pages.module.css";
@@ -29,7 +29,6 @@ export default function Changelog() {
   return (
     <div className={base.landing}>
       <PageHero
-        eyebrow="Changelog"
         id="changelog-title"
         title={
           <>

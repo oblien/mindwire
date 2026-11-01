@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight } from "lucide-react";
+import { ArrowRight, ArrowUpRight } from "@/components/site/InterfaceIcon";
 import AgentLogo from "@/components/marketing/AgentLogo";
 import { productAgents, type ProductAgent } from "@/lib/product";
 import { MindwireMark } from "./Artwork";

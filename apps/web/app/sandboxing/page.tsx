@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
 import PageHero from "@/components/landing/PageHero";
 import Link from "next/link";
-import { ArrowRight, Files, KeyRound, Network, Terminal } from "lucide-react";
+import {
+  ArrowRight,
+  Files,
+  KeyRound,
+  Network,
+  Terminal,
+} from "@/components/site/InterfaceIcon";
 import SandboxPreview from "@/components/landing/SandboxPreview";
 import base from "@/components/landing/landing.module.css";
 import styles from "@/components/landing/resource-pages.module.css";
@@ -16,7 +22,6 @@ export default function Sandboxing() {
   return (
     <div className={base.landing}>
       <PageHero
-        eyebrow="Workspace isolation"
         id="sandbox-title"
         title={
           <>

@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { Plus } from "@/components/site/InterfaceIcon";
 import styles from "./product.module.css";
 
 export default function Questions({ items }: { items: { question: string; answer: React.ReactNode }[] }) {

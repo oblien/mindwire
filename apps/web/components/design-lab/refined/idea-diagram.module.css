@@ -118,7 +118,7 @@
   font: 600 clamp(28px, 2.5vw, 36px)/1 var(--display);
   letter-spacing: -0.06em;
 }
-.hubBrand > svg {
+.hubBrand > :is(svg, [data-site-icon]) {
   width: 29px;
   height: 29px;
   flex-shrink: 0;
@@ -415,7 +415,7 @@
     width: 24px;
     height: 24px;
   }
-  .inputSelection > svg {
+  .inputSelection > :is(svg, [data-site-icon]) {
     width: 15px;
   }
   .ideaHub {

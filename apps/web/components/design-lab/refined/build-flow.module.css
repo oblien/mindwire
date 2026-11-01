@@ -51,7 +51,7 @@
   top: 71px;
   color: #373c32;
 }
-.introArt svg {
+.introArt :is(svg, [data-site-icon]) {
   width: 100%;
   height: 100%;
 }
@@ -86,14 +86,14 @@
 .secondary:hover {
   color: #6c5269;
 }
-.actions svg,
-.links svg,
-.codeFooter svg {
+.actions :is(svg, [data-site-icon]),
+.links :is(svg, [data-site-icon]),
+.codeFooter :is(svg, [data-site-icon]) {
   transition: transform 0.2s;
 }
-.actions a:hover svg,
-.links a:hover svg,
-.codeFooter a:hover svg {
+.actions a:hover :is(svg, [data-site-icon]),
+.links a:hover :is(svg, [data-site-icon]),
+.codeFooter a:hover :is(svg, [data-site-icon]) {
   transform: translate(2px, -2px);
 }
 .connector {
@@ -108,7 +108,7 @@
   display: grid;
   place-items: center;
 }
-.connector > svg {
+.connector > :is(svg, [data-site-icon]) {
   position: absolute;
   width: 100%;
   height: auto;
@@ -379,7 +379,7 @@
   border-bottom: 1px solid #c2c3b8;
   font-size: 14px;
 }
-.links svg {
+.links :is(svg, [data-site-icon]) {
   flex-shrink: 0;
 }
 @media (max-width: 1399px) {
@@ -692,9 +692,9 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .actions svg,
-  .links svg,
-  .codeFooter svg,
+  .actions :is(svg, [data-site-icon]),
+  .links :is(svg, [data-site-icon]),
+  .codeFooter :is(svg, [data-site-icon]),
   .tabs > button {
     transition: none;
   }

@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
-import ProductStudio from "@/components/landing/ProductStudio";
+import { ArrowUpRight } from "@/components/site/InterfaceIcon";
+import BotStudio from "./BotStudio";
 import styles from "./ownership-story.module.css";
 
 const foundations = [
@@ -15,7 +15,7 @@ const foundations = [
 export default function OwnershipStory() {
   return (
     <div className={styles.story}>
-      <ProductStudio embedded />
+      <BotStudio />
       <div className={styles.foundations}>
         <p>
           The full agent. <br />

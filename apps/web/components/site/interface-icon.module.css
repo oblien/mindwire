@@ -1,0 +1,9 @@
+.icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  background: currentColor;
+  mask: var(--icon-image) center / contain no-repeat;
+  vertical-align: middle;
+}

@@ -34,7 +34,7 @@
   font-size: 13px;
   color: #454d3d;
 }
-.foundations svg {
+.foundations :is(svg, [data-site-icon]) {
   flex-shrink: 0;
   color: #76816a;
 }

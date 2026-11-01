@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowDown, ArrowUpRight } from "lucide-react";
+import { ArrowDown, ArrowUpRight } from "@/components/site/InterfaceIcon";
 import AgentLogo from "@/components/marketing/AgentLogo";
 import { heroAgents, heroHeadline, heroDescription } from "@/lib/hero";
 import SiteNav from "@/components/site/SiteNav";
@@ -144,7 +144,7 @@ export default function RefinedLanding({
       <BuildFlow />
       <HomeSections />
 
-      <SiteFooter />
+      <SiteFooter embedded />
     </div>
   );
 }
