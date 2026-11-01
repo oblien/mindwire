@@ -59,8 +59,20 @@ func TestOutboundTelegramPersistsCursorAndUsesHostQueue(t *testing.T) {
 				return response(200, `{"ok":true,"result":[{"update_id":1,"message":{"text":"private","from":{"id":200},"chat":{"id":999}}},{"update_id":2,"message":{"text":"/mindwire projects","from":{"id":200},"chat":{"id":100}}}]}`), nil
 			}
 			return response(200, `{"ok":true,"result":[]}`), nil
-		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
-			deliveries.Add(1)
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"), strings.HasSuffix(r.URL.Path, "/editMessageText"):
+			var input struct {
+				Text      string `json:"text"`
+				MessageID int64  `json:"message_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			if strings.HasSuffix(r.URL.Path, "/editMessageText") && input.MessageID != 44 {
+				t.Error("edited a different Telegram message", input.MessageID)
+			}
+			if input.Text == "Project fixture" {
+				deliveries.Add(1)
+			}
 			return response(200, `{"ok":true,"result":{"message_id":44}}`), nil
 		default:
 			t.Error("unexpected Telegram mutation", r.URL.Path)
@@ -85,6 +97,7 @@ func TestOutboundTelegramPersistsCursorAndUsesHostQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, func() bool { return deliveries.Load() == 1 })
+	f.waitState(t, c.ID, "delivered", 1)
 	client := f.s.http
 	f.s.Close()
 	f.s = New(f.db, f.runtime, f.runtime.hub, Options{HTTPClient: client})
