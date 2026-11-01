@@ -1,0 +1,76 @@
+.navigation {
+  --nav-height: 76px;
+  --nav-padding: 45px;
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 60;
+  min-height: var(--nav-height);
+  pointer-events: none;
+  visibility: hidden;
+  transform: translateY(calc(-100% - 64px));
+  transition:
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0.3s;
+}
+.navigation[data-visible="true"] {
+  visibility: visible;
+  transform: translateY(0);
+}
+.navigation > header[data-embedded="true"] {
+  position: relative;
+  z-index: 1;
+  width: calc(100% - 2 * var(--site-gutter));
+  max-width: var(--landing-width);
+  min-height: var(--nav-height);
+  margin-inline: auto;
+  padding: 12px var(--nav-padding);
+}
+.navigation[data-visible="true"] > header {
+  pointer-events: auto;
+}
+.navigation > header > a:first-child {
+  font-size: 28px;
+}
+.navigation > header > a:first-child > svg {
+  width: 25px;
+  height: 25px;
+}
+.blur {
+  position: absolute;
+  inset: 0 0 auto;
+  height: calc(var(--nav-height) + 64px);
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--mw-bg) 70%, transparent),
+    color-mix(in srgb, var(--mw-bg) 40%, transparent) 45%,
+    transparent
+  );
+}
+.blur > span {
+  position: absolute;
+  inset: 0;
+  -webkit-backdrop-filter: blur(var(--blur));
+  backdrop-filter: blur(var(--blur));
+  -webkit-mask-image: var(--mask);
+  mask-image: var(--mask);
+}
+@media (max-width: 1199px) {
+  .navigation {
+    --nav-padding: 30px;
+  }
+}
+@media (max-width: 639px) {
+  .navigation {
+    --nav-height: 64px;
+    --nav-padding: 20px;
+  }
+  .navigation > header > a:first-child {
+    font-size: 26px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .navigation {
+    transition: none;
+  }
+}

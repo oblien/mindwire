@@ -34,7 +34,7 @@
   outline-offset: 5px;
 }
 .page :is(section, [id]) {
-  scroll-margin-top: 30px;
+  scroll-margin-top: 104px;
 }
 .page :is(a, button) {
   -webkit-tap-highlight-color: transparent;

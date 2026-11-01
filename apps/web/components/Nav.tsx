@@ -6,6 +6,7 @@ import { useSearchContext } from "fumadocs-ui/contexts/search";
 import { ArrowUpRight, Search } from "@/components/site/InterfaceIcon";
 import MindWireMark from "@/components/brand/MindWireMark";
 import SiteNav from "./site/SiteNav";
+import ScrollNavigation from "./site/ScrollNavigation";
 import ThemeToggle from "./ThemeToggle";
 import { consoleUrl } from "@/lib/console-url";
 import styles from "./docs-nav.module.css";
@@ -13,7 +14,8 @@ import styles from "./docs-nav.module.css";
 export default function Nav() {
   const pathname = usePathname();
   const { setOpenSearch } = useSearchContext();
-  if (pathname === "/" || pathname?.startsWith("/design-lab")) return null;
+  if (pathname === "/") return <ScrollNavigation />;
+  if (pathname?.startsWith("/design-lab")) return null;
   if (!pathname?.startsWith("/docs")) return <SiteNav />;
 
   return (

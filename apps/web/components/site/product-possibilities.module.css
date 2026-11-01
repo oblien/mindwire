@@ -76,17 +76,6 @@
   background: #e3e8d7;
   transform: translateY(-2px);
 }
-.nativeNote {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-top: 29px;
-  color: #c5cbbb;
-  font-size: 12px;
-}
-.nativeNote > span {
-  display: flex;
-}
 .appScene {
   position: relative;
   min-width: 0;
@@ -363,9 +352,6 @@
   .copy h2 {
     font-size: 67px;
   }
-  .nativeNote {
-    justify-content: center;
-  }
   .copy > p:not(.lead) {
     margin-inline: auto;
     max-width: 420px;
@@ -415,11 +401,6 @@
     font-size: 13px;
     padding: 15px 20px;
     gap: 15px;
-  }
-  .nativeNote {
-    font-size: 10px;
-    gap: 6px;
-    margin-top: 23px;
   }
   .app {
     border-radius: 16px;

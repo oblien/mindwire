@@ -69,12 +69,6 @@ export default function ProductPossibilities() {
           <Link href="/docs/guides/authentication#reuse-a-computers-native-connection">
             Build with native sign-in <ArrowUpRight size={18} />
           </Link>
-          <div className={styles.nativeNote}>
-            <span>
-              <Check size={14} />
-            </span>
-            No API key to paste. No second subscription.
-          </div>
         </div>
 
         <div className={styles.appScene}>
