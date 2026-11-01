@@ -92,7 +92,7 @@ export default function BusinessCaseStudy({ item }: { item: UseCase }) {
             <h2 id="integration-title">
               You bring the tools.
               <br />
-              Mindwire connects the agent.
+              MindWire connects the agent.
             </h2>
             <p>{item.integration}</p>
             <Link href="/docs/guides/quickstart">

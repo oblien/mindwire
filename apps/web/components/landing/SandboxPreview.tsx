@@ -34,7 +34,7 @@ const environments = [
     icon: Cloud,
     title: "More room. Wherever you are.",
     description:
-      "Choose a managed computer with a monthly plan. Connect through Mindwire and keep the project on its own machine.",
+      "Choose a managed computer with a monthly plan. Connect through MindWire and keep the project on its own machine.",
     detail: "Managed by Oblien",
     computer: "Cloud Computer",
     folder: "Workspace files",

@@ -13,7 +13,7 @@ import base from "@/components/landing/landing.module.css";
 import styles from "@/components/landing/resource-pages.module.css";
 
 export const metadata: Metadata = {
-  title: "Workspace isolation — Mindwire",
+  title: "Workspace isolation — MindWire",
   description:
     "Your own computer, a Docker workspace, or a Cloud Computer. Choose where your agents work and what they can access.",
 };
@@ -106,7 +106,7 @@ export default function Sandboxing() {
         </p>
         <div className={styles.actions}>
           <Link href="/app#download" className={base.primaryButton}>
-            Get Mindwire
+            Get MindWire
             <ArrowRight size={17} />
           </Link>
           <Link href="/cloud#cloud-plans" className={base.secondaryButton}>

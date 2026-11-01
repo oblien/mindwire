@@ -25,7 +25,7 @@ export default function SDKArchitecture() {
       </div>
 
       <div className={styles.runtime} data-sprue="sdk-runtime">
-        <strong>Mindwire runtime</strong>
+        <strong>MindWire runtime</strong>
         <p>TypeScript · Go · REST + SSE</p>
         <div className={styles.capabilities}>
           <span>Conversations</span>

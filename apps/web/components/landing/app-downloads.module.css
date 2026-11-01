@@ -15,7 +15,7 @@
 .intro {
   position: relative;
   isolation: isolate;
-  padding: 36px;
+  padding: 36px var(--site-inset);
 }
 
 .intro h2 {
@@ -81,7 +81,7 @@
 
 .platform {
   min-width: 0;
-  padding: 36px;
+  padding: 36px var(--site-inset);
   border-radius: 24px;
   background: var(--mw-surface);
 }
@@ -144,7 +144,7 @@
   align-items: center;
   gap: 48px;
   margin-top: 24px;
-  padding: 36px;
+  padding: 36px var(--site-inset);
   border-radius: 24px;
   background: var(--mw-inverse);
   color: var(--mw-inverse-ink);
@@ -207,7 +207,7 @@
   .intro,
   .platform,
   .runtime {
-    padding: 28px;
+    padding: 28px var(--site-inset);
   }
   .runtime {
     gap: 32px;
@@ -220,7 +220,7 @@
     gap: 40px;
   }
   .intro {
-    padding: 30px 24px;
+    padding: 30px var(--site-inset);
   }
   .art {
     width: 65%;
@@ -234,7 +234,7 @@
     margin-top: 40px;
   }
   .platform {
-    padding: 28px;
+    padding: 28px var(--site-inset);
   }
   .platform > p {
     min-height: 0;
@@ -245,7 +245,7 @@
   .runtime {
     grid-template-columns: 1fr;
     gap: 28px;
-    padding: 28px;
+    padding: 28px var(--site-inset);
   }
 }
 

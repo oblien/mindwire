@@ -11,7 +11,7 @@ import base from "@/components/landing/landing.module.css";
 import styles from "@/components/landing/product.module.css";
 
 export const metadata: Metadata = {
-  title: "Mindwire SDK — Add AI without rebuilding the agent layer",
+  title: "MindWire SDK — Add AI without rebuilding the agent layer",
   description:
     "White-label and customize leading agent harnesses with one open-source SDK and runtime. Your tools, knowledge, goals, and interface. TypeScript, Go, and REST.",
   alternates: { canonical: "/sdk/" },
@@ -91,7 +91,7 @@ export default function SDK() {
             <br />
             <em>Yours to shape.</em>
           </h2>
-          <p>The same runtime powers the Mindwire app and your integration.</p>
+          <p>The same runtime powers the MindWire app and your integration.</p>
         </div>
         <Questions
           items={[
@@ -120,7 +120,7 @@ export default function SDK() {
                 <>
                   Use an account or API key supported by the selected agent.
                   Authentication methods and capabilities vary by provider, and
-                  their usage terms still apply. Mindwire does not bundle model
+                  their usage terms still apply. MindWire does not bundle model
                   usage.{" "}
                   <Link href="/docs/guides/authentication">
                     Read the authentication guide.
@@ -131,7 +131,7 @@ export default function SDK() {
             {
               question: "Are all agents’ capabilities identical?",
               answer:
-                "No. Mindwire normalizes the shared protocol while keeping native agent details available. Check the runtime catalog for supported capabilities and design your UI around what the selected agent actually exposes.",
+                "No. MindWire normalizes the shared protocol while keeping native agent details available. Check the runtime catalog for supported capabilities and design your UI around what the selected agent actually exposes.",
             },
             {
               question: "How do I isolate work for different users?",

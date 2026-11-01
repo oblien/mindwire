@@ -30,10 +30,12 @@
   --mw-mono-filter: none;
   --landing-width: 1560px;
   --site-header-height: 110px;
-  --site-frame: 1320px;
-  --site-content: 1212px;
+  /* Heroes, section surfaces and the footer share the same outer edges. */
+  --site-frame: var(--landing-width);
+  --site-content: var(--site-frame);
   --site-gutter: 22px;
-  --site-inset: 54px;
+  --site-inset: clamp(30px, 4.5vw, 72px);
+  --site-radius: 28px;
   --site-section-space: 108px;
   --site-display: clamp(58px, 6.1vw, 88px);
   --site-heading: clamp(38px, 4vw, 58px);
@@ -91,16 +93,16 @@
 .wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 12px;
   font:
     600 33px/1 "Mindwire Host",
     sans-serif;
-  letter-spacing: -0.055em;
+  letter-spacing: -0.05em;
   white-space: nowrap;
 }
 .wordmark > :is(svg, [data-site-icon]) {
-  width: 29px;
-  height: 29px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
 }
 .desktopNav {
@@ -215,6 +217,7 @@
   .theme {
     --site-gutter: 10px;
     --site-inset: 24px;
+    --site-radius: 24px;
     --site-header-height: 76px;
     --site-section-space: 64px;
     --site-display: clamp(42px, 11vw, 60px);

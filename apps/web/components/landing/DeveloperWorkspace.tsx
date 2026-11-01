@@ -102,7 +102,7 @@ export default function DeveloperWorkspace() {
           <div className={styles.buildChatTitle}>
             <AgentLogo agent={agent} size={28} />
             <span>
-              Mindwire<small>Your workspace</small>
+              MindWire<small>Your workspace</small>
             </span>
             <span className={styles.readyDot} />
           </div>

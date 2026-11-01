@@ -1,11 +1,11 @@
 .story {
-  max-width: 1240px;
-  margin: auto;
+  --studio-gap: clamp(32px, 4.5vw, 72px);
+  width: 100%;
 }
 .foundations {
   display: grid;
-  grid-template-columns: 0.8fr 1.5fr;
-  gap: 75px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--studio-gap);
   border-top: 1px solid #d9dbd0;
   padding-top: 30px;
   margin-top: 40px;
@@ -43,10 +43,10 @@
 }
 @media (max-width: 1000px) {
   .foundations {
-    gap: 40px;
+    gap: var(--studio-gap);
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 800px) {
   .foundations {
     grid-template-columns: 1fr;
     gap: 25px;

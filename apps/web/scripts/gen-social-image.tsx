@@ -18,7 +18,7 @@ const pages: {
     route: "",
     title: heroHeadline.join("\n"),
     description: heroDescription.join("\n"),
-    label: "Mindwire",
+    label: "MindWire",
     art: "product",
     hero: true,
   },
@@ -35,7 +35,7 @@ const pages: {
     title: "Your work.\nAlways with you.",
     description:
       "A personal computer for your projects. Online, wherever you are.",
-    label: "Mindwire Cloud",
+    label: "MindWire Cloud",
     art: "cloud",
   },
   {
@@ -43,7 +43,7 @@ const pages: {
     title: "Your work.\nWith you.",
     description:
       "Agents, files, and projects in one workspace. Pick up where you left off.",
-    label: "Mindwire App",
+    label: "MindWire App",
     art: "devices",
   },
   {
@@ -57,7 +57,7 @@ const pages: {
   {
     route: "get-started",
     title: "Make room for\nyour next idea.",
-    description: "Set up Mindwire, connect your agent, and get to work.",
+    description: "Set up MindWire, connect your agent, and get to work.",
     label: "Get started",
     art: "devices",
   },
@@ -80,7 +80,7 @@ const pages: {
   {
     route: "changelog",
     title: "Always\nmoving forward.",
-    description: "New releases, improvements, and updates from Mindwire.",
+    description: "New releases, improvements, and updates from MindWire.",
     label: "Changelog",
     art: "context",
   },
@@ -142,7 +142,7 @@ async function main() {
     );
     await writeFile(
       new URL("opengraph-image.alt.txt", directory),
-      `Mindwire — ${page.title.replace(/\n/g, " ")} ${page.description.replace(/\n/g, " ")}\n`,
+      `MindWire — ${page.title.replace(/\n/g, " ")} ${page.description.replace(/\n/g, " ")}\n`,
     );
     console.log(`Generated /${page.route} social preview`);
   }

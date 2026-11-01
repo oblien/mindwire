@@ -58,7 +58,6 @@
 @media (max-width: 1100px) {
   .sectionHeading {
     gap: 32px;
-    padding-inline: 8px;
     grid-template-columns: 1fr 1fr;
   }
 }

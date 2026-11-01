@@ -6,13 +6,13 @@ import styles from "./connected-sections.module.css";
 const costs = [
   {
     id: "runtime",
-    label: "Mindwire",
+    label: "MindWire",
     title: "The app & runtime. Yours to use.",
     detail:
-      "Use the Mindwire app with a computer you own. The open-source runtime has no Mindwire usage fee.",
+      "Use the MindWire app with a computer you own. The open-source runtime has no MindWire usage fee.",
     icon: "api-icon.svg",
     link: "/app",
-    action: "Get Mindwire",
+    action: "Get MindWire",
   },
   {
     id: "computer",

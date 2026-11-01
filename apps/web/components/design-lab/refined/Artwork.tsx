@@ -276,24 +276,6 @@ export function InterfaceArtwork() {
   );
 }
 
-export function MindwireMark({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 120 95"
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M10 82V36C10 4 53 4 53 36V82M53 36C53 4 96 4 96 36V82H113"
-        stroke="currentColor"
-        strokeWidth="17"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 export function OrbitArtwork() {
   return (
     <svg viewBox="0 0 220 220" fill="none" aria-hidden="true">

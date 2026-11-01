@@ -7,15 +7,15 @@ import styles from "./home-sections.module.css";
 export default function HomeSections() {
   return (
     <>
-      <nav className={styles.products} aria-label="More from Mindwire">
+      <nav className={styles.products} aria-label="More from MindWire">
         <Link
           href="/app"
           className={styles.product}
-          aria-label="Explore the Mindwire app"
+          aria-label="Explore the MindWire app"
         >
           <div className={styles.productCopy}>
             <h3>
-              Take Mindwire
+              Take MindWire
               <br />
               for a spin.
             </h3>
@@ -34,7 +34,7 @@ export default function HomeSections() {
         <Link
           href="/cloud"
           className={`${styles.product} ${styles.cloud}`}
-          aria-label="Explore Mindwire Cloud"
+          aria-label="Explore MindWire Cloud"
         >
           <div className={styles.productCopy}>
             <h3>
@@ -47,7 +47,7 @@ export default function HomeSections() {
               step away.
             </p>
             <span className={styles.productAction}>
-              Explore Mindwire Cloud <ArrowUpRight size={18} />
+              Explore MindWire Cloud <ArrowUpRight size={18} />
             </span>
           </div>
           <div className={styles.productArt}>
@@ -67,9 +67,9 @@ export default function HomeSections() {
         <Questions
           items={[
             {
-              question: "What does Mindwire add to my product?",
+              question: "What does MindWire add to my product?",
               answer:
-                "Mindwire connects established agent harnesses to your product through one SDK and runtime. You supply the interface, context, and tools. The agent brings its planning and execution.",
+                "MindWire connects established agent harnesses to your product through one SDK and runtime. You supply the interface, context, and tools. The agent brings its planning and execution.",
             },
             {
               question: "Can I keep my own interface and brand?",
@@ -95,7 +95,7 @@ export default function HomeSections() {
               ),
             },
             {
-              question: "Do I need Mindwire Cloud?",
+              question: "Do I need MindWire Cloud?",
               answer: (
                 <>
                   Cloud is optional. Use your own infrastructure for your

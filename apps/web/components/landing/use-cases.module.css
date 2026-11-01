@@ -8,6 +8,7 @@
   scroll-margin-top: 110px;
 }
 .libraryHeading {
+  padding-inline: var(--site-inset);
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   gap: 64px;
@@ -36,6 +37,7 @@
   text-wrap: pretty;
 }
 .filters {
+  padding-inline: var(--site-inset);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -131,6 +133,7 @@
   outline-offset: 5px;
 }
 .sampleNote {
+  padding-inline: var(--site-inset);
   margin: 24px 0 0;
   color: var(--mw-muted);
   font-size: 14px;
@@ -141,6 +144,7 @@
   grid-template-columns: 1.1fr 1fr;
   gap: 64px;
   padding-block: 12px;
+  padding-inline: var(--site-inset);
 }
 .closing a {
   display: inline-flex;

@@ -164,7 +164,6 @@
   .intro {
     grid-template-columns: 1fr;
     gap: 24px;
-    padding: 0 8px;
   }
   .intro p {
     max-width: 600px;

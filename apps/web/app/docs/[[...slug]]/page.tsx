@@ -58,7 +58,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const { slug } = await props.params;
   const page = source.getPage(slug);
   if (!page) notFound();
-  const title = `${page.data.title} — Mindwire Docs`;
+  const title = `${page.data.title} — MindWire Docs`;
   const image = {
     url: `/api/og/docs/${slug?.length ? slug.map(encodeURIComponent).join("/") + "/" : ""}?v=paper-1`,
     width: 1200,
@@ -72,7 +72,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     openGraph: {
       title,
       description: page.data.description,
-      siteName: "Mindwire",
+      siteName: "MindWire",
       type: "article",
       url: page.url,
       images: [image],

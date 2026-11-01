@@ -176,7 +176,9 @@
     background 0.2s,
     transform 0.2s;
 }
-.primary > :is(svg, [data-site-icon]) {
+.primary > .primaryIcon {
+  display: grid;
+  place-items: center;
   box-sizing: content-box;
   padding: 10px;
   border-radius: 5px;
@@ -187,7 +189,7 @@
   background: #41413b;
   transform: translateY(-2px);
 }
-.primary:hover > :is(svg, [data-site-icon]) {
+.primary:hover > .primaryIcon {
   background: #606059;
 }
 .textLink {
@@ -204,44 +206,14 @@
   transform: translate(2px, -2px);
 }
 .heroBottom {
-  --join-radius: min(var(--hero-radius), calc(var(--cutout-height) / 2));
-  position: absolute;
+  composes: notch from "../../site/surface-notch.module.css";
+  --notch-radius: min(var(--hero-radius), calc(var(--cutout-height) / 2));
+  --notch-width: 116px;
+  --notch-height: var(--cutout-height);
+  --notch-color: var(--surround);
   bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 116px;
-  height: var(--cutout-height);
-  border-radius: var(--join-radius) var(--join-radius) 0 0;
-  background: var(--surround);
-  display: grid;
-  place-items: center;
   z-index: 3;
   padding-top: 7px;
-}
-.heroBottom::before,
-.heroBottom::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  width: var(--join-radius);
-  height: var(--join-radius);
-  pointer-events: none;
-}
-.heroBottom::before {
-  right: 100%;
-  background: radial-gradient(
-    circle at top left,
-    transparent calc(var(--join-radius) - 0.5px),
-    var(--surround) var(--join-radius)
-  );
-}
-.heroBottom::after {
-  left: 100%;
-  background: radial-gradient(
-    circle at top right,
-    transparent calc(var(--join-radius) - 0.5px),
-    var(--surround) var(--join-radius)
-  );
 }
 .heroBottom > a {
   width: clamp(30px, 5.6dvh, 43px);
@@ -375,24 +347,22 @@
 }
 .showcase {
   background: var(--paper);
-  padding: 95px var(--gutter) 68px;
+  padding: 88px var(--site-inset) 64px;
   position: relative;
 }
 .systemJoint {
-  position: absolute;
-  top: -25px;
-  left: 50%;
-  transform: translateX(-50%);
-  height: 50px;
-  width: 86px;
-  border-radius: 16px;
-  background: var(--paper);
-  display: grid;
-  place-items: center;
+  composes: notch from "../../site/surface-notch.module.css";
+  --notch-width: 104px;
+  --notch-height: 44px;
+  --notch-radius: 22px;
+  --notch-color: var(--paper);
+  top: calc(-1 * var(--notch-height));
+  color: var(--ink);
+  padding-top: 3px;
 }
 .systemJoint > :is(svg, [data-site-icon]) {
-  width: 23px;
-  height: 23px;
+  width: 26px;
+  height: 26px;
 }
 .closing {
   max-width: var(--landing-width);
@@ -438,7 +408,7 @@
   color: #25291d;
   margin-top: 30px;
 }
-.closing .primary > :is(svg, [data-site-icon]) {
+.closing .primary > .primaryIcon {
   background: #dbdfc7;
 }
 .closing .primary:hover {
@@ -766,13 +736,13 @@
     padding-bottom: 37px;
   }
   .systemJoint {
-    width: 70px;
-    height: 43px;
-    top: -21px;
-    border-radius: 14px;
+    --notch-width: 88px;
+    --notch-height: 38px;
+    --notch-radius: 19px;
   }
   .systemJoint > :is(svg, [data-site-icon]) {
-    width: 21px;
+    width: 22px;
+    height: 22px;
   }
   .closing {
     min-height: 720px;
@@ -902,7 +872,7 @@
     min-height: clamp(44px, 6.2dvh, 52px);
   }
   .heroBottom {
-    width: 96px;
+    --notch-width: 96px;
   }
 }
 @media (max-height: 620px) and (max-width: 639px) {
@@ -915,7 +885,7 @@
     gap: 10px;
     padding-left: 14px;
   }
-  .hero .primary > :is(svg, [data-site-icon]) {
+  .hero .primary > .primaryIcon {
     padding: 7px;
   }
   .hero .textLink {
@@ -955,7 +925,7 @@
     min-height: 42px;
     padding-block: 5px;
   }
-  .hero .primary > :is(svg, [data-site-icon]) {
+  .hero .primary > .primaryIcon {
     padding: 7px;
   }
 }
@@ -985,7 +955,7 @@
     min-height: 38px;
     padding-block: 5px;
   }
-  .hero .primary > :is(svg, [data-site-icon]) {
+  .hero .primary > .primaryIcon {
     padding: 7px;
   }
 }

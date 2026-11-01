@@ -62,7 +62,7 @@ export default function ProductPossibilities() {
             So is the sign-in.
           </p>
           <p>
-            Mindwire discovers supported Codex and Claude accounts on the
+            MindWire discovers supported Codex and Claude accounts on the
             computer. Your desktop experience can use the connection they
             already have.
           </p>

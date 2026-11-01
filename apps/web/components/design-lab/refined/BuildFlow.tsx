@@ -189,7 +189,7 @@ export default function BuildFlow() {
           <div className={styles.introArt}>
             <BuildConnectorArt />
           </div>
-          <h2 id="connect-title">Build with Mindwire.</h2>
+          <h2 id="connect-title">Build with MindWire.</h2>
           <p>
             Bring capable agents into your product.
             <br /> Your tools, your context, your interface.

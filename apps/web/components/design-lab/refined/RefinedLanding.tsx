@@ -13,7 +13,8 @@ import IdeaDiagram from "./IdeaDiagram";
 import HeroArtwork from "./HeroArtwork";
 import type { HeroVariant } from "./hero-surfaces";
 import OwnershipStory from "./OwnershipStory";
-import { MindwireMark, OrbitArtwork } from "./Artwork";
+import { OrbitArtwork } from "./Artwork";
+import MindWireMark from "@/components/brand/MindWireMark";
 import styles from "./refined.module.css";
 
 function StartLink({
@@ -24,7 +25,9 @@ function StartLink({
   return (
     <Link href="/docs/guides/quickstart" className={styles.primary}>
       <span>{children}</span>
-      <ArrowUpRight size={19} />
+      <span className={styles.primaryIcon}>
+        <ArrowUpRight size={19} />
+      </span>
     </Link>
   );
 }
@@ -97,7 +100,7 @@ export default function RefinedLanding({
           <br className={styles.desktopBreak} /> worth working in.
         </h2>
         <p>
-          Mindwire connects capable agents to everything that makes your product
+          MindWire connects capable agents to everything that makes your product
           yours. The knowledge. The actions. The experience.
         </p>
         <svg
@@ -132,7 +135,7 @@ export default function RefinedLanding({
 
         <div className={styles.showcase} id="inside">
           <div className={styles.systemJoint} aria-hidden="true">
-            <MindwireMark />
+            <MindWireMark />
           </div>
           <OwnershipStory />
         </div>

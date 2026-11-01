@@ -1,6 +1,9 @@
 // Original artwork and motion geometry for the refined landing previews.
 // Run from the repository root: node apps/web/scripts/generate-refined-linework.mjs
 import { readFileSync, writeFileSync } from "node:fs";
+const brandMark = JSON.parse(
+  readFileSync(new URL("../lib/brand-mark.json", import.meta.url), "utf8"),
+);
 
 {
   // Original, editable vector studies. No grain, filters, copied paths, or bitmaps.
@@ -321,7 +324,7 @@ import { readFileSync, writeFileSync } from "node:fs";
     path("M126 164H195M126 177H180M126 190H191", 'opacity=".6"'),
     path("M111 236H211M111 249H194M111 263H181", 'opacity=".5"'),
     '<rect x="231" y="146" width="74" height="128" rx="13" fill="#e4d9ea"/>',
-    '<g transform="translate(253 157) scale(.23)"><path d="M10 82V36C10 4 53 4 53 36V82M53 36C53 4 96 4 96 36V82H113" stroke-width="17"/></g>',
+    `<svg x="254" y="158" width="25" height="25" viewBox="${brandMark.viewBox}"><path d="${brandMark.path}" fill="currentColor" stroke="none"/></svg>`,
     path("M245 198H290M245 208H280"),
     '<rect x="244" y="225" width="49" height="32" rx="8" fill="#faf9f5" stroke-dasharray="3 4"/>',
     path("M254 237H283M254 246H275", 'opacity=".55"'),

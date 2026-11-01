@@ -23,7 +23,7 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const item = resolveCase((await params).slug);
   return {
-    title: `${item.title} — Mindwire examples`,
+    title: `${item.title} — MindWire examples`,
     description: item.summary,
     alternates: { canonical: `/use-cases/${item.slug}/` },
   };

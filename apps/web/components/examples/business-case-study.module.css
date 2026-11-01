@@ -22,6 +22,12 @@
   color: var(--mw-muted);
   margin-bottom: 24px;
 }
+.integrationIntro,
+.implementation > div:first-child,
+.related > h2,
+.note {
+  padding-inline: var(--site-inset);
+}
 .integration h2,
 .implementation h2,
 .outcome h2,
@@ -115,7 +121,7 @@
   background: var(--mw-stage);
   color: var(--mw-stage-ink);
   border-radius: 32px;
-  padding: 48px;
+  padding: 48px var(--site-inset);
 }
 .outcome > span {
   color: var(--mw-stage-muted);

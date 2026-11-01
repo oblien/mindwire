@@ -478,7 +478,7 @@
 
 .capabilities {
   max-width: var(--site-content);
-  padding: var(--site-section-space) 0;
+  padding: var(--site-section-space) var(--site-inset);
   margin: auto;
   width: calc(100% - 2 * var(--site-gutter));
 }

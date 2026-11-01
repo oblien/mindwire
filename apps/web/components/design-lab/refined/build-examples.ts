@@ -55,7 +55,7 @@ export const buildExamples = [
     mark: "{ }",
     setup: "Start the runtime.",
     summary:
-      "Run this from a Mindwire source checkout, then use your own stack.",
+      "Run this from a MindWire source checkout, then use your own stack.",
     command: "go -C packages/daemon run ./cmd/daemon",
     filename: "request.sh",
     caption: "Send a request. Get a stream.",

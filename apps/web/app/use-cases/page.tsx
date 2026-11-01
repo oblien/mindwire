@@ -8,7 +8,7 @@ import base from "@/components/landing/landing.module.css";
 import styles from "@/components/landing/use-cases.module.css";
 
 export const metadata: Metadata = {
-  title: "Mindwire examples — Your product, powered by agents",
+  title: "MindWire examples — Your product, powered by agents",
   description:
     "Explore business applications with agents built in. Discover existing desktop accounts, connect a cloud workspace, and let users create and act inside your product.",
   alternates: { canonical: "/use-cases/" },
@@ -32,7 +32,7 @@ export default function UseCasesPage() {
           Explore the products <ArrowDown size={16} />
         </Link>
         <Link href="/sdk" className={base.secondaryButton}>
-          Build with Mindwire <ArrowUpRight size={16} />
+          Build with MindWire <ArrowUpRight size={16} />
         </Link>
       </PageHero>
       <ConnectionPatterns />

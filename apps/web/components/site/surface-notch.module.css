@@ -1,0 +1,36 @@
+.notch {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  width: var(--notch-width);
+  height: var(--notch-height);
+  border-radius: var(--notch-radius) var(--notch-radius) 0 0;
+  background: var(--notch-color);
+}
+.notch::before,
+.notch::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: var(--notch-radius);
+  height: var(--notch-radius);
+  pointer-events: none;
+}
+.notch::before {
+  right: 100%;
+  background: radial-gradient(
+    circle at top left,
+    transparent calc(var(--notch-radius) - 0.5px),
+    var(--notch-color) var(--notch-radius)
+  );
+}
+.notch::after {
+  left: 100%;
+  background: radial-gradient(
+    circle at top right,
+    transparent calc(var(--notch-radius) - 0.5px),
+    var(--notch-color) var(--notch-radius)
+  );
+}

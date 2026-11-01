@@ -30,13 +30,13 @@ export default function FinalInvite({
       <p>
         {app
           ? "Bring your files, connect an agent, and give it a task."
-          : "Build your first agent feature with the Mindwire SDK."}
+          : "Build your first agent feature with the MindWire SDK."}
       </p>
       <Link
         href={app ? "/app#download" : "/docs/guides/quickstart"}
         className={base.primaryButton}
       >
-        {app ? "Get the Mindwire app" : "Start building"}{" "}
+        {app ? "Get the MindWire app" : "Start building"}{" "}
         <ArrowUpRight size={18} />
       </Link>
       <span>

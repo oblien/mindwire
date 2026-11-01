@@ -10,12 +10,12 @@ import HideOnDocs from "@/components/HideOnDocs";
 import SiteTheme from "@/components/site/SiteTheme";
 
 export const metadata: Metadata = {
-  title: "Mindwire — The best agents. Inside your product.",
+  title: "MindWire — The best agents. Inside your product.",
   description:
-    "Bring the best agents into your product with Mindwire’s open-source SDK and runtime. Your tools, your knowledge, your interface.",
+    "Bring the best agents into your product with MindWire’s open-source SDK and runtime. Your tools, your knowledge, your interface.",
   metadataBase: new URL("https://mindwire.sh"),
   openGraph: {
-    siteName: "Mindwire",
+    siteName: "MindWire",
     type: "website",
     locale: "en_US",
   },

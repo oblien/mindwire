@@ -6,7 +6,7 @@ export const heroHeadline = [
 ] as const;
 export const heroDescription = [
   "Give them your tools, your knowledge, and your interface.",
-  "Mindwire brings it together.",
+  "MindWire brings it together.",
 ] as const;
 
 export const heroAgents = [

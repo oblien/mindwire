@@ -154,6 +154,7 @@
   border-radius: 12px;
 }
 .capabilities {
+  padding-inline: var(--site-inset);
   width: calc(100% - 2 * var(--site-gutter));
   max-width: var(--site-content);
   margin: 0 auto var(--site-section-space);
@@ -238,17 +239,18 @@
   color: var(--mw-muted);
 }
 .journal {
-  max-width: 1020px;
+  width: calc(100% - 2 * var(--site-gutter));
+  max-width: var(--site-frame);
   margin: 0 auto 100px;
-  padding: 0 28px;
 }
 .release {
   display: grid;
-  grid-template-columns: 170px minmax(0, 1fr);
-  gap: 36px;
+  grid-template-columns: minmax(170px, 0.4fr) minmax(0, 1fr);
+  gap: var(--site-inset);
   margin-top: 35px;
 }
 .releaseMeta {
+  padding-left: var(--site-inset);
   padding-top: 28px;
   font-size: 15px;
   font-family: var(--font-mono);
@@ -261,8 +263,11 @@
 }
 .releaseBody {
   background: var(--mw-surface);
-  border-radius: 20px;
-  padding: 40px;
+  border-radius: var(--site-radius);
+  padding: var(--site-inset);
+}
+.releaseBody > * {
+  max-width: 700px;
 }
 .releaseBody h2 {
   font-size: var(--site-card-heading);
@@ -376,9 +381,6 @@
   }
   .releaseMeta time {
     margin: 0;
-  }
-  .journal {
-    padding-inline: 20px;
   }
   .releaseBody {
     padding: 24px;

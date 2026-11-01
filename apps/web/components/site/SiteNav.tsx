@@ -6,7 +6,7 @@ import Link from "next/link";
 import { ArrowUpRight, Menu, X } from "@/components/site/InterfaceIcon";
 import { githubUrl } from "@/lib/product";
 import { consoleUrl } from "@/lib/console-url";
-import { MindwireMark } from "@/components/design-lab/refined/Artwork";
+import MindWireMark from "@/components/brand/MindWireMark";
 import styles from "./site.module.css";
 
 const links = [
@@ -58,11 +58,11 @@ export default function SiteNav({ embedded = false }: { embedded?: boolean }) {
       <Link
         href="/"
         className={styles.wordmark}
-        aria-label="Mindwire home"
+        aria-label="MindWire home"
         onClick={() => setOpen(false)}
       >
-        <MindwireMark />
-        <span>mindwire</span>
+        <MindWireMark />
+        <span>MindWire</span>
       </Link>
       <nav className={styles.desktopNav} aria-label="Main navigation">
         {links.map((link) => (

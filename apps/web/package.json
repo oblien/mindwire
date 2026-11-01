@@ -9,7 +9,8 @@
     "build": "bun run gen:reference && fumadocs-mdx && next build",
     "serve": "next start -p 4327",
     "check": "tsc --noEmit",
-    "gen:social": "bun scripts/gen-social-image.tsx"
+    "gen:social": "bun scripts/gen-social-image.tsx",
+    "gen:brand": "bun scripts/generate-brand-assets.tsx"
   },
   "dependencies": {
     "fumadocs-core": "^16.17.3",

@@ -4,6 +4,7 @@
   margin: var(--site-section-space) auto;
 }
 .heading {
+  padding-inline: var(--site-inset);
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   gap: 64px;
@@ -24,6 +25,7 @@
   text-wrap: pretty;
 }
 .switcher {
+  padding-inline: var(--site-inset);
   display: flex;
   gap: 8px;
   margin-bottom: 28px;

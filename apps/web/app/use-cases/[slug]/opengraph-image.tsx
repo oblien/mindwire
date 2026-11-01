@@ -3,7 +3,7 @@ import { getUseCase } from "@/lib/use-cases";
 import { renderSocialImage, socialImageSize } from "@/lib/social-image";
 
 export const alt =
-  "Mindwire product examples — your product, powered by agents";
+  "MindWire product examples — your product, powered by agents";
 export const size = socialImageSize;
 export const contentType = "image/png";
 

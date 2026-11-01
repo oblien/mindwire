@@ -1,1 +1,1 @@
-Mindwire — The agent layer. Already built. Bring capable agents into your product with one SDK and runtime.
+MindWire — The agent layer. Already built. Bring capable agents into your product with one SDK and runtime.

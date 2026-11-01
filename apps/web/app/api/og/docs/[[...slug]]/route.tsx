@@ -22,7 +22,7 @@ export async function GET(
     title: page.data.title,
     description:
       page.data.description ??
-      "Build your product with the Mindwire SDK and runtime.",
+      "Build your product with the MindWire SDK and runtime.",
     label: section ? `Documentation / ${section}` : "Documentation",
   });
 }

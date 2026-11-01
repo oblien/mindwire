@@ -8,9 +8,9 @@ import base from "@/components/landing/landing.module.css";
 import styles from "@/components/landing/product.module.css";
 
 export const metadata: Metadata = {
-  title: "App setup — Mindwire",
+  title: "App setup — MindWire",
   description:
-    "Set up the Mindwire app: connect a computer, sign in to a supported agent account, and start a task.",
+    "Set up the MindWire app: connect a computer, sign in to a supported agent account, and start a task.",
   alternates: { canonical: "/get-started/" },
 };
 
@@ -54,16 +54,16 @@ export default function GetStarted() {
               runs independently of yours.
             </p>
             <Link href="/cloud#cloud-plans" className={base.secondaryButton}>
-              Explore Mindwire Cloud <ArrowUpRight size={16} />
+              Explore MindWire Cloud <ArrowUpRight size={16} />
             </Link>
           </aside>
           <ol className={styles.setupSteps}>
             <li id="computer">
-              <h3>Open Mindwire on your computer.</h3>
+              <h3>Open MindWire on your computer.</h3>
               {macApp ? (
                 <p>
                   <a href={macApp.href} className={styles.textLink}>
-                    Download Mindwire for Mac.
+                    Download MindWire for Mac.
                   </a>{" "}
                   Open the app and choose <strong>Connect your phone</strong>.
                 </p>
@@ -87,7 +87,7 @@ export default function GetStarted() {
             <li id="iphone">
               <h3>Connect this phone.</h3>
               <p>
-                In the Mindwire mobile app, choose <strong>My computer</strong>,
+                In the MindWire mobile app, choose <strong>My computer</strong>,
                 then <strong>Scan QR code</strong>. Scan the code on your
                 computer and approve the connection there.
               </p>
@@ -98,9 +98,9 @@ export default function GetStarted() {
             <li id="account">
               <h3 id="agent">Connect ChatGPT or Claude.</h3>
               <p>
-                Choose your account in Mindwire and follow the sign-in
+                Choose your account in MindWire and follow the sign-in
                 instructions. If you’re already signed in on the computer,
-                Mindwire checks that connection first. Your subscription’s
+                MindWire checks that connection first. Your subscription’s
                 access and usage limits apply.
               </p>
               <Link
@@ -144,9 +144,9 @@ export default function GetStarted() {
               </Link>
             </div>
             <div>
-              <h3>Mindwire Cloud</h3>
+              <h3>MindWire Cloud</h3>
               <p>
-                Sign in to your Mindwire account, choose a monthly computer,
+                Sign in to your MindWire account, choose a monthly computer,
                 then connect your agent and start a project.
               </p>
               <a href={cloudDashboardUrl} className={styles.textLink}>

@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import MindWireMark from "@/components/brand/MindWireMark";
 
 export const socialImageSize = { width: 1200, height: 630 };
 
@@ -25,14 +26,7 @@ const defaultArtwork = readFile(
 function Wordmark() {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <svg width="37" height="32" viewBox="0 0 120 95" fill="none">
-        <path
-          d="M10 82V36C10 4 53 4 53 36V82M53 36C53 4 96 4 96 36V82H113"
-          stroke="#252622"
-          strokeWidth="17"
-          strokeLinejoin="round"
-        />
-      </svg>
+      <MindWireMark width={32} height={32} color="#252622" />
       <span
         style={{
           fontFamily: "Host",
@@ -41,7 +35,7 @@ function Wordmark() {
           letterSpacing: -2,
         }}
       >
-        mindwire
+        MindWire
       </span>
     </div>
   );

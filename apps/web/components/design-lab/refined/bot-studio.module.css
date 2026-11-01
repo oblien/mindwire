@@ -3,28 +3,29 @@
 }
 .heading {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 65px;
-  align-items: end;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--studio-gap);
+  align-items: center;
   margin-bottom: 42px;
 }
 .studioBody {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 65px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--studio-gap);
+  align-items: stretch;
 }
 .setup {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .heading h2 {
   font: 450 clamp(47px, 4.8vw, 65px)/1.04 var(--display);
   letter-spacing: -0.055em;
 }
 .heading > .description {
-  max-width: 440px;
-  font-size: 16px;
-  line-height: 1.75;
+  font-size: 17px;
+  line-height: 1.65;
   color: #535a48;
   margin-top: 0;
   padding-bottom: 4px;
@@ -157,7 +158,9 @@
   display: inline-flex;
   align-items: center;
   gap: 14px;
-  margin-top: 26px;
+  margin-top: auto;
+  padding-top: 28px;
+  width: fit-content;
   font-size: 14px;
   color: #3d4734;
 }
@@ -167,6 +170,8 @@
 
 .preview {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
   background: #fcfbf8;
   border-radius: 25px;
   box-shadow:
@@ -176,7 +181,7 @@
 }
 .brand {
   background: var(--bot-tint);
-  padding: 22px 30px;
+  padding: 24px 34px;
   transition: background 0.3s;
   position: relative;
 }
@@ -188,7 +193,7 @@
   margin-top: 0;
 }
 .brandName > span {
-  font: 500 clamp(42px, 4.9vw, 66px)/1.1 var(--display);
+  font: 500 clamp(38px, 4vw, 56px)/1.1 var(--display);
   letter-spacing: -0.06em;
   color: #2d3629;
   overflow-wrap: anywhere;
@@ -208,11 +213,16 @@
   place-items: center;
   opacity: 0.55;
   color: var(--bot-accent);
-  width: 92px;
-  height: 92px;
+  width: 64px;
+  height: 64px;
   flex: 0 0 auto;
 }
+.brandSymbol > [data-site-icon] {
+  width: 100%;
+  height: 100%;
+}
 .workspace {
+  flex: 1;
   padding: 26px 34px 22px;
 }
 .prompt {
@@ -398,7 +408,7 @@
 @media (max-width: 1100px) {
   .heading,
   .studioBody {
-    gap: 40px;
+    gap: var(--studio-gap);
   }
   .heading h2 {
     font-size: 52px;
@@ -416,12 +426,12 @@
     padding-inline: 26px;
   }
   .brandSymbol {
-    width: 70px;
-    height: 70px;
+    width: 58px;
+    height: 58px;
   }
   .brandSymbol > [data-site-icon] {
-    width: 70px;
-    height: 70px;
+    width: 100%;
+    height: 100%;
   }
 
   .answer > h3 {
@@ -429,10 +439,6 @@
   }
 }
 @media (max-width: 800px) {
-  .section {
-    max-width: 580px;
-    margin: auto;
-  }
   .heading,
   .studioBody {
     grid-template-columns: 1fr;
@@ -454,7 +460,7 @@
     min-height: 90px;
   }
   .brandName > span {
-    font-size: 62px;
+    font-size: clamp(38px, 7.5vw, 56px);
   }
   .answer > h3 {
     font-size: 39px;
@@ -492,7 +498,7 @@
     padding: 20px 23px;
   }
   .brandName > span {
-    font-size: 51px;
+    font-size: clamp(34px, 10.5vw, 46px);
   }
   .brandSymbol,
   .brandSymbol > [data-site-icon] {

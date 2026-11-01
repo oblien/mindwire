@@ -75,9 +75,9 @@
   justify-content: center;
   gap: 0.13em;
   font:
-    550 clamp(68px, 16.7vw, 257px)/1 "Mindwire Host",
+    550 clamp(60px, 15.6vw, 239px)/1 "Mindwire Host",
     sans-serif;
-  letter-spacing: -0.075em;
+  letter-spacing: -0.06em;
   padding: 56px 10px 36px 0;
   color: #e1e5d4;
   white-space: nowrap;
@@ -193,7 +193,7 @@
     gap: 5px;
   }
   .signature {
-    font-size: 16vw;
+    font-size: 14.6vw;
     padding: 38px 4px 26px 0;
   }
   .footerBottom {

@@ -8,7 +8,7 @@ import AppDownloads from "@/components/landing/AppDownloads";
 import styles from "@/components/landing/app-framework.module.css";
 
 export const metadata: Metadata = {
-  title: "Mindwire App — Your work, with you everywhere",
+  title: "MindWire App — Your work, with you everywhere",
   description:
     "Your agents, files, and projects in one connected workspace. Create with General mode, work with code in Developer mode, and pick up from Mac, iPhone, or iPad.",
   alternates: { canonical: "/app/" },
@@ -54,7 +54,7 @@ export default function AppPage() {
               task from your computer or your phone.
             </p>
             <Link href="#download">
-              Get Mindwire <ArrowUpRight size={16} />
+              Get MindWire <ArrowUpRight size={16} />
             </Link>
           </div>
         </div>

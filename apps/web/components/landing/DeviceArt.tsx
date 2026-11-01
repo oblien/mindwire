@@ -16,7 +16,7 @@ export function PhoneArt({ cloud = false }: { cloud?: boolean }) {
     <div
       className={styles.phoneArt}
       role="img"
-      aria-label={`Mindwire phone example, connected to ${cloud ? "a Cloud Computer" : "your Mac"}`}
+      aria-label={`MindWire phone example, connected to ${cloud ? "a Cloud Computer" : "your Mac"}`}
     >
       <div className={styles.phoneStatus}>
         <span>9:41</span>
@@ -26,7 +26,7 @@ export function PhoneArt({ cloud = false }: { cloud?: boolean }) {
       <div className={styles.phoneTop}>
         <ChevronLeft size={17} />
         <div>
-          Mindwire<small>{cloud ? "Cloud Computer" : "My Mac"}</small>
+          MindWire<small>{cloud ? "Cloud Computer" : "My Mac"}</small>
         </div>
         <MoreHorizontal size={18} />
       </div>
@@ -70,11 +70,11 @@ export function MacArt() {
     <div
       className={styles.macArt}
       role="img"
-      aria-label="Mindwire desktop example with projects and a completed reading tracker"
+      aria-label="MindWire desktop example with projects and a completed reading tracker"
     >
       <div className={styles.macScreen}>
         <div className={styles.macTitle}>
-          <span>Mindwire</span>
+          <span>MindWire</span>
           <span>My workspace</span>
           <MoreHorizontal size={16} />
         </div>

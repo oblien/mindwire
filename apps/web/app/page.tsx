@@ -3,9 +3,9 @@ import RefinedLanding from "@/components/design-lab/refined/RefinedLanding";
 import { heroHeadline } from "@/lib/hero";
 
 export const metadata: Metadata = {
-  title: `Mindwire — ${heroHeadline.join(" ")}`,
+  title: `MindWire — ${heroHeadline.join(" ")}`,
   description:
-    "Add agents that reason, create, and take action inside your product. White-label leading agent harnesses with Mindwire, without rebuilding the agent layer.",
+    "Add agents that reason, create, and take action inside your product. White-label leading agent harnesses with MindWire, without rebuilding the agent layer.",
   alternates: { canonical: "/" },
 };
 

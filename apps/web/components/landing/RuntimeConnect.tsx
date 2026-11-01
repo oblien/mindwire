@@ -37,7 +37,7 @@ export default function RuntimeConnect({ className = "" }: { className?: string 
       <div
         className={styles.connectionTabs}
         role="tablist"
-        aria-label="Connect to Mindwire"
+        aria-label="Connect to MindWire"
         onKeyDown={navigateTabs}
       >
         {languages.map((item, index) => (
@@ -85,7 +85,7 @@ export default function RuntimeConnect({ className = "" }: { className?: string 
         </div>
         <div className={styles.connectionNote}>
           <Check size={15} />
-          Run locally, on your server, or in Mindwire Cloud.
+          Run locally, on your server, or in MindWire Cloud.
         </div>
       </div>
     </div>

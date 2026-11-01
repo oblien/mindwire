@@ -2,7 +2,8 @@ import Link from "next/link";
 import { ArrowUpRight } from "@/components/site/InterfaceIcon";
 import { githubUrl } from "@/lib/product";
 import { consoleUrl } from "@/lib/console-url";
-import { MindwireMark } from "@/components/design-lab/refined/Artwork";
+import MindWireMark from "@/components/brand/MindWireMark";
+import OblienLogo from "@/components/OblienLogo";
 import styles from "./site-footer.module.css";
 
 const groups = [
@@ -18,7 +19,7 @@ const groups = [
   {
     title: "Work",
     links: [
-      ["Mindwire App", "/app"],
+      ["MindWire App", "/app"],
       ["Cloud & pricing", "/cloud"],
       ["App setup", "/get-started"],
       ["Developer mode", "/developers"],
@@ -72,17 +73,20 @@ export default function SiteFooter({
           ))}
         </nav>
       </div>
-      <Link href="/" className={styles.signature} aria-label="Mindwire home">
-        <MindwireMark />
-        <span>mindwire</span>
+      <Link href="/" className={styles.signature} aria-label="MindWire home">
+        <MindWireMark />
+        <span>MindWire</span>
       </Link>
       <div className={styles.footerBottom}>
-        <span>© {new Date().getFullYear()} Mindwire</span>
+        <span>© {new Date().getFullYear()} MindWire</span>
         <a href={githubUrl + "/blob/main/LICENSING.md"}>
           Open-source licenses <ArrowUpRight size={12} />
         </a>
         <a href="https://oblien.com/">
-          Made by Oblien <ArrowUpRight size={12} />
+          <span>Made by</span>
+          <OblienLogo size={18} />
+          <span>Oblien</span>
+          <ArrowUpRight size={12} />
         </a>
       </div>
     </footer>

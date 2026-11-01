@@ -26,7 +26,7 @@ import product from "@/components/landing/product.module.css";
 import styles from "@/components/landing/developers.module.css";
 
 export const metadata: Metadata = {
-  title: "Mindwire App — Developer mode",
+  title: "MindWire App — Developer mode",
   description:
     "Build with Codex, Claude Code and OpenCode in a workspace made for developers. Explore projects, review Git changes, use terminals and keep working from your Mac or iPhone.",
   alternates: { canonical: "/developers/" },
@@ -287,11 +287,11 @@ export default function Developers() {
         </div>
         <h2 id="sdk-bridge-title">Put these agents inside it.</h2>
         <p>
-          Mindwire SDK brings the same runtime to your app, with streaming,
+          MindWire SDK brings the same runtime to your app, with streaming,
           tools and supported approvals.
         </p>
         <Link href="/sdk" className={base.secondaryButton}>
-          Meet Mindwire SDK
+          Meet MindWire SDK
           <ArrowUpRight size={16} />
         </Link>
       </section>
@@ -313,7 +313,7 @@ export default function Developers() {
             {
               question: "Is Developer mode a different app?",
               answer:
-                "No. General mode and Developer mode are two ways to use Mindwire. Developer mode puts projects, files, Git and terminals up front. Switch modes while keeping your conversations and saved context.",
+                "No. General mode and Developer mode are two ways to use MindWire. Developer mode puts projects, files, Git and terminals up front. Switch modes while keeping your conversations and saved context.",
             },
             {
               question: "Do I have to move my projects to the cloud?",
@@ -334,7 +334,7 @@ export default function Developers() {
             {
               question: "Can I bring my current agent account?",
               answer:
-                "Use an account or API key supported by your selected agent. Mindwire works through the agent’s own authentication flow on the connected computer. Available models and usage depend on your provider.",
+                "Use an account or API key supported by your selected agent. MindWire works through the agent’s own authentication flow on the connected computer. Available models and usage depend on your provider.",
             },
           ]}
         />
@@ -353,7 +353,7 @@ export default function Developers() {
         </h2>
         <div>
           <Link href="/app#download" className={base.primaryButton}>
-            Get Mindwire
+            Get MindWire
             <ArrowUpRight size={17} />
           </Link>
           <Link href="/get-started" className={product.textLink}>

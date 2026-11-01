@@ -6,8 +6,8 @@ import base from "@/components/landing/landing.module.css";
 import styles from "@/components/landing/resource-pages.module.css";
 
 export const metadata: Metadata = {
-  title: "Changelog — Mindwire",
-  description: "What's new in Mindwire.",
+  title: "Changelog — MindWire",
+  description: "What's new in MindWire.",
 };
 
 const releases = [
@@ -37,7 +37,7 @@ export default function Changelog() {
             Released.
           </>
         }
-        description="The updates, improvements, and details behind Mindwire."
+        description="The updates, improvements, and details behind MindWire."
       >
         <a href={`${githubUrl}/releases`} className={base.primaryButton}>
           Releases on GitHub <ArrowUpRight size={16} />
@@ -52,7 +52,7 @@ export default function Changelog() {
             </div>
             <div className={styles.releaseBody}>
               <span className={styles.releaseTag}>{release.tag} release</span>
-              <h2>The foundations of Mindwire.</h2>
+              <h2>The foundations of MindWire.</h2>
               <ul>
                 {release.changes.map((change) => (
                   <li key={change}>

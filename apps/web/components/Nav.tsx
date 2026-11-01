@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSearchContext } from "fumadocs-ui/contexts/search";
-import { ArrowUpRight, Search } from "lucide-react";
-import { MindwireMark } from "./design-lab/refined/Artwork";
+import { ArrowUpRight, Search } from "@/components/site/InterfaceIcon";
+import MindWireMark from "@/components/brand/MindWireMark";
 import SiteNav from "./site/SiteNav";
 import ThemeToggle from "./ThemeToggle";
 import { consoleUrl } from "@/lib/console-url";
@@ -19,9 +19,9 @@ export default function Nav() {
   return (
     <header className={styles.header}>
       <div className={styles.inner}>
-        <Link href="/" className={styles.brand} aria-label="Mindwire home">
-          <MindwireMark />
-          <span>mindwire</span>
+        <Link href="/" className={styles.brand} aria-label="MindWire home">
+          <MindWireMark />
+          <span>MindWire</span>
         </Link>
         <Link href="/docs" className={styles.docsLabel}>
           Documentation
@@ -38,7 +38,7 @@ export default function Nav() {
         </button>
         <nav aria-label="Documentation navigation" className={styles.links}>
           <Link href="/sdk">SDK & runtime</Link>
-          <Link href="/app">Mindwire App</Link>
+          <Link href="/app">MindWire App</Link>
         </nav>
         <div className={styles.actions}>
           <ThemeToggle />

@@ -26,7 +26,7 @@ export default function CloudInfrastructure() {
           Room to scale.
         </h2>
         <p>
-          Building for your customers? Use the Mindwire SDK with Oblien for
+          Building for your customers? Use the MindWire SDK with Oblien for
           scalable business infrastructure. Create isolated workspaces through
           its API and manage your fleet directly in Oblien.
         </p>
@@ -88,7 +88,7 @@ export default function CloudInfrastructure() {
       </SurfaceRoutes>
       <p className={styles.diagramCaption}>
         Business infrastructure, managed through Oblien. Separate from the
-        personal Mindwire Cloud plans above.
+        personal MindWire Cloud plans above.
       </p>
       <CloudCapabilities />
       <p className={styles.featureNote}>

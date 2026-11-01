@@ -120,14 +120,14 @@ export default function AppWorkspacePreview() {
 
         <div className={styles.workspace} data-sprue="app-workspace">
           <div className={styles.workspaceBar}>
-            <span className={styles.wordmark}>mindwire</span>
+            <span className={styles.wordmark}>MindWire</span>
             <span>On your desktop</span>
           </div>
           <div
             className={styles.modeTabs}
             id="modes"
             role="tablist"
-            aria-label="Explore Mindwire modes"
+            aria-label="Explore MindWire modes"
             onKeyDown={navigateTabs}
           >
             {(["general", "developer"] as const).map((value) => (
@@ -182,7 +182,7 @@ export default function AppWorkspacePreview() {
             <div className={styles.activity}>
               <div>
                 {developer && <AgentLogo agent="codex" size={23} />}
-                <span>{developer ? "Codex" : "Mindwire"}</span>
+                <span>{developer ? "Codex" : "MindWire"}</span>
                 {developer && (
                   <span className={styles.branch}>feat/retreat-page</span>
                 )}

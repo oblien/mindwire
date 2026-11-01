@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowRight, ArrowUpRight } from "@/components/site/InterfaceIcon";
 import AgentLogo from "@/components/marketing/AgentLogo";
 import { productAgents, type ProductAgent } from "@/lib/product";
-import { MindwireMark } from "./Artwork";
+import MindWireMark from "@/components/brand/MindWireMark";
 import { fluidJoin, type Anchor, type Edge } from "./fluid-join";
 import styles from "./idea-diagram.module.css";
 
@@ -199,8 +199,8 @@ export default function IdeaDiagram() {
 
         <div className={styles.ideaHub} data-node="hub">
           <div className={styles.hubBrand}>
-            <MindwireMark />
-            <span>mindwire</span>
+            <MindWireMark />
+            <span>MindWire</span>
           </div>
           <p>Choose your agent.</p>
           <div
