@@ -152,10 +152,13 @@ def export(args, archive):
     checksum(installer)
 
 
-def credentials():
+def credentials(args):
+    profile = args.keychain_profile or os.environ.get("APPLE_NOTARY_KEYCHAIN_PROFILE")
+    if profile:
+        return ["--keychain-profile", profile]
     names = ["APPLE_ID", "APPLE_PASSWORD", "APPLE_TEAM_ID"]
     if any(not os.environ.get(name) for name in names):
-        raise ValueError("Apple notarization requires APPLE_ID, APPLE_PASSWORD and APPLE_TEAM_ID")
+        raise ValueError("Apple notarization requires --keychain-profile or APPLE_ID, APPLE_PASSWORD and APPLE_TEAM_ID")
     return ["--apple-id", os.environ["APPLE_ID"], "--password", os.environ["APPLE_PASSWORD"],
             "--team-id", os.environ["APPLE_TEAM_ID"]]
 
@@ -169,7 +172,7 @@ def notary(args):
             raise ValueError("A notarization receipt already exists; use finish to resume it")
         # Save the submission before any waiting. Re-running the finish job never
         # rebuilds or re-submits the installer when Apple's service is slow.
-        command = ["xcrun", "notarytool", "submit", str(path), *credentials(), "--output-format", "json"]
+        command = ["xcrun", "notarytool", "submit", str(path), *credentials(args), "--output-format", "json"]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode:
             raise RuntimeError("Apple notarization submission failed; check the release credentials")
@@ -183,7 +186,7 @@ def notary(args):
         raise ValueError("Saved Apple submission does not match this installer and release run")
     deadline = time.monotonic() + 3600
     while time.monotonic() < deadline:
-        result = subprocess.run(["xcrun", "notarytool", "info", receipt["id"], *credentials(),
+        result = subprocess.run(["xcrun", "notarytool", "info", receipt["id"], *credentials(args),
                                  "--output-format", "json"], capture_output=True, text=True)
         if result.returncode == 0:
             status = json.loads(result.stdout)["status"]
@@ -207,6 +210,7 @@ def main():
     parser.add_argument("--version")
     parser.add_argument("--build-number", default="1")
     parser.add_argument("--source-packages", type=Path)
+    parser.add_argument("--keychain-profile", help="Saved notarytool credentials for local notarization")
     parser.add_argument("--archive-only", action="store_true")
     args = parser.parse_args()
     if args.command == "build":

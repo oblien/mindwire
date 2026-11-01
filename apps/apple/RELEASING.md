@@ -54,6 +54,25 @@ For compilation without distribution credentials, add `--archive-only`. This
 produces a universal archive, not a distributable installer. An existing archive
 can be exported with the `export` command and the same `--output` directory.
 
+For local notarization, create an app-specific password for the Apple Developer
+account at [account.apple.com](https://account.apple.com), then save it in Keychain:
+
+```sh
+xcrun notarytool store-credentials "MindWire" --team-id "5Q877873WD"
+```
+
+The command prompts for the Apple account email and app-specific password. Submit
+the signed installer and finish the saved submission with that profile:
+
+```sh
+python3 scripts/release-macos.py submit --output /tmp/mindwire-mac-release --keychain-profile MindWire
+python3 scripts/release-macos.py finish --output /tmp/mindwire-mac-release --keychain-profile MindWire
+```
+
+`APPLE_NOTARY_KEYCHAIN_PROFILE` can also select the profile. CI continues to use
+its Apple credential environment variables. Submit and finish must use the same
+installer and source commit.
+
 ## Resume notarization
 
 Build, submit and finish run as separate jobs. The signed DMG and Apple receipt
