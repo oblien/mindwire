@@ -117,6 +117,9 @@
       ],
     },
   },
+  "patchedDependencies": {
+    "typedoc@0.28.20": "patches/typedoc@0.28.20.patch",
+  },
   "overrides": {
     "esbuild@<0.25.0": {
       ".": "^0.25.12",
