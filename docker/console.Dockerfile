@@ -8,6 +8,7 @@ WORKDIR /app
 # Manifests first, so `bun install` is cached until a package.json or the lockfile actually changes.
 # All workspace members must be present for a frozen install to resolve the lockfile.
 COPY package.json bun.lock bunfig.toml ./
+COPY patches/ patches/
 COPY packages/sdk/package.json packages/sdk/
 COPY apps/console/package.json apps/console/
 COPY apps/web/package.json apps/web/

@@ -16,6 +16,7 @@ ENV NEXT_PUBLIC_MAC_APP_URL=${NEXT_PUBLIC_MAC_APP_URL}
 WORKDIR /app
 
 COPY package.json bun.lock bunfig.toml ./
+COPY patches/ patches/
 COPY packages/sdk/package.json packages/sdk/
 COPY apps/web/package.json apps/web/
 COPY apps/console/package.json apps/console/
