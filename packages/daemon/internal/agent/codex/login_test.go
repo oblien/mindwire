@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oblien/mindwire/packages/daemon/internal/agent"
 	"github.com/oblien/mindwire/packages/daemon/internal/authtest"
@@ -23,6 +24,8 @@ func TestCodexNativeAuthProcess(t *testing.T) {
 	enc := json.NewEncoder(os.Stdout)
 	sc := bufio.NewScanner(os.Stdin)
 	scenario := os.Getenv("MINDWIRE_AUTH_TEST_CASE")
+	device := strings.HasPrefix(scenario, "device-")
+	scenario = strings.TrimPrefix(scenario, "device-")
 	for sc.Scan() {
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -52,7 +55,11 @@ func TestCodexNativeAuthProcess(t *testing.T) {
 			}
 			result = map[string]any{"account": account, "requiresOpenaiAuth": true}
 		case "account/login/start":
-			if req.Params["type"] != "chatgpt" {
+			loginType := "chatgpt"
+			if device {
+				loginType = "chatgptDeviceCode"
+			}
+			if req.Params["type"] != loginType {
 				os.Exit(4)
 			}
 			if scenario == "unsupported" {
@@ -60,6 +67,12 @@ func TestCodexNativeAuthProcess(t *testing.T) {
 				continue
 			}
 			result = map[string]any{"type": "chatgpt", "loginId": "native-login", "authUrl": "https://auth.openai.com/authorize?state=native-state&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"}
+			if device {
+				result = map[string]any{"type": loginType, "loginId": "native-login", "verificationUrl": "https://auth.openai.com/codex/device", "userCode": "ABCD-1234"}
+				if scenario == "missing-code" {
+					delete(result.(map[string]any), "userCode")
+				}
+			}
 			if scenario != "waiting" {
 				_ = os.WriteFile(os.Getenv("MINDWIRE_AUTH_TEST_STATE"), []byte("native account"), 0600)
 				// Completion may race the start response. Also ignore a different login.
@@ -110,7 +123,16 @@ func codexLoginFixture(t *testing.T, scenario string) *authModule {
 	t.Setenv("OPENAI_API_KEY", "old-shell-key")
 	t.Setenv("OPENAI_BASE_URL", "https://old-gateway.invalid")
 	m := newAuth(authtest.NewStore(map[string]string{ckMethod: "apiKey", ckAPIKey: "old-stored-key", ckBaseURL: "https://old-gateway.invalid"}))
-	t.Cleanup(m.cancelLogin)
+	t.Cleanup(func() {
+		m.cancelLogin()
+		if done := m.loginDone; done != nil {
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Error("Codex login process did not stop before fixture cleanup")
+			}
+		}
+	})
 	return m
 }
 
@@ -151,6 +173,99 @@ func TestChatGPTBrowserLoginCompletesAndSurvivesDaemonRestart(t *testing.T) {
 	if m.store.Get(ckAPIKey) != "old-stored-key" {
 		t.Fatal("switching methods must not destroy unrelated credentials")
 	}
+}
+
+func TestChatGPTDeviceLoginCompletesAndSurvivesDaemonRestart(t *testing.T) {
+	m := codexLoginFixture(t, "device-complete")
+	st, err := m.Begin(context.Background(), "loginDevice")
+	if err != nil || st.FlowID == "" {
+		t.Fatalf("begin: %+v %v", st, err)
+	}
+	authtest.Eventually(t, func() bool { return !m.login.Active() })
+	if st := m.login.State(); st.Status != "complete" || st.Method != "loginDevice" {
+		t.Fatalf("completion: %+v", st)
+	}
+	if got := newAuth(m.store).Status(context.Background()); !got.Configured || got.Method != "login" {
+		t.Fatalf("native persisted status: %+v", got)
+	}
+	assertEnv(t, m.EnvForRun(), map[string]string{azureProviderMarker: "openai"})
+}
+
+func TestChatGPTDeviceLoginShowsCodeAndCancelsOnlyItsOwnAttempt(t *testing.T) {
+	m := codexLoginFixture(t, "device-waiting")
+	st, err := m.Begin(context.Background(), "loginDevice")
+	if err != nil || st.FlowID == "" {
+		t.Fatalf("begin: %+v %v", st, err)
+	}
+	flowID := st.FlowID
+	authtest.Eventually(t, func() bool {
+		st, err = m.Step(context.Background(), map[string]string{agent.AuthFlowIDKey: flowID})
+		return err != nil || st.Status == "error" || st.URL != ""
+	})
+	if err != nil || st.Status != "pending" || st.Method != "loginDevice" ||
+		st.URL != "https://auth.openai.com/codex/device" || st.Code != "ABCD-1234" || st.CallbackURL != "" {
+		t.Fatalf("device sign-in: %+v %v", st, err)
+	}
+	again, _ := m.Begin(context.Background(), "loginDevice")
+	if again.FlowID != flowID {
+		t.Fatal("concurrent opens started another login")
+	}
+	if _, err := m.Step(context.Background(), map[string]string{agent.AuthFlowIDKey: "stale", agent.AuthActionKey: "cancel"}); err == nil || !m.Active() {
+		t.Fatal("stale cancellation affected the current login")
+	}
+	st, err = m.Step(context.Background(), map[string]string{agent.AuthFlowIDKey: flowID, agent.AuthActionKey: "cancel"})
+	if err != nil || st.Status != "error" {
+		t.Fatalf("cancel: %+v %v", st, err)
+	}
+	authtest.Eventually(t, func() bool { _, err := os.Stat(os.Getenv("MINDWIRE_AUTH_TEST_CANCEL")); return err == nil })
+	if m.store.Get(ckMethod) != "apiKey" {
+		t.Fatal("cancellation changed the prior connection")
+	}
+}
+
+func TestChatGPTDeviceLoginRejectsFailedOrIncompleteNativeResponses(t *testing.T) {
+	for _, scenario := range []string{"unsupported", "wrong-account", "missing-code", "save-failed"} {
+		t.Run(scenario, func(t *testing.T) {
+			m := codexLoginFixture(t, "device-"+scenario)
+			if scenario == "save-failed" {
+				m.store.(*authtest.Store).FailKey = ckMethod
+			}
+			_, _ = m.Begin(context.Background(), "loginDevice")
+			authtest.Eventually(t, func() bool { return m.login != nil && !m.login.Active() })
+			if st := m.login.State(); st.Status != "error" || st.Message == "" {
+				t.Fatalf("failure: %+v", st)
+			}
+			if m.store.Get(ckMethod) != "apiKey" {
+				t.Fatal("failed login replaced the prior connection")
+			}
+		})
+	}
+}
+
+func TestChatGPTDeviceLoginSupersedesAnUnfinishedBrowserLogin(t *testing.T) {
+	m := codexLoginFixture(t, "waiting")
+	browser, err := m.Begin(context.Background(), "login")
+	if err != nil || browser.FlowID == "" {
+		t.Fatalf("browser begin: %+v %v", browser, err)
+	}
+	previous := m.login
+	previousDone := m.loginDone
+	t.Setenv("MINDWIRE_AUTH_TEST_CASE", "device-waiting")
+	device, err := m.Begin(context.Background(), "loginDevice")
+	if err != nil || device.Method != "loginDevice" || device.FlowID == browser.FlowID || previous.Active() {
+		t.Fatalf("device begin: %+v %v", device, err)
+	}
+	if _, err := m.Step(context.Background(), map[string]string{agent.AuthFlowIDKey: browser.FlowID, agent.AuthActionKey: "cancel"}); err == nil || !m.Active() {
+		t.Fatal("the superseded browser flow canceled the device login")
+	}
+	authtest.Eventually(t, func() bool {
+		select {
+		case <-previousDone:
+			return true
+		default:
+			return false
+		}
+	})
 }
 
 func TestChatGPTPendingLoginIsSharedAndCancellationReachesNativeServer(t *testing.T) {

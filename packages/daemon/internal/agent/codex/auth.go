@@ -61,6 +61,10 @@ func (m *authModule) Methods() []agent.AuthMethod {
 			Help: "Use the Codex access included with your ChatGPT plan. Open the sign-in page and sign in with ChatGPT. Mindwire connects the browser back to this computer privately; no device-code setting is needed.",
 		},
 		{
+			ID: "loginDevice", Label: "Continue with ChatGPT using a device code", Scope: agent.ScopeUnified, Interactive: true,
+			Help: "Sign in to Codex on a remote or headless host using a one-time code. Enable device-code login in your ChatGPT security settings, or ask your workspace administrator to enable it.",
+		},
+		{
 			ID: "apiKey", Label: "API key", Scope: agent.ScopeUnified,
 			Help: "An OpenAI/Codex API key (platform.openai.com). Sent to a run as CODEX_API_KEY — env-only, no config file is written.",
 			Fields: []agent.Field{
@@ -88,8 +92,8 @@ func (m *authModule) Methods() []agent.AuthMethod {
 
 func (m *authModule) Begin(ctx context.Context, methodID string) (agent.AuthState, error) {
 	switch methodID {
-	case "login":
-		return m.beginLogin(ctx), nil
+	case "login", "loginDevice":
+		return m.beginLogin(ctx, methodID), nil
 	case "apiKey":
 		return agent.AuthState{Method: "apiKey", Status: "needs_input",
 			Fields: agent.MethodFields(m, "apiKey"), Message: "Enter your OpenAI/Codex API key."}, nil
