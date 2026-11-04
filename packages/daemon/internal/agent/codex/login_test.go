@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oblien/mindwire/packages/daemon/internal/agent"
 	"github.com/oblien/mindwire/packages/daemon/internal/authtest"
@@ -122,7 +123,16 @@ func codexLoginFixture(t *testing.T, scenario string) *authModule {
 	t.Setenv("OPENAI_API_KEY", "old-shell-key")
 	t.Setenv("OPENAI_BASE_URL", "https://old-gateway.invalid")
 	m := newAuth(authtest.NewStore(map[string]string{ckMethod: "apiKey", ckAPIKey: "old-stored-key", ckBaseURL: "https://old-gateway.invalid"}))
-	t.Cleanup(m.cancelLogin)
+	t.Cleanup(func() {
+		m.cancelLogin()
+		if done := m.loginDone; done != nil {
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Error("Codex login process did not stop before fixture cleanup")
+			}
+		}
+	})
 	return m
 }
 
@@ -239,6 +249,7 @@ func TestChatGPTDeviceLoginSupersedesAnUnfinishedBrowserLogin(t *testing.T) {
 		t.Fatalf("browser begin: %+v %v", browser, err)
 	}
 	previous := m.login
+	previousDone := m.loginDone
 	t.Setenv("MINDWIRE_AUTH_TEST_CASE", "device-waiting")
 	device, err := m.Begin(context.Background(), "loginDevice")
 	if err != nil || device.Method != "loginDevice" || device.FlowID == browser.FlowID || previous.Active() {
@@ -247,6 +258,14 @@ func TestChatGPTDeviceLoginSupersedesAnUnfinishedBrowserLogin(t *testing.T) {
 	if _, err := m.Step(context.Background(), map[string]string{agent.AuthFlowIDKey: browser.FlowID, agent.AuthActionKey: "cancel"}); err == nil || !m.Active() {
 		t.Fatal("the superseded browser flow canceled the device login")
 	}
+	authtest.Eventually(t, func() bool {
+		select {
+		case <-previousDone:
+			return true
+		default:
+			return false
+		}
+	})
 }
 
 func TestChatGPTPendingLoginIsSharedAndCancellationReachesNativeServer(t *testing.T) {
