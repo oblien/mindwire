@@ -21,14 +21,17 @@ import (
 // connection. The native account cache, including refresh, belongs to Codex.
 const subscriptionShell = "unset CODEX_API_KEY OPENAI_API_KEY CODEX_ACCESS_TOKEN OPENAI_BASE_URL OPENAI_ORGANIZATION OPENAI_PROJECT; "
 
-func (m *authModule) beginLogin(ctx context.Context) agent.AuthState {
+func (m *authModule) beginLogin(ctx context.Context, methodID string) agent.AuthState {
 	m.mu.Lock()
 	if m.login != nil && m.login.Active() {
 		flow := m.login
-		m.mu.Unlock()
-		return flow.InitialState(ctx)
+		if flow.State().Method == methodID {
+			m.mu.Unlock()
+			return flow.InitialState(ctx)
+		}
+		flow.Cancel()
 	}
-	flow := agent.NewAuthFlow("login")
+	flow := agent.NewAuthFlow(methodID)
 	m.login = flow
 	done := make(chan struct{})
 	m.loginDone = done
@@ -83,31 +86,50 @@ func (m *authModule) runLogin(flow *agent.AuthFlow) {
 		return
 	}
 	defer client.close()
-	var login struct {
-		Type    string `json:"type"`
-		LoginID string `json:"loginId"`
-		AuthURL string `json:"authUrl"`
+	loginType := "chatgpt"
+	if flow.State().Method == "loginDevice" {
+		loginType = "chatgptDeviceCode"
 	}
-	if err := client.call(ctx, "account/login/start", map[string]any{"type": "chatgpt"}, &login); err != nil {
+	var login struct {
+		Type            string `json:"type"`
+		LoginID         string `json:"loginId"`
+		AuthURL         string `json:"authUrl"`
+		VerificationURL string `json:"verificationUrl"`
+		UserCode        string `json:"userCode"`
+	}
+	if err := client.call(ctx, "account/login/start", map[string]any{"type": loginType}, &login); err != nil {
+		if loginType == "chatgptDeviceCode" {
+			flow.Fail("Couldn't start ChatGPT device-code sign-in. Enable device-code login in your ChatGPT security settings or workspace permissions, and check that Codex is up to date.")
+			return
+		}
 		flow.Fail("Couldn't start ChatGPT sign-in: " + err.Error())
 		return
 	}
 	// Track even an incomplete response so closing this process cancels only
 	// this pending login. Cancellation never signs out an existing account.
 	client.loginID = login.LoginID
-	if login.Type != "chatgpt" || login.LoginID == "" || login.AuthURL == "" {
+	if login.Type != loginType || login.LoginID == "" {
 		flow.Fail("Codex didn't return a sign-in link. Update Codex and try again.")
 		return
 	}
-	callbackURL, err := bindLoginCallback(flow, login.AuthURL)
-	if err != nil {
-		flow.Fail("Codex didn't return a valid sign-in callback. Update Codex and try again.")
-		return
+	if loginType == "chatgptDeviceCode" {
+		if login.VerificationURL == "" || login.UserCode == "" {
+			flow.Fail("Codex didn't return a device sign-in link and code. Update Codex and try again.")
+			return
+		}
+		flow.Update(agent.AuthState{Status: "pending", URL: login.VerificationURL, Code: login.UserCode,
+			Message: "Open the sign-in page, enter the one-time code, and approve the connection. This page will update automatically."})
+	} else {
+		callbackURL, err := bindLoginCallback(flow, login.AuthURL)
+		if err != nil {
+			flow.Fail("Codex didn't return a valid sign-in callback. Update Codex and try again.")
+			return
+		}
+		// Codex alone exchanges, persists and refreshes tokens. The authenticated
+		// client relays only this attempt's callback through the shared auth API.
+		flow.Update(agent.AuthState{Status: "pending", URL: login.AuthURL, CallbackURL: callbackURL,
+			Message: "Sign in with ChatGPT in the browser, then return here. This page will update automatically."})
 	}
-	// Codex alone exchanges, persists and refreshes tokens. The authenticated
-	// client relays only this attempt's callback through the shared auth API.
-	flow.Update(agent.AuthState{Status: "pending", URL: login.AuthURL, CallbackURL: callbackURL,
-		Message: "Sign in with ChatGPT in the browser, then return here. This page will update automatically."})
 	for {
 		frame, err := client.next(ctx)
 		if err != nil {

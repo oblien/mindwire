@@ -119,9 +119,9 @@ so a client always knows whether an option was honored.
 
 ## Auth
 
-Codex authenticates a headless run **entirely from the process environment**. Secrets enter a run
-through exactly one path (the daemon's credential store → the run's env), never through request config,
-the shell string, or `config.toml`. Three non-interactive methods:
+Codex supports its native ChatGPT account and three non-interactive credential methods.
+ChatGPT sign-in uses Codex's own token storage and refresh. For the non-interactive
+methods, credentials enter a run through the daemon's credential store and process environment.
 
 - **API key** — an OpenAI/Codex API key (platform.openai.com), exported as `CODEX_API_KEY` (and
   `OPENAI_API_KEY` for older CLI builds). Optional `OPENAI_BASE_URL` / `OPENAI_ORGANIZATION` /
@@ -137,9 +137,14 @@ the shell string, or `config.toml`. Three non-interactive methods:
   only the selected inputs are required. No API version is needed for the v1 endpoint.
   See [Foundry setup](/docs/guides/authentication/#microsoft-foundry).
 
-The interactive ChatGPT sign-in (the `localhost:1455` OAuth loopback) is **deliberately not offered** —
-it can't complete against a headless daemon. Auth status is presence-based: it recognizes daemon-stored
-credentials and the selected native provider's `experimental_bearer_token` or populated `env_key`.
+For ChatGPT sign-in, `login` starts the browser flow with a callback on the Codex host.
+`loginDevice` starts Codex's native device-code flow for remote or headless hosts.
+Show its verification URL and one-time code, then poll the returned flow until it completes.
+Device-code login must be enabled in the user's ChatGPT security settings or workspace permissions.
+See [remote sign-in](/docs/guides/authentication/#codex-on-remote-hosts).
+
+ChatGPT status is confirmed through Codex's account API. Non-interactive status recognizes
+daemon-stored credentials and the selected native provider's `experimental_bearer_token` or populated `env_key`.
 Native `model_provider` and `model` values, including those in the selected profile, are respected.
 Existing native secrets stay in `config.toml` and are never returned by the provider API.
 

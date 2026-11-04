@@ -206,6 +206,28 @@ Provider references: [Microsoft's endpoint guide](https://learn.microsoft.com/en
 [Codex provider configuration](https://developers.openai.com/codex/config-reference/), and
 [Claude Code on Foundry](https://code.claude.com/docs/en/microsoft-foundry).
 
+## Codex on remote hosts
+
+Choose the Codex method `loginDevice` when the browser and daemon run on different
+computers. It uses Codex's native device-code login and returns a verification URL
+and one-time code. No localhost callback needs to reach the user's browser.
+
+```ts
+const codex = mw.withAgent("codex");
+let state = await codex.auth.begin("loginDevice");
+console.log("Open:", state.url, "Code:", state.code);
+while (state.status === "pending" && state.flowId) {
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  state = await codex.auth.poll(state.flowId);
+}
+console.log(state.status);
+```
+
+Codex completes the authorization and stores and refreshes the account on the
+selected host. Mindwire uses the same scoped polling, cancellation and completion
+checks as browser login. Enable device-code login in ChatGPT security settings or
+workspace permissions before connecting. Local desktop clients can keep using `login`.
+
 ## Interactive: browser sign-in
 
 `begin` returns a `url` (and sometimes a `code`) to show the user; then `step` **polls** until the
