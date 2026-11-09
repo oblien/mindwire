@@ -1,0 +1,145 @@
+name: Python SDK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/python/**'
+      - 'packages/daemon/**'
+      - '.github/workflows/publish-python.yml'
+  pull_request:
+    paths:
+      - 'packages/python/**'
+      - 'packages/daemon/**'
+      - '.github/workflows/publish-python.yml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to PyPI
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Python ${{ matrix.python }} tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.14']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: packages/daemon/go.mod
+          cache-dependency-path: packages/daemon/go.sum
+      - name: Install development tools
+        run: python -m pip install './packages/python[dev]'
+      - name: Check style and types
+        working-directory: packages/python
+        run: |
+          ruff check src tests
+          ruff format --check src tests
+          mypy src
+      - name: Build runtime for integration checks
+        working-directory: packages/daemon
+        run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/mindwired" ./cmd/daemon
+      - name: Test installed Python SDK
+        working-directory: packages/python
+        env:
+          MINDWIRE_TEST_DAEMON: ${{ runner.temp }}/mindwired
+        run: python -m pytest -q
+
+  build:
+    name: Build and verify distributions
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Build and validate artifacts
+        working-directory: packages/python
+        run: |
+          python -m pip install 'build>=1.2,<2' 'twine>=7,<8'
+          python -m build
+          python -m twine check --strict dist/*
+      - name: Install wheel and source archive in clean environments
+        working-directory: packages/python
+        shell: bash
+        run: |
+          set -euo pipefail
+          for artifact in dist/*.whl dist/*.tar.gz; do
+            check_env="$RUNNER_TEMP/python-install-$(basename "$artifact")"
+            python -m venv "$check_env"
+            "$check_env/bin/python" -m pip install "$artifact"
+            "$check_env/bin/python" -c 'from importlib.metadata import version; import mindwire; assert version("mindwire") == mindwire.__version__; assert mindwire.Mindwire and mindwire.AsyncMindwire'
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions
+          path: packages/python/dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/mindwire/
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-distributions
+          path: dist
+      - name: Publish tested distributions with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  verify-published:
+    name: Verify installation from PyPI
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-distributions
+          path: dist
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Install exact published version
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(python - <<'PY'
+          import email, pathlib, zipfile
+          wheel = next(pathlib.Path('dist').glob('*.whl'))
+          with zipfile.ZipFile(wheel) as archive:
+              metadata = next(name for name in archive.namelist() if name.endswith('.dist-info/METADATA'))
+              print(email.message_from_bytes(archive.read(metadata))['Version'])
+          PY
+          )"
+          for attempt in 1 2 3 4 5 6; do
+            if python -m pip install --no-cache-dir --index-url https://pypi.org/simple/ "mindwire==$package_version"; then
+              break
+            fi
+            if [ "$attempt" = 6 ]; then exit 1; fi
+            sleep 10
+          done
+          python -c 'import mindwire; print("Installed MindWire", mindwire.__version__, "from PyPI")'

@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mindwire"
+dynamic = ["version"]
+description = "Python SDK for building products with MindWire's shared coding-agent runtime."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Oblien" }]
+keywords = ["mindwire", "agents", "codex", "claude-code", "sdk"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Typing :: Typed",
+]
+dependencies = ["httpx>=0.28.1,<1"]
+
+[project.urls]
+Homepage = "https://mindwire.sh"
+Documentation = "https://github.com/oblien/mindwire/tree/main/packages/python"
+Repository = "https://github.com/oblien/mindwire"
+Issues = "https://github.com/oblien/mindwire/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.14,<1", "mypy>=1.18,<2", "build>=1.2,<2", "twine>=7,<8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mindwire"]
+core-metadata-version = "2.4"
+
+[tool.hatch.version]
+path = "src/mindwire/_version.py"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/README.md", "/RELEASING.md", "/LICENSE", "/pyproject.toml"]
+core-metadata-version = "2.4"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+

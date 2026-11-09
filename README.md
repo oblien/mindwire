@@ -10,7 +10,8 @@ Reuse their reasoning, planning, tool use, and execution. Add your tools, knowle
 instructions, and goals. Deliver the whole experience in your interface, under your brand.
 
 [Website](https://mindwire.sh) · [Quickstart](https://mindwire.sh/docs/guides/quickstart) ·
-[Documentation](https://mindwire.sh/docs) · [TypeScript](packages/sdk) · [Go](packages/daemon/sdk)
+[Documentation](https://mindwire.sh/docs) · [TypeScript](packages/sdk) · [Go](packages/daemon/sdk) ·
+[Python](packages/python)
 
 ## Build your product. The agent layer is ready.
 

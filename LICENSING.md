@@ -7,6 +7,7 @@ repository root does not replace the licenses attached to imported application c
 | --- | --- |
 | `packages/daemon`, including its Go SDK | Apache-2.0 |
 | `packages/sdk` | Apache-2.0 |
+| `packages/python` | Apache-2.0 |
 | `apps/console`, `apps/web` | Apache-2.0 |
 | `docker` and shared runtime/release scripts | Apache-2.0 |
 | Original Mindwire material in `apps/apple` | Mindwire Apple Client Source-Available License 1.0; see `apps/apple/LICENSE` |

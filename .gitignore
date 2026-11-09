@@ -81,5 +81,12 @@ apps/apple/artifacts/Mindwire-App-Store.zip
 apps/apple/artifacts/launch-film-*/
 **/__pycache__/
 
+# Python SDK development and packaging.
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
 # Local push service account and migration exports; never build or commit.
 .secrets/
